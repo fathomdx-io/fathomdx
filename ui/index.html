@@ -2387,12 +2387,101 @@ cat meeting-notes.md | fathom write - --tags meeting --source notes`,
       'api': {
         icon: '{…}',
         name: 'API',
-        desc: 'OpenAI-compatible chat completions and delta operations over HTTP.',
+        desc: 'OpenAI-compatible chat completions and delta operations over HTTP. 36 endpoints, all behind bearer auth with per-token scopes.',
         steps: [
           {
-            title: 'Coming soon',
-            body: 'Full API documentation for direct HTTP integration. The API is live and working — documentation is in progress.',
-            hint: 'The MCP connector uses this API under the hood. For now, check GET /v1/tools for the full endpoint surface.',
+            title: 'Base URL + Auth',
+            code: `Base: ${API_BASE}/v1
+Auth: Authorization: Bearer fth_...`,
+            hint: 'Generate a token in Settings → API Keys. Scopes control which endpoints the token can access.',
+          },
+          {
+            title: 'Interactive docs',
+            body: `Full OpenAPI spec with try-it-out: <a href="${API_BASE}/docs" target="_blank" style="color: var(--accent);">${API_BASE}/docs</a>`,
+          },
+          {
+            title: 'Core endpoints',
+            code: `# Search the lake (semantic)
+POST /v1/search        {"origin": "query", "limit": 20}
+
+# Write a delta
+POST /v1/deltas        {"content": "...", "tags": [...], "source": "..."}
+
+# Query (structured filter)
+GET  /v1/deltas        ?tags_include=a,b&since=2026-04-16T00:00:00Z&limit=30
+
+# Chat with memory (OpenAI-compatible)
+POST /v1/chat/completions  {"messages": [...], "stream": true}
+
+# Tool discovery (scope-filtered)
+GET  /v1/tools
+
+# Stats + tags
+GET  /v1/stats
+GET  /v1/tags`,
+          },
+          {
+            title: 'OpenAI SDK (Python)',
+            code: `from openai import OpenAI
+
+client = OpenAI(
+    base_url="${API_BASE}/v1",
+    api_key="fth_...",
+)
+
+r = client.chat.completions.create(
+    model="fathom",
+    messages=[{"role": "user", "content": "What do you remember?"}],
+)
+print(r.choices[0].message.content)`,
+          },
+          {
+            title: 'curl',
+            code: `curl ${API_BASE}/v1/search \\
+  -H "Authorization: Bearer fth_..." \\
+  -H "Content-Type: application/json" \\
+  -d '{"origin": "weather today", "limit": 5}'`,
+          },
+          {
+            title: 'All endpoints',
+            code: `# Lake
+POST /v1/search              Semantic search
+POST /v1/deltas              Write delta
+GET  /v1/deltas              Query/filter
+GET  /v1/deltas/{id}         Get one delta
+POST /v1/plan                Compositional query
+GET  /v1/stats               Lake statistics
+GET  /v1/tags                All tags with counts
+
+# Chat
+POST /v1/chat/completions    Chat (OpenAI-compat)
+POST /v1/sessions            Create session
+GET  /v1/sessions            List sessions
+GET  /v1/sessions/{id}       Get session + messages
+
+# Sources
+GET  /v1/sources             List configured sources
+POST /v1/sources             Add source
+GET  /v1/sources/{id}/detail Source + recent deltas
+
+# Identity
+GET  /v1/crystal             Current identity crystal
+POST /v1/crystal/refresh     Regenerate crystal
+
+# Auth
+POST /v1/tokens              Create API token
+GET  /v1/tokens              List tokens
+DELETE /v1/tokens/{id}       Revoke token
+GET  /v1/scopes              Available scopes
+GET  /v1/tools               Tool definitions (scope-filtered)
+
+# Media
+POST /v1/media/upload        Upload image
+GET  /v1/media/{hash}        Get image
+
+# Feed
+GET  /v1/feed/stories        Feed stories
+GET  /v1/usage               Usage stats`,
           },
         ],
       },
