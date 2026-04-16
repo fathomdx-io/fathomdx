@@ -1552,6 +1552,9 @@
           <input type="text" id="tokenNameInput" placeholder="Token name (e.g. my laptop)" style="flex: 1; background: var(--surface); border: 1px solid var(--rule); border-radius: 8px; padding: 10px 12px; color: var(--ink); font-size: 14px; font-family: var(--sans); outline: none;" />
           <button class="btn" id="createTokenBtn">Create token</button>
         </div>
+        <div id="scopeCheckboxes" style="margin-top: 10px; display: flex; flex-wrap: wrap; gap: 8px 16px;">
+          <!-- Populated by loadTokens() -->
+        </div>
         <div id="tokenReveal" hidden style="margin-top: 14px; background: var(--bg-deep); border: 1px solid var(--accent); border-radius: 8px; padding: 14px;">
           <div style="font-size: 12px; color: var(--accent); font-family: var(--mono); letter-spacing: 0.05em; text-transform: uppercase; margin-bottom: 6px;">Copy this token now — it won't be shown again</div>
           <code id="tokenValue" style="display: block; background: var(--surface); border: 1px solid var(--rule); border-radius: 6px; padding: 10px 12px; font-family: var(--mono); font-size: 13px; color: var(--ink); word-break: break-all; cursor: pointer;" title="Click to copy"></code>
@@ -1654,8 +1657,9 @@
 
     async function api(path, opts = {}) {
       const url = API_BASE + path;
+      const authH = _authToken ? { 'Authorization': 'Bearer ' + _authToken } : {};
       const r = await fetch(url, {
-        headers: { 'Content-Type': 'application/json', ...opts.headers },
+        headers: { 'Content-Type': 'application/json', ...authH, ...opts.headers },
         ...opts,
       });
       if (!r.ok) throw new Error(`${r.status} ${r.statusText}`);
@@ -1731,7 +1735,7 @@
 
     async function loadSources() {
       try {
-        const r = await fetch(API_BASE + '/v1/sources');
+        const r = await fetch(API_BASE + '/v1/sources', { headers: authHeaders() });
         if (!r.ok) return;
         const data = await r.json();
         const sources = data.sources || [];
@@ -1804,7 +1808,7 @@
       document.getElementById('detailDeltas').innerHTML = '';
 
       try {
-        const r = await fetch(API_BASE + '/v1/sources/' + sourceId + '/detail');
+        const r = await fetch(API_BASE + '/v1/sources/' + sourceId + '/detail', { headers: authHeaders() });
         if (!r.ok) return;
         const data = await r.json();
 
@@ -1866,7 +1870,7 @@
       const sourceId = viewDetail.dataset.source;
       kebabMenu.hidden = true;
       try {
-        await fetch(API_BASE + '/v1/sources/' + sourceId + '/poll', { method: 'POST' });
+        await fetch(API_BASE + '/v1/sources/' + sourceId + '/poll', { method: 'POST', headers: authHeaders() });
         // Reload detail after a short delay for the poll to complete
         setTimeout(() => loadSourceDetail(sourceId), 3000);
       } catch (e) {
@@ -1884,7 +1888,7 @@
         try {
           await fetch(API_BASE + '/v1/sources/' + sourceId, {
             method: 'PUT',
-            headers: { 'Content-Type': 'application/json' },
+            headers: authHeaders(),
             body: JSON.stringify({ interval_minutes: FREQ_MINS[freq] || 30 }),
           });
           // Update local state and highlight
@@ -1920,7 +1924,7 @@
         try {
           await fetch(API_BASE + '/v1/sources/' + sourceId, {
             method: 'PUT',
-            headers: { 'Content-Type': 'application/json' },
+            headers: authHeaders(),
             body: JSON.stringify({ expiry_days: days }),
           });
           if (_sources[sourceId]) _sources[sourceId].expiryDays = days;
@@ -1938,7 +1942,7 @@
       if (!src) return;
       const action = src.status === 'paused' ? 'resume' : 'pause';
       try {
-        await fetch(API_BASE + '/v1/sources/' + sourceId + '/' + action, { method: 'POST' });
+        await fetch(API_BASE + '/v1/sources/' + sourceId + '/' + action, { method: 'POST', headers: authHeaders() });
         await loadSources();
         // Update detail view
         const updated = _sources[sourceId];
@@ -2135,7 +2139,7 @@
       try {
         const r = await fetch(API_BASE + '/v1/sources', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: authHeaders(),
           body: JSON.stringify({ source_type: sourceType, config, name }),
         });
         if (!r.ok) {
@@ -2186,30 +2190,61 @@
     const createTokenBtn = document.getElementById('createTokenBtn');
     const tokenReveal = document.getElementById('tokenReveal');
     const tokenValue = document.getElementById('tokenValue');
+    const scopeCheckboxes = document.getElementById('scopeCheckboxes');
 
-    // Store the current token for authenticated requests after first token is created
     let _authToken = '';
+    let _allScopes = {};
+    // Persist auth token so the UI stays authenticated across reloads
+    try { _authToken = localStorage.getItem('fathom-api-key') || ''; } catch (e) {}
     function authHeaders() {
       const h = { 'Content-Type': 'application/json' };
       if (_authToken) h['Authorization'] = 'Bearer ' + _authToken;
       return h;
     }
+    function _saveAuthToken(token) {
+      _authToken = token;
+      try { localStorage.setItem('fathom-api-key', token); } catch (e) {}
+    }
+
+    const SCOPE_LABELS = {
+      'lake:read': 'Read lake',
+      'lake:write': 'Write lake',
+      'sources:manage': 'Sources',
+      'tokens:manage': 'Tokens',
+      'chat': 'Chat',
+    };
 
     async function loadTokens() {
       try {
-        const r = await fetch(API_BASE + '/v1/tokens', { headers: authHeaders() });
-        if (!r.ok) { tokenList.innerHTML = ''; return; }
-        const tokens = await r.json();
+        // Load scopes + tokens in parallel
+        const [scopeR, tokenR] = await Promise.all([
+          fetch(API_BASE + '/v1/scopes', { headers: authHeaders() }),
+          fetch(API_BASE + '/v1/tokens', { headers: authHeaders() }),
+        ]);
+        if (scopeR.ok) {
+          _allScopes = await scopeR.json();
+          scopeCheckboxes.innerHTML = Object.keys(_allScopes).map(s => {
+            const label = SCOPE_LABELS[s] || s;
+            return `<label style="display: flex; align-items: center; gap: 5px; font-size: 13px; color: var(--ink-soft); cursor: pointer;">
+              <input type="checkbox" class="scope-cb" value="${s}" checked style="accent-color: var(--accent);" />
+              ${label}
+            </label>`;
+          }).join('');
+        }
+        if (!tokenR.ok) { tokenList.innerHTML = ''; return; }
+        const tokens = await tokenR.json();
         if (!tokens.length) {
           tokenList.innerHTML = '<div style="color: var(--ink-faint); font-size: 14px; padding: 8px 0;">No tokens yet. Create one to secure your API.</div>';
           return;
         }
         tokenList.innerHTML = tokens.map(t => {
           const used = t.last_used_at ? _relativeTime(t.last_used_at) : 'never used';
+          const scopes = (t.scopes || []).map(s => SCOPE_LABELS[s] || s).join(', ');
           return `<div class="danger-item" style="border: 1px solid var(--rule); border-radius: 10px; padding: 12px 14px; background: var(--surface);">
             <div>
               <div class="dz-label">${t.name}</div>
-              <div class="dz-sub" style="font-family: var(--mono); font-size: 12px;">${t.prefix} · created ${_relativeTime(t.created_at)} · ${used}</div>
+              <div class="dz-sub" style="font-family: var(--mono); font-size: 12px;">${t.prefix} · ${scopes}</div>
+              <div class="dz-sub" style="font-family: var(--mono); font-size: 11px; color: var(--ink-faint);">created ${_relativeTime(t.created_at)} · ${used}</div>
             </div>
             <button class="btn ghost danger" onclick="revokeToken('${t.id}')">Revoke</button>
           </div>`;
@@ -2228,20 +2263,19 @@
 
     createTokenBtn.addEventListener('click', async () => {
       const name = tokenNameInput.value.trim();
+      const scopes = [...scopeCheckboxes.querySelectorAll('.scope-cb:checked')].map(cb => cb.value);
       try {
         const r = await fetch(API_BASE + '/v1/tokens', {
           method: 'POST',
           headers: authHeaders(),
-          body: JSON.stringify({ name }),
+          body: JSON.stringify({ name, scopes }),
         });
         if (!r.ok) return;
         const data = await r.json();
-        // This is the only time the raw token is visible
         tokenValue.textContent = data.token;
         tokenReveal.hidden = false;
         tokenNameInput.value = '';
-        // Store for subsequent authenticated requests this session
-        if (!_authToken) _authToken = data.token;
+        if (!_authToken) _saveAuthToken(data.token);
         loadTokens();
       } catch (e) {
         console.warn('Failed to create token:', e);
@@ -2693,7 +2727,7 @@ print(response.choices[0].message.content)`,
       try {
         const r = await fetch(API_BASE + '/v1/chat/completions', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: authHeaders(),
           body: JSON.stringify({
             messages: [{ role: 'user', content: uploadedMedia
               ? `${text || 'Attached image.'}\n[Image attached: media_hash=${uploadedMedia.media_hash}]`
@@ -2831,7 +2865,7 @@ print(response.choices[0].message.content)`,
       form.append('file', pendingFile);
       form.append('session_id', sessionSlug || '');
       form.append('content', composerTa.value.trim() || '');
-      const r = await fetch(API_BASE + '/v1/media/upload', { method: 'POST', body: form });
+      const r = await fetch(API_BASE + '/v1/media/upload', { method: 'POST', body: form, headers: _authToken ? { 'Authorization': 'Bearer ' + _authToken } : {} });
       if (!r.ok) return null;
       const data = await r.json();
       // Clear attachment

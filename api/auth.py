@@ -1,4 +1,4 @@
-"""Token-based auth for the consumer API.
+"""Token-based auth with per-token scopes for the consumer API.
 
 Tokens are stored as SHA-256 hashes in a JSON file on disk. The raw token
 is only ever visible at creation time. Lookup is O(n) over the token list,
@@ -25,18 +25,66 @@ ALPHABET = string.ascii_letters + string.digits
 TOKEN_PREFIX = "fth_"
 TOKEN_RAND_LEN = 40
 
+# ── Scopes ────────────────────────────────────────
+
+ALL_SCOPES = {
+    "lake:read": "Search, query, view deltas, stats, and tags",
+    "lake:write": "Write new deltas to the lake",
+    "sources:manage": "Add, remove, and configure sources",
+    "tokens:manage": "Create and revoke API tokens",
+    "chat": "Use chat completions",
+}
+
+DEFAULT_SCOPES = list(ALL_SCOPES.keys())  # new tokens get everything
+
+# Map route patterns → required scope
+ROUTE_SCOPES: list[tuple[str, str, str]] = [
+    # (method, path_prefix, required_scope)
+    ("POST", "/v1/search", "lake:read"),
+    ("GET", "/v1/deltas", "lake:read"),
+    ("GET", "/v1/tags", "lake:read"),
+    ("GET", "/v1/stats", "lake:read"),
+    ("POST", "/v1/plan", "lake:read"),
+    ("POST", "/v1/deltas", "lake:write"),
+    ("GET", "/v1/sources", "sources:manage"),
+    ("POST", "/v1/sources", "sources:manage"),
+    ("PUT", "/v1/sources", "sources:manage"),
+    ("DELETE", "/v1/sources", "sources:manage"),
+    ("GET", "/v1/tokens", "tokens:manage"),
+    ("POST", "/v1/tokens", "tokens:manage"),
+    ("DELETE", "/v1/tokens", "tokens:manage"),
+    ("POST", "/v1/chat", "chat"),
+    ("GET", "/v1/sessions", "chat"),
+    ("POST", "/v1/sessions", "chat"),
+    ("GET", "/v1/feed", "lake:read"),
+    ("GET", "/v1/usage", "lake:read"),
+    ("GET", "/v1/media", "lake:read"),
+    ("POST", "/v1/media", "lake:write"),
+    ("POST", "/v1/crystal", "lake:write"),
+]
+
 # Endpoints that don't require auth
 PUBLIC_PATHS = frozenset({
     "/health",
     "/docs",
     "/openapi.json",
     "/redoc",
+    "/v1/models",
+    "/v1/tools",
+    "/v1/scopes",
 })
 
-# Path prefixes that are always public
 PUBLIC_PREFIXES = (
     "/docs",
 )
+
+
+def _required_scope(method: str, path: str) -> str | None:
+    """Find the required scope for a method + path, or None if unrestricted."""
+    for route_method, route_prefix, scope in ROUTE_SCOPES:
+        if method == route_method and path.startswith(route_prefix):
+            return scope
+    return None
 
 
 def _tokens_path() -> Path:
@@ -66,16 +114,24 @@ def _save(tokens: list[dict]) -> None:
 # ── CRUD ──────────────────────────────────────────
 
 
-def create_token(name: str = "") -> dict:
+def create_token(name: str = "", scopes: list[str] | None = None) -> dict:
     """Create a new token. Returns the full token (only time it's visible)."""
     raw = TOKEN_PREFIX + "".join(secrets.choice(ALPHABET) for _ in range(TOKEN_RAND_LEN))
     token_hash = _hash(raw)
     now = datetime.now(timezone.utc).isoformat()
+
+    # Validate and default scopes
+    granted = scopes if scopes is not None else DEFAULT_SCOPES
+    granted = [s for s in granted if s in ALL_SCOPES]
+    if not granted:
+        granted = DEFAULT_SCOPES
+
     record = {
         "id": token_hash[:12],
         "name": name or "Unnamed token",
         "hash": token_hash,
         "prefix": raw[:8] + "…",
+        "scopes": granted,
         "created_at": now,
         "last_used_at": None,
     }
@@ -110,11 +166,15 @@ def validate(raw: str) -> dict | None:
     tokens = _load()
     for t in tokens:
         if t["hash"] == token_hash:
-            # Update last_used_at
             t["last_used_at"] = datetime.now(timezone.utc).isoformat()
             _save(tokens)
             return {k: v for k, v in t.items() if k != "hash"}
     return None
+
+
+def get_scopes() -> dict[str, str]:
+    """Return all available scopes with descriptions."""
+    return ALL_SCOPES
 
 
 # ── Middleware ─────────────────────────────────────
@@ -130,21 +190,24 @@ class TokenAuthMiddleware(BaseHTTPMiddleware):
 
     Auth is only enforced when at least one token exists. Before any
     tokens are created, the API is open (first-run experience).
+    Checks per-token scopes against the requested endpoint.
     """
 
     async def dispatch(self, request: Request, call_next):
         path = request.url.path
+        method = request.method
 
-        # Public endpoints are always open
+        # Public endpoints always open
         if path in PUBLIC_PATHS or any(path.startswith(p) for p in PUBLIC_PREFIXES):
             return await call_next(request)
 
-        # OPTIONS (CORS preflight) is always open
-        if request.method == "OPTIONS":
+        # CORS preflight always open
+        if method == "OPTIONS":
             return await call_next(request)
 
-        # If no tokens exist yet, everything is open (first-run)
+        # No tokens exist → everything open (first-run)
         if not auth_required():
+            request.state.token = None
             return await call_next(request)
 
         # Check Authorization header
@@ -163,6 +226,19 @@ class TokenAuthMiddleware(BaseHTTPMiddleware):
                 content={"error": "Invalid token"},
             )
 
-        # Attach token info to request state
+        # Check scope (tokens without scopes field = legacy, grant all)
+        required = _required_scope(method, path)
+        if required:
+            token_scopes = token_info.get("scopes") or list(ALL_SCOPES.keys())
+            if required not in token_scopes:
+                return JSONResponse(
+                    status_code=403,
+                    content={
+                        "error": f"Token missing required scope: {required}",
+                        "required": required,
+                        "granted": token_scopes,
+                    },
+                )
+
         request.state.token = token_info
         return await call_next(request)
