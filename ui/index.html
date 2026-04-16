@@ -362,6 +362,36 @@
     .extend .label { font-weight: 500; font-size: 14px; color: var(--ink); }
     .extend .sub { font-size: 12px; color: var(--ink-soft); font-family: var(--mono); letter-spacing: 0.02em; }
 
+    /* ── Surface setup instructions ── */
+    .setup-hero { padding-bottom: 24px; margin-bottom: 28px; border-bottom: 1px solid var(--rule-soft); }
+    .setup-hero .surface-icon {
+      width: 56px; height: 56px; border-radius: 14px;
+      background: var(--surface-2); border: 1px solid var(--rule);
+      display: grid; place-items: center;
+      font-size: 26px; color: var(--accent);
+    }
+    .setup-hero h1 {
+      font-family: var(--serif); font-weight: 400;
+      font-size: 30px; margin: 12px 0 6px; line-height: 1.1;
+    }
+    .setup-hero .setup-sub { font-size: 14.5px; color: var(--ink-soft); line-height: 1.5; }
+    .setup-step {
+      margin-bottom: 28px;
+    }
+    .setup-step h3 {
+      font-family: var(--mono); font-size: 11px; letter-spacing: 0.08em;
+      text-transform: uppercase; color: var(--ink-faint); margin: 0 0 10px;
+    }
+    .setup-step p { font-size: 14.5px; color: var(--ink-soft); line-height: 1.55; margin: 0 0 10px; }
+    .setup-step code {
+      display: block; background: var(--bg-deep); border: 1px solid var(--rule);
+      border-radius: 8px; padding: 12px 14px; font-family: var(--mono);
+      font-size: 13px; color: var(--ink); line-height: 1.5;
+      white-space: pre-wrap; word-break: break-all;
+      overflow-x: auto;
+    }
+    .setup-step .hint { font-size: 12.5px; color: var(--ink-faint); margin-top: 8px; }
+
     /* ── Memory horizon (replaces simple upgrade bar) ── */
     .horizon {
       margin-top: 52px; padding-top: 32px;
@@ -1276,19 +1306,19 @@
         <span class="meta">one mind, all surfaces</span>
       </div>
       <div class="extend-grid">
-        <div class="extend">
+        <div class="extend" data-surface="claude-desktop">
           <span class="label">Claude Desktop</span>
           <span class="sub">MCP connector</span>
         </div>
-        <div class="extend">
+        <div class="extend" data-surface="browser">
           <span class="label">Browser</span>
           <span class="sub">Chrome &amp; Firefox</span>
         </div>
-        <div class="extend">
+        <div class="extend" data-surface="cli">
           <span class="label">CLI</span>
           <span class="sub">npm i -g fathom</span>
         </div>
-        <div class="extend">
+        <div class="extend" data-surface="api">
           <span class="label">API</span>
           <span class="sub">OpenAI-compatible</span>
         </div>
@@ -1530,6 +1560,31 @@
       </section>
     </main>
   </div><!-- /view-settings -->
+
+  <!-- ═══ VIEW: SURFACE SETUP ════════════════════════ -->
+  <div class="view view-detail" id="viewSurfaceSetup" hidden>
+    <header class="topbar">
+      <div class="topbar-left">
+        <button class="icon-btn" id="surfaceBackBtn" aria-label="Back">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/></svg>
+        </button>
+        <div class="topbar-title" id="surfaceTitle">Setup</div>
+      </div>
+      <div class="topbar-right"></div>
+    </header>
+
+    <main>
+      <section class="setup-hero">
+        <div class="surface-icon" id="surfaceIcon"></div>
+        <h1 id="surfaceName"></h1>
+        <p class="setup-sub" id="surfaceDesc"></p>
+      </section>
+
+      <div id="surfaceSteps">
+        <!-- Populated by openSurfaceSetup() -->
+      </div>
+    </main>
+  </div><!-- /view-surface-setup -->
 
   <!-- ═══ VIEW: CHAT ═══════════════════════════════ -->
   <div class="view view-chat" id="viewChat" hidden>
@@ -2102,6 +2157,174 @@
     }
     settingsBackBtn.addEventListener('click', closeSettings);
 
+    // ── Surface setup ───────────────────────────
+    const viewSurface = document.getElementById('viewSurfaceSetup');
+    const surfaceBackBtn = document.getElementById('surfaceBackBtn');
+
+    const SURFACES = {
+      'claude-desktop': {
+        icon: '⌘',
+        name: 'Claude Desktop',
+        desc: 'Connect Fathom as an MCP server so Claude Desktop can search your lake, write deltas, and use your memory natively.',
+        steps: [
+          {
+            title: 'Step 1 · Open your MCP config',
+            body: 'In Claude Desktop, go to <strong>Settings → Developer → Edit Config</strong>. This opens <code style="display:inline;padding:2px 6px;">claude_desktop_config.json</code>.',
+          },
+          {
+            title: 'Step 2 · Add the Fathom server',
+            code: `{
+  "mcpServers": {
+    "fathom": {
+      "command": "npx",
+      "args": ["-y", "fathom-mcp"],
+      "env": {
+        "FATHOM_API_URL": "${API_BASE}",
+        "FATHOM_API_KEY": "your-api-key"
+      }
+    }
+  }
+}`,
+          },
+          {
+            title: 'Step 3 · Restart Claude Desktop',
+            body: 'Quit and reopen Claude Desktop. You should see a hammer icon with Fathom\'s tools available: <code style="display:inline;padding:2px 6px;">delta_search</code>, <code style="display:inline;padding:2px 6px;">delta_write</code>, and <code style="display:inline;padding:2px 6px;">delta_query</code>.',
+            hint: 'Try asking Claude: "Search my lake for anything about today."',
+          },
+        ],
+      },
+      'browser': {
+        icon: '◎',
+        name: 'Browser Extension',
+        desc: 'Capture pages, highlights, and screenshots directly into your lake from Chrome or Firefox.',
+        steps: [
+          {
+            title: 'Step 1 · Install the extension',
+            body: 'Install <strong>Fathom Capture</strong> from the Chrome Web Store or Firefox Add-ons.',
+            hint: 'Coming soon. For now, use the bookmarklet below.',
+          },
+          {
+            title: 'Bookmarklet (available now)',
+            body: 'Drag this to your bookmarks bar. Click it on any page to send the content to your lake.',
+            code: `javascript:void(fetch('${API_BASE}/v1/media/capture-context',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({content:document.title+'\\n'+location.href+'\\n'+window.getSelection().toString(),tags:['browser-capture'],source:'bookmarklet'})}))`,
+            hint: 'Select text on a page first, then click the bookmarklet to capture the selection.',
+          },
+        ],
+      },
+      'cli': {
+        icon: '▸',
+        name: 'CLI',
+        desc: 'Search, write, and query your lake from the terminal. Pipe output from other tools directly into Fathom.',
+        steps: [
+          {
+            title: 'Step 1 · Install',
+            code: 'npm i -g @fathom-ai/cli',
+          },
+          {
+            title: 'Step 2 · Configure',
+            code: `fathom config set api_url ${API_BASE}
+fathom config set api_key your-api-key`,
+          },
+          {
+            title: 'Step 3 · Use it',
+            code: `# Search the lake
+fathom delta search "what happened today"
+
+# Write a delta
+fathom delta write "meeting notes: decided to ship v2 Friday" --tags meeting,v2
+
+# Query by tags
+fathom delta query --tags homeassistant --since 24h
+
+# Pipe anything in
+git log --oneline -10 | fathom delta write --tags git,changelog --source cli`,
+            hint: 'The CLI uses the same delta store API as the web app. Everything stays in sync.',
+          },
+        ],
+      },
+      'api': {
+        icon: '{…}',
+        name: 'API',
+        desc: 'OpenAI-compatible chat completions with built-in lake search. Drop it into any app that speaks the OpenAI protocol.',
+        steps: [
+          {
+            title: 'Base URL',
+            code: API_BASE + '/v1',
+          },
+          {
+            title: 'Chat completions',
+            code: `curl ${API_BASE}/v1/chat/completions \\
+  -H "Content-Type: application/json" \\
+  -d '{
+    "model": "fathom",
+    "messages": [
+      {"role": "user", "content": "What do you remember about today?"}
+    ],
+    "stream": true
+  }'`,
+          },
+          {
+            title: 'Delta search (direct)',
+            code: `curl ${API_BASE.replace('/v1','').replace(':8201',':4246')}/search \\
+  -H "Content-Type: application/json" \\
+  -d '{"origin": "your query here", "limit": 20}'`,
+            hint: 'The chat endpoint automatically searches the lake before responding. Use the delta store directly when you need raw results.',
+          },
+          {
+            title: 'Use with any OpenAI client',
+            code: `from openai import OpenAI
+
+client = OpenAI(
+    base_url="${API_BASE}/v1",
+    api_key="not-needed",  # local
+)
+
+response = client.chat.completions.create(
+    model="fathom",
+    messages=[{"role": "user", "content": "Hello"}],
+)
+print(response.choices[0].message.content)`,
+          },
+        ],
+      },
+    };
+
+    function openSurfaceSetup(key) {
+      const data = SURFACES[key];
+      if (!data) return;
+      document.getElementById('surfaceTitle').textContent = data.name;
+      document.getElementById('surfaceIcon').textContent = data.icon;
+      document.getElementById('surfaceName').textContent = data.name;
+      document.getElementById('surfaceDesc').textContent = data.desc;
+
+      const container = document.getElementById('surfaceSteps');
+      container.innerHTML = data.steps.map(s => {
+        let html = '<section class="setup-step">';
+        html += `<h3>${s.title}</h3>`;
+        if (s.body) html += `<p>${s.body}</p>`;
+        if (s.code) html += `<code>${s.code.replace(/</g,'&lt;').replace(/>/g,'&gt;')}</code>`;
+        if (s.hint) html += `<p class="hint">${s.hint}</p>`;
+        html += '</section>';
+        return html;
+      }).join('');
+
+      viewMain.hidden = true;
+      viewSurface.hidden = false;
+      scrollViewToTop(viewSurface);
+      syncComposer();
+    }
+
+    function closeSurfaceSetup() {
+      viewSurface.hidden = true;
+      viewMain.hidden = false;
+      syncComposer();
+    }
+
+    surfaceBackBtn.addEventListener('click', closeSurfaceSetup);
+    document.querySelectorAll('.extend[data-surface]').forEach(el => {
+      el.addEventListener('click', () => openSurfaceSetup(el.dataset.surface));
+    });
+
     // ── Sidebar ──────────────────────────────────
     const sidebar = document.getElementById('sidebar');
     const sidebarBackdrop = document.getElementById('sidebarBackdrop');
@@ -2265,7 +2488,7 @@
     }
 
     function hideMainOpenChat() {
-      [viewMain, viewDetail, viewAdd, viewSettings].forEach(v => v && (v.hidden = true));
+      [viewMain, viewDetail, viewAdd, viewSettings, viewSurface].forEach(v => v && (v.hidden = true));
       viewChat.hidden = false;
       scrollToBottomOfChat();
       syncComposer();
@@ -2541,6 +2764,7 @@
       else if (!viewDetail.hidden) closeDetail();
       else if (!viewAdd.hidden) closeAddSource();
       else if (!viewSettings.hidden) closeSettings();
+      else if (!viewSurface.hidden) closeSurfaceSetup();
     });
 
     // ── Live feed stories ───────────────────────
