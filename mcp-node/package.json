@@ -1,0 +1,24 @@
+{
+  "name": "fathom-mcp",
+  "version": "2.2.0",
+  "description": "Connect any MCP host to your Fathom memory lake",
+  "bin": {
+    "fathom-mcp": "index.js"
+  },
+  "type": "module",
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.12.0"
+  },
+  "keywords": [
+    "mcp",
+    "fathom",
+    "memory",
+    "delta-lake",
+    "claude"
+  ],
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/fathom-ai/fathom-mcp.git"
+  }
+}

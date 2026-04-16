@@ -355,12 +355,14 @@
     .extend {
       background: var(--surface); border: 1px solid var(--rule);
       border-radius: 12px; padding: 14px;
-      display: flex; flex-direction: column; gap: 4px; cursor: pointer;
+      display: flex; flex-direction: row; align-items: center; gap: 10px; cursor: pointer;
       transition: border-color 120ms, background 120ms;
     }
     .extend:hover { border-color: var(--ink-faint); background: var(--surface-2); }
+    .extend .extend-icon { font-size: 20px; color: var(--accent); line-height: 1; flex-shrink: 0; width: 24px; text-align: center; }
+    .extend .extend-text { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
     .extend .label { font-weight: 500; font-size: 14px; color: var(--ink); }
-    .extend .sub { font-size: 12px; color: var(--ink-soft); font-family: var(--mono); letter-spacing: 0.02em; }
+    .extend .sub { font-size: 12px; color: var(--ink-soft); font-family: var(--mono); letter-spacing: 0.02em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
     /* ── Surface setup instructions ── */
     .setup-hero { padding-bottom: 24px; margin-bottom: 28px; border-bottom: 1px solid var(--rule-soft); }
@@ -1306,21 +1308,21 @@
         <span class="meta">one mind, all surfaces</span>
       </div>
       <div class="extend-grid">
-        <div class="extend" data-surface="claude-desktop">
-          <span class="label">Claude Desktop</span>
-          <span class="sub">MCP connector</span>
-        </div>
-        <div class="extend" data-surface="browser">
-          <span class="label">Browser</span>
-          <span class="sub">Chrome &amp; Firefox</span>
+        <div class="extend" data-surface="mcp-and-hooks">
+          <span class="extend-icon">⌘</span>
+          <div class="extend-text"><span class="label">MCP &amp; Hooks</span><span class="sub">npx fathom-connect</span></div>
         </div>
         <div class="extend" data-surface="cli">
-          <span class="label">CLI</span>
-          <span class="sub">npm i -g fathom</span>
+          <span class="extend-icon">▸</span>
+          <div class="extend-text"><span class="label">CLI</span><span class="sub">npx fathom-delta-cli</span></div>
+        </div>
+        <div class="extend" data-surface="browser">
+          <span class="extend-icon">◎</span>
+          <div class="extend-text"><span class="label">Browser</span><span class="sub">WIP</span></div>
         </div>
         <div class="extend" data-surface="api">
-          <span class="label">API</span>
-          <span class="sub">OpenAI-compatible</span>
+          <span class="extend-icon">⟡</span>
+          <div class="extend-text"><span class="label">API</span><span class="sub">OpenAI-compatible</span></div>
         </div>
       </div>
     </section>
@@ -1536,6 +1538,31 @@
         </div>
       </section>
 
+      <!-- API Keys -->
+      <section class="section">
+        <div class="section-head">
+          <h2>API Keys</h2>
+          <span class="meta">for CLI, MCP, browser, and API access</span>
+        </div>
+        <p style="font-size: 14px; color: var(--ink-soft); line-height: 1.55; margin: 0 0 14px;">
+          Tokens authenticate external tools against your lake. Each token works independently. Revoke one without affecting others.
+        </p>
+        <div id="tokenList" class="danger-list" style="margin-bottom: 14px;">
+          <!-- Populated by loadTokens() -->
+        </div>
+        <div style="display: flex; gap: 8px; align-items: center;">
+          <input type="text" id="tokenNameInput" placeholder="Token name (e.g. my laptop)" style="flex: 1; background: var(--surface); border: 1px solid var(--rule); border-radius: 8px; padding: 10px 12px; color: var(--ink); font-size: 14px; font-family: var(--sans); outline: none;" />
+          <button class="btn" id="createTokenBtn">Create token</button>
+        </div>
+        <div id="scopeCheckboxes" style="margin-top: 10px; display: flex; flex-wrap: wrap; gap: 8px 16px;">
+          <!-- Populated by loadTokens() -->
+        </div>
+        <div id="tokenReveal" hidden style="margin-top: 14px; background: var(--bg-deep); border: 1px solid var(--accent); border-radius: 8px; padding: 14px;">
+          <div style="font-size: 12px; color: var(--accent); font-family: var(--mono); letter-spacing: 0.05em; text-transform: uppercase; margin-bottom: 6px;">Copy this token now — it won't be shown again</div>
+          <code id="tokenValue" style="display: block; background: var(--surface); border: 1px solid var(--rule); border-radius: 6px; padding: 10px 12px; font-family: var(--mono); font-size: 13px; color: var(--ink); word-break: break-all; cursor: pointer;" title="Click to copy"></code>
+        </div>
+      </section>
+
       <!-- Account actions -->
       <section class="section">
         <div class="section-head">
@@ -1632,8 +1659,9 @@
 
     async function api(path, opts = {}) {
       const url = API_BASE + path;
+      const authH = _authToken ? { 'Authorization': 'Bearer ' + _authToken } : {};
       const r = await fetch(url, {
-        headers: { 'Content-Type': 'application/json', ...opts.headers },
+        headers: { 'Content-Type': 'application/json', ...authH, ...opts.headers },
         ...opts,
       });
       if (!r.ok) throw new Error(`${r.status} ${r.statusText}`);
@@ -1709,7 +1737,7 @@
 
     async function loadSources() {
       try {
-        const r = await fetch(API_BASE + '/v1/sources');
+        const r = await fetch(API_BASE + '/v1/sources', { headers: authHeaders() });
         if (!r.ok) return;
         const data = await r.json();
         const sources = data.sources || [];
@@ -1782,7 +1810,7 @@
       document.getElementById('detailDeltas').innerHTML = '';
 
       try {
-        const r = await fetch(API_BASE + '/v1/sources/' + sourceId + '/detail');
+        const r = await fetch(API_BASE + '/v1/sources/' + sourceId + '/detail', { headers: authHeaders() });
         if (!r.ok) return;
         const data = await r.json();
 
@@ -1844,7 +1872,7 @@
       const sourceId = viewDetail.dataset.source;
       kebabMenu.hidden = true;
       try {
-        await fetch(API_BASE + '/v1/sources/' + sourceId + '/poll', { method: 'POST' });
+        await fetch(API_BASE + '/v1/sources/' + sourceId + '/poll', { method: 'POST', headers: authHeaders() });
         // Reload detail after a short delay for the poll to complete
         setTimeout(() => loadSourceDetail(sourceId), 3000);
       } catch (e) {
@@ -1862,7 +1890,7 @@
         try {
           await fetch(API_BASE + '/v1/sources/' + sourceId, {
             method: 'PUT',
-            headers: { 'Content-Type': 'application/json' },
+            headers: authHeaders(),
             body: JSON.stringify({ interval_minutes: FREQ_MINS[freq] || 30 }),
           });
           // Update local state and highlight
@@ -1898,7 +1926,7 @@
         try {
           await fetch(API_BASE + '/v1/sources/' + sourceId, {
             method: 'PUT',
-            headers: { 'Content-Type': 'application/json' },
+            headers: authHeaders(),
             body: JSON.stringify({ expiry_days: days }),
           });
           if (_sources[sourceId]) _sources[sourceId].expiryDays = days;
@@ -1916,7 +1944,7 @@
       if (!src) return;
       const action = src.status === 'paused' ? 'resume' : 'pause';
       try {
-        await fetch(API_BASE + '/v1/sources/' + sourceId + '/' + action, { method: 'POST' });
+        await fetch(API_BASE + '/v1/sources/' + sourceId + '/' + action, { method: 'POST', headers: authHeaders() });
         await loadSources();
         // Update detail view
         const updated = _sources[sourceId];
@@ -2113,7 +2141,7 @@
       try {
         const r = await fetch(API_BASE + '/v1/sources', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: authHeaders(),
           body: JSON.stringify({ source_type: sourceType, config, name }),
         });
         if (!r.ok) {
@@ -2149,6 +2177,7 @@
       viewSettings.hidden = false;
       scrollViewToTop(viewSettings);
       syncComposer();
+      loadTokens();
     }
     function closeSettings() {
       viewSettings.hidden = true;
@@ -2157,23 +2186,146 @@
     }
     settingsBackBtn.addEventListener('click', closeSettings);
 
+    // ── API Tokens ──────────────────────────────
+    const tokenList = document.getElementById('tokenList');
+    const tokenNameInput = document.getElementById('tokenNameInput');
+    const createTokenBtn = document.getElementById('createTokenBtn');
+    const tokenReveal = document.getElementById('tokenReveal');
+    const tokenValue = document.getElementById('tokenValue');
+    const scopeCheckboxes = document.getElementById('scopeCheckboxes');
+
+    let _authToken = '';
+    let _allScopes = {};
+    // Persist auth token so the UI stays authenticated across reloads
+    try { _authToken = localStorage.getItem('fathom-api-key') || ''; } catch (e) {}
+    function authHeaders() {
+      const h = { 'Content-Type': 'application/json' };
+      if (_authToken) h['Authorization'] = 'Bearer ' + _authToken;
+      return h;
+    }
+    function _saveAuthToken(token) {
+      _authToken = token;
+      try { localStorage.setItem('fathom-api-key', token); } catch (e) {}
+    }
+
+    const SCOPE_LABELS = {
+      'lake:read': 'Read lake',
+      'lake:write': 'Write lake',
+      'sources:manage': 'Sources',
+      'tokens:manage': 'Tokens',
+      'chat': 'Chat',
+    };
+
+    async function loadTokens() {
+      try {
+        // Load scopes + tokens in parallel
+        const [scopeR, tokenR] = await Promise.all([
+          fetch(API_BASE + '/v1/scopes', { headers: authHeaders() }),
+          fetch(API_BASE + '/v1/tokens', { headers: authHeaders() }),
+        ]);
+        if (scopeR.ok) {
+          _allScopes = await scopeR.json();
+          scopeCheckboxes.innerHTML = Object.keys(_allScopes).map(s => {
+            const label = SCOPE_LABELS[s] || s;
+            return `<label style="display: flex; align-items: center; gap: 5px; font-size: 13px; color: var(--ink-soft); cursor: pointer;">
+              <input type="checkbox" class="scope-cb" value="${s}" checked style="accent-color: var(--accent);" />
+              ${label}
+            </label>`;
+          }).join('');
+        }
+        if (!tokenR.ok) { tokenList.innerHTML = ''; return; }
+        const tokens = await tokenR.json();
+        if (!tokens.length) {
+          tokenList.innerHTML = '<div style="color: var(--ink-faint); font-size: 14px; padding: 8px 0;">No tokens yet. Create one to secure your API.</div>';
+          return;
+        }
+        tokenList.innerHTML = tokens.map(t => {
+          const used = t.last_used_at ? _relativeTime(t.last_used_at) : 'never used';
+          const scopes = (t.scopes || []).map(s => SCOPE_LABELS[s] || s).join(', ');
+          return `<div class="danger-item" style="border: 1px solid var(--rule); border-radius: 10px; padding: 12px 14px; background: var(--surface);">
+            <div>
+              <div class="dz-label">${t.name}</div>
+              <div class="dz-sub" style="font-family: var(--mono); font-size: 12px;">${t.prefix} · ${scopes}</div>
+              <div class="dz-sub" style="font-family: var(--mono); font-size: 11px; color: var(--ink-faint);">created ${_relativeTime(t.created_at)} · ${used}</div>
+            </div>
+            <button class="btn ghost danger" onclick="revokeToken('${t.id}')">Revoke</button>
+          </div>`;
+        }).join('');
+      } catch (e) {
+        console.warn('Failed to load tokens:', e);
+      }
+    }
+
+    window.revokeToken = async function(id) {
+      if (!confirm('Revoke this token? Any tool using it will lose access.')) return;
+      await fetch(API_BASE + '/v1/tokens/' + id, { method: 'DELETE', headers: authHeaders() });
+      tokenReveal.hidden = true;
+      loadTokens();
+    };
+
+    createTokenBtn.addEventListener('click', async () => {
+      const name = tokenNameInput.value.trim();
+      const scopes = [...scopeCheckboxes.querySelectorAll('.scope-cb:checked')].map(cb => cb.value);
+      try {
+        const r = await fetch(API_BASE + '/v1/tokens', {
+          method: 'POST',
+          headers: authHeaders(),
+          body: JSON.stringify({ name, scopes }),
+        });
+        if (!r.ok) return;
+        const data = await r.json();
+        tokenValue.textContent = data.token;
+        tokenReveal.hidden = false;
+        tokenNameInput.value = '';
+        if (!_authToken) _saveAuthToken(data.token);
+        loadTokens();
+      } catch (e) {
+        console.warn('Failed to create token:', e);
+      }
+    });
+
+    tokenValue.addEventListener('click', () => {
+      navigator.clipboard.writeText(tokenValue.textContent);
+      tokenValue.style.borderColor = 'var(--signal)';
+      setTimeout(() => { tokenValue.style.borderColor = ''; }, 1200);
+    });
+
     // ── Surface setup ───────────────────────────
     const viewSurface = document.getElementById('viewSurfaceSetup');
     const surfaceBackBtn = document.getElementById('surfaceBackBtn');
 
     const SURFACES = {
-      'claude-desktop': {
+      'mcp-and-hooks': {
         icon: '⌘',
-        name: 'Claude Desktop',
-        desc: 'Connect Fathom as an MCP server so Claude Desktop can search your lake, write deltas, and use your memory natively.',
+        name: 'MCP & Hooks',
+        desc: 'Connect Claude Code, Claude Desktop, or Cursor to your lake. MCP gives you tools. Hooks give you automatic memory — crystal injection, recall search, conversation capture.',
         steps: [
           {
-            title: 'Step 1 · Open your MCP config',
-            body: 'In Claude Desktop, go to <strong>Settings → Developer → Edit Config</strong>. This opens <code style="display:inline;padding:2px 6px;">claude_desktop_config.json</code>.',
+            title: 'Quick setup',
+            body: 'One command installs everything and writes your config files.',
+            code: 'npx fathom-connect',
+            hint: 'You\'ll need your API key from Settings → API Keys. The installer tests your connection and asks which host you\'re using.',
           },
           {
-            title: 'Step 2 · Add the Fathom server',
-            code: `{
+            title: 'What you get',
+            code: `MCP tools (all hosts):
+  search_lake   — semantic search across your memories
+  write_delta   — save observations, facts, notes
+  query_deltas  — filter by tags, source, time
+  lake_stats    — orientation: what's in the lake
+  chat          — talk to Fathom with full memory
+
+Hooks (Claude Code only):
+  SessionStart     → identity crystal injected
+  UserPromptSubmit → lake searched, context injected
+  UserPromptSubmit → your message saved to the lake (async)
+  Stop             → assistant response saved to the lake (async)`,
+          },
+          {
+            title: 'Manual setup',
+            body: 'MCP goes in <code style="display:inline;padding:2px 6px;">~/.claude.json</code> (user scope). Hooks go in <code style="display:inline;padding:2px 6px;">~/.claude/settings.json</code>. For Claude Desktop, MCP goes in <code style="display:inline;padding:2px 6px;">claude_desktop_config.json</code>.',
+            code: `// ~/.claude.json — MCP server (user scope, all projects)
+{
   "mcpServers": {
     "fathom": {
       "command": "npx",
@@ -2185,29 +2337,7 @@
     }
   }
 }`,
-          },
-          {
-            title: 'Step 3 · Restart Claude Desktop',
-            body: 'Quit and reopen Claude Desktop. You should see a hammer icon with Fathom\'s tools available: <code style="display:inline;padding:2px 6px;">delta_search</code>, <code style="display:inline;padding:2px 6px;">delta_write</code>, and <code style="display:inline;padding:2px 6px;">delta_query</code>.',
-            hint: 'Try asking Claude: "Search my lake for anything about today."',
-          },
-        ],
-      },
-      'browser': {
-        icon: '◎',
-        name: 'Browser Extension',
-        desc: 'Capture pages, highlights, and screenshots directly into your lake from Chrome or Firefox.',
-        steps: [
-          {
-            title: 'Step 1 · Install the extension',
-            body: 'Install <strong>Fathom Capture</strong> from the Chrome Web Store or Firefox Add-ons.',
-            hint: 'Coming soon. For now, use the bookmarklet below.',
-          },
-          {
-            title: 'Bookmarklet (available now)',
-            body: 'Drag this to your bookmarks bar. Click it on any page to send the content to your lake.',
-            code: `javascript:void(fetch('${API_BASE}/v1/media/capture-context',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({content:document.title+'\\n'+location.href+'\\n'+window.getSelection().toString(),tags:['browser-capture'],source:'bookmarklet'})}))`,
-            hint: 'Select text on a page first, then click the bookmarklet to capture the selection.',
+            hint: 'npx fathom-connect writes all config files and installs hook scripts to ~/.fathom/hooks/.',
           },
         ],
       },
@@ -2217,73 +2347,143 @@
         desc: 'Search, write, and query your lake from the terminal. Pipe output from other tools directly into Fathom.',
         steps: [
           {
-            title: 'Step 1 · Install',
-            code: 'npm i -g @fathom-ai/cli',
+            title: 'Install',
+            code: 'npm i -g fathom-delta-cli',
+            hint: 'Or run directly with npx: npx fathom-delta-cli search "query"',
           },
           {
-            title: 'Step 2 · Configure',
-            code: `fathom config set api_url ${API_BASE}
-fathom config set api_key your-api-key`,
+            title: 'Configure',
+            code: `export FATHOM_API_URL=${API_BASE}
+export FATHOM_API_KEY=your-api-key`,
+            hint: 'Add these to your shell profile (~/.bashrc, ~/.zshrc) to persist.',
           },
           {
-            title: 'Step 3 · Use it',
-            code: `# Search the lake
-fathom delta search "what happened today"
-
-# Write a delta
-fathom delta write "meeting notes: decided to ship v2 Friday" --tags meeting,v2
-
-# Query by tags
-fathom delta query --tags homeassistant --since 24h
-
-# Pipe anything in
-git log --oneline -10 | fathom delta write --tags git,changelog --source cli`,
-            hint: 'The CLI uses the same delta store API as the web app. Everything stays in sync.',
+            title: 'Commands',
+            code: `fathom search "what happened today"       # semantic search
+fathom write "shipped v2" --tags release   # write a delta
+fathom query --tags homeassistant --since 24h  # filter
+fathom stats                               # lake overview
+fathom chat "summarize my week"            # chat with memory`,
+          },
+          {
+            title: 'Pipe anything in',
+            code: `git log --oneline -10 | fathom write - --tags git,changelog
+curl api.example.com/status | fathom write - --tags monitoring
+cat meeting-notes.md | fathom write - --tags meeting --source notes`,
+            hint: 'Use - as content to read from stdin.',
+          },
+        ],
+      },
+      'browser': {
+        icon: '◎',
+        name: 'Browser',
+        desc: 'Capture pages, highlights, and screenshots directly into your lake from any browser.',
+        steps: [
+          {
+            title: 'Coming soon',
+            body: 'The browser extension is in development. It will let you capture content from any page into your lake with one click.',
+            hint: 'Check back here for updates.',
           },
         ],
       },
       'api': {
         icon: '{…}',
         name: 'API',
-        desc: 'OpenAI-compatible chat completions with built-in lake search. Drop it into any app that speaks the OpenAI protocol.',
+        desc: 'OpenAI-compatible chat completions and delta operations over HTTP. 36 endpoints, all behind bearer auth with per-token scopes.',
         steps: [
           {
-            title: 'Base URL',
-            code: API_BASE + '/v1',
+            title: 'Base URL + Auth',
+            code: `Base: ${API_BASE}/v1
+Auth: Authorization: Bearer fth_...`,
+            hint: 'Generate a token in Settings → API Keys. Scopes control which endpoints the token can access.',
           },
           {
-            title: 'Chat completions',
-            code: `curl ${API_BASE}/v1/chat/completions \\
-  -H "Content-Type: application/json" \\
-  -d '{
-    "model": "fathom",
-    "messages": [
-      {"role": "user", "content": "What do you remember about today?"}
-    ],
-    "stream": true
-  }'`,
+            title: 'Interactive docs',
+            body: `Full OpenAPI spec with try-it-out: <a href="${API_BASE}/docs" target="_blank" style="color: var(--accent);">${API_BASE}/docs</a>`,
           },
           {
-            title: 'Delta search (direct)',
-            code: `curl ${API_BASE.replace('/v1','').replace(':8201',':4246')}/search \\
-  -H "Content-Type: application/json" \\
-  -d '{"origin": "your query here", "limit": 20}'`,
-            hint: 'The chat endpoint automatically searches the lake before responding. Use the delta store directly when you need raw results.',
+            title: 'Core endpoints',
+            code: `# Search the lake (semantic)
+POST /v1/search        {"origin": "query", "limit": 20}
+
+# Write a delta
+POST /v1/deltas        {"content": "...", "tags": [...], "source": "..."}
+
+# Query (structured filter)
+GET  /v1/deltas        ?tags_include=a,b&since=2026-04-16T00:00:00Z&limit=30
+
+# Chat with memory (OpenAI-compatible)
+POST /v1/chat/completions  {"messages": [...], "stream": true}
+
+# Tool discovery (scope-filtered)
+GET  /v1/tools
+
+# Stats + tags
+GET  /v1/stats
+GET  /v1/tags`,
           },
           {
-            title: 'Use with any OpenAI client',
+            title: 'OpenAI SDK (Python)',
             code: `from openai import OpenAI
 
 client = OpenAI(
     base_url="${API_BASE}/v1",
-    api_key="not-needed",  # local
+    api_key="fth_...",
 )
 
-response = client.chat.completions.create(
+r = client.chat.completions.create(
     model="fathom",
-    messages=[{"role": "user", "content": "Hello"}],
+    messages=[{"role": "user", "content": "What do you remember?"}],
 )
-print(response.choices[0].message.content)`,
+print(r.choices[0].message.content)`,
+          },
+          {
+            title: 'curl',
+            code: `curl ${API_BASE}/v1/search \\
+  -H "Authorization: Bearer fth_..." \\
+  -H "Content-Type: application/json" \\
+  -d '{"origin": "weather today", "limit": 5}'`,
+          },
+          {
+            title: 'All endpoints',
+            code: `# Lake
+POST /v1/search              Semantic search
+POST /v1/deltas              Write delta
+GET  /v1/deltas              Query/filter
+GET  /v1/deltas/{id}         Get one delta
+POST /v1/plan                Compositional query
+GET  /v1/stats               Lake statistics
+GET  /v1/tags                All tags with counts
+
+# Chat
+POST /v1/chat/completions    Chat (OpenAI-compat)
+POST /v1/sessions            Create session
+GET  /v1/sessions            List sessions
+GET  /v1/sessions/{id}       Get session + messages
+
+# Sources
+GET  /v1/sources             List configured sources
+POST /v1/sources             Add source
+GET  /v1/sources/{id}/detail Source + recent deltas
+
+# Identity
+GET  /v1/crystal             Current identity crystal
+POST /v1/crystal/refresh     Regenerate crystal
+
+# Auth
+POST /v1/tokens              Create API token
+GET  /v1/tokens              List tokens
+DELETE /v1/tokens/{id}       Revoke token
+GET  /v1/scopes              Available scopes
+GET  /v1/tools               Tool definitions (scope-filtered)
+
+# Media
+POST /v1/media/upload        Upload image
+GET  /v1/media/{hash}        Get image
+
+# Feed
+GET  /v1/feed/stories        Feed stories
+GET  /v1/usage               Usage stats`,
           },
         ],
       },
@@ -2596,7 +2796,7 @@ print(response.choices[0].message.content)`,
       try {
         const r = await fetch(API_BASE + '/v1/chat/completions', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: authHeaders(),
           body: JSON.stringify({
             messages: [{ role: 'user', content: uploadedMedia
               ? `${text || 'Attached image.'}\n[Image attached: media_hash=${uploadedMedia.media_hash}]`
@@ -2734,7 +2934,7 @@ print(response.choices[0].message.content)`,
       form.append('file', pendingFile);
       form.append('session_id', sessionSlug || '');
       form.append('content', composerTa.value.trim() || '');
-      const r = await fetch(API_BASE + '/v1/media/upload', { method: 'POST', body: form });
+      const r = await fetch(API_BASE + '/v1/media/upload', { method: 'POST', body: form, headers: _authToken ? { 'Authorization': 'Bearer ' + _authToken } : {} });
       if (!r.ok) return null;
       const data = await r.json();
       // Clear attachment

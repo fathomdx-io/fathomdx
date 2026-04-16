@@ -10,12 +10,12 @@ from pathlib import Path
 from typing import AsyncGenerator
 
 import httpx
-from fastapi import FastAPI, File, Form, HTTPException, UploadFile
+from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
-from . import db, delta_client
+from . import auth, db, delta_client
 from .prompt import (
     CRYSTAL_DIRECTIVE,
     FEED_DIRECTIVE,
@@ -88,6 +88,7 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+app.add_middleware(auth.TokenAuthMiddleware)
 
 
 # ── Helpers ─────────────────────────────────────
@@ -540,6 +541,22 @@ async def chat_completions(req: ChatRequest):
         }
 
 
+@app.get("/v1/crystal")
+async def get_crystal():
+    """Return the current identity crystal."""
+    crystal = load_crystal()
+    if not crystal:
+        raise HTTPException(404, "No crystal generated yet")
+    p = Path(settings.crystal_path)
+    created_at = None
+    try:
+        data = json.loads(p.read_text())
+        created_at = data.get("created_at")
+    except Exception:
+        pass
+    return {"text": crystal, "created_at": created_at}
+
+
 @app.post("/v1/crystal/refresh")
 async def refresh_crystal():
     """Regenerate the identity crystal via LLM + delta lake tools."""
@@ -939,3 +956,225 @@ def _split_facets(text: str) -> list[dict]:
         })
 
     return facets
+
+
+# ── Token management ─────────────────────────────
+
+
+class TokenCreate(BaseModel):
+    name: str = ""
+    scopes: list[str] | None = None
+
+
+@app.post("/v1/tokens")
+async def create_token(req: TokenCreate):
+    return auth.create_token(req.name, req.scopes)
+
+
+@app.get("/v1/scopes")
+async def list_scopes():
+    return auth.get_scopes()
+
+
+@app.get("/v1/tokens")
+async def list_tokens():
+    return auth.list_tokens()
+
+
+@app.delete("/v1/tokens/{token_id}")
+async def delete_token(token_id: str):
+    deleted = auth.delete_token(token_id)
+    if not deleted:
+        raise HTTPException(404, "Token not found")
+    return {"deleted": True}
+
+
+# ── Tool definitions (served to all clients) ─────
+
+LAKE_TOOLS = [
+    {
+        "name": "search_lake",
+        "description": (
+            "Search the memory lake with a natural language query. Returns "
+            "semantically similar memories — conversations, notes, research, "
+            "photos, sensor data. Be descriptive: 'Nova mozzarella stretch "
+            "kitchen photo' works better than 'nova'."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "query": {"type": "string", "description": "What to search for."},
+                "limit": {"type": "integer", "description": "Max results.", "default": 20},
+            },
+            "required": ["query"],
+        },
+        "endpoint": {"method": "POST", "path": "/v1/search"},
+        "request_map": {"query": "origin", "limit": "limit"},
+        "scope": "lake:read",
+    },
+    {
+        "name": "write_delta",
+        "description": (
+            "Write a memory to the lake. Use for observations, decisions, "
+            "facts, notes — anything worth remembering. One idea per delta."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "content": {"type": "string", "description": "The memory content."},
+                "tags": {
+                    "type": "array", "items": {"type": "string"},
+                    "description": "Tags for filtering (e.g. ['meeting', 'decision']).",
+                },
+                "source": {"type": "string", "description": "Source label.", "default": "api"},
+            },
+            "required": ["content"],
+        },
+        "endpoint": {"method": "POST", "path": "/v1/deltas"},
+        "scope": "lake:write",
+    },
+    {
+        "name": "query_deltas",
+        "description": (
+            "Query the lake with structured filters. Unlike search_lake "
+            "(semantic), this is exact filtering by tags, source, or time."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "tags": {
+                    "type": "array", "items": {"type": "string"},
+                    "description": "Deltas must have ALL these tags.",
+                },
+                "source": {"type": "string", "description": "Filter by source."},
+                "time_start": {"type": "string", "description": "ISO timestamp — only after this."},
+                "limit": {"type": "integer", "description": "Max results.", "default": 30},
+            },
+        },
+        "endpoint": {"method": "GET", "path": "/v1/deltas"},
+        "request_map": {"tags": "tags_include", "limit": "limit", "source": "source", "time_start": "time_start"},
+        "scope": "lake:read",
+    },
+    {
+        "name": "lake_stats",
+        "description": (
+            "Get lake statistics — total deltas, embedding coverage, top tags. "
+            "Quick orientation. Call first if unsure what's in the lake."
+        ),
+        "parameters": {"type": "object", "properties": {}},
+        "endpoint": {"method": "GET", "path": "/v1/stats"},
+        "scope": "lake:read",
+    },
+    {
+        "name": "chat",
+        "description": (
+            "Chat with Fathom — an AI with full memory of the lake. Fathom "
+            "searches automatically before responding. Use for questions, "
+            "analysis, or conversation."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "message": {"type": "string", "description": "Your message."},
+                "session_id": {"type": "string", "description": "Session ID for conversation continuity."},
+            },
+            "required": ["message"],
+        },
+        "endpoint": {"method": "POST", "path": "/v1/chat/completions"},
+        "scope": "chat",
+    },
+]
+
+
+@app.get("/v1/tools")
+async def list_tools(req: Request):
+    """Tool definitions filtered by the calling token's scopes.
+
+    Any client — MCP, mobile, enterprise — reads this to discover
+    what it can do. Tools the token can't access are omitted.
+    Public endpoint, but reads the Bearer token if present for filtering.
+    """
+    # /v1/tools is public, so middleware doesn't validate. Check manually.
+    token = getattr(req.state, "token", None)
+    if not token:
+        auth_header = req.headers.get("authorization", "")
+        if auth_header.startswith("Bearer "):
+            token = auth.validate(auth_header[7:])
+
+    if token:
+        granted = set(token.get("scopes") or auth.DEFAULT_SCOPES)
+        visible = [t for t in LAKE_TOOLS if t.get("scope") in granted]
+    else:
+        visible = LAKE_TOOLS
+
+    return {"tools": visible, "scopes": auth.get_scopes()}
+
+
+# ── Delta proxy (unified gateway) ────────────────
+
+
+@app.post("/v1/search")
+async def proxy_search(request: dict):
+    c = await delta_client._get()
+    r = await c.post("/search", json=request)
+    r.raise_for_status()
+    return r.json()
+
+
+@app.post("/v1/deltas")
+async def proxy_write_delta(request: dict):
+    c = await delta_client._get()
+    r = await c.post("/deltas", json=request)
+    r.raise_for_status()
+    return r.json()
+
+
+@app.get("/v1/deltas")
+async def proxy_query_deltas(
+    limit: int = 50,
+    tags_include: str | None = None,
+    source: str | None = None,
+    time_start: str | None = None,
+):
+    c = await delta_client._get()
+    params: dict = {"limit": limit}
+    if tags_include:
+        params["tags_include"] = tags_include
+    if source:
+        params["source"] = source
+    if time_start:
+        params["time_start"] = time_start
+    r = await c.get("/deltas", params=params)
+    r.raise_for_status()
+    return r.json()
+
+
+@app.get("/v1/deltas/{delta_id}")
+async def proxy_get_delta(delta_id: str):
+    c = await delta_client._get()
+    r = await c.get(f"/deltas/{delta_id}")
+    if r.status_code == 404:
+        raise HTTPException(404, "Delta not found")
+    r.raise_for_status()
+    return r.json()
+
+
+@app.post("/v1/plan")
+async def proxy_plan(request: dict):
+    c = await delta_client._get()
+    r = await c.post("/plan", json=request)
+    r.raise_for_status()
+    return r.json()
+
+
+@app.get("/v1/tags")
+async def proxy_tags():
+    c = await delta_client._get()
+    r = await c.get("/tags")
+    r.raise_for_status()
+    return r.json()
+
+
+@app.get("/v1/stats")
+async def proxy_stats():
+    return await delta_client.stats()
