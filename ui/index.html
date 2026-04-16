@@ -1310,12 +1310,12 @@
           <span class="label">MCP</span>
           <span class="sub">npx fathom-mcp</span>
         </div>
+        <div class="extend" data-surface="hooks">
+          <span class="label">Hooks</span>
+          <span class="sub">npx fathom-connect</span>
+        </div>
         <div class="extend" data-surface="browser">
           <span class="label">Browser</span>
-          <span class="sub">WIP</span>
-        </div>
-        <div class="extend" data-surface="cli">
-          <span class="label">CLI</span>
           <span class="sub">WIP</span>
         </div>
         <div class="extend" data-surface="api">
@@ -2326,31 +2326,69 @@ write_delta   — save observations, facts, notes
 query_deltas  — filter by tags, source, time
 lake_stats    — orientation: what's in the lake
 chat          — talk to Fathom with full memory`,
-            hint: 'Try: "Search my lake for anything about today." Tools adapt to your token\'s scopes — a read-only token only sees search tools.',
+            hint: 'Tools adapt to your token\'s scopes — a read-only token only sees search tools. For Claude Code, add Hooks for the full experience.',
+          },
+        ],
+      },
+      'hooks': {
+        icon: '↻',
+        name: 'Hooks',
+        desc: 'Automatic memory for Claude Code. Crystal injection on startup, recall search on every prompt, conversation capture in the background. One command sets up everything.',
+        steps: [
+          {
+            title: 'Quick setup',
+            body: 'Run this in your terminal. It installs MCP + hooks and writes your Claude Code settings.',
+            code: 'npx fathom-connect',
+            hint: 'You\'ll need your API key from Settings → API Keys.',
+          },
+          {
+            title: 'What gets installed',
+            code: `SessionStart     → identity crystal injected
+UserPromptSubmit → lake searched, context injected
+UserPromptSubmit → your message saved to the lake (async)
+Stop             → assistant response saved to the lake (async)`,
+          },
+          {
+            title: 'Manual setup',
+            body: 'If you prefer to configure manually, add these to <code style="display:inline;padding:2px 6px;">~/.claude/settings.json</code>:',
+            code: `{
+  "mcpServers": {
+    "fathom": {
+      "command": "npx",
+      "args": ["-y", "fathom-mcp"],
+      "env": {
+        "FATHOM_API_URL": "${API_BASE}",
+        "FATHOM_API_KEY": "your-api-key"
+      }
+    }
+  },
+  "hooks": {
+    "SessionStart": [{ "hooks": [{
+      "type": "command",
+      "command": "FATHOM_API_URL='${API_BASE}' FATHOM_API_KEY='your-api-key' ~/.fathom/hooks/fathom-crystal-hook.sh"
+    }]}],
+    "UserPromptSubmit": [{ "hooks": [
+      { "type": "command", "command": "FATHOM_API_URL='${API_BASE}' FATHOM_API_KEY='your-api-key' ~/.fathom/hooks/fathom-delta-hook.sh", "async": true },
+      { "type": "command", "command": "FATHOM_API_URL='${API_BASE}' FATHOM_API_KEY='your-api-key' ~/.fathom/hooks/fathom-recall-hook.sh", "timeout": 8000 }
+    ]}],
+    "Stop": [{ "hooks": [{
+      "type": "command", "command": "FATHOM_API_URL='${API_BASE}' FATHOM_API_KEY='your-api-key' ~/.fathom/hooks/fathom-delta-hook.sh", "async": true
+    }]}]
+  }
+}`,
+            hint: 'npx fathom-connect writes this for you and installs the hook scripts to ~/.fathom/hooks/.',
           },
         ],
       },
       'browser': {
         icon: '◎',
-        name: 'Browser Extension',
+        name: 'Browser',
         desc: 'Capture pages, highlights, and screenshots directly into your lake from any browser.',
         steps: [
           {
             title: 'Coming soon',
             body: 'The browser extension is in development. It will let you capture content from any page into your lake with one click.',
             hint: 'Check back here for updates.',
-          },
-        ],
-      },
-      'cli': {
-        icon: '▸',
-        name: 'CLI',
-        desc: 'Search, write, and query your lake from the terminal.',
-        steps: [
-          {
-            title: 'Coming soon',
-            body: 'A terminal client for piping content into your lake and searching from the command line.',
-            hint: 'In the meantime, use the MCP connector with Claude Code for terminal-based lake access.',
           },
         ],
       },
