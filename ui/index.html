@@ -1,0 +1,2620 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="theme-color" content="#0d1f26" id="metaThemeColor" />
+  <title>Fathom</title>
+  <script>
+    // Inline so the theme is set before first paint (avoids flash).
+    (function () {
+      try {
+        var saved = localStorage.getItem('fathom-theme');
+        var prefersLight = window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches;
+        var theme = saved || (prefersLight ? 'light' : 'dark');
+        if (theme === 'light') document.documentElement.setAttribute('data-theme', 'light');
+        var tier = localStorage.getItem('fathom-tier') || 'free';
+        document.documentElement.setAttribute('data-tier', tier);
+      } catch (e) {}
+    })();
+  </script>
+  <script src="https://cdn.jsdelivr.net/npm/marked@15/marked.min.js"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+  <style>
+    :root {
+      /* ── Deep lake (dark — default) ─────────── */
+      --bg: #0d1f26;           /* deep water */
+      --bg-deep: #081519;       /* trench */
+      --surface: #142a33;       /* card */
+      --surface-2: #1c3a45;     /* hover/elevated */
+      --ink: #f0e9d9;           /* warm cream — the only warm note in the cold column */
+      --ink-soft: #9fb0b5;      /* cool muted */
+      --ink-faint: #5a6d74;     /* very muted */
+      --rule: #1e3a47;
+      --rule-soft: #17303a;
+      --accent: #e8a24e;        /* lantern amber */
+      --accent-bright: #f2b665; /* highlight */
+      --accent-soft: rgba(232, 162, 78, 0.14);
+      --signal: #5ce1c6;        /* phosphorescent teal — active/alive */
+      --signal-dim: #2e7a6f;
+      --danger: #e56a6a;
+
+      --topbar-bg: color-mix(in srgb, var(--bg) 85%, transparent);
+      --img-fade: color-mix(in srgb, var(--surface) 60%, transparent);
+      --composer-shadow: 0 10px 40px -16px rgba(0, 0, 0, 0.6);
+      --dot-glow: rgba(92, 225, 198, 0.7);
+      --body-glow-a: rgba(92, 225, 198, 0.06);
+      --body-glow-b: rgba(232, 162, 78, 0.05);
+      --meta-color: #0d1f26;
+
+      --radius: 14px;
+      --serif: "Instrument Serif", Georgia, serif;
+      --sans: "Inter", system-ui, sans-serif;
+      --mono: "JetBrains Mono", ui-monospace, monospace;
+    }
+
+    [data-theme="light"] {
+      /* ── Shallow water (light) ─────────────── */
+      --bg: #eef2f3;           /* shoreline haze */
+      --bg-deep: #dfe7ea;       /* wet sand */
+      --surface: #ffffff;       /* paper */
+      --surface-2: #f6f9fa;     /* hover */
+      --ink: #0d1f26;           /* deep teal — the dark bg becomes ink */
+      --ink-soft: #4f6269;
+      --ink-faint: #94a4a9;
+      --rule: #dfe5e7;
+      --rule-soft: #e8eced;
+      --accent: #c26a1f;        /* deeper amber — holds contrast on light */
+      --accent-bright: #e28233;
+      --accent-soft: rgba(194, 106, 31, 0.09);
+      --signal: #0d9488;        /* deep teal signal */
+      --signal-dim: #a0d9d0;
+      --danger: #b8433f;
+
+      --composer-shadow: 0 10px 30px -14px rgba(13, 31, 38, 0.18);
+      --dot-glow: rgba(13, 148, 136, 0.35);
+      --body-glow-a: rgba(13, 148, 136, 0.035);
+      --body-glow-b: rgba(194, 106, 31, 0.04);
+      --meta-color: #eef2f3;
+    }
+    * { box-sizing: border-box; }
+    html, body { margin: 0; padding: 0; background: var(--bg); color: var(--ink); font-family: var(--sans); -webkit-font-smoothing: antialiased; }
+    body {
+      min-height: 100dvh; display: flex; flex-direction: column;
+      background:
+        radial-gradient(ellipse at 20% -10%, var(--body-glow-a), transparent 55%),
+        radial-gradient(ellipse at 80% 110%, var(--body-glow-b), transparent 50%),
+        var(--bg);
+    }
+
+    ::selection { background: var(--accent); color: var(--bg-deep); }
+
+    /* ── Top bar ─────────────────────────────────── */
+    .topbar {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 14px 20px;
+      border-bottom: 1px solid var(--rule-soft);
+      position: sticky; top: 0; background: var(--topbar-bg);
+      backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);
+      z-index: 10;
+    }
+    .brand { font-family: var(--serif); font-size: 26px; letter-spacing: 0.01em; }
+    .brand em { font-style: italic; color: var(--accent); }
+    .brand-mark { color: var(--accent); margin-left: 4px; display: inline-flex; vertical-align: baseline; }
+    .brand-mark .ph-triangle { width: 16px; height: 16px; vertical-align: -2px; }
+    .icon-btn {
+      width: 36px; height: 36px; display: grid; place-items: center;
+      border: 1px solid var(--rule); background: var(--surface);
+      border-radius: 10px; cursor: pointer; color: var(--ink-soft);
+      transition: border-color 120ms, color 120ms;
+    }
+    .icon-btn:hover { border-color: var(--ink-faint); color: var(--ink); }
+    .topbar-left, .topbar-right { display: flex; gap: 8px; align-items: center; }
+
+    /* ── Main scroll area ────────────────────────── */
+    main {
+      flex: 1;
+      overflow-y: auto;
+      padding: 32px 20px 200px;
+      max-width: 720px; width: 100%; margin: 0 auto;
+    }
+
+    /* Greeting / opener */
+    .opener { margin-bottom: 40px; }
+    .opener .stamp {
+      font-family: var(--mono); font-size: 11px; letter-spacing: 0.08em;
+      text-transform: uppercase; color: var(--ink-faint); margin-bottom: 14px;
+      display: flex; align-items: center; gap: 8px;
+    }
+    .opener .stamp .pulse {
+      width: 6px; height: 6px; border-radius: 50%; background: var(--signal);
+      box-shadow: 0 0 8px var(--signal);
+      animation: pulse 2.4s ease-in-out infinite;
+    }
+    @keyframes pulse {
+      0%, 100% { opacity: 0.6; }
+      50% { opacity: 1; }
+    }
+    .opener h1 {
+      font-family: var(--serif); font-weight: 400;
+      font-size: clamp(36px, 6.5vw, 56px); line-height: 1.04;
+      margin: 0 0 18px; letter-spacing: -0.01em; color: var(--ink);
+    }
+    .opener h1 em { color: var(--accent); font-style: italic; }
+    .opener p {
+      font-size: 16px; line-height: 1.6; color: var(--ink-soft);
+      margin: 0; max-width: 58ch;
+    }
+    .opener p strong { color: var(--ink); font-weight: 500; }
+
+    /* Section label */
+    .section { margin: 44px 0; }
+    .section-head {
+      display: flex; align-items: baseline; justify-content: space-between;
+      margin-bottom: 16px; gap: 12px;
+    }
+    .section-head h2 {
+      font-family: var(--serif); font-weight: 400; font-size: 22px;
+      margin: 0; color: var(--ink);
+    }
+    .section-head .meta {
+      font-family: var(--mono); font-size: 11px;
+      letter-spacing: 0.06em; text-transform: uppercase; color: var(--ink-faint);
+    }
+
+    /* Feed cards */
+    .feed { display: flex; flex-direction: column; gap: 12px; }
+    .card {
+      background: var(--surface); border: 1px solid var(--rule);
+      border-radius: var(--radius);
+      cursor: pointer; transition: transform 140ms ease, border-color 140ms ease, background 140ms ease;
+      overflow: hidden;
+    }
+    .card:hover { border-color: var(--ink-faint); background: var(--surface-2); transform: translateY(-1px); }
+    .card-body { padding: 18px 20px; }
+    .card .kicker {
+      font-family: var(--mono); font-size: 10.5px; letter-spacing: 0.09em;
+      text-transform: uppercase; color: var(--accent); margin-bottom: 8px;
+    }
+    .card h3 {
+      font-family: var(--serif); font-weight: 400; font-size: 21px;
+      margin: 0 0 6px; line-height: 1.25; color: var(--ink);
+    }
+    .card p {
+      font-size: 14.5px; line-height: 1.55; color: var(--ink-soft);
+      margin: 0;
+    }
+    .card .tail {
+      margin-top: 12px; display: flex; gap: 14px; flex-wrap: wrap;
+      font-family: var(--mono); font-size: 11px; color: var(--ink-faint);
+      letter-spacing: 0.04em;
+    }
+    .card .tail .action { color: var(--signal); }
+
+    /* Card with full-bleed image hero */
+    .card-img-hero {
+      aspect-ratio: 16 / 8;
+      width: 100%;
+      background-size: cover; background-position: center;
+      background-color: var(--bg-deep);
+      border-bottom: 1px solid var(--rule);
+      position: relative;
+    }
+    .card-img-hero::after {
+      content: ""; position: absolute; inset: 0;
+      background: linear-gradient(180deg, transparent 50%, var(--img-fade) 100%);
+    }
+
+    /* Card with horizontal thumbnail */
+    .card-horiz { display: flex; align-items: stretch; }
+    .card-horiz .thumb {
+      width: 120px; flex-shrink: 0;
+      background-size: cover; background-position: center;
+      background-color: var(--bg-deep);
+      border-right: 1px solid var(--rule);
+    }
+    .card-horiz .card-body { flex: 1; padding: 16px 18px; }
+    @media (min-width: 640px) {
+      .card-horiz .thumb { width: 168px; }
+    }
+
+    /* Surface animation — elements float up from the depths */
+    @keyframes surface {
+      from {
+        opacity: 0;
+        transform: scale(0.92) translateY(20px);
+        filter: blur(6px);
+      }
+      to {
+        opacity: 1;
+        transform: scale(1) translateY(0);
+        filter: blur(0);
+      }
+    }
+    .feed .card {
+      animation: surface 1.2s cubic-bezier(0.16, 1, 0.3, 1) both;
+    }
+    .feed .card:nth-child(1) { animation-delay: 0.1s; }
+    .feed .card:nth-child(2) { animation-delay: 0.28s; }
+    .feed .card:nth-child(3) { animation-delay: 0.46s; }
+    .feed .card:nth-child(4) { animation-delay: 0.64s; }
+    /* Dynamically appended cards */
+    .card.surfacing { animation: surface 1s cubic-bezier(0.16, 1, 0.3, 1) both; }
+
+    /* Chat messages surface the same way */
+    .chat-stream .msg,
+    .chat-stream .tool-strip {
+      animation: surface 0.8s cubic-bezier(0.16, 1, 0.3, 1) both;
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      .feed .card,
+      .card.surfacing,
+      .chat-stream .msg,
+      .chat-stream .tool-strip { animation: none; }
+    }
+
+    /* Show more feed button */
+    .show-more-feed {
+      display: block; width: 100%; margin-top: 14px;
+      padding: 12px;
+      background: transparent; border: 1px dashed var(--rule);
+      border-radius: var(--radius);
+      font-family: var(--mono); font-size: 12px;
+      letter-spacing: 0.07em; text-transform: uppercase;
+      color: var(--ink-faint); cursor: pointer;
+      transition: border-color 140ms, color 140ms;
+    }
+    .show-more-feed:hover { border-color: var(--ink-faint); color: var(--ink-soft); }
+
+    /* Sources strip */
+    .sources { display: flex; flex-wrap: wrap; gap: 8px; }
+    .chip {
+      display: inline-flex; align-items: center; gap: 7px;
+      padding: 8px 13px; border-radius: 999px;
+      background: var(--surface); border: 1px solid var(--rule);
+      font-size: 13px; color: var(--ink);
+      transition: border-color 120ms;
+    }
+    .chip:hover { border-color: var(--ink-faint); }
+    .chip .dot {
+      width: 6px; height: 6px; border-radius: 50%; background: var(--signal);
+      box-shadow: 0 0 6px var(--dot-glow);
+      flex-shrink: 0;
+    }
+    .chip .label { display: inline-block; }
+    .chip[data-state="paused"] { color: var(--ink-faint); opacity: 0.55; }
+    .chip[data-state="paused"] .dot { background: var(--ink-faint); box-shadow: none; }
+    .chip:not(.add) { cursor: pointer; user-select: none; padding-right: 10px; }
+    .chip:not(.add):active { transform: scale(0.97); }
+    .chip .kabob {
+      background: transparent; border: 0; padding: 0;
+      width: 18px; height: 18px; flex-shrink: 0;
+      display: grid; place-items: center;
+      color: var(--ink-faint); cursor: pointer;
+      opacity: 0; transition: opacity 140ms, color 140ms;
+      margin-left: 2px; margin-right: -4px;
+    }
+    .chip:hover .kabob { opacity: 1; }
+    .chip .kabob:hover { color: var(--ink); }
+    @media (hover: none) {
+      .chip .kabob { display: none; }
+    }
+    .chip.add {
+      color: var(--accent); border-color: var(--accent);
+      border-style: dashed; background: transparent;
+      font-family: var(--sans); cursor: pointer;
+    }
+    .chip.add .dot { display: none; }
+
+    /* Extend row */
+    .extend-grid {
+      display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px;
+    }
+    @media (min-width: 640px) {
+      .extend-grid { grid-template-columns: repeat(4, 1fr); }
+    }
+    .extend {
+      background: var(--surface); border: 1px solid var(--rule);
+      border-radius: 12px; padding: 14px;
+      display: flex; flex-direction: column; gap: 4px; cursor: pointer;
+      transition: border-color 120ms, background 120ms;
+    }
+    .extend:hover { border-color: var(--ink-faint); background: var(--surface-2); }
+    .extend .label { font-weight: 500; font-size: 14px; color: var(--ink); }
+    .extend .sub { font-size: 12px; color: var(--ink-soft); font-family: var(--mono); letter-spacing: 0.02em; }
+
+    /* ── Memory horizon (replaces simple upgrade bar) ── */
+    .horizon {
+      margin-top: 52px; padding-top: 32px;
+      border-top: 1px solid var(--rule-soft);
+    }
+    .horizon-head {
+      display: flex; align-items: baseline; justify-content: space-between;
+      margin-bottom: 16px; gap: 12px;
+    }
+    .horizon-head h2 {
+      font-family: var(--serif); font-weight: 400; font-size: 26px; margin: 0;
+      color: var(--ink);
+    }
+    .horizon-head .meta {
+      font-family: var(--mono); font-size: 11px; letter-spacing: 0.06em;
+      text-transform: uppercase; color: var(--ink-faint);
+    }
+    .horizon-chart {
+      background: var(--surface); border: 1px solid var(--rule);
+      border-radius: var(--radius); padding: 22px 20px 16px;
+      position: relative; overflow: hidden;
+    }
+    .horizon-chart::before {
+      content: ""; position: absolute; inset: 0;
+      background:
+        radial-gradient(ellipse at 80% 0%, var(--accent-soft), transparent 60%);
+      pointer-events: none;
+    }
+    .bars {
+      display: flex; align-items: flex-end; gap: 3px;
+      height: 140px; position: relative; z-index: 1;
+    }
+    .col {
+      flex: 1; display: flex; flex-direction: column;
+      align-items: center; gap: 8px; justify-content: flex-end;
+      height: 100%; position: relative;
+    }
+    .col .bar {
+      width: 100%; max-width: 32px;
+      background: var(--accent); border-radius: 4px 4px 0 0;
+      transition: background 200ms, height 400ms ease;
+    }
+    .col.locked .bar {
+      background: var(--rule-soft);
+      opacity: 0.6;
+    }
+    .col.today .bar {
+      background: var(--accent-bright);
+      box-shadow: 0 0 16px rgba(232, 162, 78, 0.55);
+    }
+    .col .lbl {
+      font-family: var(--mono); font-size: 10px; color: var(--ink-faint);
+      letter-spacing: 0.04em;
+    }
+    .col.today .lbl { color: var(--accent); font-weight: 500; }
+    .cutoff {
+      position: absolute; top: 0; bottom: 22px;
+      border-left: 1px dashed var(--danger);
+      opacity: 0.55;
+    }
+    .cutoff-label {
+      position: absolute; top: -8px; transform: translateX(-50%);
+      font-family: var(--mono); font-size: 9.5px; letter-spacing: 0.08em;
+      text-transform: uppercase; color: var(--danger);
+      background: var(--surface); padding: 2px 6px; border-radius: 4px;
+    }
+
+    .horizon-copy {
+      margin: 18px 0 16px; font-size: 14.5px; line-height: 1.55;
+      color: var(--ink-soft);
+    }
+    .horizon-copy strong { color: var(--ink); font-weight: 500; }
+    .horizon-copy .amber { color: var(--accent); font-weight: 500; }
+
+    .btn {
+      display: inline-flex; align-items: center; gap: 6px;
+      background: var(--accent); color: var(--bg-deep); border: 0;
+      padding: 11px 18px; border-radius: 10px;
+      font-family: var(--sans); font-weight: 600; font-size: 14px;
+      cursor: pointer; transition: background 120ms;
+    }
+    .btn:hover { background: var(--accent-bright); }
+    .btn.ghost {
+      background: transparent; color: var(--ink);
+      border: 1px solid var(--rule); font-weight: 500;
+    }
+    .btn.ghost:hover { border-color: var(--ink-faint); }
+
+    /* ── Composer (pinned) ───────────────────────── */
+    .composer-wrap {
+      position: fixed; left: 0; right: 0; bottom: 0;
+      padding: 16px 16px calc(14px + env(safe-area-inset-bottom));
+      background: linear-gradient(180deg, transparent 0%, var(--bg) 40%);
+      z-index: 20;
+    }
+    .composer {
+      max-width: 720px; margin: 0 auto;
+      display: flex; align-items: end; gap: 8px;
+      background: var(--surface); border: 1px solid var(--rule);
+      border-radius: 18px; padding: 10px 10px 10px 14px;
+      box-shadow: var(--composer-shadow);
+    }
+    .composer:focus-within { border-color: var(--accent); }
+    .composer textarea {
+      flex: 1; border: 0; outline: 0; resize: none;
+      font-family: var(--sans); font-size: 15.5px; line-height: 1.4;
+      background: transparent; max-height: 160px; padding: 8px 0;
+      color: var(--ink);
+    }
+    .composer textarea::placeholder { color: var(--ink-faint); }
+    .composer .tools { display: flex; gap: 6px; align-items: center; }
+    .composer .send {
+      width: 36px; height: 36px; border-radius: 10px; border: 0;
+      background: var(--accent); color: var(--bg-deep);
+      display: grid; place-items: center; cursor: pointer;
+      transition: background 120ms;
+    }
+    .composer .send:hover { background: var(--accent-bright); }
+    .composer .attach {
+      width: 36px; height: 36px; border-radius: 10px;
+      background: transparent; border: 0; color: var(--ink-soft);
+      display: grid; place-items: center; cursor: pointer;
+    }
+    .composer .attach:hover { color: var(--ink); }
+    .attach-preview {
+      align-items: center; gap: 6px;
+      padding: 2px 0;
+      display: none;
+    }
+    .attach-preview.visible {
+      display: flex;
+    }
+    .attach-preview img {
+      width: 40px; height: 40px; border-radius: 8px;
+      object-fit: cover; border: 1px solid var(--rule);
+    }
+    .attach-remove {
+      width: 20px; height: 20px; border-radius: 50%;
+      background: var(--surface-2); border: 1px solid var(--rule);
+      color: var(--ink-faint); font-size: 14px; line-height: 1;
+      cursor: pointer; display: grid; place-items: center;
+      padding: 0;
+    }
+    .attach-remove:hover { color: var(--danger); }
+    /* Thumbnail in chat messages */
+    .msg-thumb {
+      width: 180px; max-width: 60%; border-radius: 10px;
+      border: 1px solid var(--rule); margin-top: 8px;
+      display: block;
+    }
+
+    /* ── Sidebar ───────────────────────────── */
+    .sidebar {
+      position: fixed; top: 0; left: 0; bottom: 0;
+      width: 280px;
+      background: var(--bg-deep);
+      border-right: 1px solid var(--rule-soft);
+      display: flex; flex-direction: column;
+      z-index: 40;
+      transform: translateX(-100%);
+      transition: transform 280ms cubic-bezier(0.4, 0, 0.2, 1);
+    }
+    .sidebar.open { transform: translateX(0); }
+
+    .sidebar-head { padding: 14px 14px 10px; }
+    .sidebar-brand {
+      font-family: var(--serif); font-size: 24px; letter-spacing: 0.01em;
+      color: var(--ink);
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 0 4px 12px;
+    }
+    .sidebar-brand em { font-style: italic; color: var(--accent); }
+    .sidebar-brand .brand-mark { color: var(--accent); margin-left: 4px; display: inline-flex; vertical-align: baseline; }
+    .sidebar-brand .ph-triangle { width: 15px; height: 15px; vertical-align: -2px; }
+    .new-session-btn {
+      width: 100%;
+      background: transparent;
+      border: 1px solid var(--rule); border-style: dashed;
+      border-radius: 10px; padding: 10px 12px;
+      font-family: var(--sans); font-size: 13.5px; color: var(--ink);
+      display: flex; align-items: center; gap: 8px;
+      cursor: pointer;
+      transition: border-color 120ms, background 120ms, color 120ms;
+    }
+    .new-session-btn:hover { border-color: var(--accent); color: var(--accent); }
+
+    .sidebar-body {
+      flex: 1; overflow-y: auto;
+      padding: 8px 8px 12px;
+    }
+    .session-group { margin-bottom: 14px; }
+    .session-group h3 {
+      font-family: var(--mono); font-size: 10px; letter-spacing: 0.09em;
+      text-transform: uppercase; color: var(--ink-faint);
+      margin: 10px 0 4px; padding: 0 10px; font-weight: 400;
+    }
+    .session-group:first-child h3 { margin-top: 4px; }
+    .session-list { list-style: none; margin: 0; padding: 0; }
+    .session-item {
+      display: block; width: 100%;
+      padding: 7px 10px; margin: 0;
+      background: transparent; border: 0;
+      text-align: left;
+      font-family: var(--sans); font-size: 13.5px;
+      color: var(--ink-soft);
+      border-radius: 8px;
+      cursor: pointer;
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+      transition: background 120ms, color 120ms;
+    }
+    .session-item:hover { background: var(--surface); color: var(--ink); }
+    .session-item.active { background: var(--surface-2); color: var(--ink); font-weight: 500; }
+
+    .sidebar-foot { border-top: 1px solid var(--rule-soft); }
+    .account-row {
+      display: flex; align-items: center; gap: 10px;
+      width: 100%; padding: 12px 14px;
+      background: transparent; border: 0;
+      cursor: pointer; text-align: left;
+      transition: background 120ms;
+    }
+    .account-row:hover { background: var(--surface); }
+    .account-row .avatar-sm {
+      width: 32px; height: 32px; border-radius: 50%;
+      background: var(--surface-2); border: 1px solid var(--rule);
+      display: grid; place-items: center;
+      font-family: var(--serif); font-size: 14px; color: var(--accent);
+      flex-shrink: 0;
+    }
+    .account-row-info { flex: 1; min-width: 0; }
+    .account-row .name {
+      font-size: 13.5px; color: var(--ink); font-weight: 500;
+      overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    }
+    .account-row .email {
+      font-size: 11px; color: var(--ink-faint);
+      overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+      font-family: var(--mono); letter-spacing: 0.02em;
+      margin-top: 2px;
+    }
+
+    .sidebar-backdrop {
+      position: fixed; inset: 0; background: rgba(0, 0, 0, 0.5);
+      opacity: 0; pointer-events: none;
+      transition: opacity 220ms;
+      z-index: 35;
+    }
+    .sidebar-backdrop.visible { opacity: 1; pointer-events: auto; }
+
+    /* Desktop: sidebar always visible, content offset */
+    @media (min-width: 960px) {
+      .sidebar { transform: translateX(0); }
+      .sidebar-backdrop { display: none; }
+      body { padding-left: 280px; }
+      .composer-wrap { left: 280px; }
+      #sidebarToggleBtn { display: none; }
+    }
+
+    /* ── Views: main + drill-down ─────────── */
+    .view { display: flex; flex-direction: column; flex: 1; min-height: 0; }
+    .view[hidden] { display: none; }
+
+    /* Main-view topbar: frosted glass — more transparent, stronger blur, no hard border */
+    .view-main .topbar {
+      background: color-mix(in srgb, var(--bg) 35%, transparent);
+      border-bottom: 0;
+      backdrop-filter: blur(16px) saturate(140%);
+      -webkit-backdrop-filter: blur(16px) saturate(140%);
+    }
+
+    /* Detail view topbar variant */
+    .view-detail .topbar-title {
+      font-family: var(--serif); font-size: 19px;
+      color: var(--ink); letter-spacing: 0.01em;
+      margin-left: 8px;
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    }
+
+    /* ── Source detail content ──────────────── */
+    .source-hero {
+      display: flex; flex-direction: column; gap: 14px;
+      padding-bottom: 28px; margin-bottom: 32px;
+      border-bottom: 1px solid var(--rule-soft);
+    }
+    .source-hero .row {
+      display: flex; align-items: center; justify-content: space-between; gap: 14px;
+    }
+    .source-logo {
+      width: 64px; height: 64px; border-radius: 16px;
+      background: var(--surface-2); border: 1px solid var(--rule);
+      display: grid; place-items: center;
+      font-family: var(--serif); font-size: 34px; color: var(--accent);
+    }
+    .source-hero h1 {
+      font-family: var(--serif); font-weight: 400;
+      font-size: 34px; margin: 8px 0 0; line-height: 1.1;
+      letter-spacing: -0.005em;
+    }
+    .source-meta {
+      display: flex; gap: 16px; flex-wrap: wrap;
+      font-family: var(--mono); font-size: 11px; color: var(--ink-faint);
+      letter-spacing: 0.05em;
+    }
+    .source-meta .source-status {
+      display: inline-flex; align-items: center; gap: 7px; color: var(--signal);
+      text-transform: uppercase;
+    }
+    .source-meta .source-status::before {
+      content: ''; width: 6px; height: 6px; border-radius: 50%;
+      background: currentColor; box-shadow: 0 0 6px currentColor;
+    }
+    .source-meta .source-status.paused { color: var(--ink-faint); }
+    .source-meta .source-status.paused::before { box-shadow: none; }
+
+    /* Stats grid */
+    .stats-row { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
+    .stat {
+      background: var(--surface); border: 1px solid var(--rule);
+      border-radius: 12px; padding: 16px;
+    }
+    .stat .n {
+      display: block; font-family: var(--serif); font-size: 28px;
+      color: var(--ink); line-height: 1;
+    }
+    .stat .lbl {
+      display: block; margin-top: 6px;
+      font-family: var(--mono); font-size: 10px;
+      letter-spacing: 0.08em; text-transform: uppercase;
+      color: var(--ink-faint);
+    }
+
+    /* Control rows */
+    .control-list { display: flex; flex-direction: column; gap: 8px; }
+    .control {
+      display: flex; align-items: center; justify-content: space-between;
+      gap: 16px;
+      background: var(--surface); border: 1px solid var(--rule);
+      border-radius: 12px; padding: 14px 16px;
+    }
+    .control .ctl-label { font-size: 14.5px; font-weight: 500; color: var(--ink); }
+    .control .ctl-sub { font-size: 12.5px; color: var(--ink-soft); margin-top: 3px; line-height: 1.4; }
+
+    /* Switch */
+    .switch {
+      position: relative; display: inline-block;
+      width: 42px; height: 24px; flex-shrink: 0;
+    }
+    .switch input { opacity: 0; width: 0; height: 0; }
+    .switch .slider {
+      position: absolute; inset: 0; border-radius: 999px;
+      background: var(--surface-2); border: 1px solid var(--rule);
+      transition: background 180ms, border-color 180ms;
+      cursor: pointer;
+    }
+    .switch .slider::before {
+      content: ''; position: absolute; top: 2px; left: 2px;
+      width: 18px; height: 18px; border-radius: 50%;
+      background: var(--ink-faint);
+      transition: transform 180ms, background 180ms;
+    }
+    .switch input:checked + .slider { background: var(--accent); border-color: var(--accent); }
+    .switch input:checked + .slider::before { transform: translateX(18px); background: var(--bg-deep); }
+
+    /* Recent deltas */
+    .delta-list { display: flex; flex-direction: column; }
+    .delta-row {
+      padding: 14px 0; border-bottom: 1px solid var(--rule-soft);
+      display: flex; gap: 14px;
+    }
+    .delta-row:last-child { border-bottom: 0; }
+    .delta-row .when {
+      font-family: var(--mono); font-size: 11px; color: var(--ink-faint);
+      min-width: 48px; flex-shrink: 0; padding-top: 2px;
+      letter-spacing: 0.04em;
+    }
+    .delta-row .body { flex: 1; min-width: 0; }
+    .delta-row .text {
+      font-size: 14.5px; color: var(--ink-soft); line-height: 1.55;
+    }
+    .delta-row.long .text {
+      display: -webkit-box;
+      -webkit-line-clamp: 2;
+      -webkit-box-orient: vertical;
+      overflow: hidden;
+    }
+    .delta-row.long.expanded .text {
+      -webkit-line-clamp: unset;
+      overflow: visible;
+    }
+    .delta-row .show-more { display: none; }
+    .delta-row.long .show-more {
+      display: inline-block;
+      margin-top: 7px;
+      background: transparent; border: 0; padding: 0;
+      color: var(--signal); font-family: var(--mono); font-size: 10.5px;
+      letter-spacing: 0.07em; text-transform: uppercase;
+      cursor: pointer;
+    }
+    .delta-row .thumb {
+      width: 72px; height: 72px; flex-shrink: 0;
+      border-radius: 10px; background-size: cover; background-position: center;
+      background-color: var(--bg-deep);
+      border: 1px solid var(--rule);
+    }
+
+    /* ── Add-source wizard ──────────────────── */
+    .wizard-step { display: none; }
+    .wizard-step.active { display: block; }
+    .wizard-stamp {
+      font-family: var(--mono); font-size: 11px; letter-spacing: 0.08em;
+      text-transform: uppercase; color: var(--ink-faint);
+      margin-bottom: 14px;
+    }
+    .wizard-title {
+      font-family: var(--serif); font-weight: 400;
+      font-size: clamp(30px, 5.5vw, 40px);
+      letter-spacing: -0.005em; line-height: 1.08;
+      margin: 0 0 12px; color: var(--ink);
+    }
+    .wizard-sub {
+      font-size: 15px; line-height: 1.6; color: var(--ink-soft);
+      margin: 0 0 32px; max-width: 54ch;
+    }
+    .wizard-actions {
+      display: flex; gap: 10px; margin-top: 32px;
+    }
+
+    /* Type picker (step 1) */
+    .type-group { margin-bottom: 28px; }
+    .type-group h3 {
+      font-family: var(--mono); font-size: 11px; letter-spacing: 0.08em;
+      text-transform: uppercase; color: var(--ink-faint);
+      margin: 0 0 10px; font-weight: 400;
+    }
+    .type-grid {
+      display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px;
+    }
+    @media (min-width: 640px) {
+      .type-grid { grid-template-columns: repeat(3, 1fr); }
+    }
+    .type-tile {
+      background: var(--surface); border: 1px solid var(--rule);
+      border-radius: 12px; padding: 16px;
+      display: flex; flex-direction: column; gap: 4px;
+      cursor: pointer; text-align: left;
+      font-family: var(--sans); color: var(--ink);
+      transition: border-color 140ms, background 140ms, transform 80ms;
+    }
+    .type-tile:hover { border-color: var(--ink-faint); background: var(--surface-2); }
+    .type-tile:active { transform: scale(0.98); }
+    .type-tile .type-icon {
+      width: 40px; height: 40px; border-radius: 10px;
+      background: var(--bg-deep); border: 1px solid var(--rule);
+      display: grid; place-items: center;
+      font-family: var(--serif); font-size: 22px; color: var(--accent);
+      margin-bottom: 8px;
+    }
+    .type-tile .type-name { font-weight: 500; font-size: 14.5px; line-height: 1.25; }
+    .type-tile .type-sub { font-size: 12.5px; color: var(--ink-soft); line-height: 1.35; }
+    .type-tile .type-status {
+      font-family: var(--mono); font-size: 10px; color: var(--signal);
+      letter-spacing: 0.07em; text-transform: uppercase;
+      margin-top: 8px; display: inline-flex; align-items: center; gap: 6px;
+    }
+    .type-tile .type-status::before {
+      content: ''; width: 5px; height: 5px; border-radius: 50%;
+      background: currentColor; box-shadow: 0 0 4px currentColor;
+    }
+    .type-tile .type-status.not-connected { color: var(--ink-faint); }
+    .type-tile .type-status.not-connected::before { box-shadow: none; }
+
+    /* Form */
+    .form-group { margin-bottom: 16px; }
+    .form-group > label {
+      display: block; font-size: 13px; color: var(--ink);
+      font-weight: 500; margin-bottom: 6px;
+    }
+    .form-hint { font-size: 12px; color: var(--ink-faint); margin-top: 6px; line-height: 1.4; }
+    .form-input, .form-select {
+      width: 100%;
+      background: var(--surface); border: 1px solid var(--rule);
+      border-radius: 10px; padding: 11px 13px;
+      font-family: var(--sans); font-size: 14.5px; color: var(--ink);
+      outline: none; transition: border-color 120ms;
+      box-sizing: border-box;
+    }
+    .form-input:focus, .form-select:focus { border-color: var(--accent); }
+    .form-input::placeholder { color: var(--ink-faint); }
+    .form-select { appearance: none; background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'><path d='M1 1l5 5 5-5' stroke='%239fb0b5' stroke-width='1.5' fill='none' stroke-linecap='round'/></svg>"); background-repeat: no-repeat; background-position: right 12px center; padding-right: 36px; }
+
+    /* ── Settings view ─────────────────────── */
+    .account-hero {
+      display: flex; align-items: center; gap: 18px;
+      padding-bottom: 28px; margin-bottom: 32px;
+      border-bottom: 1px solid var(--rule-soft);
+    }
+    .avatar {
+      width: 76px; height: 76px; border-radius: 50%;
+      background: var(--surface-2); border: 1px solid var(--rule);
+      display: grid; place-items: center;
+      font-family: var(--serif); font-size: 30px; color: var(--accent);
+      flex-shrink: 0;
+    }
+    .account-info { flex: 1; min-width: 0; }
+    .account-info .name {
+      font-family: var(--serif); font-weight: 400;
+      font-size: 28px; margin: 0; line-height: 1.15;
+      color: var(--ink);
+    }
+    .account-info .email {
+      font-family: var(--mono); font-size: 12.5px;
+      color: var(--ink-faint); margin-top: 6px;
+      letter-spacing: 0.04em;
+      overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    }
+
+    .sub-card {
+      background: var(--surface); border: 1px solid var(--rule);
+      border-radius: var(--radius); padding: 20px;
+    }
+    .sub-card.upgrade {
+      background: var(--accent-soft);
+      border-color: color-mix(in srgb, var(--accent) 35%, var(--rule));
+    }
+    .tier.tier-open {
+      color: var(--signal);
+      background: color-mix(in srgb, var(--signal) 18%, transparent);
+    }
+
+    /* Tier-based content visibility */
+    :root:not([data-tier="open"]) [data-tier-view="open"] { display: none !important; }
+    [data-tier="open"] [data-tier-view="free"] { display: none !important; }
+
+    /* Open tier: unlock the memory horizon */
+    [data-tier="open"] .col.locked .bar {
+      background: var(--accent); opacity: 0.9;
+    }
+    [data-tier="open"] .col.locked .lbl {
+      color: var(--ink-faint);
+    }
+    [data-tier="open"] .cutoff { display: none; }
+    .sub-card .tier-row {
+      display: flex; align-items: center; justify-content: space-between;
+      gap: 10px; margin-bottom: 14px; flex-wrap: wrap;
+    }
+    .sub-card .tier {
+      font-family: var(--mono); font-size: 10.5px; letter-spacing: 0.1em;
+      text-transform: uppercase; color: var(--accent);
+      padding: 5px 11px; border-radius: 999px;
+      background: color-mix(in srgb, var(--accent) 18%, transparent);
+      display: inline-block;
+    }
+    .sub-card .price {
+      font-family: var(--mono); font-size: 12px; color: var(--ink-soft);
+    }
+    .sub-card h3 {
+      font-family: var(--serif); font-weight: 400; font-size: 24px;
+      margin: 0 0 8px; line-height: 1.2; color: var(--ink);
+    }
+    .sub-card p {
+      font-size: 14px; color: var(--ink-soft); line-height: 1.55;
+      margin: 0 0 16px;
+    }
+
+    .danger-list { display: flex; flex-direction: column; gap: 8px; }
+    .danger-item {
+      display: flex; align-items: center; justify-content: space-between;
+      gap: 16px;
+      background: var(--surface); border: 1px solid var(--rule);
+      border-radius: 12px; padding: 14px 16px;
+    }
+    .danger-item .dz-label { font-size: 14.5px; font-weight: 500; color: var(--ink); }
+    .danger-item .dz-sub { font-size: 12.5px; color: var(--ink-soft); margin-top: 3px; line-height: 1.45; }
+    .danger-item.critical { border-color: color-mix(in srgb, var(--danger) 30%, var(--rule)); }
+    .danger-item.critical .dz-label { color: var(--danger); }
+
+    /* Step 3 celebration */
+    .wizard-done-badge {
+      width: 56px; height: 56px; border-radius: 50%;
+      background: var(--accent-soft); color: var(--accent);
+      display: grid; place-items: center;
+      margin-bottom: 20px;
+    }
+
+    /* ── Chat view ─────────────────────────── */
+    .chat-stream {
+      display: flex; flex-direction: column; gap: 22px;
+      padding-bottom: 40px;
+    }
+    .chat-stream .session-stamp {
+      font-family: var(--mono); font-size: 10.5px;
+      letter-spacing: 0.1em; text-transform: uppercase;
+      color: var(--ink-faint);
+      text-align: center;
+      padding: 10px 0 4px;
+      border-top: 1px dashed var(--rule-soft);
+      margin-top: 8px;
+    }
+    .chat-stream .session-stamp:first-child { border-top: 0; margin-top: 0; }
+
+    .msg { display: flex; flex-direction: column; }
+    .msg-meta {
+      font-family: var(--mono); font-size: 10.5px;
+      letter-spacing: 0.09em; text-transform: uppercase;
+      color: var(--ink-faint);
+      margin-bottom: 7px;
+    }
+    .msg-body {
+      font-size: 15.5px; line-height: 1.6; color: var(--ink);
+    }
+    .msg-body p { margin: 0 0 12px; }
+    .msg-body p:last-child { margin-bottom: 0; }
+    .msg-body strong { color: var(--ink); font-weight: 500; }
+    .msg-body em { font-style: italic; }
+    .msg-body h1, .msg-body h2, .msg-body h3 {
+      font-family: var(--serif); font-weight: 400;
+      margin: 16px 0 8px; line-height: 1.2;
+    }
+    .msg-body h1 { font-size: 22px; }
+    .msg-body h2 { font-size: 19px; }
+    .msg-body h3 { font-size: 16px; }
+    .msg-body ul, .msg-body ol {
+      margin: 8px 0; padding-left: 20px;
+    }
+    .msg-body li { margin: 4px 0; line-height: 1.5; }
+    .msg-body code {
+      font-family: var(--mono); font-size: 0.88em;
+      background: var(--surface-2); padding: 2px 5px;
+      border-radius: 4px;
+    }
+    .msg-body pre {
+      background: var(--bg-deep); border: 1px solid var(--rule);
+      border-radius: 8px; padding: 12px 14px;
+      overflow-x: auto; margin: 10px 0;
+    }
+    .msg-body pre code {
+      background: none; padding: 0;
+      font-size: 13px; line-height: 1.5;
+    }
+    .msg-body table {
+      width: 100%; border-collapse: collapse;
+      margin: 10px 0; font-size: 14px;
+    }
+    .msg-body th, .msg-body td {
+      padding: 8px 10px; text-align: left;
+      border-bottom: 1px solid var(--rule);
+    }
+    .msg-body th {
+      font-family: var(--mono); font-size: 11px;
+      letter-spacing: 0.06em; text-transform: uppercase;
+      color: var(--ink-faint);
+    }
+    .msg-body blockquote {
+      border-left: 2px solid var(--accent);
+      margin: 10px 0; padding: 4px 0 4px 14px;
+      color: var(--ink-soft);
+    }
+    .msg-body hr {
+      border: none; border-top: 1px solid var(--rule);
+      margin: 16px 0;
+    }
+    .msg-body a { color: var(--signal); text-decoration: none; }
+    .msg-body a:hover { text-decoration: underline; }
+    .msg-body img { max-width: 100%; border-radius: 8px; margin: 8px 0; }
+
+    /* User message: soft surface card */
+    .msg-user .msg-body {
+      background: var(--surface);
+      border: 1px solid var(--rule);
+      border-radius: 12px;
+      padding: 13px 16px;
+    }
+
+    /* Fathom message: full-width prose, no chrome */
+    .msg-fathom .msg-body {
+      padding: 2px 0 0;
+    }
+
+    /* Tool activity strip */
+    .tool-strip {
+      align-self: flex-start;
+      display: inline-flex; align-items: center; gap: 10px;
+      font-family: var(--mono); font-size: 11.5px;
+      color: var(--ink-soft);
+      padding: 7px 12px;
+      background: var(--surface); border: 1px solid var(--rule-soft);
+      border-radius: 999px;
+      letter-spacing: 0.04em;
+    }
+    .tool-strip svg { opacity: 0.7; flex-shrink: 0; }
+    .tool-strip .tool-meta {
+      color: var(--signal); display: inline-flex; align-items: center; gap: 6px;
+    }
+    .tool-strip .tool-meta .ph-triangle {
+      width: 11px; height: 11px; flex-shrink: 0;
+      filter: drop-shadow(0 0 4px currentColor);
+    }
+    .tool-strip .tool-thumb {
+      width: 28px; height: 28px;
+      border-radius: 6px;
+      object-fit: cover;
+      border: 1px solid var(--rule);
+      flex-shrink: 0;
+    }
+
+    /* Inline source reference chip */
+    .source-ref {
+      margin-top: 12px;
+      padding: 9px 13px;
+      background: var(--surface-2);
+      border-radius: 10px;
+      font-family: var(--mono); font-size: 11.5px;
+      color: var(--ink-soft);
+      letter-spacing: 0.02em;
+      display: inline-flex; align-items: center; gap: 10px;
+    }
+    .source-ref::before {
+      content: ''; width: 5px; height: 5px; border-radius: 50%;
+      background: var(--signal);
+    }
+
+    /* Inline thread card */
+    .thread-card {
+      background: var(--surface); border: 1px solid var(--rule);
+      border-radius: 12px; padding: 6px 14px;
+      margin-top: 12px;
+    }
+    .thread-row {
+      display: flex; gap: 14px; padding: 9px 0;
+      border-bottom: 1px solid var(--rule-soft);
+    }
+    .thread-row:last-child { border-bottom: 0; }
+    .thread-row .from {
+      font-family: var(--mono); font-size: 10.5px;
+      color: var(--ink-faint); min-width: 64px;
+      letter-spacing: 0.06em; text-transform: uppercase;
+      padding-top: 3px; flex-shrink: 0;
+    }
+    .thread-row .preview {
+      font-size: 13.5px; color: var(--ink-soft); line-height: 1.5;
+      flex: 1;
+    }
+
+    /* Typing indicator (fake) */
+    .typing {
+      display: inline-flex; gap: 4px; align-items: center;
+      padding: 4px 0;
+      height: 24px;
+    }
+    .typing span {
+      width: 6px; height: 6px; border-radius: 50%;
+      background: var(--ink-faint);
+      animation: dots 1.2s ease-in-out infinite;
+    }
+    .typing span:nth-child(2) { animation-delay: 0.15s; }
+    .typing span:nth-child(3) { animation-delay: 0.3s; }
+    @keyframes dots {
+      0%, 80%, 100% { opacity: 0.3; transform: scale(0.8); }
+      40% { opacity: 1; transform: scale(1); }
+    }
+
+    .btn.danger {
+      color: var(--danger);
+      background: transparent;
+      border: 1px solid color-mix(in srgb, var(--danger) 35%, var(--rule));
+    }
+    .btn.danger:hover {
+      background: color-mix(in srgb, var(--danger) 10%, transparent);
+    }
+
+    /* Theme toggle: show moon in dark, sun in light */
+    .theme-toggle .ic-sun { display: none; }
+    .theme-toggle .ic-moon { display: block; }
+    [data-theme="light"] .theme-toggle .ic-sun { display: block; }
+    [data-theme="light"] .theme-toggle .ic-moon { display: none; }
+
+    @media (min-width: 960px) {
+      main { padding: 44px 40px 220px; }
+      .opener { margin-bottom: 52px; }
+      .section { margin: 56px 0; }
+    }
+  </style>
+</head>
+<body>
+
+  <!-- ═══ SIDEBAR ══════════════════════════════════ -->
+  <aside class="sidebar" id="sidebar">
+    <div class="sidebar-head">
+      <div class="sidebar-brand">
+        <span><em>f</em>athom<span class="brand-mark"><svg class="ph-triangle" viewBox="0 0 256 256" fill="currentColor"><path d="M236.8,188.09,149.35,36.22a24.76,24.76,0,0,0-42.7,0L19.2,188.09a23.51,23.51,0,0,0,0,23.72A24.35,24.35,0,0,0,40.55,224h174.9a24.35,24.35,0,0,0,21.33-12.19A23.51,23.51,0,0,0,236.8,188.09ZM222.93,203.8a8.5,8.5,0,0,1-7.48,4.2H40.55a8.5,8.5,0,0,1-7.48-4.2,7.59,7.59,0,0,1,0-7.72L120.52,44.21a8.75,8.75,0,0,1,15,0l87.45,151.87A7.59,7.59,0,0,1,222.93,203.8Z"/></svg></span></span>
+      </div>
+      <button class="new-session-btn" type="button">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+        <span>New session</span>
+      </button>
+    </div>
+    <div class="sidebar-body">
+      <!-- Populated dynamically from GET /v1/sessions -->
+    </div>
+    <div class="sidebar-foot">
+      <button class="account-row" id="accountRowBtn" type="button">
+        <div class="avatar-sm">MK</div>
+        <div class="account-row-info">
+          <div class="name">Myra Krusemark</div>
+          <div class="email">myrakrusemark@gmail.com</div>
+        </div>
+      </button>
+    </div>
+  </aside>
+  <div class="sidebar-backdrop" id="sidebarBackdrop"></div>
+
+  <!-- ═══ VIEW: MAIN ═══════════════════════════════ -->
+  <div class="view view-main" id="viewMain">
+
+  <!-- ── Top bar ───────────────────────────────── -->
+  <header class="topbar">
+    <div class="topbar-left">
+      <button class="icon-btn" id="sidebarToggleBtn" aria-label="Sessions">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
+      </button>
+      <div class="brand"><em>f</em>athom<span class="brand-mark"><svg class="ph-triangle" viewBox="0 0 256 256" fill="currentColor"><path d="M236.8,188.09,149.35,36.22a24.76,24.76,0,0,0-42.7,0L19.2,188.09a23.51,23.51,0,0,0,0,23.72A24.35,24.35,0,0,0,40.55,224h174.9a24.35,24.35,0,0,0,21.33-12.19A23.51,23.51,0,0,0,236.8,188.09ZM222.93,203.8a8.5,8.5,0,0,1-7.48,4.2H40.55a8.5,8.5,0,0,1-7.48-4.2,7.59,7.59,0,0,1,0-7.72L120.52,44.21a8.75,8.75,0,0,1,15,0l87.45,151.87A7.59,7.59,0,0,1,222.93,203.8Z"/></svg></span></div>
+    </div>
+    <div class="topbar-right">
+      <button class="icon-btn theme-toggle" id="themeToggle" aria-label="Toggle theme" title="Toggle theme">
+        <!-- moon (shown in dark mode — click to go light) -->
+        <svg class="ic-moon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
+        <!-- sun (shown in light mode — click to go dark) -->
+        <svg class="ic-sun" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"/></svg>
+      </button>
+    </div>
+  </header>
+
+  <!-- ── Main ──────────────────────────────────── -->
+  <main>
+
+    <!-- Opener: title + subtext will both be delta-rendered at runtime -->
+    <section class="opener">
+      <div class="stamp">Wednesday · 3:42 PM · St. Louis</div>
+      <h1>The lake is <em>warmer</em> than yesterday.</h1>
+      <p>423 new fragments since midnight, mostly from <strong>Topoco</strong> print runs and <strong>Trader</strong> market close. Three conversation threads are still open. One wants your attention.</p>
+    </section>
+
+    <!-- Feed: what Fathom noticed -->
+    <section class="section">
+      <div class="section-head">
+        <h2>What I noticed</h2>
+        <span class="meta">4 stories · 2h ago</span>
+      </div>
+      <div class="feed">
+        <!-- Populated by loadFeedStories() -->
+      </div>
+      <button class="show-more-feed" id="showMoreFeed" type="button">Show more</button>
+    </section>
+
+    <!-- Sources -->
+    <section class="section">
+      <div class="section-head">
+        <h2>Sources</h2>
+        <span class="meta">7 active · 2 paused</span>
+      </div>
+      <div class="sources" id="sourcesList">
+        <span class="chip" data-source="obsidian" data-state="active"><span class="dot"></span><span class="label">Obsidian vault</span><button class="kabob" tabindex="-1" aria-label="Source settings"><svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="5" r="1.5"/><circle cx="12" cy="12" r="1.5"/><circle cx="12" cy="19" r="1.5"/></svg></button></span>
+        <span class="chip" data-source="browser" data-state="active"><span class="dot"></span><span class="label">Browser extension</span><button class="kabob" tabindex="-1" aria-label="Source settings"><svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="5" r="1.5"/><circle cx="12" cy="12" r="1.5"/><circle cx="12" cy="19" r="1.5"/></svg></button></span>
+        <span class="chip" data-source="claude-desktop" data-state="active"><span class="dot"></span><span class="label">Claude Desktop</span><button class="kabob" tabindex="-1" aria-label="Source settings"><svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="5" r="1.5"/><circle cx="12" cy="12" r="1.5"/><circle cx="12" cy="19" r="1.5"/></svg></button></span>
+        <span class="chip" data-source="gmail" data-state="active"><span class="dot"></span><span class="label">Gmail</span><button class="kabob" tabindex="-1" aria-label="Source settings"><svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="5" r="1.5"/><circle cx="12" cy="12" r="1.5"/><circle cx="12" cy="19" r="1.5"/></svg></button></span>
+        <span class="chip" data-source="heartbeat" data-state="active"><span class="dot"></span><span class="label">Heartbeat</span><button class="kabob" tabindex="-1" aria-label="Source settings"><svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="5" r="1.5"/><circle cx="12" cy="12" r="1.5"/><circle cx="12" cy="19" r="1.5"/></svg></button></span>
+        <span class="chip" data-source="topoco" data-state="active"><span class="dot"></span><span class="label">Topoco sales</span><button class="kabob" tabindex="-1" aria-label="Source settings"><svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="5" r="1.5"/><circle cx="12" cy="12" r="1.5"/><circle cx="12" cy="19" r="1.5"/></svg></button></span>
+        <span class="chip" data-source="rss" data-state="active"><span class="dot"></span><span class="label">RSS · 12 feeds</span><button class="kabob" tabindex="-1" aria-label="Source settings"><svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="5" r="1.5"/><circle cx="12" cy="12" r="1.5"/><circle cx="12" cy="19" r="1.5"/></svg></button></span>
+        <span class="chip" data-source="slack" data-state="paused"><span class="dot"></span><span class="label">Slack</span><button class="kabob" tabindex="-1" aria-label="Source settings"><svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="5" r="1.5"/><circle cx="12" cy="12" r="1.5"/><circle cx="12" cy="19" r="1.5"/></svg></button></span>
+        <span class="chip" data-source="calendar" data-state="paused"><span class="dot"></span><span class="label">Calendar</span><button class="kabob" tabindex="-1" aria-label="Source settings"><svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="5" r="1.5"/><circle cx="12" cy="12" r="1.5"/><circle cx="12" cy="19" r="1.5"/></svg></button></span>
+        <button class="chip add" id="addSourceBtn" type="button">+ Add source</button>
+      </div>
+    </section>
+
+    <!-- Extend: how to reach Fathom from elsewhere -->
+    <section class="section">
+      <div class="section-head">
+        <h2>Reach me from anywhere</h2>
+        <span class="meta">one mind, all surfaces</span>
+      </div>
+      <div class="extend-grid">
+        <div class="extend">
+          <span class="label">Claude Desktop</span>
+          <span class="sub">MCP connector</span>
+        </div>
+        <div class="extend">
+          <span class="label">Browser</span>
+          <span class="sub">Chrome &amp; Firefox</span>
+        </div>
+        <div class="extend">
+          <span class="label">CLI</span>
+          <span class="sub">npm i -g fathom</span>
+        </div>
+        <div class="extend">
+          <span class="label">API</span>
+          <span class="sub">OpenAI-compatible</span>
+        </div>
+      </div>
+    </section>
+
+    <!-- Memory horizon — 12-day chart, 7-day accessible window -->
+    <section class="horizon">
+      <div class="horizon-head">
+        <h2>Usage</h2>
+        <span class="meta" id="usageMeta">loading…</span>
+      </div>
+      <div class="horizon-chart">
+        <div class="bars" id="bars">
+          <!-- Populated from GET /v1/usage -->
+          <div class="cutoff" id="cutoff"><span class="cutoff-label">7-day horizon</span></div>
+        </div>
+      </div>
+
+      <p class="horizon-copy" id="usageCopy">Loading usage data…</p>
+      <button class="btn" id="horizonUnlockBtn" data-tier-view="free">Unlock the lake →</button>
+      <button class="btn ghost" data-tier-view="free" style="margin-left: 8px;">See pricing</button>
+    </section>
+
+  </main>
+
+  </div><!-- /view-main -->
+
+  <!-- ═══ VIEW: SOURCE DETAIL ═══════════════════════ -->
+  <div class="view view-detail" id="viewSourceDetail" hidden>
+    <header class="topbar">
+      <div class="topbar-left">
+        <button class="icon-btn" id="backBtn" aria-label="Back">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/></svg>
+        </button>
+        <div class="topbar-title" id="detailTitle">Source</div>
+      </div>
+      <div class="topbar-right"></div>
+    </header>
+
+    <main>
+      <!-- Hero -->
+      <section class="source-hero">
+        <div class="row">
+          <div class="source-logo" id="detailLogo">G</div>
+          <button class="btn ghost" id="detailQuickPause">Pause</button>
+        </div>
+        <h1 id="detailName">Gmail</h1>
+      </section>
+
+      <!-- Activity -->
+      <section class="section">
+        <div class="section-head">
+          <h2>Activity</h2>
+          <span class="meta" id="detailLastSeen">Last activity · 4 min ago</span>
+        </div>
+        <div class="stats-row">
+          <div class="stat"><span class="n">312</span><span class="lbl">last 24h</span></div>
+          <div class="stat"><span class="n">2,104</span><span class="lbl">last 7d</span></div>
+          <div class="stat"><span class="n">48,209</span><span class="lbl">all time</span></div>
+        </div>
+      </section>
+
+      <!-- Recent deltas -->
+      <section class="section">
+        <div class="section-head">
+          <h2>Recent deltas</h2>
+        </div>
+        <div class="delta-list">
+          <div class="delta-row long">
+            <span class="when">4m</span>
+            <div class="body">
+              <div class="text">Subject: "Re: Topoco quarterly summary" from Beverly. She walked through Q1 performance numbers, flagged two concerns about Etsy listing visibility since the April algorithm change, and asked for a meeting next week to align on the Q2 roadmap before the Memorial Day inventory push. Thread now 4 messages deep.</div>
+              <button class="show-more" type="button">Show more</button>
+            </div>
+          </div>
+
+          <div class="delta-row">
+            <span class="when">31m</span>
+            <div class="body">
+              <div class="text">Calendar invite from Anthropic recruiting for 2026-04-22 at 14:30 CDT. Unanswered.</div>
+            </div>
+          </div>
+
+          <div class="delta-row long">
+            <span class="when">1h</span>
+            <div class="body">
+              <div class="text">Shipping notification: 2 filament spools delivered, tracking #1Z999AA12. Matte black PLA 2kg and transparent PETG 1kg — ordered last Thursday from the Bambu store. Marked received. Expected at the Topoco lab by end of day so Finn and Jake can resume the evening run.</div>
+              <button class="show-more" type="button">Show more</button>
+            </div>
+            <div class="thumb" style="background-image: url('https://picsum.photos/seed/fathom-spools/200/200')"></div>
+          </div>
+
+          <div class="delta-row long">
+            <span class="when">2h</span>
+            <div class="body">
+              <div class="text">Newsletter from Stratechery — "The Agentic Web" by Ben Thompson. Ben argues agents are the next aggregation layer after search, and that the platforms which control identity and memory will win the next decade. Flagged for later, marked as relevant to the IDA patent narrative.</div>
+              <button class="show-more" type="button">Show more</button>
+            </div>
+            <div class="thumb" style="background-image: url('https://picsum.photos/seed/fathom-stratechery/200/200')"></div>
+          </div>
+
+          <div class="delta-row">
+            <span class="when">4h</span>
+            <div class="body">
+              <div class="text">Password reset requested on old Shopify staging account — ignored.</div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Danger zone -->
+      <section class="section">
+        <div class="section-head">
+          <h2>Disconnect</h2>
+        </div>
+        <p style="font-size: 14px; color: var(--ink-soft); line-height: 1.55; margin: 0 0 14px;">
+          Disconnecting revokes access and stops all new ingestion. Existing deltas stay in the lake until they pass the memory horizon.
+        </p>
+        <button class="btn danger">Disconnect Gmail</button>
+      </section>
+    </main>
+  </div><!-- /view-source-detail -->
+
+  <!-- ═══ VIEW: ADD SOURCE (wizard) ═════════════════ -->
+  <div class="view view-add-source" id="viewAddSource" hidden>
+    <header class="topbar">
+      <div class="topbar-left">
+        <button class="icon-btn" id="addBackBtn" aria-label="Back">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/></svg>
+        </button>
+        <div class="topbar-title" id="addTitle">Add source</div>
+      </div>
+      <div class="topbar-right"></div>
+    </header>
+
+    <main>
+      <!-- Step 1: Choose type -->
+      <section class="wizard-step active" id="addStep1">
+        <div class="wizard-stamp">Step 1 · Choose type</div>
+        <h1 class="wizard-title">What's feeding you?</h1>
+        <p class="wizard-sub">Pick a source type. Any feed of the same type clusters together on your home screen — so if you already have RSS feeds, a new one joins the group.</p>
+
+        <div class="type-group">
+          <h3>Connected accounts</h3>
+          <div class="type-grid">
+            <button class="type-tile" data-type="gmail">
+              <div class="type-icon">✉</div>
+              <div class="type-name">Gmail</div>
+              <div class="type-sub">Email, threads, attachments</div>
+              <div class="type-status">Connected</div>
+            </button>
+            <button class="type-tile" data-type="slack">
+              <div class="type-icon">#</div>
+              <div class="type-name">Slack</div>
+              <div class="type-sub">Workspaces, DMs, channels</div>
+              <div class="type-status">Paused · 2 workspaces</div>
+            </button>
+            <button class="type-tile" data-type="github">
+              <div class="type-icon">◈</div>
+              <div class="type-name">GitHub</div>
+              <div class="type-sub">Commits, issues, PRs</div>
+              <div class="type-status not-connected">Not connected</div>
+            </button>
+            <button class="type-tile" data-type="notion">
+              <div class="type-icon">◍</div>
+              <div class="type-name">Notion</div>
+              <div class="type-sub">Pages, databases</div>
+              <div class="type-status not-connected">Not connected</div>
+            </button>
+            <button class="type-tile" data-type="drive">
+              <div class="type-icon">△</div>
+              <div class="type-name">Google Drive</div>
+              <div class="type-sub">Docs, sheets, shared files</div>
+              <div class="type-status not-connected">Not connected</div>
+            </button>
+          </div>
+        </div>
+
+        <div class="type-group">
+          <h3>Streams</h3>
+          <div class="type-grid">
+            <button class="type-tile" data-type="rss">
+              <div class="type-icon">∿</div>
+              <div class="type-name">RSS feed</div>
+              <div class="type-sub">Blogs, podcasts, journals</div>
+              <div class="type-status">12 connected</div>
+            </button>
+            <button class="type-tile" data-type="webhook">
+              <div class="type-icon">⟡</div>
+              <div class="type-name">Webhook</div>
+              <div class="type-sub">Custom HTTP events</div>
+              <div class="type-status not-connected">Not connected</div>
+            </button>
+            <button class="type-tile" data-type="api">
+              <div class="type-icon">⟐</div>
+              <div class="type-name">API poller</div>
+              <div class="type-sub">Pull from any JSON endpoint</div>
+              <div class="type-status not-connected">Not connected</div>
+            </button>
+          </div>
+        </div>
+
+        <div class="type-group">
+          <h3>Local watchers</h3>
+          <div class="type-grid">
+            <button class="type-tile" data-type="obsidian">
+              <div class="type-icon">⌘</div>
+              <div class="type-name">Obsidian vault</div>
+              <div class="type-sub">Markdown notes, daily journals</div>
+              <div class="type-status">Connected</div>
+            </button>
+            <button class="type-tile" data-type="folder">
+              <div class="type-icon">▣</div>
+              <div class="type-name">Folder</div>
+              <div class="type-sub">Watch any directory</div>
+              <div class="type-status not-connected">Not connected</div>
+            </button>
+          </div>
+        </div>
+
+        <div class="type-group">
+          <h3>Agent captures</h3>
+          <div class="type-grid">
+            <button class="type-tile" data-type="claude-desktop">
+              <div class="type-icon">✦</div>
+              <div class="type-name">Claude Desktop</div>
+              <div class="type-sub">MCP connector logs</div>
+              <div class="type-status">Connected</div>
+            </button>
+            <button class="type-tile" data-type="chatgpt">
+              <div class="type-icon">◉</div>
+              <div class="type-name">ChatGPT</div>
+              <div class="type-sub">Export-based ingestion</div>
+              <div class="type-status not-connected">Not connected</div>
+            </button>
+            <button class="type-tile" data-type="cursor">
+              <div class="type-icon">▷</div>
+              <div class="type-name">Cursor</div>
+              <div class="type-sub">Coding session logs</div>
+              <div class="type-status not-connected">Not connected</div>
+            </button>
+          </div>
+        </div>
+      </section>
+
+      <!-- Step 2: Configure (form content is swapped dynamically) -->
+      <section class="wizard-step" id="addStep2">
+        <div class="wizard-stamp" id="addStep2Stamp">Step 2 · Configure</div>
+        <h1 class="wizard-title" id="addStep2Title">Configure source</h1>
+        <p class="wizard-sub" id="addStep2Sub">Fill in the details.</p>
+        <div id="addStep2Form"></div>
+        <div class="wizard-actions">
+          <button class="btn ghost" id="addStep2Back">Back</button>
+          <button class="btn" id="addStep2Save">Add to lake</button>
+        </div>
+      </section>
+
+      <!-- Step 3: Done -->
+      <section class="wizard-step" id="addStep3">
+        <div class="wizard-done-badge">
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+        </div>
+        <div class="wizard-stamp">Done</div>
+        <h1 class="wizard-title" id="addStep3Title">Added to your lake.</h1>
+        <p class="wizard-sub" id="addStep3Sub">Your new source will start feeding deltas on the next polling cycle.</p>
+        <div class="wizard-actions">
+          <button class="btn" id="addStep3Done">Back to home</button>
+        </div>
+      </section>
+    </main>
+  </div><!-- /view-add-source -->
+
+  <!-- ═══ VIEW: SETTINGS ═══════════════════════════ -->
+  <div class="view view-settings" id="viewSettings" hidden>
+    <header class="topbar">
+      <div class="topbar-left">
+        <button class="icon-btn" id="settingsBackBtn" aria-label="Back">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/></svg>
+        </button>
+        <div class="topbar-title">Settings</div>
+      </div>
+      <div class="topbar-right"></div>
+    </header>
+
+    <main>
+      <!-- Account -->
+      <section class="section">
+        <div class="account-hero">
+          <div class="avatar">MK</div>
+          <div class="account-info">
+            <div class="name">Myra Krusemark</div>
+            <div class="email">myrakrusemark@gmail.com</div>
+          </div>
+          <button class="btn ghost">Edit</button>
+        </div>
+      </section>
+
+      <!-- Subscription -->
+      <section class="section">
+        <div class="section-head">
+          <h2>Subscription</h2>
+          <span class="meta">memory &amp; storage</span>
+        </div>
+        <div class="sub-card upgrade" data-tier-view="free">
+          <div class="tier-row">
+            <span class="tier">Free</span>
+            <span class="price">7-day memory · 5,000 delta cap</span>
+          </div>
+          <h3>Upgrade to Fathom Open.</h3>
+          <p>Unlimited memory horizon. No delta cap. Cross-device sync always. Priority on new source connectors as they ship.</p>
+          <button class="btn" id="upgradeBtn">Upgrade · $12 / month</button>
+          <button class="btn ghost" style="margin-left: 8px;">See pricing</button>
+        </div>
+        <div class="sub-card" data-tier-view="open">
+          <div class="tier-row">
+            <span class="tier tier-open">Open</span>
+            <span class="price">$12 / month · renews May 15, 2026</span>
+          </div>
+          <h3>You're on Fathom Open.</h3>
+          <p>Unlimited memory, no delta cap, every source connector unlocked. Thanks for betting on Fathom early.</p>
+          <button class="btn ghost">Manage billing</button>
+          <button class="btn ghost" id="cancelSubBtn" style="margin-left: 8px;">Cancel subscription</button>
+        </div>
+      </section>
+
+      <!-- Account actions -->
+      <section class="section">
+        <div class="section-head">
+          <h2>Account actions</h2>
+        </div>
+        <div class="danger-list">
+          <div class="danger-item">
+            <div>
+              <div class="dz-label">Pause account</div>
+              <div class="dz-sub">Stops all source ingestion. Existing deltas stay searchable. Resume anytime.</div>
+            </div>
+            <button class="btn ghost">Pause</button>
+          </div>
+          <div class="danger-item critical">
+            <div>
+              <div class="dz-label">Delete account</div>
+              <div class="dz-sub">Permanent. Revokes every source connection and wipes your entire lake. Cannot be undone.</div>
+            </div>
+            <button class="btn danger">Delete</button>
+          </div>
+        </div>
+      </section>
+    </main>
+  </div><!-- /view-settings -->
+
+  <!-- ═══ VIEW: CHAT ═══════════════════════════════ -->
+  <div class="view view-chat" id="viewChat" hidden>
+    <header class="topbar">
+      <div class="topbar-left">
+        <button class="icon-btn" id="chatBackBtn" aria-label="Back">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/></svg>
+        </button>
+        <div class="topbar-title" id="chatTitle">New session</div>
+      </div>
+      <div class="topbar-right"></div>
+    </header>
+
+    <main>
+      <div class="chat-stream" id="chatStream">
+        <!-- Populated dynamically per session -->
+      </div>
+    </main>
+  </div><!-- /view-chat -->
+
+  <!-- ── Composer (pinned bottom) ──────────────── -->
+  <div class="composer-wrap">
+    <div class="composer">
+      <input type="file" id="fileInput" accept="image/*" hidden />
+      <button class="attach" id="attachBtn" aria-label="Attach">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg>
+      </button>
+      <div class="attach-preview" id="attachPreview">
+        <img id="attachThumb" />
+        <button class="attach-remove" id="attachRemove" type="button">×</button>
+      </div>
+      <textarea rows="1" placeholder="Ask your lake…"></textarea>
+      <div class="tools">
+        <button class="send" aria-label="Send">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><line x1="12" y1="19" x2="12" y2="5"/><polyline points="5 12 12 5 19 12"/></svg>
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // ── API client ──────────────────────────────
+    const API_BASE = 'http://localhost:8201';
+    let currentSessionId = null;
+
+    async function api(path, opts = {}) {
+      const url = API_BASE + path;
+      const r = await fetch(url, {
+        headers: { 'Content-Type': 'application/json', ...opts.headers },
+        ...opts,
+      });
+      if (!r.ok) throw new Error(`${r.status} ${r.statusText}`);
+      return opts.raw ? r : r.json();
+    }
+
+    // Auto-grow composer
+    const ta = document.querySelector('.composer textarea');
+    ta.addEventListener('input', () => {
+      ta.style.height = 'auto';
+      ta.style.height = Math.min(ta.scrollHeight, 160) + 'px';
+    });
+
+    // Theme toggle
+    const toggle = document.getElementById('themeToggle');
+    const metaTheme = document.getElementById('metaThemeColor');
+    function applyTheme(theme) {
+      if (theme === 'light') {
+        document.documentElement.setAttribute('data-theme', 'light');
+        metaTheme.setAttribute('content', '#eef2f3');
+      } else {
+        document.documentElement.removeAttribute('data-theme');
+        metaTheme.setAttribute('content', '#0d1f26');
+      }
+      try { localStorage.setItem('fathom-theme', theme); } catch (e) {}
+    }
+    // Sync meta-theme on load in case the inline script set light mode before this ran
+    if (document.documentElement.getAttribute('data-theme') === 'light') {
+      metaTheme.setAttribute('content', '#eef2f3');
+    }
+    toggle.addEventListener('click', () => {
+      const current = document.documentElement.getAttribute('data-theme') === 'light' ? 'light' : 'dark';
+      applyTheme(current === 'light' ? 'dark' : 'light');
+    });
+
+    // ── Source interactions ─────────────────────
+    // Per-source display data. Keys match data-source attributes on chips.
+    const SOURCES = {
+      obsidian:        { name: 'Obsidian vault',   logo: '⌘', last: '2 min ago',  auth: 'Local watcher' },
+      browser:         { name: 'Browser extension',logo: '◷', last: '8 min ago',  auth: 'Chrome · Firefox' },
+      'claude-desktop':{ name: 'Claude Desktop',   logo: '✦', last: 'just now',   auth: 'MCP connected' },
+      gmail:           { name: 'Gmail',            logo: 'G', last: '4 min ago',  auth: 'OAuth · myrakrusemark@gmail.com' },
+      heartbeat:       { name: 'Heartbeat',        logo: '❤', last: '30 sec ago', auth: 'Internal · always on' },
+      topoco:          { name: 'Topoco sales',     logo: '◉', last: '1 h ago',    auth: 'Shopify · Etsy · Amazon' },
+      rss:             { name: 'RSS feeds',        logo: '∿', last: '14 min ago', auth: '12 feeds connected' },
+      slack:           { name: 'Slack',            logo: '#', last: '3 days ago', auth: 'OAuth · 2 workspaces' },
+      calendar:        { name: 'Calendar',         logo: '◧', last: '5 days ago', auth: 'Google Calendar' },
+    };
+
+    const viewMain = document.getElementById('viewMain');
+    const viewDetail = document.getElementById('viewSourceDetail');
+    const sourcesList = document.getElementById('sourcesList');
+    const backBtn = document.getElementById('backBtn');
+
+    function openSourceDetail(sourceId) {
+      const data = SOURCES[sourceId];
+      if (!data) return;
+      document.getElementById('detailTitle').textContent = data.name;
+      document.getElementById('detailLogo').textContent = data.logo;
+      document.getElementById('detailName').textContent = data.name;
+      document.getElementById('detailLastSeen').textContent = 'Last activity · ' + data.last;
+
+      // Reflect current chip state on the detail page
+      const chip = sourcesList.querySelector(`.chip[data-source="${sourceId}"]`);
+      const paused = chip && chip.getAttribute('data-state') === 'paused';
+      document.getElementById('detailQuickPause').textContent = paused ? 'Resume' : 'Pause';
+
+      viewMain.hidden = true;
+      viewDetail.hidden = false;
+      viewDetail.dataset.source = sourceId;
+      scrollViewToTop(viewDetail);
+    }
+
+    function closeDetail() {
+      viewDetail.hidden = true;
+      viewMain.hidden = false;
+    }
+    backBtn.addEventListener('click', closeDetail);
+
+    // Top-of-detail pause button — toggles chip state directly
+    document.getElementById('detailQuickPause').addEventListener('click', () => {
+      const sourceId = viewDetail.dataset.source;
+      const chip = sourcesList.querySelector(`.chip[data-source="${sourceId}"]`);
+      if (!chip) return;
+      const nextPaused = chip.getAttribute('data-state') !== 'paused';
+      chip.setAttribute('data-state', nextPaused ? 'paused' : 'active');
+      document.getElementById('detailQuickPause').textContent = nextPaused ? 'Resume' : 'Pause';
+    });
+
+    // Chip interactions: tap = toggle pause, kabob = open detail, long-press = open detail
+    const LONG_PRESS_MS = 500;
+
+    sourcesList.addEventListener('click', (e) => {
+      const chip = e.target.closest('.chip');
+      if (!chip || chip.classList.contains('add')) return;
+      const kabob = e.target.closest('.kabob');
+      if (kabob) {
+        e.stopPropagation();
+        openSourceDetail(chip.dataset.source);
+        return;
+      }
+      if (chip._longPressed) { chip._longPressed = false; return; }
+      // toggle pause
+      const current = chip.getAttribute('data-state');
+      chip.setAttribute('data-state', current === 'paused' ? 'active' : 'paused');
+    });
+
+    // Long-press (touch devices)
+    sourcesList.addEventListener('touchstart', (e) => {
+      const chip = e.target.closest('.chip');
+      if (!chip || chip.classList.contains('add')) return;
+      chip._longPressed = false;
+      chip._pressTimer = setTimeout(() => {
+        chip._longPressed = true;
+        if (navigator.vibrate) navigator.vibrate(12);
+        openSourceDetail(chip.dataset.source);
+      }, LONG_PRESS_MS);
+    }, { passive: true });
+
+    ['touchend','touchmove','touchcancel'].forEach(evt => {
+      sourcesList.addEventListener(evt, (e) => {
+        const chip = e.target.closest('.chip');
+        if (chip && chip._pressTimer) {
+          clearTimeout(chip._pressTimer);
+          chip._pressTimer = null;
+        }
+      }, { passive: true });
+    });
+
+    // ── Add-source wizard ───────────────────────
+    const viewAdd = document.getElementById('viewAddSource');
+    const addBackBtn = document.getElementById('addBackBtn');
+
+    const TYPE_META = {
+      gmail:     { label: 'Gmail',          kind: 'oauth',  provider: 'Google' },
+      slack:     { label: 'Slack',          kind: 'oauth',  provider: 'Slack' },
+      github:    { label: 'GitHub',         kind: 'oauth',  provider: 'GitHub' },
+      notion:    { label: 'Notion',         kind: 'oauth',  provider: 'Notion' },
+      drive:     { label: 'Google Drive',   kind: 'oauth',  provider: 'Google' },
+      rss:       { label: 'RSS feed',       kind: 'rss' },
+      webhook:   { label: 'Webhook',        kind: 'webhook' },
+      api:       { label: 'API poller',     kind: 'api' },
+      obsidian:  { label: 'Obsidian vault', kind: 'local' },
+      folder:    { label: 'Folder',         kind: 'local' },
+      'claude-desktop': { label: 'Claude Desktop', kind: 'agent' },
+      chatgpt:   { label: 'ChatGPT',        kind: 'agent' },
+      cursor:    { label: 'Cursor',         kind: 'agent' },
+    };
+
+    function scrollViewToTop(view) {
+      const main = view && view.querySelector('main');
+      if (main) main.scrollTop = 0;
+      window.scrollTo(0, 0);
+      // Run again after paint in case content swap restored the old offset.
+      requestAnimationFrame(() => {
+        if (main) main.scrollTop = 0;
+        window.scrollTo(0, 0);
+      });
+    }
+
+    function showAddStep(n) {
+      viewAdd.querySelectorAll('.wizard-step').forEach(s => s.classList.remove('active'));
+      document.getElementById('addStep' + n).classList.add('active');
+      viewAdd.dataset.step = String(n);
+      scrollViewToTop(viewAdd);
+    }
+
+    function openAddSource() {
+      viewMain.hidden = true;
+      viewAdd.hidden = false;
+      showAddStep(1);
+    }
+    function closeAddSource() {
+      viewAdd.hidden = true;
+      viewMain.hidden = false;
+    }
+
+    addBackBtn.addEventListener('click', () => {
+      const step = parseInt(viewAdd.dataset.step || '1', 10);
+      if (step <= 1) closeAddSource();
+      else showAddStep(step - 1);
+    });
+
+    // Type tile selection → populate step 2 based on kind
+    function populateStep2(type) {
+      const meta = TYPE_META[type];
+      if (!meta) return;
+      viewAdd.dataset.currentType = type;
+
+      const stamp = document.getElementById('addStep2Stamp');
+      const title = document.getElementById('addStep2Title');
+      const sub = document.getElementById('addStep2Sub');
+      const form = document.getElementById('addStep2Form');
+      const save = document.getElementById('addStep2Save');
+
+      if (meta.kind === 'rss') {
+        stamp.textContent = 'Step 2 · Configure feed';
+        title.textContent = 'Add an RSS feed';
+        sub.textContent = "Drop the feed URL below. Fathom polls it on schedule and clusters it with your other RSS feeds.";
+        save.textContent = 'Add to lake';
+        form.innerHTML = `
+          <div class="form-group">
+            <label>Feed URL</label>
+            <input class="form-input" type="url" placeholder="https://stratechery.com/feed" autocomplete="off"/>
+            <div class="form-hint">We'll auto-detect the feed name and icon from the URL.</div>
+          </div>
+          <div class="form-group">
+            <label>Display name <span style="color: var(--ink-faint); font-weight: 400;">(optional)</span></label>
+            <input class="form-input" type="text" placeholder="Stratechery" autocomplete="off"/>
+          </div>
+          <div class="form-group">
+            <label>Check for new items</label>
+            <select class="form-select">
+              <option value="900">Every 15 minutes</option>
+              <option value="3600" selected>Every hour</option>
+              <option value="14400">Every 4 hours</option>
+              <option value="86400">Once a day</option>
+            </select>
+          </div>`;
+      } else if (meta.kind === 'oauth') {
+        stamp.textContent = 'Step 2 · Sign in';
+        title.textContent = `Connect ${meta.label}`;
+        sub.textContent = `Fathom will open a ${meta.provider} sign-in window. We only request read access to the data you choose.`;
+        save.textContent = `Sign in with ${meta.provider}`;
+        form.innerHTML = `
+          <div class="form-group">
+            <label>What Fathom will see</label>
+            <div class="form-input" style="background: var(--surface); cursor: default; line-height: 1.6;">
+              Messages, threads, attachments · read-only<br/>
+              <span style="color: var(--ink-faint); font-size: 13px;">No sending, no deleting, no modifying anything on your account.</span>
+            </div>
+          </div>`;
+      } else if (meta.kind === 'local') {
+        stamp.textContent = 'Step 2 · Pick a location';
+        title.textContent = type === 'obsidian' ? 'Watch an Obsidian vault' : 'Watch a folder';
+        sub.textContent = "Fathom monitors this location for changes and adds new content to the lake. Nothing leaves your machine unless you ask.";
+        save.textContent = 'Start watching';
+        form.innerHTML = `
+          <div class="form-group">
+            <label>Path</label>
+            <input class="form-input" type="text" placeholder="/Users/myra/Dropbox/Obsidian" autocomplete="off"/>
+            <div class="form-hint">Local path on your machine.</div>
+          </div>
+          <div class="form-group">
+            <label>File types</label>
+            <input class="form-input" type="text" value=".md, .markdown, .txt" autocomplete="off"/>
+          </div>`;
+      } else if (meta.kind === 'webhook') {
+        stamp.textContent = 'Step 2 · Configure endpoint';
+        title.textContent = 'Set up a webhook';
+        sub.textContent = "Fathom generates a unique URL. POST any JSON payload to it and it becomes a delta.";
+        save.textContent = 'Generate URL';
+        form.innerHTML = `
+          <div class="form-group">
+            <label>Name</label>
+            <input class="form-input" type="text" placeholder="Topoco order hook" autocomplete="off"/>
+          </div>
+          <div class="form-group">
+            <label>Tag incoming events with</label>
+            <input class="form-input" type="text" placeholder="topoco, orders" autocomplete="off"/>
+            <div class="form-hint">Comma-separated. Applied to every delta from this webhook.</div>
+          </div>`;
+      } else if (meta.kind === 'api') {
+        stamp.textContent = 'Step 2 · Configure poller';
+        title.textContent = 'Poll an API';
+        sub.textContent = "Fathom hits the endpoint on your schedule, diffs the response, and writes new items as deltas.";
+        save.textContent = 'Start polling';
+        form.innerHTML = `
+          <div class="form-group">
+            <label>Endpoint</label>
+            <input class="form-input" type="url" placeholder="https://api.example.com/v1/items" autocomplete="off"/>
+          </div>
+          <div class="form-group">
+            <label>Auth header <span style="color: var(--ink-faint); font-weight: 400;">(optional)</span></label>
+            <input class="form-input" type="text" placeholder="Bearer sk-..." autocomplete="off"/>
+          </div>
+          <div class="form-group">
+            <label>Poll every</label>
+            <select class="form-select">
+              <option>Every 15 minutes</option>
+              <option selected>Every hour</option>
+              <option>Every 4 hours</option>
+            </select>
+          </div>`;
+      } else if (meta.kind === 'agent') {
+        stamp.textContent = 'Step 2 · Install connector';
+        title.textContent = `Connect ${meta.label}`;
+        sub.textContent = "Install the Fathom connector in " + meta.label + ". Every session gets captured and flows into your lake.";
+        save.textContent = 'Copy install command';
+        form.innerHTML = `
+          <div class="form-group">
+            <label>Install command</label>
+            <div class="form-input" style="font-family: var(--mono); font-size: 13px; background: var(--bg-deep); cursor: text;">
+              npx fathom-connector add ${type}
+            </div>
+            <div class="form-hint">Paste this into your terminal. You'll be prompted to authorize.</div>
+          </div>`;
+      }
+    }
+
+    document.querySelectorAll('.type-tile').forEach(tile => {
+      tile.addEventListener('click', () => {
+        populateStep2(tile.dataset.type);
+        showAddStep(2);
+      });
+    });
+
+    document.getElementById('addStep2Back').addEventListener('click', () => showAddStep(1));
+
+    document.getElementById('addStep2Save').addEventListener('click', () => {
+      const type = viewAdd.dataset.currentType;
+      const meta = TYPE_META[type];
+
+      const title3 = document.getElementById('addStep3Title');
+      const sub3 = document.getElementById('addStep3Sub');
+
+      // Clustering: update the existing same-type chip if present
+      if (type === 'rss') {
+        const rssLabel = sourcesList.querySelector('.chip[data-source="rss"] .label');
+        if (rssLabel) rssLabel.textContent = 'RSS · 13 feeds';
+        title3.textContent = 'Added to your lake.';
+        sub3.textContent = 'RSS · 13 feeds — your new source joins 12 others on the home screen.';
+      } else if (type === 'slack') {
+        const slackChip = sourcesList.querySelector('.chip[data-source="slack"]');
+        if (slackChip) slackChip.setAttribute('data-state', 'active');
+        title3.textContent = 'Signed in.';
+        sub3.textContent = 'Slack is active again — 2 workspaces flowing into the lake.';
+      } else if (meta && meta.kind === 'oauth') {
+        title3.textContent = `Connected ${meta.label}.`;
+        sub3.textContent = `First sync is running now. Expect the first deltas within a minute.`;
+      } else if (meta && meta.kind === 'local') {
+        title3.textContent = 'Watching.';
+        sub3.textContent = 'Initial scan is running. Edits and new files will show up as deltas.';
+      } else {
+        title3.textContent = 'Added to your lake.';
+        sub3.textContent = 'Your new source will start feeding deltas on the next cycle.';
+      }
+
+      showAddStep(3);
+    });
+
+    document.getElementById('addStep3Done').addEventListener('click', closeAddSource);
+
+    // Wire the main-view "+ Add source" button to open the wizard
+    document.getElementById('addSourceBtn').addEventListener('click', openAddSource);
+
+    // ── Settings ─────────────────────────────────
+    const viewSettings = document.getElementById('viewSettings');
+    const settingsBackBtn = document.getElementById('settingsBackBtn');
+
+    function openSettings() {
+      viewMain.hidden = true;
+      viewSettings.hidden = false;
+      scrollViewToTop(viewSettings);
+    }
+    function closeSettings() {
+      viewSettings.hidden = true;
+      viewMain.hidden = false;
+    }
+    settingsBackBtn.addEventListener('click', closeSettings);
+
+    // ── Sidebar ──────────────────────────────────
+    const sidebar = document.getElementById('sidebar');
+    const sidebarBackdrop = document.getElementById('sidebarBackdrop');
+    const sidebarToggleBtn = document.getElementById('sidebarToggleBtn');
+    const isMobile = () => window.matchMedia('(max-width: 959px)').matches;
+
+    function openSidebar() {
+      sidebar.classList.add('open');
+      sidebarBackdrop.classList.add('visible');
+    }
+    function closeSidebar() {
+      sidebar.classList.remove('open');
+      sidebarBackdrop.classList.remove('visible');
+    }
+    sidebarToggleBtn.addEventListener('click', openSidebar);
+    sidebarBackdrop.addEventListener('click', closeSidebar);
+
+    // Account row → open settings (and close sidebar on mobile since settings is a full view)
+    document.getElementById('accountRowBtn').addEventListener('click', () => {
+      if (isMobile()) closeSidebar();
+      openSettings();
+    });
+
+    // New session button — opens a fresh chat session
+    document.querySelector('.new-session-btn').addEventListener('click', () => {
+      if (isMobile()) closeSidebar();
+      openChatFresh();
+    });
+
+    // ── Chat view ────────────────────────────────
+    const viewChat = document.getElementById('viewChat');
+    const chatBackBtn = document.getElementById('chatBackBtn');
+    const chatStream = document.getElementById('chatStream');
+    const chatTitle = document.getElementById('chatTitle');
+    const composer = document.querySelector('.composer');
+    const composerTa = composer.querySelector('textarea');
+    const composerSend = composer.querySelector('.send');
+
+    // ── Live session management ────────────────
+
+    const PH_TRIANGLE = '<svg class="ph-triangle" viewBox="0 0 256 256" fill="currentColor"><path d="M236.8,188.09,149.35,36.22a24.76,24.76,0,0,0-42.7,0L19.2,188.09a23.51,23.51,0,0,0,0,23.72A24.35,24.35,0,0,0,40.55,224h174.9a24.35,24.35,0,0,0,21.33-12.19A23.51,23.51,0,0,0,236.8,188.09ZM222.93,203.8a8.5,8.5,0,0,1-7.48,4.2H40.55a8.5,8.5,0,0,1-7.48-4.2,7.59,7.59,0,0,1,0-7.72L120.52,44.21a8.75,8.75,0,0,1,15,0l87.45,151.87A7.59,7.59,0,0,1,222.93,203.8Z"/></svg>';
+
+    const TOOL_ICONS = {
+      search: '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>',
+      mail:   '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 4h16v16H4z"/><polyline points="22 6 12 13 2 6"/></svg>',
+      pen:    '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 013 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>',
+    };
+
+    function renderTurn(turn) {
+      if (turn.role === 'user') {
+        const el = document.createElement('div');
+        el.className = 'msg msg-user';
+        el.innerHTML = `<div class="msg-meta">You · ${turn.time}</div><div class="msg-body">${escapeHtml(turn.text)}</div>`;
+        return el;
+      }
+      if (turn.role === 'fathom') {
+        const el = document.createElement('div');
+        el.className = 'msg msg-fathom';
+        const body = turn.html || renderMd(turn.text || '');
+        el.innerHTML = `<div class="msg-meta">Fathom · ${turn.time}</div><div class="msg-body">${body}</div>`;
+        return el;
+      }
+      if (turn.role === 'tool') {
+        const el = document.createElement('div');
+        el.className = 'tool-strip';
+        const labelHtml = turn.label ? `<span>${turn.label}</span>` : '';
+        const thumbHtml = turn.media_hash
+          ? `<img class="tool-thumb" src="${API_BASE}/v1/media/${turn.media_hash}" alt="" />`
+          : '';
+        el.innerHTML = `${thumbHtml}${TOOL_ICONS[turn.icon] || ''}${labelHtml}<span class="tool-meta">${PH_TRIANGLE}${turn.meta}</span>`;
+        return el;
+      }
+      return document.createTextNode('');
+    }
+
+    function escapeHtml(s) {
+      return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    }
+
+    function renderMd(text) {
+      if (typeof marked !== 'undefined' && marked.parse) {
+        return marked.parse(text);
+      }
+      return text.replace(/\n/g, '<br>');
+    }
+
+    function renderStream(session) {
+      chatStream.innerHTML = '';
+      if (session.stamp) {
+        const stamp = document.createElement('div');
+        stamp.className = 'session-stamp';
+        stamp.textContent = session.stamp;
+        chatStream.appendChild(stamp);
+      }
+      session.turns.forEach(t => chatStream.appendChild(renderTurn(t)));
+    }
+
+    async function openChatWithSession(sessionId, title) {
+      chatTitle.textContent = title || 'Session';
+      currentSessionId = sessionId;
+      chatStream.innerHTML = '<div class="session-stamp">Loading…</div>';
+      hideMainOpenChat();
+
+      try {
+        const data = await api(`/v1/sessions/${sessionId}`);
+        chatStream.innerHTML = '';
+        const stamp = document.createElement('div');
+        stamp.className = 'session-stamp';
+        const created = data.session.created_at ? new Date(data.session.created_at).toLocaleString() : '';
+        stamp.textContent = data.session.title + (created ? ` · ${created}` : '');
+        chatStream.appendChild(stamp);
+
+        for (const m of data.messages) {
+          const time = m.created_at ? new Date(m.created_at).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }) : '';
+          let el;
+          if (m.role === 'user') {
+            el = renderTurn({ role: 'user', time, text: m.content || '' });
+          } else if (m.role === 'assistant') {
+            el = renderTurn({
+              role: 'fathom', time,
+              html: renderMd(m.content || ''),
+            });
+          }
+          if (el && m.media_hash) {
+            const img = document.createElement('img');
+            img.className = 'msg-thumb';
+            img.src = `${API_BASE}/v1/media/${m.media_hash}`;
+            el.querySelector('.msg-body').appendChild(img);
+          }
+          if (el) chatStream.appendChild(el);
+        }
+        scrollToBottomOfChat();
+      } catch (err) {
+        chatStream.innerHTML = `<div class="session-stamp">Failed to load session</div>`;
+      }
+    }
+
+    function openChatFresh() {
+      chatTitle.textContent = 'New session';
+      currentSessionId = null;
+      chatStream.innerHTML = '<div class="session-stamp">New session · just now</div>';
+      hideMainOpenChat();
+      setTimeout(() => composerTa && composerTa.focus(), 100);
+    }
+
+    function hideMainOpenChat() {
+      [viewMain, viewDetail, viewAdd, viewSettings].forEach(v => v && (v.hidden = true));
+      viewChat.hidden = false;
+      scrollToBottomOfChat();
+    }
+
+    function closeChat() {
+      viewChat.hidden = true;
+      viewMain.hidden = false;
+    }
+
+    function scrollToBottomOfChat() {
+      const main = viewChat.querySelector('main');
+      requestAnimationFrame(() => {
+        main.scrollTop = main.scrollHeight;
+      });
+    }
+
+    chatBackBtn.addEventListener('click', () => {
+      closeChat();
+      currentSessionId = null;
+    });
+
+    // Dynamic sidebar session loading
+    const sidebarBody = document.querySelector('.sidebar-body');
+
+    async function loadSessions() {
+      try {
+        const data = await api('/v1/sessions');
+        sidebarBody.innerHTML = '';
+        const groupLabels = { today: 'Today', yesterday: 'Yesterday', last_7_days: 'Last 7 days', older: 'Older' };
+        for (const [key, label] of Object.entries(groupLabels)) {
+          const sessions = data.groups[key];
+          if (!sessions || sessions.length === 0) continue;
+          const group = document.createElement('div');
+          group.className = 'session-group';
+          group.innerHTML = `<h3>${label}</h3><ul class="session-list"></ul>`;
+          const ul = group.querySelector('ul');
+          for (const s of sessions) {
+            const li = document.createElement('li');
+            const btn = document.createElement('button');
+            btn.className = 'session-item';
+            if (s.id === currentSessionId) btn.classList.add('active');
+            btn.textContent = s.title;
+            btn.dataset.sessionId = s.id;
+            btn.addEventListener('click', () => {
+              sidebarBody.querySelectorAll('.session-item.active').forEach(a => a.classList.remove('active'));
+              btn.classList.add('active');
+              if (isMobile()) closeSidebar();
+              openChatWithSession(s.id, s.title);
+            });
+            li.appendChild(btn);
+            ul.appendChild(li);
+          }
+          sidebarBody.appendChild(group);
+        }
+      } catch (err) {
+        // Sidebar stays as-is if API is down — static mock sessions still work
+      }
+    }
+
+    // Load sessions on startup
+    loadSessions();
+
+    // Composer send — real streaming API call
+    async function sendFromComposer() {
+      const text = composerTa.value.trim();
+      const hasImage = !!pendingFile;
+      if (!text && !hasImage) return;
+      composerTa.value = '';
+      composerTa.style.height = 'auto';
+
+      // If on main view, open a fresh chat
+      if (viewChat.hidden) {
+        openChatFresh();
+      }
+
+      const now = new Date();
+      const timeStr = now.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+
+      // Upload image first if attached
+      let uploadedMedia = null;
+      if (hasImage) {
+        uploadedMedia = await uploadPendingImage(currentSessionId);
+      }
+
+      // Show user message with optional thumbnail
+      const userEl = renderTurn({ role: 'user', time: timeStr, text: text || '(image)' });
+      if (uploadedMedia) {
+        const img = document.createElement('img');
+        img.className = 'msg-thumb';
+        img.src = `${API_BASE}/v1/media/${uploadedMedia.media_hash}`;
+        userEl.querySelector('.msg-body').appendChild(img);
+      }
+      chatStream.appendChild(userEl);
+      scrollToBottomOfChat();
+
+      // Show typing indicator
+      const typing = document.createElement('div');
+      typing.className = 'typing';
+      typing.innerHTML = '<span></span><span></span><span></span>';
+      chatStream.appendChild(typing);
+      scrollToBottomOfChat();
+
+      try {
+        const r = await fetch(API_BASE + '/v1/chat/completions', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            messages: [{ role: 'user', content: uploadedMedia
+              ? `${text || 'Attached image.'}\n[Image attached: media_hash=${uploadedMedia.media_hash}]`
+              : text }],
+            session_id: currentSessionId,
+            stream: true,
+            image_uploaded: !!uploadedMedia,
+          }),
+        });
+
+        typing.remove();
+
+        const reader = r.body.getReader();
+        const decoder = new TextDecoder();
+        let assistantText = '';
+        let fathomEl = null;
+        let buffer = '';
+
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          buffer += decoder.decode(value, { stream: true });
+
+          // Process SSE lines
+          const lines = buffer.split('\n');
+          buffer = lines.pop(); // keep incomplete last line
+
+          for (const line of lines) {
+            if (line.startsWith('event: tool_result')) {
+              // Next data line has the tool result
+              continue;
+            }
+            if (line.startsWith('event: meta')) {
+              continue;
+            }
+            if (!line.startsWith('data: ')) continue;
+            const payload = line.slice(6);
+            if (payload === '[DONE]') continue;
+
+            try {
+              const parsed = JSON.parse(payload);
+
+              // Tool result event — deltas or image view
+              if (parsed.name) {
+                if (parsed.media_hash) {
+                  // Image viewed by LLM — render as thumbnail in tool strip
+                  chatStream.appendChild(renderTurn({
+                    role: 'tool',
+                    meta: 'viewed',
+                    media_hash: parsed.media_hash,
+                  }));
+                  scrollToBottomOfChat();
+                  continue;
+                }
+                if (parsed.count != null) {
+                  chatStream.appendChild(renderTurn({
+                    role: 'tool', meta: `${parsed.count} deltas`,
+                  }));
+                  scrollToBottomOfChat();
+                  continue;
+                }
+              }
+
+              // Session ID from meta event
+              if (parsed.session_id && !currentSessionId) {
+                currentSessionId = parsed.session_id;
+              }
+
+              // Streaming text chunk
+              const delta = parsed.choices?.[0]?.delta;
+              if (delta?.content) {
+                if (!fathomEl) {
+                  fathomEl = document.createElement('div');
+                  fathomEl.className = 'msg msg-fathom';
+                  fathomEl.innerHTML = `<div class="msg-meta">Fathom · ${timeStr}</div><div class="msg-body"></div>`;
+                  chatStream.appendChild(fathomEl);
+                }
+                assistantText += delta.content;
+                fathomEl.querySelector('.msg-body').innerHTML = renderMd(assistantText);
+                scrollToBottomOfChat();
+              }
+            } catch (e) {
+              // Skip unparseable lines
+            }
+          }
+        }
+
+        // Refresh sidebar sessions after a new conversation
+        loadSessions();
+
+      } catch (err) {
+        typing.remove();
+        chatStream.appendChild(renderTurn({
+          role: 'fathom', time: timeStr,
+          html: `<p style="color: var(--danger);">Connection error: ${escapeHtml(err.message)}</p>`,
+        }));
+        scrollToBottomOfChat();
+      }
+    }
+
+    composerSend.addEventListener('click', sendFromComposer);
+    composerTa.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' && !e.shiftKey) {
+        e.preventDefault();
+        sendFromComposer();
+      }
+    });
+
+    // ── Image attachment ─────────────────────────
+    const fileInput = document.getElementById('fileInput');
+    const attachBtn = document.getElementById('attachBtn');
+    const attachPreview = document.getElementById('attachPreview');
+    const attachThumb = document.getElementById('attachThumb');
+    const attachRemove = document.getElementById('attachRemove');
+    let pendingFile = null;
+
+    attachBtn.addEventListener('click', () => fileInput.click());
+    fileInput.addEventListener('change', () => {
+      const file = fileInput.files[0];
+      if (!file) return;
+      pendingFile = file;
+      attachThumb.src = URL.createObjectURL(file);
+      attachPreview.classList.add('visible');
+    });
+    attachRemove.addEventListener('click', () => {
+      pendingFile = null;
+      fileInput.value = '';
+      attachPreview.classList.remove('visible');
+      if (attachThumb.src.startsWith('blob:')) URL.revokeObjectURL(attachThumb.src);
+    });
+
+    async function uploadPendingImage(sessionSlug) {
+      if (!pendingFile) return null;
+      const form = new FormData();
+      form.append('file', pendingFile);
+      form.append('session_id', sessionSlug || '');
+      form.append('content', composerTa.value.trim() || '');
+      const r = await fetch(API_BASE + '/v1/media/upload', { method: 'POST', body: form });
+      if (!r.ok) return null;
+      const data = await r.json();
+      // Clear attachment
+      pendingFile = null;
+      fileInput.value = '';
+      attachPreview.classList.remove('visible');
+      if (attachThumb.src.startsWith('blob:')) URL.revokeObjectURL(attachThumb.src);
+      return data; // {id, media_hash}
+    }
+
+    // Tier toggle (upgrade ↔ cancel)
+    function applyTier(tier) {
+      document.documentElement.setAttribute('data-tier', tier);
+      try { localStorage.setItem('fathom-tier', tier); } catch (e) {}
+    }
+    document.getElementById('upgradeBtn').addEventListener('click', () => applyTier('open'));
+    document.getElementById('cancelSubBtn').addEventListener('click', () => applyTier('free'));
+    document.getElementById('horizonUnlockBtn').addEventListener('click', () => {
+      applyTier('open');
+      openSettings();
+    });
+
+    // Esc closes whichever drill-down view (or open sidebar) is on top
+    document.addEventListener('keydown', (e) => {
+      if (e.key !== 'Escape') return;
+      if (sidebar.classList.contains('open') && isMobile()) closeSidebar();
+      else if (!viewDetail.hidden) closeDetail();
+      else if (!viewAdd.hidden) closeAddSource();
+      else if (!viewSettings.hidden) closeSettings();
+    });
+
+    // ── Live feed stories ───────────────────────
+    const feed = document.querySelector('.feed');
+    const showMoreBtn = document.getElementById('showMoreFeed');
+    let feedOffset = 0;
+    const FEED_PAGE = 5;
+
+    function storyImageSrc(s) {
+      // New format: flat fields from fathom_think feed directive
+      if (s.media_hash) return `${API_BASE}/v1/media/${s.media_hash}`;
+      if (s.image_url) return s.image_url;
+      // Existing format: images array from loop-api feed
+      if (s.images && s.images.length > 0) {
+        const img = s.images[0];
+        if (img.media_hash) return `${API_BASE}/v1/media/${img.media_hash}`;
+        if (img.url) return img.url;
+      }
+      return null;
+    }
+
+    function renderStoryCard(s, delay) {
+      const card = document.createElement('article');
+      card.className = 'card surfacing';
+      if (delay) card.style.animationDelay = delay + 's';
+
+      const kicker = s.kicker || s.layer || '';
+      const title = s.title || s.content?.substring(0, 60) || 'Untitled';
+      const body = s.body || '';
+      const tail = s.tail || '';
+      const imgSrc = storyImageSrc(s);
+      const layout = s.image_layout || 'hero';
+
+      const bodyHtml = `<div class="card-body">
+        ${kicker ? `<div class="kicker">${escapeHtml(kicker)}</div>` : ''}
+        <h3>${escapeHtml(title)}</h3>
+        ${body ? `<p>${escapeHtml(body)}</p>` : ''}
+        <div class="tail"><span>${escapeHtml(tail)}</span><span class="action">Explore →</span></div>
+      </div>`;
+
+      if (imgSrc && layout === 'thumb') {
+        card.classList.add('card-horiz');
+        card.innerHTML = `<div class="thumb" style="background-image: url('${imgSrc}')"></div>${bodyHtml}`;
+      } else if (imgSrc) {
+        card.innerHTML = `<div class="card-img-hero" style="background-image: url('${imgSrc}')"></div>${bodyHtml}`;
+      } else {
+        card.innerHTML = bodyHtml;
+      }
+      return card;
+    }
+
+    async function loadFeedStories(append) {
+      try {
+        const data = await api(`/v1/feed/stories?limit=${FEED_PAGE}&offset=${feedOffset}`);
+        const stories = data.stories || [];
+        if (!append) feed.innerHTML = '';
+        stories.forEach((s, i) => {
+          feed.appendChild(renderStoryCard(s, append ? i * 0.18 : i * 0.18));
+        });
+        feedOffset += stories.length;
+        if (!data.has_more || stories.length < FEED_PAGE) {
+          showMoreBtn.textContent = 'No more stories';
+          showMoreBtn.disabled = true;
+          showMoreBtn.style.opacity = '0.4';
+        }
+      } catch (err) {
+        // API down — static cards remain as fallback
+      }
+    }
+
+    // Tap a feed story → open it as a new chat session
+    feed.addEventListener('click', (e) => {
+      const card = e.target.closest('.card');
+      if (!card) return;
+      const h3 = card.querySelector('h3');
+      if (!h3) return;
+
+      const clone = card.cloneNode(true);
+      clone.querySelectorAll('.action').forEach(a => a.remove());
+      clone.classList.remove('surfacing');
+      clone.style.animation = 'none';
+      clone.style.cursor = 'default';
+
+      const title = h3.textContent;
+      openChatFresh();
+      chatTitle.textContent = title;
+
+      chatStream.innerHTML = '';
+      const stamp = document.createElement('div');
+      stamp.className = 'session-stamp';
+      stamp.textContent = 'New session · just now';
+      chatStream.appendChild(stamp);
+
+      const now = new Date();
+      const timeStr = now.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+      const turn = document.createElement('div');
+      turn.className = 'msg msg-fathom';
+      turn.innerHTML = `<div class="msg-meta">Fathom · ${timeStr}</div>`;
+      const body = document.createElement('div');
+      body.className = 'msg-body';
+      body.appendChild(clone);
+      turn.appendChild(body);
+      chatStream.appendChild(turn);
+      scrollToBottomOfChat();
+      setTimeout(() => composerTa && composerTa.focus(), 100);
+    });
+
+    showMoreBtn.addEventListener('click', () => loadFeedStories(true));
+
+    // Load feed on page load
+    loadFeedStories(false);
+
+    // Show more / Show less for delta rows
+    document.querySelectorAll('.delta-row.long .show-more').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const row = btn.closest('.delta-row');
+        const expanded = row.classList.toggle('expanded');
+        btn.textContent = expanded ? 'Show less' : 'Show more';
+      });
+    });
+
+    // ── Usage widget (live) ──────────────────────
+    const usageBars = document.getElementById('bars');
+    const usageMeta = document.getElementById('usageMeta');
+    const usageCopy = document.getElementById('usageCopy');
+    const cutoffEl = document.getElementById('cutoff');
+
+    async function loadUsage() {
+      try {
+        const data = await api('/v1/usage');
+        const days = data.days || [];
+        const total = data.total || 0;
+        const maxCount = Math.max(...days.map(d => d.count), 1);
+
+        // Clear existing bars (keep cutoff element)
+        usageBars.querySelectorAll('.col').forEach(c => c.remove());
+
+        // Render bars
+        const today = new Date().toISOString().slice(0, 10);
+        const FREE_HORIZON = 7;
+
+        days.forEach((d, i) => {
+          const col = document.createElement('div');
+          col.className = 'col';
+          const heightPct = Math.max((d.count / maxCount) * 90, 2);
+
+          // On free tier, days outside the horizon are locked
+          const daysAgo = days.length - 1 - i;
+          const isFree = document.documentElement.getAttribute('data-tier') !== 'open';
+          if (isFree && daysAgo >= FREE_HORIZON) {
+            col.classList.add('locked');
+          }
+          if (d.date === today) {
+            col.classList.add('today');
+          }
+
+          const bar = document.createElement('div');
+          bar.className = 'bar';
+          bar.style.height = heightPct + '%';
+          col.appendChild(bar);
+
+          const lbl = document.createElement('span');
+          lbl.className = 'lbl';
+          if (d.date === today) {
+            lbl.textContent = 'Today';
+          } else {
+            // Show day number (M/D)
+            const dt = new Date(d.date + 'T12:00:00');
+            lbl.textContent = `${dt.getMonth()+1}/${dt.getDate()}`;
+          }
+          col.appendChild(lbl);
+
+          usageBars.insertBefore(col, cutoffEl);
+        });
+
+        // Position cutoff between locked and unlocked
+        function placeCutoff() {
+          const cols = usageBars.querySelectorAll('.col');
+          if (cols.length < 2) { cutoffEl.style.display = 'none'; return; }
+          // Find the boundary
+          let lastLocked = -1;
+          cols.forEach((c, i) => { if (c.classList.contains('locked')) lastLocked = i; });
+          if (lastLocked < 0 || lastLocked >= cols.length - 1) {
+            cutoffEl.style.display = 'none';
+            return;
+          }
+          cutoffEl.style.display = '';
+          const left = cols[lastLocked].getBoundingClientRect();
+          const right = cols[lastLocked + 1].getBoundingClientRect();
+          const parent = usageBars.getBoundingClientRect();
+          cutoffEl.style.left = ((left.right + right.left) / 2 - parent.left) + 'px';
+        }
+        requestAnimationFrame(placeCutoff);
+        window.addEventListener('resize', placeCutoff);
+
+        // Meta text
+        const recentCount = days.slice(-FREE_HORIZON).reduce((s, d) => s + d.count, 0);
+        usageMeta.textContent = `${total.toLocaleString()} total deltas`;
+
+        // Copy
+        const isFree = document.documentElement.getAttribute('data-tier') !== 'open';
+        if (isFree) {
+          const lockedCount = days.slice(0, -FREE_HORIZON).reduce((s, d) => s + d.count, 0);
+          usageCopy.innerHTML = `The last 7 days hold <strong>${recentCount.toLocaleString()} fragments</strong> — searchable, bridgeable, alive.`
+            + (lockedCount > 0 ? ` <span class="amber">${lockedCount.toLocaleString()} fragments from earlier days are sealed under the horizon.</span>` : '');
+        } else {
+          usageCopy.innerHTML = `All <strong>${total.toLocaleString()} fragments</strong> are searchable — none sinking, no horizon. The lake has no bottom while you're on Open.`;
+        }
+      } catch (err) {
+        // Static fallback — widget stays as-is
+      }
+    }
+    loadUsage();
+  </script>
+
+</body>
+</html>

@@ -1,0 +1,353 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <title>Fathom</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+  <style>
+    :root {
+      --bg: #f5f2ec;
+      --surface: #ffffff;
+      --ink: #171514;
+      --ink-soft: #6a645d;
+      --ink-faint: #a8a29a;
+      --rule: #e5e0d7;
+      --accent: #c2410c;
+      --accent-soft: #fef3e8;
+      --radius: 14px;
+      --serif: "Instrument Serif", Georgia, serif;
+      --sans: "Inter", system-ui, sans-serif;
+      --mono: "JetBrains Mono", ui-monospace, monospace;
+    }
+    * { box-sizing: border-box; }
+    html, body { margin: 0; padding: 0; background: var(--bg); color: var(--ink); font-family: var(--sans); -webkit-font-smoothing: antialiased; }
+    body { min-height: 100dvh; display: flex; flex-direction: column; }
+
+    /* ── Top bar ─────────────────────────────────── */
+    .topbar {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 14px 20px;
+      border-bottom: 1px solid var(--rule);
+      position: sticky; top: 0; background: var(--bg); z-index: 10;
+    }
+    .brand { font-family: var(--serif); font-size: 26px; letter-spacing: 0.01em; }
+    .brand em { font-style: italic; color: var(--accent); }
+    .icon-btn {
+      width: 36px; height: 36px; display: grid; place-items: center;
+      border: 1px solid var(--rule); background: var(--surface);
+      border-radius: 10px; cursor: pointer; color: var(--ink-soft);
+    }
+    .topbar-left, .topbar-right { display: flex; gap: 8px; align-items: center; }
+
+    /* ── Main scroll area ────────────────────────── */
+    main {
+      flex: 1;
+      overflow-y: auto;
+      padding: 28px 20px 180px; /* bottom pad for composer */
+      max-width: 720px; width: 100%; margin: 0 auto;
+    }
+
+    /* Greeting / opener */
+    .opener { margin-bottom: 36px; }
+    .opener .stamp {
+      font-family: var(--mono); font-size: 11px; letter-spacing: 0.08em;
+      text-transform: uppercase; color: var(--ink-faint); margin-bottom: 12px;
+    }
+    .opener h1 {
+      font-family: var(--serif); font-weight: 400;
+      font-size: clamp(34px, 6vw, 52px); line-height: 1.05;
+      margin: 0 0 18px; letter-spacing: -0.01em;
+    }
+    .opener h1 em { color: var(--accent); }
+    .opener p {
+      font-size: 16px; line-height: 1.55; color: var(--ink-soft);
+      margin: 0; max-width: 58ch;
+    }
+
+    /* Section label */
+    .section { margin: 40px 0; }
+    .section-head {
+      display: flex; align-items: baseline; justify-content: space-between;
+      margin-bottom: 14px;
+    }
+    .section-head h2 {
+      font-family: var(--serif); font-weight: 400; font-size: 22px;
+      margin: 0; letter-spacing: 0;
+    }
+    .section-head .meta {
+      font-family: var(--mono); font-size: 11px;
+      letter-spacing: 0.06em; text-transform: uppercase; color: var(--ink-faint);
+    }
+
+    /* Feed cards */
+    .feed { display: flex; flex-direction: column; gap: 10px; }
+    .card {
+      background: var(--surface); border: 1px solid var(--rule);
+      border-radius: var(--radius); padding: 18px 20px;
+      cursor: pointer; transition: transform 120ms ease, border-color 120ms ease;
+    }
+    .card:hover { border-color: var(--ink-faint); transform: translateY(-1px); }
+    .card .kicker {
+      font-family: var(--mono); font-size: 10.5px; letter-spacing: 0.08em;
+      text-transform: uppercase; color: var(--accent); margin-bottom: 8px;
+    }
+    .card h3 {
+      font-family: var(--serif); font-weight: 400; font-size: 20px;
+      margin: 0 0 6px; line-height: 1.25;
+    }
+    .card p {
+      font-size: 14.5px; line-height: 1.5; color: var(--ink-soft);
+      margin: 0;
+    }
+    .card .tail {
+      margin-top: 12px; display: flex; gap: 14px;
+      font-family: var(--mono); font-size: 11px; color: var(--ink-faint);
+    }
+
+    /* Sources strip */
+    .sources {
+      display: flex; flex-wrap: wrap; gap: 8px;
+    }
+    .chip {
+      display: inline-flex; align-items: center; gap: 6px;
+      padding: 8px 12px; border-radius: 999px;
+      background: var(--surface); border: 1px solid var(--rule);
+      font-size: 13px; color: var(--ink);
+    }
+    .chip .dot { width: 6px; height: 6px; border-radius: 50%; background: #4ade80; }
+    .chip.muted .dot { background: var(--ink-faint); }
+
+    /* Extend row */
+    .extend-grid {
+      display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px;
+    }
+    @media (min-width: 640px) {
+      .extend-grid { grid-template-columns: repeat(4, 1fr); }
+    }
+    .extend {
+      background: var(--surface); border: 1px solid var(--rule);
+      border-radius: 12px; padding: 14px;
+      display: flex; flex-direction: column; gap: 4px; cursor: pointer;
+    }
+    .extend:hover { border-color: var(--ink-faint); }
+    .extend .label { font-weight: 500; font-size: 14px; }
+    .extend .sub { font-size: 12px; color: var(--ink-soft); }
+
+    /* Upgrade card */
+    .upgrade {
+      margin-top: 40px;
+      background: var(--accent-soft); border: 1px solid #f4c79a;
+      border-radius: var(--radius); padding: 20px;
+    }
+    .upgrade h3 {
+      font-family: var(--serif); font-weight: 400; font-size: 22px;
+      margin: 0 0 6px;
+    }
+    .upgrade p { font-size: 14px; color: var(--ink-soft); margin: 0 0 14px; line-height: 1.5; }
+    .upgrade .bar {
+      height: 6px; border-radius: 999px; background: #f4d9bd; overflow: hidden; margin-bottom: 10px;
+    }
+    .upgrade .bar > span { display: block; height: 100%; background: var(--accent); width: 55%; }
+    .upgrade .bar-meta {
+      font-family: var(--mono); font-size: 11px; color: var(--ink-soft);
+      display: flex; justify-content: space-between; margin-bottom: 14px;
+    }
+    .btn {
+      display: inline-flex; align-items: center; gap: 6px;
+      background: var(--ink); color: #fff; border: 0;
+      padding: 10px 16px; border-radius: 10px;
+      font-family: var(--sans); font-weight: 500; font-size: 14px;
+      cursor: pointer;
+    }
+    .btn.ghost { background: transparent; color: var(--ink); border: 1px solid var(--rule); }
+
+    /* ── Composer (pinned) ───────────────────────── */
+    .composer-wrap {
+      position: fixed; left: 0; right: 0; bottom: 0;
+      padding: 14px 16px calc(14px + env(safe-area-inset-bottom));
+      background: linear-gradient(180deg, transparent 0%, var(--bg) 30%);
+      z-index: 20;
+    }
+    .composer {
+      max-width: 720px; margin: 0 auto;
+      display: flex; align-items: end; gap: 8px;
+      background: var(--surface); border: 1px solid var(--rule);
+      border-radius: 18px; padding: 10px 10px 10px 14px;
+      box-shadow: 0 6px 24px -12px rgba(0,0,0,0.15);
+    }
+    .composer textarea {
+      flex: 1; border: 0; outline: 0; resize: none;
+      font-family: var(--sans); font-size: 15.5px; line-height: 1.4;
+      background: transparent; max-height: 160px; padding: 8px 0;
+      color: var(--ink);
+    }
+    .composer textarea::placeholder { color: var(--ink-faint); }
+    .composer .tools { display: flex; gap: 6px; align-items: center; }
+    .composer .send {
+      width: 36px; height: 36px; border-radius: 10px; border: 0;
+      background: var(--ink); color: #fff;
+      display: grid; place-items: center; cursor: pointer;
+    }
+    .composer .attach {
+      width: 36px; height: 36px; border-radius: 10px;
+      background: transparent; border: 0; color: var(--ink-soft);
+      display: grid; place-items: center; cursor: pointer;
+    }
+
+    /* ── Desktop widening ────────────────────────── */
+    @media (min-width: 960px) {
+      main { padding: 40px 40px 200px; }
+      .opener { margin-bottom: 44px; }
+      .section { margin: 48px 0; }
+    }
+  </style>
+</head>
+<body>
+
+  <!-- ── Top bar ───────────────────────────────── -->
+  <header class="topbar">
+    <div class="topbar-left">
+      <button class="icon-btn" aria-label="Sessions">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
+      </button>
+      <div class="brand"><em>f</em>athom</div>
+    </div>
+    <div class="topbar-right">
+      <button class="icon-btn" aria-label="Settings">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+      </button>
+    </div>
+  </header>
+
+  <!-- ── Main ──────────────────────────────────── -->
+  <main>
+
+    <!-- Opener: time-aware greeting + lake pulse -->
+    <section class="opener">
+      <div class="stamp">Wednesday · 3:42 PM · St. Louis</div>
+      <h1>The lake is <em>warmer</em> than yesterday.</h1>
+      <p>423 new fragments since midnight, mostly from <strong>Topoco</strong> print runs and <strong>Trader</strong> market close. Three conversation threads are still open. One wants your attention.</p>
+    </section>
+
+    <!-- Feed: what Fathom noticed -->
+    <section class="section">
+      <div class="section-head">
+        <h2>What I noticed</h2>
+        <span class="meta">3 stories · 2h ago</span>
+      </div>
+      <div class="feed">
+
+        <article class="card">
+          <div class="kicker">pattern · trader</div>
+          <h3>PLTR keeps surfacing in your losses, not your wins.</h3>
+          <p>You've written about PLTR 14 times in the last month. Nine were bearish, five were neutral, none were bullish. The position is still open.</p>
+          <div class="tail"><span>14 deltas</span><span>3 sessions</span><span>Open thread →</span></div>
+        </article>
+
+        <article class="card">
+          <div class="kicker">connection · cross-domain</div>
+          <h3>Your Topoco printer names and Nova's reading list overlap.</h3>
+          <p>Finn, Jake, BMO, and Simon appear in both your farm roster and a children's book list from February. Worth a note.</p>
+          <div class="tail"><span>6 deltas</span><span>bridge search</span><span>Explore →</span></div>
+        </article>
+
+        <article class="card">
+          <div class="kicker">recurrence · personal</div>
+          <h3>Second time this week you've searched for "applications follow-up."</h3>
+          <p>The Feb-March cohort is 50 deep and has no check-in cadence. You've flagged this gap three times since March 30.</p>
+          <div class="tail"><span>3 deltas</span><span>recurring query</span><span>Start a plan →</span></div>
+        </article>
+
+      </div>
+    </section>
+
+    <!-- Sources -->
+    <section class="section">
+      <div class="section-head">
+        <h2>Sources</h2>
+        <span class="meta">7 active · 2 paused</span>
+      </div>
+      <div class="sources">
+        <span class="chip"><span class="dot"></span>Obsidian vault</span>
+        <span class="chip"><span class="dot"></span>Browser extension</span>
+        <span class="chip"><span class="dot"></span>Claude Desktop</span>
+        <span class="chip"><span class="dot"></span>Gmail</span>
+        <span class="chip"><span class="dot"></span>Heartbeat</span>
+        <span class="chip"><span class="dot"></span>Topoco sales</span>
+        <span class="chip"><span class="dot"></span>RSS · 12 feeds</span>
+        <span class="chip muted"><span class="dot"></span>Slack · paused</span>
+        <span class="chip muted"><span class="dot"></span>Calendar · paused</span>
+        <span class="chip" style="color: var(--accent); border-color: var(--accent);">+ Add source</span>
+      </div>
+    </section>
+
+    <!-- Extend: how to reach Fathom from elsewhere -->
+    <section class="section">
+      <div class="section-head">
+        <h2>Reach me from anywhere</h2>
+        <span class="meta">one mind, all surfaces</span>
+      </div>
+      <div class="extend-grid">
+        <div class="extend">
+          <span class="label">Claude Desktop</span>
+          <span class="sub">MCP connector</span>
+        </div>
+        <div class="extend">
+          <span class="label">Browser</span>
+          <span class="sub">Chrome &amp; Firefox</span>
+        </div>
+        <div class="extend">
+          <span class="label">CLI</span>
+          <span class="sub">npm i -g fathom</span>
+        </div>
+        <div class="extend">
+          <span class="label">API</span>
+          <span class="sub">OpenAI-compatible</span>
+        </div>
+      </div>
+    </section>
+
+    <!-- Upgrade / storage -->
+    <section class="upgrade">
+      <h3>Your lake ends in 4 days.</h3>
+      <p>On the free tier, deltas older than 7 days stop being searchable. You have 2,847 fragments still in range. Upgrade to keep the lake open forever.</p>
+      <div class="bar"><span></span></div>
+      <div class="bar-meta">
+        <span>3 days left in memory window</span>
+        <span>2,847 / 5,000 deltas</span>
+      </div>
+      <button class="btn">Upgrade to Fathom Open →</button>
+      <button class="btn ghost" style="margin-left: 8px;">See pricing</button>
+    </section>
+
+  </main>
+
+  <!-- ── Composer (pinned bottom) ──────────────── -->
+  <div class="composer-wrap">
+    <div class="composer">
+      <button class="attach" aria-label="Attach">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg>
+      </button>
+      <textarea rows="1" placeholder="Ask your lake…"></textarea>
+      <div class="tools">
+        <button class="send" aria-label="Send">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><line x1="12" y1="19" x2="12" y2="5"/><polyline points="5 12 12 5 19 12"/></svg>
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // Auto-grow composer
+    const ta = document.querySelector('.composer textarea');
+    ta.addEventListener('input', () => {
+      ta.style.height = 'auto';
+      ta.style.height = Math.min(ta.scrollHeight, 160) + 'px';
+    });
+  </script>
+
+</body>
+</html>
