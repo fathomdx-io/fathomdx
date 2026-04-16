@@ -4,6 +4,7 @@
  *
  * Connects to any Fathom instance (self-hosted or cloud). Discovers
  * available tools from GET /v1/tools, filtered by the token's scopes.
+ * Exposes the identity crystal as an MCP resource.
  *
  * Environment:
  *   FATHOM_API_URL  — base URL (default: http://localhost:8201)
@@ -16,7 +17,12 @@
 
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
-import { CallToolRequestSchema, ListToolsRequestSchema } from "@modelcontextprotocol/sdk/types.js";
+import {
+  CallToolRequestSchema,
+  ListToolsRequestSchema,
+  ListResourcesRequestSchema,
+  ReadResourceRequestSchema,
+} from "@modelcontextprotocol/sdk/types.js";
 
 const API_URL = (process.env.FATHOM_API_URL || "http://localhost:8201").replace(/\/$/, "");
 const API_KEY = process.env.FATHOM_API_KEY || "";
@@ -113,15 +119,15 @@ async function main() {
     process.exit(1);
   }
 
-  // Build lookup
   const toolMap = {};
   for (const t of tools) toolMap[t.name] = t;
 
   const server = new Server(
-    { name: "Fathom", version: "0.1.0" },
-    { capabilities: { tools: {} } },
+    { name: "Fathom", version: "2.1.0" },
+    { capabilities: { tools: {}, resources: {} } },
   );
 
+  // Tools — dynamic from /v1/tools
   server.setRequestHandler(ListToolsRequestSchema, async () => ({
     tools: tools.map(t => ({
       name: t.name,
@@ -142,6 +148,47 @@ async function main() {
     } catch (e) {
       return { content: [{ type: "text", text: `Error: ${e.message}` }] };
     }
+  });
+
+  // Resources — identity crystal
+  server.setRequestHandler(ListResourcesRequestSchema, async () => ({
+    resources: [
+      {
+        uri: "fathom://crystal",
+        name: "Identity Crystal",
+        description: "Fathom's identity — a first-person synthesis of who this mind is. Read this at the start of every conversation for persistent context.",
+        mimeType: "text/plain",
+      },
+    ],
+  }));
+
+  server.setRequestHandler(ReadResourceRequestSchema, async (request) => {
+    const { uri } = request.params;
+    if (uri === "fathom://crystal") {
+      try {
+        const r = await fetch(`${API_URL}/v1/crystal`, { headers: authHeaders(false) });
+        if (r.ok) {
+          const data = await r.json();
+          const text = data.text || "No crystal generated yet.";
+          const created = data.created_at || "unknown";
+          return {
+            contents: [{
+              uri,
+              mimeType: "text/plain",
+              text: `Identity crystal (crystallized ${created}):\n\n${text}`,
+            }],
+          };
+        }
+      } catch {}
+      return {
+        contents: [{
+          uri,
+          mimeType: "text/plain",
+          text: "No identity crystal available. Generate one from the Fathom dashboard.",
+        }],
+      };
+    }
+    throw new Error(`Unknown resource: ${uri}`);
   });
 
   const transport = new StdioServerTransport();
