@@ -355,13 +355,14 @@
     .extend {
       background: var(--surface); border: 1px solid var(--rule);
       border-radius: 12px; padding: 14px;
-      display: flex; flex-direction: column; gap: 4px; cursor: pointer;
+      display: flex; flex-direction: row; align-items: center; gap: 10px; cursor: pointer;
       transition: border-color 120ms, background 120ms;
     }
     .extend:hover { border-color: var(--ink-faint); background: var(--surface-2); }
-    .extend .extend-icon { font-size: 20px; color: var(--accent); line-height: 1; }
+    .extend .extend-icon { font-size: 20px; color: var(--accent); line-height: 1; flex-shrink: 0; width: 24px; text-align: center; }
+    .extend .extend-text { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
     .extend .label { font-weight: 500; font-size: 14px; color: var(--ink); }
-    .extend .sub { font-size: 12px; color: var(--ink-soft); font-family: var(--mono); letter-spacing: 0.02em; }
+    .extend .sub { font-size: 12px; color: var(--ink-soft); font-family: var(--mono); letter-spacing: 0.02em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
     /* ── Surface setup instructions ── */
     .setup-hero { padding-bottom: 24px; margin-bottom: 28px; border-bottom: 1px solid var(--rule-soft); }
@@ -1309,23 +1310,19 @@
       <div class="extend-grid">
         <div class="extend" data-surface="mcp-and-hooks">
           <span class="extend-icon">⌘</span>
-          <span class="label">MCP &amp; Hooks</span>
-          <span class="sub">npx fathom-connect</span>
+          <div class="extend-text"><span class="label">MCP &amp; Hooks</span><span class="sub">npx fathom-connect</span></div>
         </div>
         <div class="extend" data-surface="cli">
           <span class="extend-icon">▸</span>
-          <span class="label">CLI</span>
-          <span class="sub">npx fathom-delta-cli</span>
+          <div class="extend-text"><span class="label">CLI</span><span class="sub">npx fathom-delta-cli</span></div>
         </div>
         <div class="extend" data-surface="browser">
           <span class="extend-icon">◎</span>
-          <span class="label">Browser</span>
-          <span class="sub">WIP</span>
+          <div class="extend-text"><span class="label">Browser</span><span class="sub">WIP</span></div>
         </div>
         <div class="extend" data-surface="api">
           <span class="extend-icon">{…}</span>
-          <span class="label">API</span>
-          <span class="sub">WIP</span>
+          <div class="extend-text"><span class="label">API</span><span class="sub">WIP</span></div>
         </div>
       </div>
     </section>
