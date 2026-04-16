@@ -1306,21 +1306,21 @@
         <span class="meta">one mind, all surfaces</span>
       </div>
       <div class="extend-grid">
-        <div class="extend" data-surface="claude-desktop">
-          <span class="label">Claude Desktop</span>
-          <span class="sub">MCP connector</span>
+        <div class="extend" data-surface="mcp">
+          <span class="label">MCP</span>
+          <span class="sub">npx fathom-mcp</span>
         </div>
         <div class="extend" data-surface="browser">
           <span class="label">Browser</span>
-          <span class="sub">Chrome &amp; Firefox</span>
+          <span class="sub">WIP</span>
         </div>
         <div class="extend" data-surface="cli">
           <span class="label">CLI</span>
-          <span class="sub">npm i -g fathom</span>
+          <span class="sub">WIP</span>
         </div>
         <div class="extend" data-surface="api">
           <span class="label">API</span>
-          <span class="sub">OpenAI-compatible</span>
+          <span class="sub">WIP</span>
         </div>
       </div>
     </section>
@@ -2293,17 +2293,18 @@
     const surfaceBackBtn = document.getElementById('surfaceBackBtn');
 
     const SURFACES = {
-      'claude-desktop': {
+      'mcp': {
         icon: '⌘',
-        name: 'Claude Desktop',
-        desc: 'Connect Fathom as an MCP server so Claude Desktop can search your lake, write deltas, and use your memory natively.',
+        name: 'MCP',
+        desc: 'Connect Claude Desktop, Claude Code, Cursor, or any MCP-capable host to your lake. Tools are discovered automatically from your token\'s scopes.',
         steps: [
           {
-            title: 'Step 1 · Open your MCP config',
-            body: 'In Claude Desktop, go to <strong>Settings → Developer → Edit Config</strong>. This opens <code style="display:inline;padding:2px 6px;">claude_desktop_config.json</code>.',
+            title: 'Step 1 · Get your API key',
+            body: 'Go to <strong>Settings → API Keys</strong> and create a token. Copy it — you\'ll need it in the next step.',
           },
           {
-            title: 'Step 2 · Add the Fathom server',
+            title: 'Step 2 · Add to your MCP config',
+            body: 'In Claude Desktop: <strong>Settings → Developer → Edit Config</strong>. In Claude Code: <code style="display:inline;padding:2px 6px;">.claude/settings.json</code>.',
             code: `{
   "mcpServers": {
     "fathom": {
@@ -2318,103 +2319,50 @@
 }`,
           },
           {
-            title: 'Step 3 · Restart Claude Desktop',
-            body: 'Quit and reopen Claude Desktop. You should see a hammer icon with Fathom\'s tools available: <code style="display:inline;padding:2px 6px;">delta_search</code>, <code style="display:inline;padding:2px 6px;">delta_write</code>, and <code style="display:inline;padding:2px 6px;">delta_query</code>.',
-            hint: 'Try asking Claude: "Search my lake for anything about today."',
+            title: 'Step 3 · Restart and use',
+            body: 'Restart your MCP host. Fathom\'s tools appear automatically:',
+            code: `search_lake   — semantic search across your memories
+write_delta   — save observations, facts, notes
+query_deltas  — filter by tags, source, time
+lake_stats    — orientation: what's in the lake
+chat          — talk to Fathom with full memory`,
+            hint: 'Try: "Search my lake for anything about today." Tools adapt to your token\'s scopes — a read-only token only sees search tools.',
           },
         ],
       },
       'browser': {
         icon: '◎',
         name: 'Browser Extension',
-        desc: 'Capture pages, highlights, and screenshots directly into your lake from Chrome or Firefox.',
+        desc: 'Capture pages, highlights, and screenshots directly into your lake from any browser.',
         steps: [
           {
-            title: 'Step 1 · Install the extension',
-            body: 'Install <strong>Fathom Capture</strong> from the Chrome Web Store or Firefox Add-ons.',
-            hint: 'Coming soon. For now, use the bookmarklet below.',
-          },
-          {
-            title: 'Bookmarklet (available now)',
-            body: 'Drag this to your bookmarks bar. Click it on any page to send the content to your lake.',
-            code: `javascript:void(fetch('${API_BASE}/v1/media/capture-context',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({content:document.title+'\\n'+location.href+'\\n'+window.getSelection().toString(),tags:['browser-capture'],source:'bookmarklet'})}))`,
-            hint: 'Select text on a page first, then click the bookmarklet to capture the selection.',
+            title: 'Coming soon',
+            body: 'The browser extension is in development. It will let you capture content from any page into your lake with one click.',
+            hint: 'Check back here for updates.',
           },
         ],
       },
       'cli': {
         icon: '▸',
         name: 'CLI',
-        desc: 'Search, write, and query your lake from the terminal. Pipe output from other tools directly into Fathom.',
+        desc: 'Search, write, and query your lake from the terminal.',
         steps: [
           {
-            title: 'Step 1 · Install',
-            code: 'npm i -g @fathom-ai/cli',
-          },
-          {
-            title: 'Step 2 · Configure',
-            code: `fathom config set api_url ${API_BASE}
-fathom config set api_key your-api-key`,
-          },
-          {
-            title: 'Step 3 · Use it',
-            code: `# Search the lake
-fathom delta search "what happened today"
-
-# Write a delta
-fathom delta write "meeting notes: decided to ship v2 Friday" --tags meeting,v2
-
-# Query by tags
-fathom delta query --tags homeassistant --since 24h
-
-# Pipe anything in
-git log --oneline -10 | fathom delta write --tags git,changelog --source cli`,
-            hint: 'The CLI uses the same delta store API as the web app. Everything stays in sync.',
+            title: 'Coming soon',
+            body: 'A terminal client for piping content into your lake and searching from the command line.',
+            hint: 'In the meantime, use the MCP connector with Claude Code for terminal-based lake access.',
           },
         ],
       },
       'api': {
         icon: '{…}',
         name: 'API',
-        desc: 'OpenAI-compatible chat completions with built-in lake search. Drop it into any app that speaks the OpenAI protocol.',
+        desc: 'OpenAI-compatible chat completions and delta operations over HTTP.',
         steps: [
           {
-            title: 'Base URL',
-            code: API_BASE + '/v1',
-          },
-          {
-            title: 'Chat completions',
-            code: `curl ${API_BASE}/v1/chat/completions \\
-  -H "Content-Type: application/json" \\
-  -d '{
-    "model": "fathom",
-    "messages": [
-      {"role": "user", "content": "What do you remember about today?"}
-    ],
-    "stream": true
-  }'`,
-          },
-          {
-            title: 'Delta search (direct)',
-            code: `curl ${API_BASE.replace('/v1','').replace(':8201',':4246')}/search \\
-  -H "Content-Type: application/json" \\
-  -d '{"origin": "your query here", "limit": 20}'`,
-            hint: 'The chat endpoint automatically searches the lake before responding. Use the delta store directly when you need raw results.',
-          },
-          {
-            title: 'Use with any OpenAI client',
-            code: `from openai import OpenAI
-
-client = OpenAI(
-    base_url="${API_BASE}/v1",
-    api_key="not-needed",  # local
-)
-
-response = client.chat.completions.create(
-    model="fathom",
-    messages=[{"role": "user", "content": "Hello"}],
-)
-print(response.choices[0].message.content)`,
+            title: 'Coming soon',
+            body: 'Full API documentation for direct HTTP integration. The API is live and working — documentation is in progress.',
+            hint: 'The MCP connector uses this API under the hood. For now, check GET /v1/tools for the full endpoint surface.',
           },
         ],
       },
