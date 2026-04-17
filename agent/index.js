@@ -316,15 +316,7 @@ async function main() {
 
   console.log(`\nWatching... (Ctrl+C to stop)\n`);
 
-  let lastStatsLine = "";
-  setInterval(() => {
-    const s = pusher.stats;
-    const line = `pushed: ${s.pushed}, deduped: ${s.deduped}, failed: ${s.failed}`;
-    if (line !== lastStatsLine && (s.pushed > 0 || s.deduped > 0 || s.failed > 0)) {
-      console.log(`  [${new Date().toLocaleTimeString()}] ${line}`);
-      lastStatsLine = line;
-    }
-  }, 30000);
+  // Pusher logs each push as it happens. No periodic stats needed.
 
   process.on("SIGINT", () => {
     console.log("\nShutting down...");
