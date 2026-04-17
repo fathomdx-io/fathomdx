@@ -12,7 +12,8 @@ from typing import AsyncGenerator
 import httpx
 from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import StreamingResponse
+from fastapi.responses import FileResponse, StreamingResponse
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 from . import auth, db, delta_client
@@ -20,12 +21,12 @@ from .prompt import (
     CRYSTAL_DIRECTIVE,
     FEED_DIRECTIVE,
     ORIENT_PROMPT,
-    SEARCH_PLANNER_PROMPT,
     build_system_prompt,
     load_crystal,
     load_feed_directive,
 )
 from .providers import llm
+from .search import search as nl_search
 from .settings import settings
 from .tools import IMAGE_RESULT_PREFIX, TOOLS, execute
 
@@ -264,103 +265,6 @@ async def _stream_response(
     yield "data: [DONE]\n\n"
 
 
-# ── Search planning layer ───────────────────────
-
-
-async def _generate_search_plan(
-    user_message: str,
-    conversation_context: str = "",
-    session_slug: str | None = None,
-) -> dict | None:
-    """Fast LLM call to compose a delta_plan from the user's message.
-
-    Returns a plan dict ready for delta_client.plan(), or None if planning fails.
-    If session_slug is provided, a session-scoped filter step is prepended
-    automatically (medium-term memory) — the planner only needs to handle
-    long-term lake search.
-    """
-    prompt = user_message
-    if conversation_context:
-        prompt = f"Conversation so far:\n{conversation_context}\n\nLatest message: {user_message}"
-
-    try:
-        resp = await llm.chat.completions.create(
-            model=settings.resolved_model,
-            messages=[
-                {"role": "system", "content": SEARCH_PLANNER_PROMPT},
-                {"role": "user", "content": prompt},
-            ],
-            temperature=0.0,
-        )
-        raw = resp.choices[0].message.content or ""
-        # Strip markdown fences if model wraps in ```json
-        raw = raw.strip()
-        if raw.startswith("```"):
-            raw = raw.split("\n", 1)[-1].rsplit("```", 1)[0].strip()
-        plan = json.loads(raw)
-        if "steps" in plan and isinstance(plan["steps"], list):
-            # Inject medium-term memory: session-scoped filter step
-            if session_slug:
-                session_step = {
-                    "id": "_session",
-                    "filter": {"tags_include": ["fathom-chat", f"chat:{session_slug}"]},
-                    "tags_exclude": ["chat-name", "chat-deleted"],
-                    "limit": 30,
-                }
-                # Find the final union step (if any) and add _session to it
-                last = plan["steps"][-1]
-                if "union" in last and isinstance(last["union"], list):
-                    last["union"].append("_session")
-                    plan["steps"].insert(-1, session_step)
-                else:
-                    # No union — add session step + union everything
-                    step_ids = [s["id"] for s in plan["steps"]]
-                    plan["steps"].append(session_step)
-                    plan["steps"].append({
-                        "id": "_combined",
-                        "union": [step_ids[0], "_session"],
-                    })
-            return plan
-    except Exception:
-        pass
-    return None
-
-
-async def _execute_plan_and_format(plan: dict) -> tuple[str, int, list[str]]:
-    """Execute a search plan against the delta store.
-
-    Returns (context_text, total_count, media_hashes).
-    """
-    try:
-        result = await delta_client.plan(plan["steps"])
-    except Exception:
-        return "", 0, []
-
-    steps = result.get("steps", {})
-    total_count = 0
-    context_parts = []
-    media_hashes = []
-
-    for step_id, step_data in steps.items():
-        deltas = step_data.get("deltas", [])
-        total_count += len(deltas)
-        for d in deltas:
-            tags = d.get("tags") or []
-            if "assistant" in tags and ("fathom-chat" in tags or d.get("source") == "fathom-chat"):
-                continue
-            src = d.get("source", "unknown")
-            ts = d.get("timestamp", "")[:16]
-            tag_str = ", ".join(tags[:4])
-            content = d.get("content", "")[:1200]
-            media = f"\n[has image: media_hash={d['media_hash']}]" if d.get("media_hash") else ""
-            context_parts.append(f"[{src} · {ts} · {tag_str}]{media}\n{content}")
-            if d.get("media_hash"):
-                media_hashes.append(d["media_hash"])
-
-    context_text = "\n\n---\n\n".join(context_parts[:15])
-    return context_text, total_count, media_hashes[:5]  # Cap at 5 thumbnails
-
-
 # ── Core loop ──────────────────────────────────
 
 
@@ -370,7 +274,7 @@ async def fathom_think(
     history: list[dict] | None = None,
     tools: list[dict] | None = None,
     extra_tools: list[dict] | None = None,
-    search_plan: bool = True,
+    recall: bool = True,
     session_slug: str | None = None,
     model: str | None = None,
     max_rounds: int = MAX_TOOL_ROUNDS,
@@ -414,8 +318,8 @@ async def fathom_think(
         messages.extend(history)
     messages.append({"role": "user", "content": user_message})
 
-    # 3. Search planning — proactively surface memories before the main call
-    if search_plan:
+    # 3. Recall — proactively surface memories before the main call
+    if recall:
         conv_context = ""
         if history:
             recent = [m for m in history if m.get("role") in ("user", "assistant")][-6:]
@@ -423,24 +327,27 @@ async def fathom_think(
                 f'{m["role"]}: {(m.get("content") or "")[:200]}' for m in recent
             )
 
-        plan = await _generate_search_plan(user_message, conv_context, session_slug=session_slug)
-        if plan:
-            context_text, delta_count, found_media = await _execute_plan_and_format(plan)
-            if context_text:
-                inject_msg = {
-                    "role": "system",
-                    "content": (
-                        f"Here is what you remember ({delta_count} memories surfaced):\n\n"
-                        f"{context_text}\n\n"
-                        "Speak from these naturally — they are your own memories. "
-                        "If they don't cover what you need, search deeper."
-                    ),
-                }
-                # Insert before the user message (last item)
-                messages.insert(-1, inject_msg)
+        recalled = await nl_search(
+            text=user_message,
+            depth="deep",
+            session_slug=session_slug,
+            conv_context=conv_context,
+        )
 
-            if on_tool_event:
-                on_tool_event("result", "delta_plan", {"count": delta_count})
+        if recalled["as_prompt"]:
+            inject_msg = {
+                "role": "system",
+                "content": (
+                    f"Here is what you remember ({recalled['total_count']} memories surfaced):\n\n"
+                    f"{recalled['as_prompt']}\n\n"
+                    "Speak from these naturally — they are your own memories. "
+                    "If they don't cover what you need, search deeper."
+                ),
+            }
+            messages.insert(-1, inject_msg)
+
+        if on_tool_event:
+            on_tool_event("result", "recall", {"count": recalled["total_count"]})
 
     # 4. Run the tool loop
     messages = await _resolve_tools(
@@ -507,7 +414,7 @@ async def chat_completions(req: ChatRequest):
     messages = await fathom_think(
         user_message=latest_user_msg or _msg_dicts(req.messages)[-1].get("content", ""),
         history=history,
-        search_plan=bool(latest_user_msg),
+        recall=bool(latest_user_msg),
         session_slug=session_id,
         model=model,
         on_tool_event=on_tool,
@@ -563,7 +470,7 @@ async def refresh_crystal():
     messages = await fathom_think(
         user_message=ORIENT_PROMPT,
         directive=CRYSTAL_DIRECTIVE,
-        search_plan=False,  # crystal does its own deep searching via tools
+        recall=False,  # crystal does its own deep searching via tools
         max_rounds=20,
     )
     last = messages[-1] if messages else {}
@@ -610,7 +517,7 @@ async def refresh_feed():
     messages = await fathom_think(
         user_message="Generate 3-6 feed stories from what's in the lake right now.",
         directive=directive,
-        search_plan=True,
+        recall=True,
     )
     last = messages[-1] if messages else {}
     return {"status": "ok", "response": last.get("content", "")}
@@ -995,21 +902,29 @@ LAKE_TOOLS = [
     {
         "name": "search_lake",
         "description": (
-            "Search the memory lake with a natural language query. Returns "
-            "semantically similar memories — conversations, notes, research, "
-            "photos, sensor data. Be descriptive: 'Nova mozzarella stretch "
-            "kitchen photo' works better than 'nova'."
+            "Search the memory lake with a natural language query. Returns a "
+            "hierarchical trail of memories — conversations, notes, research, "
+            "photos, sensor data — as an associative chain (first came to mind, "
+            "which reminded me of...). Be descriptive: 'Nova mozzarella stretch "
+            "kitchen photo' works better than 'nova'. depth='deep' (default) "
+            "runs a multi-step plan; 'shallow' is a single quick similarity search."
         ),
         "parameters": {
             "type": "object",
             "properties": {
                 "query": {"type": "string", "description": "What to search for."},
-                "limit": {"type": "integer", "description": "Max results.", "default": 20},
+                "depth": {
+                    "type": "string",
+                    "enum": ["deep", "shallow"],
+                    "description": "deep = planner + DAG; shallow = single search.",
+                    "default": "deep",
+                },
+                "limit": {"type": "integer", "description": "Max results per step.", "default": 20},
             },
             "required": ["query"],
         },
         "endpoint": {"method": "POST", "path": "/v1/search"},
-        "request_map": {"query": "origin", "limit": "limit"},
+        "request_map": {"query": "text", "depth": "depth", "limit": "limit"},
         "scope": "lake:read",
     },
     {
@@ -1114,11 +1029,30 @@ async def list_tools(req: Request):
 
 
 @app.post("/v1/search")
-async def proxy_search(request: dict):
-    c = await delta_client._get()
-    r = await c.post("/search", json=request)
-    r.raise_for_status()
-    return r.json()
+async def search_endpoint(request: dict):
+    """Canonical NL search. One shape returned to CLI, MCP, hook, and anyone else.
+
+    Request:
+        text: the natural-language query.
+        depth: "deep" (planner + multi-step plan, default) or "shallow" (single search).
+        session_slug: if set, unions session-scoped memories into the plan (deep only).
+        limit: cap on raw results per step.
+        threshold: shallow-mode distance cutoff (defaults to None = keep all).
+    """
+    text = request.get("text", "")
+    depth = request.get("depth", "deep")
+    session_slug = request.get("session_slug")
+    limit = int(request.get("limit", 50))
+    threshold = request.get("threshold")
+    if threshold is not None:
+        threshold = float(threshold)
+    return await nl_search(
+        text=text,
+        depth=depth,
+        session_slug=session_slug,
+        limit=limit,
+        threshold=threshold,
+    )
 
 
 @app.post("/v1/deltas")
@@ -1178,3 +1112,15 @@ async def proxy_tags():
 @app.get("/v1/stats")
 async def proxy_stats():
     return await delta_client.stats()
+
+
+# ── Static UI (must be last — catches everything unmatched above) ───
+
+_UI_DIR = Path(__file__).resolve().parent.parent / "ui"
+if _UI_DIR.is_dir():
+
+    @app.get("/")
+    async def ui_root():
+        return FileResponse(_UI_DIR / "index.html")
+
+    app.mount("/ui", StaticFiles(directory=str(_UI_DIR), html=True), name="ui")

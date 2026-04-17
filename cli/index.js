@@ -9,7 +9,8 @@
  *   FATHOM_API_KEY  — bearer token from Settings → API Keys
  *
  * Usage:
- *   fathom search "what happened today"
+ *   fathom search "what happened today"           # deep (plan + DAG)
+ *   fathom search "what happened today" --shallow # single similarity search
  *   fathom write "decided to ship v2 Friday" --tags decision,v2
  *   fathom query --tags homeassistant --since 24h
  *   fathom stats
@@ -46,7 +47,7 @@ async function api(method, path, body) {
 
 // ── Formatters ───────────────────────────────────
 
-function fmtResults(data) {
+function fmtDeltaList(data) {
   const items = data.results || data.deltas || (Array.isArray(data) ? data : []);
   if (!items.length) { console.log("No results."); return; }
 
@@ -65,14 +66,26 @@ function fmtResults(data) {
   }
 }
 
+function fmtRecall(data) {
+  const total = data.total_count || 0;
+  const tree = data.tree || [];
+  if (!total || !tree.length) { console.log("No results."); return; }
+  console.log(`\x1b[2m${total} memories across ${tree.length} step(s)\x1b[0m\n`);
+  console.log(data.as_prompt || "");
+}
+
 // ── Commands ─────────────────────────────────────
 
 async function cmdSearch(args) {
   const query = args.filter(a => !a.startsWith("--")).join(" ");
-  if (!query) { console.error("Usage: fathom search <query> [--limit N]"); process.exit(1); }
+  if (!query) {
+    console.error("Usage: fathom search <query> [--limit N] [--shallow]");
+    process.exit(1);
+  }
   const limit = parseInt(flagVal(args, "--limit") || "20", 10);
-  const data = await api("POST", "/v1/search", { origin: query, limit });
-  fmtResults(data);
+  const depth = args.includes("--shallow") ? "shallow" : "deep";
+  const data = await api("POST", "/v1/search", { text: query, depth, limit });
+  fmtRecall(data);
 }
 
 async function cmdWrite(args) {
@@ -126,7 +139,7 @@ async function cmdQuery(args) {
   }
 
   const data = await api("GET", "/v1/deltas", params);
-  fmtResults(data);
+  fmtDeltaList(data);
 }
 
 async function cmdStats() {

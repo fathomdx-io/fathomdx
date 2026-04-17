@@ -65,6 +65,7 @@ ROUTE_SCOPES: list[tuple[str, str, str]] = [
 
 # Endpoints that don't require auth
 PUBLIC_PATHS = frozenset({
+    "/",
     "/health",
     "/docs",
     "/openapi.json",
@@ -76,6 +77,7 @@ PUBLIC_PATHS = frozenset({
 
 PUBLIC_PREFIXES = (
     "/docs",
+    "/ui",
 )
 
 

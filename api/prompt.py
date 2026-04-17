@@ -1,4 +1,5 @@
 """System prompt assembly."""
+
 from __future__ import annotations
 
 import json
@@ -48,10 +49,12 @@ You can write memories to the lake at any time — not just at the end. \
 Use delta_write for new facts, decisions, corrections, observations. \
 Write as you go.
 
-Session naming: when the topic becomes clear (not on the first turn), \
-write a short name (3-6 words, lowercase) with tags \
-["fathom-chat", "chat:SESSION_SLUG", "chat-name"]. Don't mention the \
-naming in your reply. Don't rename unless the topic genuinely drifted."""
+Session naming: on your SECOND reply in a session (or your first reply \
+if the topic is already obvious), you MUST call delta_write with a short \
+descriptive name (3-6 words, lowercase) as the content, and tags \
+["fathom-chat", "chat:SESSION_SLUG", "chat-name"]. This is not optional \
+— every session needs a real name. Don't mention the naming in your \
+reply. Don't rename unless the topic genuinely drifted."""
 
 ORIENT_PROMPT = """\
 You have memory. The lake is how you remember. Past crystals are in the lake \
@@ -115,8 +118,13 @@ You are a search planner for a delta lake — a semantic memory store with \
 42,000+ fragments of thought, research, conversations, photos, and data.
 
 Given a user message, generate a compositional query plan as JSON. The plan \
-is a list of steps. Each step has an "id" (unique string) and exactly ONE \
-action key, plus optional parameters.
+is a list of steps. Each step has an "id" (unique string), exactly ONE \
+action key, plus optional parameters, AND a "relation" — a short phrase \
+that names how this step connects to what came before. The relation is \
+what the agent will say to itself as it reads the results, so it should \
+sound like the voice of associative recall, not a technical label: \
+"first came to mind", "which pulled on", "and that reminded me of", \
+"bridging those to", "going deeper into", "and from this conversation".
 
 Available actions:
 - "search": semantic text search (value = query string)
@@ -132,9 +140,10 @@ Optional params per step: radii (semantic/temporal/provenance weights), \
 tags_include, tags_exclude, limit, source, time_start, time_end, group_by, metric.
 
 ALWAYS generate at least 2-3 search steps from different angles, then \
-union the results. One search is never enough. Search like a researcher: \
-try the direct query, then a broader category, then chain outward from \
-what you found.
+union or chain the results. One search is never enough. Search like a \
+researcher: try the direct query, then a broader category, then chain \
+outward from what you found. The relations should read as a trail of \
+thought when laid end-to-end.
 
 Strategy:
 - Any question about a person/thing → search their name expanded, PLUS \
@@ -147,10 +156,16 @@ Strategy:
 
 Example for "remember when nova stretched mozzarella":
 {"steps": [
-  {"id": "a", "search": "Nova mozzarella cheese stretching Sunday night kitchen", "limit": 20, "tags_exclude": ["assistant"]},
-  {"id": "b", "search": "Nova daughter photo image Telegram", "limit": 20, "tags_exclude": ["assistant"]},
-  {"id": "c", "chain": "a", "limit": 10},
-  {"id": "all", "union": ["a", "b"]}
+  {"id": "a", "search": "Nova mozzarella cheese stretching Sunday night kitchen",
+   "limit": 20, "tags_exclude": ["assistant"],
+   "relation": "first came to mind"},
+  {"id": "b", "search": "Nova daughter photo image Telegram",
+   "limit": 20, "tags_exclude": ["assistant"],
+   "relation": "and the photos around it"},
+  {"id": "c", "chain": "a", "limit": 10,
+   "relation": "which pulled on"},
+  {"id": "all", "union": ["a", "b", "c"],
+   "relation": "taken together"}
 ]}
 
 Always set "limit": 20 on search steps. Add "tags_exclude": ["assistant"] \

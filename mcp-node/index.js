@@ -38,7 +38,7 @@ function authHeaders(json = true) {
 
 // ── Result formatting ────────────────────────────
 
-function formatResults(data) {
+function formatDeltaList(data) {
   const items = data.results || data.deltas || (Array.isArray(data) ? data : []);
   if (!items.length) return "No results.";
 
@@ -55,10 +55,18 @@ function formatResults(data) {
   return lines.join("\n");
 }
 
+function formatRecall(data) {
+  const total = data.total_count || 0;
+  const tree = data.tree || [];
+  if (!total || !tree.length) return "No memories surfaced.";
+  const header = `${total} memories across ${tree.length} step(s):\n`;
+  return header + "\n" + (data.as_prompt || "");
+}
+
 function formatResponse(path, method, data) {
-  if (path === "/v1/search") return formatResults(data);
+  if (path === "/v1/search") return formatRecall(data);
   if (path === "/v1/deltas" && method === "POST") return `Written. ID: ${data.id || "?"}`;
-  if (path === "/v1/deltas" && method === "GET") return formatResults(data);
+  if (path === "/v1/deltas" && method === "GET") return formatDeltaList(data);
   if (path === "/v1/stats") {
     return `Lake: ${data.total ?? "?"} deltas, ${data.embedded ?? "?"} embedded (${data.percent ?? "?"}% coverage)`;
   }

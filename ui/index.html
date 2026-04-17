@@ -1516,6 +1516,22 @@
     </header>
 
     <main>
+      <!-- Sign in (paste access token) -->
+      <section class="section">
+        <div class="section-head">
+          <h2>Sign in</h2>
+          <span class="meta" id="signinStatus">not signed in</span>
+        </div>
+        <p style="font-size: 14px; color: var(--ink-soft); line-height: 1.55; margin: 0 0 14px;">
+          Paste the access token for this lake. To generate one, sign in on another device and use <em>API Keys</em> below, then paste the value here on this device.
+        </p>
+        <div style="display: flex; gap: 8px; align-items: center; flex-wrap: wrap;">
+          <input type="password" id="signinTokenInput" placeholder="fth_..." autocomplete="off" spellcheck="false" style="flex: 1; min-width: 200px; background: var(--surface); border: 1px solid var(--rule); border-radius: 8px; padding: 10px 12px; color: var(--ink); font-size: 14px; font-family: var(--mono); outline: none;" />
+          <button class="btn" id="signinSaveBtn">Save</button>
+          <button class="btn ghost" id="signinClearBtn">Clear</button>
+        </div>
+      </section>
+
       <!-- Account -->
       <section class="section">
         <div class="account-hero">
@@ -1672,7 +1688,15 @@
 
   <script>
     // ── API client ──────────────────────────────
-    const API_BASE = 'http://localhost:8201';
+    // Same-origin when served by the API (production / LAN / phone).
+    // Override via localStorage.fathom-api-base for split-origin dev.
+    const API_BASE = (() => {
+      try {
+        const override = localStorage.getItem('fathom-api-base');
+        if (override) return override.replace(/\/$/, '');
+      } catch (e) {}
+      return '';
+    })();
     let currentSessionId = null;
 
     // Auth token — persisted in localStorage, used by all fetch calls
@@ -2217,6 +2241,38 @@
     }
     settingsBackBtn.addEventListener('click', closeSettings);
 
+    // ── Sign in (paste access token) ─────────────
+    const signinStatus = document.getElementById('signinStatus');
+    const signinTokenInput = document.getElementById('signinTokenInput');
+    const signinSaveBtn = document.getElementById('signinSaveBtn');
+    const signinClearBtn = document.getElementById('signinClearBtn');
+
+    function renderSigninStatus() {
+      if (_authToken) {
+        const suffix = _authToken.slice(-4);
+        signinStatus.textContent = `signed in · …${suffix}`;
+      } else {
+        signinStatus.textContent = 'not signed in';
+      }
+    }
+    signinSaveBtn.addEventListener('click', () => {
+      const v = (signinTokenInput.value || '').trim();
+      if (!v) return;
+      _saveAuthToken(v);
+      signinTokenInput.value = '';
+      renderSigninStatus();
+      if (!viewSettings.hidden) loadTokens();
+    });
+    signinClearBtn.addEventListener('click', () => {
+      _saveAuthToken('');
+      renderSigninStatus();
+      if (!viewSettings.hidden) loadTokens();
+    });
+    signinTokenInput.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') { e.preventDefault(); signinSaveBtn.click(); }
+    });
+    renderSigninStatus();
+
     // ── API Tokens ──────────────────────────────
     const tokenList = document.getElementById('tokenList');
     const tokenNameInput = document.getElementById('tokenNameInput');
@@ -2544,8 +2600,8 @@ Auth: Authorization: Bearer fth_...`,
           },
           {
             title: 'Core endpoints',
-            code: `# Search the lake (semantic)
-POST /v1/search        {"origin": "query", "limit": 20}
+            code: `# Search the lake (returns hierarchical recall trail)
+POST /v1/search        {"text": "query", "depth": "deep", "limit": 20}
 
 # Write a delta
 POST /v1/deltas        {"content": "...", "tags": [...], "source": "..."}
