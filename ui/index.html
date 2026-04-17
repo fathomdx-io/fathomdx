@@ -3597,7 +3597,28 @@ GET  /v1/usage               Usage stats`,
       }
 
       renderECG({ usage, pressureHist, driftHist, moodHist, crystalEvents });
-      ecgMeta.textContent = `${totalDeltas.toLocaleString()} total deltas · window ${ECG_WINDOW_DAYS}d`;
+
+      // Meta line: total + current mood as a colored chip
+      ecgMeta.innerHTML = '';
+      const totalSpan = document.createElement('span');
+      totalSpan.textContent = `${totalDeltas.toLocaleString()} total deltas · window ${ECG_WINDOW_DAYS}d`;
+      ecgMeta.appendChild(totalSpan);
+      const moodList = moodHist.history || [];
+      if (moodList.length) {
+        const current = moodList[moodList.length - 1];
+        const sep = document.createElement('span');
+        sep.textContent = ' · feeling ';
+        sep.style.opacity = '0.7';
+        ecgMeta.appendChild(sep);
+        const chip = document.createElement('span');
+        chip.textContent = current.state || 'unset';
+        chip.style.cssText = `
+          padding: 2px 8px; border-radius: 10px; color: var(--bg, #1a1a1a);
+          background: ${moodColor(current.state)}; font-weight: 600;
+          letter-spacing: 0.02em; font-size: 11px;
+        `;
+        ecgMeta.appendChild(chip);
+      }
     }
 
     function renderECGEmpty(totalDeltas) {
@@ -3705,7 +3726,10 @@ GET  /v1/usage               Usage stats`,
         );
       }
 
-      // ── Mood band (thin colored strip) + state labels ─
+      // ── Mood band (thin colored strip) + hover tooltips ─
+      // Labels skipped intentionally — at 12-day density they collide.
+      // Current mood lives in the meta line as a colored chip; per-segment
+      // detail is on hover via <title> on each colored rect.
       const mood = (moodHist.history || []).filter(e => new Date(e.synthesized_at).getTime() >= tStart);
       for (let i = 0; i < mood.length; i++) {
         const entry = mood[i];
@@ -3718,22 +3742,17 @@ GET  /v1/usage               Usage stats`,
         if (x2 <= ECG_PADDING.left || x1 >= W - ECG_PADDING.right) continue;
         const cx1 = Math.max(x1, ECG_PADDING.left);
         const cx2 = Math.min(x2, W - ECG_PADDING.right);
-        ecgSvg.appendChild(ecgSvgNS('rect', {
+        const rect = ecgSvgNS('rect', {
           x: cx1, y: moodTop,
           width: Math.max(1, cx2 - cx1), height: moodBot - moodTop,
           fill: moodColor(entry.state),
           opacity: 0.85, rx: 2,
-        }));
-        const showLabel = i === 0 || mood[i - 1].state !== entry.state;
-        if (showLabel) {
-          const lbl = ecgSvgNS('text', {
-            class: 'ecg-mood-tick',
-            x: Math.max(cx1 + 4, ECG_PADDING.left + 4),
-            y: moodTop - 4,
-          });
-          lbl.textContent = entry.state;
-          ecgSvg.appendChild(lbl);
-        }
+        });
+        const title = ecgSvgNS('title');
+        const startStr = new Date(tStartSeg).toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
+        title.textContent = `${entry.state} · ${startStr}\n\n${entry.carrier_wave || ''}`;
+        rect.appendChild(title);
+        ecgSvg.appendChild(rect);
       }
 
       // ── Crystal events: full-height dashed line + ◆ at top ─
