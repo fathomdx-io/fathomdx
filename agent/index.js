@@ -233,12 +233,13 @@ async function main() {
     for (const [name, p] of plugins) {
       config.plugins[name] = {
         enabled: false,
+        ...(p.defaults || {}),
         _comment: p.description || `${p.name} plugin`,
       };
     }
     saveConfig(config);
     console.log(`Config written to ${CONFIG_PATH}`);
-    console.log(`Enable plugins, then run 'fathom-agent run'.`);
+    console.log(`Enable plugins and adjust settings, then run 'fathom-agent run'.`);
     process.exit(0);
   }
 

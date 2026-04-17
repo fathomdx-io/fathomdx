@@ -25,6 +25,14 @@ export default {
   type: "poll",
   description: "System health metrics (Linux). CPU temp, load, memory, disk, battery.",
 
+  defaults: {
+    interval: 300000,
+    disks: ["/", "/home"],
+    servers: [],
+    source: "sysinfo",
+    tags: ["health"],
+  },
+
   start(config, pusher) {
     if (process.platform !== "linux") {
       console.log("  sysinfo: skipped (Linux only)");

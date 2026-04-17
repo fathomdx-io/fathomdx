@@ -39,6 +39,12 @@ export default {
   type: "watch",
   description: "Watch markdown directories. Pushes file changes, extracts images.",
 
+  defaults: {
+    paths: ["~/Documents/notes", "~/Documents/obsidian"],
+    source: "vault",
+    tags: ["vault-note"],
+  },
+
   start(config, pusher) {
     const allPaths = config.paths || [];
     const paths = allPaths.filter((p) => {
