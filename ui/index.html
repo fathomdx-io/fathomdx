@@ -3906,6 +3906,29 @@ GET  /v1/usage               Usage stats`,
       }
     }
 
+    // Catmull-Rom → cubic Bezier. Produces a smooth curve through every
+    // point. Pass continuation=true to emit 'L'-prefixed output (no opening
+    // M) so a path can be continued from the current pen position — used
+    // when closing a filled area along its bottom edge.
+    function _smoothPath(points, continuation) {
+      if (!points || !points.length) return '';
+      const open = continuation ? 'L' : 'M';
+      if (points.length === 1) return open + points[0][0] + ' ' + points[0][1];
+      let d = open + points[0][0] + ' ' + points[0][1];
+      for (let i = 0; i < points.length - 1; i++) {
+        const p0 = points[i - 1] || points[i];
+        const p1 = points[i];
+        const p2 = points[i + 1];
+        const p3 = points[i + 2] || p2;
+        const c1x = p1[0] + (p2[0] - p0[0]) / 6;
+        const c1y = p1[1] + (p2[1] - p0[1]) / 6;
+        const c2x = p2[0] - (p3[0] - p1[0]) / 6;
+        const c2y = p2[1] - (p3[1] - p1[1]) / 6;
+        d += ' C' + c1x + ' ' + c1y + ' ' + c2x + ' ' + c2y + ' ' + p2[0] + ' ' + p2[1];
+      }
+      return d;
+    }
+
     function _drawCrystalEvents(ctx, events) {
       for (const ev of (events || [])) {
         const t = ev.timestamp ? new Date(ev.timestamp).getTime() : 0;
@@ -4013,8 +4036,7 @@ GET  /v1/usage               Usage stats`,
 
       function drawLine(points, cls) {
         if (!points.length) return;
-        const path = points.map((p, i) => (i === 0 ? 'M' : 'L') + p[0] + ' ' + p[1]).join(' ');
-        ctx.svg.appendChild(ecgSvgNS('path', { class: 'ecg-line ' + cls, d: path }));
+        ctx.svg.appendChild(ecgSvgNS('path', { class: 'ecg-line ' + cls, d: _smoothPath(points) }));
       }
 
       // Usage IN (writes — moments arriving) and OUT (recalls — moments retrieved).
@@ -4028,12 +4050,11 @@ GET  /v1/usage               Usage stats`,
         const outPts = uOut.map(e => [ctx.xForT(new Date(e.t).getTime()), yFor(e.v / maxBoth)]);
 
         if (inPts.length && outPts.length && inPts.length === outPts.length) {
-          let d = 'M' + inPts[0][0] + ' ' + inPts[0][1];
-          for (let i = 1; i < inPts.length; i++) d += ' L' + inPts[i][0] + ' ' + inPts[i][1];
-          for (let i = outPts.length - 1; i >= 0; i--) d += ' L' + outPts[i][0] + ' ' + outPts[i][1];
-          d += ' Z';
+          const topD = _smoothPath(inPts);
+          const bottomD = _smoothPath(outPts.slice().reverse(), true);
           ctx.svg.appendChild(ecgSvgNS('path', {
-            d, fill: '#6aa6ff', 'fill-opacity': 0.10, stroke: 'none',
+            d: topD + ' ' + bottomD + ' Z',
+            fill: '#6aa6ff', 'fill-opacity': 0.10, stroke: 'none',
           }));
         }
 
@@ -4109,8 +4130,9 @@ GET  /v1/usage               Usage stats`,
       const pHist = (pressureHist.history || []).filter(e => new Date(e.t).getTime() >= ctx.tStart);
       if (pHist.length) {
         const maxP = Math.max(0.5, ...pHist.map(e => e.v));
-        const path = pHist.map((e, i) => (i === 0 ? 'M' : 'L') + ctx.xForT(new Date(e.t).getTime()) + ' ' + yFor(e.v / maxP)).join(' ');
-        // Draw a slight dark halo first so the line stays legible on light mood washes
+        const pts = pHist.map(e => [ctx.xForT(new Date(e.t).getTime()), yFor(e.v / maxP)]);
+        const path = _smoothPath(pts);
+        // Dark halo underneath so the line stays legible across mood washes
         ctx.svg.appendChild(ecgSvgNS('path', {
           class: 'ecg-line', d: path,
           stroke: 'var(--bg)', 'stroke-width': 3, 'stroke-opacity': 0.45, fill: 'none',
@@ -4169,12 +4191,11 @@ GET  /v1/usage               Usage stats`,
         const norm = (v) => Math.max(0, Math.min(1, v / DRIFT_AXIS_MAX));
         const upper = dHist.map(e => [ctx.xForT(new Date(e.t).getTime()), center - norm(e.v) * half]);
         const lower = dHist.map(e => [ctx.xForT(new Date(e.t).getTime()), center + norm(e.v) * half]);
-        let d = 'M' + upper[0][0] + ' ' + upper[0][1];
-        for (let i = 1; i < upper.length; i++) d += ' L' + upper[i][0] + ' ' + upper[i][1];
-        for (let i = lower.length - 1; i >= 0; i--) d += ' L' + lower[i][0] + ' ' + lower[i][1];
-        d += ' Z';
+        const topD = _smoothPath(upper);
+        const bottomD = _smoothPath(lower.slice().reverse(), true);
         ctx.svg.appendChild(ecgSvgNS('path', {
-          d, fill: '#7fcca0', 'fill-opacity': 0.32,
+          d: topD + ' ' + bottomD + ' Z',
+          fill: '#7fcca0', 'fill-opacity': 0.32,
           stroke: '#7fcca0', 'stroke-width': 1, 'stroke-opacity': 0.85,
         }));
       } else if (dHist.length === 1) {
