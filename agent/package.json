@@ -1,21 +1,19 @@
 {
   "name": "fathom-agent",
-  "version": "0.5.2",
-  "description": "Local agent for Fathom — watches files, clipboard, and more, pushes deltas to your lake",
+  "version": "0.6.0",
+  "description": "Local agent for Fathom — watches files and pushes deltas to your lake",
   "bin": {
     "fathom-agent": "index.js"
   },
   "type": "module",
   "dependencies": {
-    "chokidar": "^4.0.0",
-    "clipboardy": "^4.0.0"
+    "chokidar": "^4.0.0"
   },
   "keywords": [
     "fathom",
     "agent",
     "memory",
     "vault",
-    "clipboard",
     "watcher"
   ],
   "license": "MIT"

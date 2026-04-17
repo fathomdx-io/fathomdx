@@ -2,15 +2,15 @@
 /**
  * fathom-agent — local agent for the Fathom memory lake.
  *
- * Watches local files, clipboard, and more. Pushes deltas to your lake.
+ * Watches local files and pushes deltas to your lake.
  *
  * Config: ~/.fathom/agent.json
  * Env: FATHOM_API_URL, FATHOM_API_KEY (override config)
  *
  * Usage:
- *   fathom-agent                    # run with config
- *   fathom-agent --vault ~/notes    # quick start: watch a directory
- *   fathom-agent --clipboard        # quick start: watch clipboard
+ *   fathom-agent run                  Start watching
+ *   fathom-agent run --vault ~/notes  Watch a specific directory
+ *   fathom-agent init                 Create default config
  */
 
 import { readFileSync, writeFileSync, mkdirSync, existsSync } from "fs";
@@ -18,7 +18,6 @@ import { homedir } from "os";
 import { join } from "path";
 import { Pusher } from "./pusher.js";
 import vault from "./plugins/vault.js";
-import clipboard from "./plugins/clipboard.js";
 
 const CONFIG_DIR = join(homedir(), ".fathom");
 const CONFIG_PATH = join(CONFIG_DIR, "agent.json");
@@ -51,10 +50,9 @@ function saveConfig(config) {
 
 function parseArgs() {
   const args = process.argv.slice(2);
-  const result = { command: null, vaultPaths: [], clipboard: false };
+  const result = { command: null, vaultPaths: [] };
 
   if (!args.length) {
-    // No args = show help
     result.command = "help";
     return result;
   }
@@ -62,30 +60,22 @@ function parseArgs() {
   const cmd = args[0];
   if (["run", "--run", "init", "--init", "install", "--install", "uninstall", "--uninstall", "status", "--status", "help", "--help", "-h"].includes(cmd)) {
     result.command = cmd.replace(/^-+/, "");
-    // Parse remaining flags for "run"
     let i = 1;
     while (i < args.length) {
       if (args[i] === "--vault" && args[i + 1]) {
         result.vaultPaths.push(args[i + 1]);
         i += 2;
-      } else if (args[i] === "--clipboard") {
-        result.clipboard = true;
-        i++;
       } else {
         i++;
       }
     }
-  } else if (cmd === "--vault" || cmd === "--clipboard") {
-    // Legacy: treat flags without command as "run"
+  } else if (cmd === "--vault") {
     result.command = "run";
     let i = 0;
     while (i < args.length) {
       if (args[i] === "--vault" && args[i + 1]) {
         result.vaultPaths.push(args[i + 1]);
         i += 2;
-      } else if (args[i] === "--clipboard") {
-        result.clipboard = true;
-        i++;
       } else {
         i++;
       }
@@ -103,7 +93,6 @@ function showHelp() {
 Commands:
   fathom-agent run                   Start watching (uses ~/.fathom/agent.json)
   fathom-agent run --vault ~/notes   Watch a specific directory
-  fathom-agent run --clipboard       Watch clipboard
   fathom-agent init                  Create default config
   fathom-agent install               Install as system service (auto-start)
   fathom-agent uninstall             Remove system service
@@ -116,7 +105,7 @@ Env:    FATHOM_API_URL, FATHOM_API_KEY (override config values)
 Examples:
   fathom-agent init                          # create config
   fathom-agent run                           # start watching
-  fathom-agent run --vault ~/obsidian --clipboard
+  fathom-agent run --vault ~/obsidian
   fathom-agent install                       # persist as service
 
 Custom plugins: drop .js files in ~/.fathom/plugins/
@@ -167,7 +156,7 @@ After=network.target
 
 [Service]
 Type=simple
-ExecStart=${nodePath} ${scriptPath}
+ExecStart=${nodePath} ${scriptPath} run
 Environment=FATHOM_API_URL=${apiUrl}
 Environment=FATHOM_API_KEY=${apiKey}
 Restart=on-failure
@@ -213,6 +202,7 @@ function installLaunchd(nodePath, scriptPath, apiUrl, apiKey) {
   <array>
     <string>${nodePath}</string>
     <string>${scriptPath}</string>
+    <string>run</string>
   </array>
   <key>EnvironmentVariables</key>
   <dict>
@@ -256,12 +246,11 @@ function uninstallLaunchd() {
 }
 
 function installWindows(nodePath, scriptPath, apiUrl, apiKey) {
-  // Write a batch file + schtasks
   const batPath = join(homedir(), ".fathom", "fathom-agent.bat");
   const bat = `@echo off
 set FATHOM_API_URL=${apiUrl}
 set FATHOM_API_KEY=${apiKey}
-"${nodePath}" "${scriptPath}"
+"${nodePath}" "${scriptPath}" run
 `;
   mkdirSync(join(homedir(), ".fathom"), { recursive: true });
   writeFileSync(batPath, bat);
@@ -284,7 +273,6 @@ async function main() {
   const cliArgs = parseArgs();
   const config = loadConfig();
 
-  // Env overrides config
   const apiUrl = process.env.FATHOM_API_URL || config.api_url;
   const apiKey = process.env.FATHOM_API_KEY || config.api_key;
 
@@ -318,13 +306,6 @@ async function main() {
         source: "vault",
         tags: ["vault-note"],
         _comment: "Watch markdown directories. Paths that don't exist are ignored.",
-      },
-      clipboard: {
-        enabled: false,
-        interval: 3000,
-        source: "clipboard",
-        tags: ["clipboard"],
-        _comment: "Captures clipboard text every 3 seconds. Only saves meaningful changes (>10 chars).",
       },
     };
     saveConfig(config);
@@ -360,7 +341,6 @@ async function main() {
     process.exit(0);
   }
 
-  // Test connection (uses /health — public, no scope needed)
   try {
     const r = await fetch(`${apiUrl}/health`);
     if (!r.ok) throw new Error(`${r.status}`);
@@ -377,26 +357,15 @@ async function main() {
   const running = [];
 
   // CLI quick-start overrides config
-  if (cliArgs.vaultPaths.length || cliArgs.clipboard) {
-    if (cliArgs.vaultPaths.length) {
-      const handle = vault.start({ paths: cliArgs.vaultPaths }, pusher);
-      if (handle) running.push(handle);
-    }
-    if (cliArgs.clipboard) {
-      const handle = clipboard.start({}, pusher);
-      if (handle) running.push(handle);
-    }
+  if (cliArgs.vaultPaths.length) {
+    const handle = vault.start({ paths: cliArgs.vaultPaths }, pusher);
+    if (handle) running.push(handle);
   } else {
     // Load from config
     const plugins = config.plugins || {};
 
     if (plugins.vault?.enabled && plugins.vault.paths?.length) {
       const handle = vault.start(plugins.vault, pusher);
-      if (handle) running.push(handle);
-    }
-
-    if (plugins.clipboard?.enabled) {
-      const handle = clipboard.start(plugins.clipboard || {}, pusher);
       if (handle) running.push(handle);
     }
 
@@ -421,22 +390,19 @@ async function main() {
 
   if (!running.length) {
     console.log("\nNo watchers configured. Try:");
-    console.log("  fathom-agent --vault ~/Documents/notes");
-    console.log("  fathom-agent --clipboard");
-    console.log("  fathom-agent --init  (create config file)");
+    console.log("  fathom-agent run --vault ~/Documents/notes");
+    console.log("  fathom-agent init  (create config file)");
     process.exit(0);
   }
 
   console.log(`\nWatching... (Ctrl+C to stop)\n`);
 
-  // Stats every 30s
   setInterval(() => {
     if (pusher.stats.pushed > 0 || pusher.stats.failed > 0) {
       console.log(`  [${new Date().toLocaleTimeString()}] pushed: ${pusher.stats.pushed}, failed: ${pusher.stats.failed}`);
     }
   }, 30000);
 
-  // Graceful shutdown
   process.on("SIGINT", () => {
     console.log("\nShutting down...");
     running.forEach((h) => h.stop?.());
