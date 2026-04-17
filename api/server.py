@@ -16,7 +16,7 @@ from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
-from . import auth, crystal, db, delta_client, drift, mood, pressure
+from . import auth, auto_regen, crystal, db, delta_client, drift, mood, pressure
 from .prompt import (
     CRYSTAL_DIRECTIVE,
     FEED_DIRECTIVE,
@@ -77,8 +77,12 @@ class SourceUpdate(BaseModel):
 
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
-    yield
-    await delta_client.close()
+    auto_regen.start()
+    try:
+        yield
+    finally:
+        await auto_regen.stop()
+        await delta_client.close()
 
 
 app = FastAPI(title="Fathom Consumer API", version="0.1.0", lifespan=lifespan)

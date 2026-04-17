@@ -46,6 +46,15 @@ class Settings(BaseSettings):
     mood_decay_half_life_seconds: int = 14400  # 4 hours
     mood_contrast_wake_seconds: int = 21600    # 6 hours
 
+    # Crystal auto-regeneration — same defaults as fathom2 dashboard.
+    # Auto-regen fires when (drift / threshold) >= red_ratio AND the last
+    # regen was at least cooldown_seconds ago (guard against runaway).
+    crystal_auto_regen: bool = True
+    crystal_drift_threshold: float = 0.55
+    crystal_drift_red_ratio: float = 0.9
+    crystal_drift_poll_seconds: int = 60
+    crystal_regen_cooldown_seconds: int = 1800  # 30 min
+
     # Server
     host: str = "0.0.0.0"
     port: int = 8200

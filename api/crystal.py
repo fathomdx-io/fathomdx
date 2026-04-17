@@ -127,7 +127,10 @@ async def write(text: str, source: str = "consumer-api") -> dict:
 
     Carries both tags: identity-crystal (legacy compat for any consumer
     that filters by it) and crystal-regen (the new canonical filter).
-    Invalidates the cache so the next read sees the fresh write.
+    Invalidates the cache so the next read sees the fresh write. Then
+    fires a drift sample so the ECG drift line gets an immediate
+    "drift = ~0" anchor at the regen point — every regen visibly drops
+    the drift line, and the sawtooth pattern materializes.
     """
     global _cache, _cache_at
     written = await delta_client.write(
@@ -137,6 +140,15 @@ async def write(text: str, source: str = "consumer-api") -> dict:
     )
     _cache = None
     _cache_at = 0.0
+
+    # Best-effort drift snapshot — a fresh crystal should align with the
+    # current lake centroid, so this anchors a low point in the history.
+    try:
+        from . import drift as _drift
+        await _drift.sample()
+    except Exception:
+        pass
+
     return written
 
 
