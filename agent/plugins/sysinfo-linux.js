@@ -27,6 +27,7 @@ export default {
 
   defaults: {
     interval: 300000,
+    expiry_days: 1,
     disks: ["/", "/home"],
     servers: [],
     source: "sysinfo",
@@ -122,11 +123,12 @@ export default {
       const ts = new Date().toISOString().replace(/\.\d+Z$/, "Z");
       const content = `Laptop health check — ${ts}\n\n${lines.join("\n")}`;
 
-      pusher.push({
-        content,
-        tags: baseTags,
-        source,
-      });
+      const delta = { content, tags: baseTags, source };
+      const expiryDays = config.expiry_days;
+      if (expiryDays != null) {
+        delta.expires_at = new Date(Date.now() + expiryDays * 86400000).toISOString();
+      }
+      pusher.push(delta);
 
       console.log(`  💻 health snapshot (${lines.length} metrics)`);
     }
