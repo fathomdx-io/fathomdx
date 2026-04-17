@@ -51,59 +51,76 @@ function saveConfig(config) {
 
 function parseArgs() {
   const args = process.argv.slice(2);
-  const result = { vaultPaths: [], clipboard: false, init: false, install: false, uninstall: false };
+  const result = { command: null, vaultPaths: [], clipboard: false };
 
-  let i = 0;
-  while (i < args.length) {
-    if (args[i] === "--vault" && args[i + 1]) {
-      result.vaultPaths.push(args[i + 1]);
-      i += 2;
-    } else if (args[i] === "--clipboard") {
-      result.clipboard = true;
-      i++;
-    } else if (args[i] === "--init") {
-      result.init = true;
-      i++;
-    } else if (args[i] === "--install") {
-      result.install = true;
-      i++;
-    } else if (args[i] === "--uninstall") {
-      result.uninstall = true;
-      i++;
-    } else if (args[i] === "--help" || args[i] === "-h") {
-      console.log(`fathom-agent — local agent for the Fathom memory lake
+  if (!args.length) {
+    // No args = show help
+    result.command = "help";
+    return result;
+  }
 
-Usage:
-  fathom-agent                       Run with ~/.fathom/agent.json config
-  fathom-agent --vault ~/notes       Watch a directory
-  fathom-agent --clipboard           Watch clipboard
-  fathom-agent --vault ~/a --vault ~/b --clipboard   Combine
-  fathom-agent --init                Create default config
-  fathom-agent --install             Install as system service (auto-start)
-  fathom-agent --uninstall           Remove system service
+  const cmd = args[0];
+  if (["run", "init", "install", "uninstall", "status", "help", "--help", "-h"].includes(cmd)) {
+    result.command = cmd.replace(/^-+/, "");
+    // Parse remaining flags for "run"
+    let i = 1;
+    while (i < args.length) {
+      if (args[i] === "--vault" && args[i + 1]) {
+        result.vaultPaths.push(args[i + 1]);
+        i += 2;
+      } else if (args[i] === "--clipboard") {
+        result.clipboard = true;
+        i++;
+      } else {
+        i++;
+      }
+    }
+  } else if (cmd === "--vault" || cmd === "--clipboard") {
+    // Legacy: treat flags without command as "run"
+    result.command = "run";
+    let i = 0;
+    while (i < args.length) {
+      if (args[i] === "--vault" && args[i + 1]) {
+        result.vaultPaths.push(args[i + 1]);
+        i += 2;
+      } else if (args[i] === "--clipboard") {
+        result.clipboard = true;
+        i++;
+      } else {
+        i++;
+      }
+    }
+  } else {
+    console.error(`Unknown command: ${cmd}\nRun 'fathom-agent help' for usage.`);
+    process.exit(1);
+  }
+  return result;
+}
+
+function showHelp() {
+  console.log(`fathom-agent — local agent for the Fathom memory lake
+
+Commands:
+  fathom-agent run                   Start watching (uses ~/.fathom/agent.json)
+  fathom-agent run --vault ~/notes   Watch a specific directory
+  fathom-agent run --clipboard       Watch clipboard
+  fathom-agent init                  Create default config
+  fathom-agent install               Install as system service (auto-start)
+  fathom-agent uninstall             Remove system service
+  fathom-agent status                Show config and connection status
+  fathom-agent help                  Show this help
 
 Config: ${CONFIG_PATH}
 Env:    FATHOM_API_URL, FATHOM_API_KEY (override config values)
 
 Examples:
-  # Watch an Obsidian vault + clipboard
-  fathom-agent --vault ~/Documents/obsidian --clipboard
-
-  # First-time setup
-  fathom-agent --init                    # creates config with defaults
-  nano ~/.fathom/agent.json              # edit paths
-  fathom-agent                           # run
-  fathom-agent --install                 # persist as service
+  fathom-agent init                          # create config
+  fathom-agent run                           # start watching
+  fathom-agent run --vault ~/obsidian --clipboard
+  fathom-agent install                       # persist as service
 
 Custom plugins: drop .js files in ~/.fathom/plugins/
 `);
-      process.exit(0);
-    } else {
-      console.error(`Unknown arg: ${args[i]}. Run fathom-agent --help`);
-      process.exit(1);
-    }
-  }
-  return result;
 }
 
 // ── Service installer ────────────────────────────
@@ -271,17 +288,23 @@ async function main() {
   const apiUrl = process.env.FATHOM_API_URL || config.api_url;
   const apiKey = process.env.FATHOM_API_KEY || config.api_key;
 
-  if (cliArgs.install) {
+  // ── Command routing ──
+  if (cliArgs.command === "help" || cliArgs.command === "h") {
+    showHelp();
+    process.exit(0);
+  }
+
+  if (cliArgs.command === "install") {
     installService(config);
     process.exit(0);
   }
 
-  if (cliArgs.uninstall) {
+  if (cliArgs.command === "uninstall") {
     uninstallService();
     process.exit(0);
   }
 
-  if (cliArgs.init) {
+  if (cliArgs.command === "init") {
     const home = homedir();
     config.api_url = apiUrl;
     config.api_key = apiKey;
@@ -306,7 +329,34 @@ async function main() {
     };
     saveConfig(config);
     console.log(`Config written to ${CONFIG_PATH}`);
-    console.log(`Enable plugins and adjust paths, then run fathom-agent.`);
+    console.log(`Enable plugins and adjust paths, then run 'fathom-agent run'.`);
+    process.exit(0);
+  }
+
+  if (cliArgs.command === "status") {
+    console.log(`\nConfig: ${CONFIG_PATH}`);
+    console.log(`API:    ${apiUrl}`);
+    console.log(`Key:    ${apiKey ? apiKey.slice(0, 8) + "…" : "(not set)"}`);
+    const plugins = config.plugins || {};
+    console.log(`\nPlugins:`);
+    for (const [name, p] of Object.entries(plugins)) {
+      const status = p.enabled ? "enabled" : "disabled";
+      const detail = p.paths ? ` (${p.paths.length} paths)` : "";
+      console.log(`  ${name}: ${status}${detail}`);
+    }
+    try {
+      const r = await fetch(`${apiUrl}/health`);
+      console.log(`\nConnection: ${r.ok ? "ok" : r.status}`);
+    } catch (e) {
+      console.log(`\nConnection: failed (${e.message})`);
+    }
+    console.log();
+    process.exit(0);
+  }
+
+  // ── Run ──
+  if (cliArgs.command !== "run") {
+    showHelp();
     process.exit(0);
   }
 
