@@ -3582,18 +3582,19 @@ GET  /v1/usage               Usage stats`,
         return t && (Date.now() - t) > 5 * 60 * 1000;
       }).length;
 
-      // The mood-layer tracks are what make this an ECG. Usage data alone is
-      // legacy chart material — if mood / drift / pressure / crystal events
-      // are all unpopulated, show the empty state regardless of usage.
-      const moodLayerCold = moodCount === 0
-        && crystalCount === 0
-        && realDriftCount === 0
-        && pressureCount === 0;
+      // Don't render the chart until there's enough rhythm to actually read.
+      // A single-line ECG is a sad consumer UX. Wait for either a meaningful
+      // amount of one signal OR a couple signals together. Tunable.
+      const moodReady     = moodCount >= 2;
+      const pressureReady = pressureCount >= 6;
+      const driftReady    = realDriftCount >= 3;
+      const crystalReady  = crystalCount >= 1;
+      const enoughRhythm = moodReady || pressureReady || driftReady || crystalReady;
 
-      if (moodLayerCold) {
+      if (!enoughRhythm) {
         renderECGEmpty(totalDeltas);
         ecgMeta.textContent = totalDeltas
-          ? `${totalDeltas.toLocaleString()} deltas · mood layer warming up`
+          ? `${totalDeltas.toLocaleString()} deltas · warming up`
           : 'no signal yet';
         return;
       }
