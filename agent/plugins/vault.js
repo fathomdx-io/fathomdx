@@ -43,6 +43,9 @@ export default {
 
     const seen = new Map(); // path → content hash
     const uploadedImages = new Set(); // absolute image paths already uploaded
+    let fileCount = 0;
+    let imageCount = 0;
+    let skippedCount = 0;
 
     const watcher = watch(paths, {
       persistent: true,
@@ -63,6 +66,10 @@ export default {
     watcher.on("add", (filepath) => handleFile(filepath));
     watcher.on("change", (filepath) => handleFile(filepath));
     watcher.on("unlink", (filepath) => handleDelete(filepath));
+    watcher.on("ready", () => {
+      console.log(`  vault: initial scan complete — ${fileCount} files, ${imageCount} images, ${skippedCount} unchanged`);
+      console.log(`  vault: watching for changes...`);
+    });
 
     function handleFile(filepath) {
       const ext = extname(filepath).toLowerCase();
@@ -76,10 +83,12 @@ export default {
       }
 
       const hash = createHash("md5").update(content).digest("hex");
-      if (seen.get(filepath) === hash) return;
+      if (seen.get(filepath) === hash) { skippedCount++; return; }
       seen.set(filepath, hash);
+      fileCount++;
 
       const relPath = bestRelative(paths, filepath);
+      console.log(`  + ${relPath}`);
       const tags = ["vault-note", `doc:${relPath.replace(/\.[^.]+$/, "")}`];
       if (config.tags) tags.push(...config.tags);
 
@@ -88,8 +97,10 @@ export default {
       for (const img of images) {
         const absPath = resolveImagePath(img.src, filepath, paths);
         if (!absPath || uploadedImages.has(absPath)) continue;
+        console.log(`    📷 ${basename(absPath)}`);
         uploadImage(absPath, img.alt || basename(absPath), [...tags, "vault-image", "image"], source, apiUrl, apiKey);
         uploadedImages.add(absPath);
+        imageCount++;
       }
 
       // Chunk and push text
@@ -110,6 +121,7 @@ export default {
       seen.delete(filepath);
 
       const relPath = bestRelative(paths, filepath);
+      console.log(`  ✗ ${relPath} (deleted)`);
       pusher.push({
         content: `Vault note deleted: ${basename(filepath)}`,
         tags: ["vault-deletion", "deleted", `doc:${relPath.replace(/\.[^.]+$/, "")}`],
