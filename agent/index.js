@@ -60,7 +60,7 @@ function parseArgs() {
   }
 
   const cmd = args[0];
-  if (["run", "init", "install", "uninstall", "status", "help", "--help", "-h"].includes(cmd)) {
+  if (["run", "--run", "init", "--init", "install", "--install", "uninstall", "--uninstall", "status", "--status", "help", "--help", "-h"].includes(cmd)) {
     result.command = cmd.replace(/^-+/, "");
     // Parse remaining flags for "run"
     let i = 1;
