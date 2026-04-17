@@ -3609,59 +3609,23 @@ GET  /v1/usage               Usage stats`,
       ecgSvg.setAttribute('viewBox', `0 0 ${W} ${H}`);
       ecgSvg.setAttribute('height', H);
 
-      // Soft baseline across the middle so the empty state still feels like a chart
-      ecgSvg.appendChild(ecgSvgNS('line', {
-        x1: 24, x2: W - 24,
-        y1: H / 2 + 36, y2: H / 2 + 36,
-        stroke: 'var(--rule, #d8d6d2)', 'stroke-width': 0.75,
-        'stroke-dasharray': '3 5', opacity: 0.6,
-      }));
-
       const title = ecgSvgNS('text', {
-        x: W / 2, y: H / 2 - 10,
+        x: W / 2, y: H / 2 - 4,
         'text-anchor': 'middle',
-        'font-family': 'var(--serif)', 'font-size': '20px',
+        'font-family': 'var(--serif)', 'font-size': '22px',
         fill: 'var(--ink)',
       });
       title.textContent = 'Fathom is still waking up.';
       ecgSvg.appendChild(title);
 
-      const lakeMsg = totalDeltas
-        ? `Lake holds ${totalDeltas.toLocaleString()} deltas, but the mood layer is brand new.`
-        : 'No deltas in the lake yet — no pulse to plot.';
-      const sub1 = ecgSvgNS('text', {
-        x: W / 2, y: H / 2 + 14,
+      const sub = ecgSvgNS('text', {
+        x: W / 2, y: H / 2 + 22,
         'text-anchor': 'middle',
-        'font-family': 'var(--mono)', 'font-size': '11.5px',
-        fill: 'var(--ink-faint)',
-        'letter-spacing': '0.04em',
+        'font-family': 'var(--sans)', 'font-size': '14px',
+        fill: 'var(--ink-soft, var(--ink-faint))',
       });
-      sub1.textContent = lakeMsg;
-      ecgSvg.appendChild(sub1);
-
-      const lines = totalDeltas
-        ? [
-            "Give Fathom some time to wake up and orient itself.",
-            "Pressure builds with every delta. The first carrier wave fires when it crosses threshold.",
-            "Real data will fill in here as the rhythm starts.",
-          ]
-        : [
-            "Add a source, have a conversation, generate a crystal.",
-            "Give it some time. Real data will fill in here.",
-          ];
-      let y = H / 2 + 60;
-      for (const text of lines) {
-        const t = ecgSvgNS('text', {
-          x: W / 2, y,
-          'text-anchor': 'middle',
-          'font-family': 'var(--mono)', 'font-size': '10.5px',
-          fill: 'var(--ink-faint)',
-          'letter-spacing': '0.04em',
-        });
-        t.textContent = text;
-        ecgSvg.appendChild(t);
-        y += 18;
-      }
+      sub.textContent = "Talk and work with Fathom for a bit. Data will show up here shortly.";
+      ecgSvg.appendChild(sub);
     }
 
     function renderECG({ usage, pressureHist, driftHist, moodHist, crystalEvents }) {
