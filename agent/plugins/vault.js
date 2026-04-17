@@ -8,9 +8,21 @@
  */
 
 import { watch } from "chokidar";
-import { readFileSync, statSync, existsSync } from "fs";
+import { readFileSync, writeFileSync, mkdirSync, statSync, existsSync } from "fs";
 import { createHash } from "crypto";
 import { basename, relative, extname, dirname, join, resolve } from "path";
+import { homedir } from "os";
+
+const STATE_PATH = join(homedir(), ".fathom", "vault-state.json");
+
+function loadState() {
+  try { return JSON.parse(readFileSync(STATE_PATH, "utf8")); } catch { return {}; }
+}
+
+function saveState(state) {
+  mkdirSync(dirname(STATE_PATH), { recursive: true });
+  writeFileSync(STATE_PATH, JSON.stringify(state));
+}
 
 const MAX_CHUNK = 3000; // chars per delta
 const MAX_IMAGE_SIZE = 10 * 1024 * 1024; // 10MB
@@ -41,11 +53,21 @@ export default {
       console.log(`  vault: skipping missing paths: ${missing.join(", ")}`);
     }
 
-    const seen = new Map(); // path → content hash
-    const uploadedImages = new Set(); // absolute image paths already uploaded
+    const diskState = loadState(); // { path: contentHash }
+    const seen = new Map(Object.entries(diskState));
+    const uploadedImages = new Set(Object.keys(diskState).filter(k => k.startsWith("img:")));
     let fileCount = 0;
     let imageCount = 0;
     let skippedCount = 0;
+    let dirty = false;
+
+    function persistState() {
+      if (!dirty) return;
+      saveState(Object.fromEntries(seen));
+      dirty = false;
+    }
+    // Flush to disk every 10 seconds
+    const saveTimer = setInterval(persistState, 10000);
 
     const watcher = watch(paths, {
       persistent: true,
@@ -67,8 +89,9 @@ export default {
     watcher.on("change", (filepath) => handleFile(filepath));
     watcher.on("unlink", (filepath) => handleDelete(filepath));
     watcher.on("ready", () => {
-      console.log(`  vault: initial scan complete — ${fileCount} files, ${imageCount} images, ${skippedCount} unchanged`);
+      console.log(`  vault: initial scan complete — ${fileCount} new, ${imageCount} images, ${skippedCount} unchanged`);
       console.log(`  vault: watching for changes...`);
+      persistState();
     });
 
     function handleFile(filepath) {
@@ -85,6 +108,7 @@ export default {
       const hash = createHash("md5").update(content).digest("hex");
       if (seen.get(filepath) === hash) { skippedCount++; return; }
       seen.set(filepath, hash);
+      dirty = true;
       fileCount++;
 
       const relPath = bestRelative(paths, filepath);
@@ -96,10 +120,13 @@ export default {
       const images = extractImageRefs(content);
       for (const img of images) {
         const absPath = resolveImagePath(img.src, filepath, paths);
-        if (!absPath || uploadedImages.has(absPath)) continue;
+        const imgKey = "img:" + absPath;
+        if (uploadedImages.has(imgKey)) continue;
         console.log(`    📷 ${basename(absPath)}`);
         uploadImage(absPath, img.alt || basename(absPath), [...tags, "vault-image", "image"], source, apiUrl, apiKey);
-        uploadedImages.add(absPath);
+        uploadedImages.add(imgKey);
+        seen.set(imgKey, "uploaded");
+        dirty = true;
         imageCount++;
       }
 
@@ -119,6 +146,7 @@ export default {
       const ext = extname(filepath).toLowerCase();
       if (!TEXT_EXTENSIONS.has(ext)) return;
       seen.delete(filepath);
+      dirty = true;
 
       const relPath = bestRelative(paths, filepath);
       console.log(`  ✗ ${relPath} (deleted)`);
@@ -130,7 +158,7 @@ export default {
     }
 
     console.log(`  vault: watching ${paths.join(", ")}`);
-    return { stop: () => watcher.close() };
+    return { stop: () => { persistState(); clearInterval(saveTimer); watcher.close(); } };
   },
 };
 
