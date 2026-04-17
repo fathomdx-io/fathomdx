@@ -3,6 +3,8 @@ __pycache__/
 .vite/
 *.pyc
 data/tokens.json
+data/mood-state.json
+data/drift-history.json
 mcp-node/node_modules/
 connect/node_modules/
 cli/node_modules/
