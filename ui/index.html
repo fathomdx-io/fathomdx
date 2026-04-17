@@ -3906,25 +3906,60 @@ GET  /v1/usage               Usage stats`,
       }
     }
 
-    // Catmull-Rom → cubic Bezier. Produces a smooth curve through every
-    // point. Pass continuation=true to emit 'L'-prefixed output (no opening
-    // M) so a path can be continued from the current pen position — used
-    // when closing a filled area along its bottom edge.
+    // Monotone cubic Hermite (Fritsch-Carlson) → cubic Bezier.
+    // Passes through every point, smooth like Catmull-Rom, but never
+    // overshoots the data range — no dipping below zero on sharp drops.
+    // Pass continuation=true to emit 'L'-prefixed output so a path can be
+    // continued from the current pen position (closing a filled area).
     function _smoothPath(points, continuation) {
       if (!points || !points.length) return '';
       const open = continuation ? 'L' : 'M';
-      if (points.length === 1) return open + points[0][0] + ' ' + points[0][1];
+      const n = points.length;
+      if (n === 1) return open + points[0][0] + ' ' + points[0][1];
+      if (n === 2) {
+        return open + points[0][0] + ' ' + points[0][1] +
+               ' L' + points[1][0] + ' ' + points[1][1];
+      }
+      // Secant slopes
+      const dx = new Array(n - 1);
+      const m  = new Array(n - 1);
+      for (let i = 0; i < n - 1; i++) {
+        dx[i] = points[i + 1][0] - points[i][0];
+        m[i]  = dx[i] === 0 ? 0 : (points[i + 1][1] - points[i][1]) / dx[i];
+      }
+      // Tangents — average of adjacent secants, flattened at extrema
+      const t = new Array(n);
+      t[0] = m[0];
+      t[n - 1] = m[n - 2];
+      for (let i = 1; i < n - 1; i++) {
+        t[i] = (m[i - 1] * m[i] <= 0) ? 0 : (m[i - 1] + m[i]) / 2;
+      }
+      // Fritsch-Carlson monotonicity correction
+      for (let i = 0; i < n - 1; i++) {
+        if (m[i] === 0) {
+          t[i] = 0;
+          t[i + 1] = 0;
+          continue;
+        }
+        const a = t[i] / m[i];
+        const b = t[i + 1] / m[i];
+        const s = a * a + b * b;
+        if (s > 9) {
+          const tau = 3 / Math.sqrt(s);
+          t[i]     = tau * a * m[i];
+          t[i + 1] = tau * b * m[i];
+        }
+      }
+      // Build path — convert Hermite tangents to cubic Bezier control points
       let d = open + points[0][0] + ' ' + points[0][1];
-      for (let i = 0; i < points.length - 1; i++) {
-        const p0 = points[i - 1] || points[i];
-        const p1 = points[i];
-        const p2 = points[i + 1];
-        const p3 = points[i + 2] || p2;
-        const c1x = p1[0] + (p2[0] - p0[0]) / 6;
-        const c1y = p1[1] + (p2[1] - p0[1]) / 6;
-        const c2x = p2[0] - (p3[0] - p1[0]) / 6;
-        const c2y = p2[1] - (p3[1] - p1[1]) / 6;
-        d += ' C' + c1x + ' ' + c1y + ' ' + c2x + ' ' + c2y + ' ' + p2[0] + ' ' + p2[1];
+      for (let i = 0; i < n - 1; i++) {
+        const h = dx[i] / 3;
+        const c1x = points[i][0] + h;
+        const c1y = points[i][1] + t[i] * h;
+        const c2x = points[i + 1][0] - h;
+        const c2y = points[i + 1][1] - t[i + 1] * h;
+        d += ' C' + c1x + ' ' + c1y + ' ' + c2x + ' ' + c2y +
+             ' ' + points[i + 1][0] + ' ' + points[i + 1][1];
       }
       return d;
     }
