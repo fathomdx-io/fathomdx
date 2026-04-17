@@ -3708,7 +3708,8 @@ GET  /v1/usage               Usage stats`,
       // Fire a drift sample so history isn't empty on first load, then fetch all.
       try { await api('/v1/drift'); } catch (e) { /* best-effort */ }
 
-      let usage = { days: [], total: 0 };
+      let usageTotal = { days: [], total: 0 };
+      let usageHist = { history: [] };
       let pressureHist = { history: [] };
       let driftHist = { history: [] };
       let moodHist = { history: [] };
@@ -3719,14 +3720,16 @@ GET  /v1/usage               Usage stats`,
       const sinceSeconds = Math.ceil(ECG_WINDOW_DAYS * 24 * 3600);
 
       try {
-        [usage, pressureHist, driftHist, moodHist, crystalEvents] = await Promise.all([
+        [usageTotal, usageHist, pressureHist, driftHist, moodHist, crystalEvents] = await Promise.all([
           api('/v1/usage').catch(() => ({ days: [], total: 0 })),
+          api(`/v1/usage/history?since_seconds=${sinceSeconds}&buckets=60`).catch(() => ({ history: [] })),
           api(`/v1/pressure/history?since_seconds=${sinceSeconds}`).catch(() => ({ history: [] })),
           api(`/v1/drift/history?since_seconds=${sinceSeconds}`).catch(() => ({ history: [] })),
           api('/v1/moods/history').catch(() => ({ history: [] })),
           api('/v1/crystal/events').catch(() => ({ events: [] })),
         ]);
       } catch (e) { /* noop */ }
+      const usage = usageTotal;  // total + days array still come from /v1/usage
 
       const totalDeltas = usage.total || 0;
       const moodCount = (moodHist.history || []).length;
@@ -3754,7 +3757,7 @@ GET  /v1/usage               Usage stats`,
         return;
       }
 
-      renderECG({ usage, pressureHist, driftHist, moodHist, crystalEvents });
+      renderECG({ usage, usageHist, pressureHist, driftHist, moodHist, crystalEvents });
 
       // Meta line: total + current mood as a colored chip
       ecgMeta.innerHTML = '';
@@ -3805,7 +3808,7 @@ GET  /v1/usage               Usage stats`,
       ecgSvg.appendChild(sub);
     }
 
-    function renderECG({ usage, pressureHist, driftHist, moodHist, crystalEvents }) {
+    function renderECG({ usage, usageHist, pressureHist, driftHist, moodHist, crystalEvents }) {
       while (ecgSvg.firstChild) ecgSvg.removeChild(ecgSvg.firstChild);
 
       const W = ecgSvg.clientWidth || 800;
@@ -3854,14 +3857,24 @@ GET  /v1/usage               Usage stats`,
         ecgSvg.appendChild(ecgSvgNS('path', { class: 'ecg-line ' + cls, d: path }));
       }
 
-      // ── Usage line (normalized to its own max) ─
-      const days = usage.days || [];
-      if (days.length) {
-        const maxC = Math.max(1, ...days.map(d => d.count));
+      // ── Usage line — bucketed at the same resolution as pressure ─
+      const uHist = (usageHist && usageHist.history || []).filter(e => new Date(e.t).getTime() >= tStart);
+      if (uHist.length) {
+        const maxU = Math.max(1, ...uHist.map(e => e.v));
         drawLine(
-          days.map(d => [xForT(new Date(d.date + 'T12:00:00Z').getTime()), yForLine(d.count / maxC)]),
+          uHist.map(e => [xForT(new Date(e.t).getTime()), yForLine(e.v / maxU)]),
           'ecg-line-usage'
         );
+      } else {
+        // Fallback: legacy daily usage if the new endpoint isn't reachable
+        const days = (usage && usage.days) || [];
+        if (days.length) {
+          const maxC = Math.max(1, ...days.map(d => d.count));
+          drawLine(
+            days.map(d => [xForT(new Date(d.date + 'T12:00:00Z').getTime()), yForLine(d.count / maxC)]),
+            'ecg-line-usage'
+          );
+        }
       }
 
       // ── Pressure line ──────────────────────────

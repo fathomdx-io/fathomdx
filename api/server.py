@@ -16,7 +16,7 @@ from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
-from . import auth, auto_regen, crystal, db, delta_client, drift, mood, pressure
+from . import auth, auto_regen, crystal, db, delta_client, drift, mood, pressure, usage as usage_module
 from .prompt import (
     CRYSTAL_DIRECTIVE,
     FEED_DIRECTIVE,
@@ -665,6 +665,13 @@ async def get_mood_history(limit: int = 200):
 async def get_pressure_history(since_seconds: int | None = None):
     """Rolling pressure samples for the ECG pressure track."""
     items = await pressure.history(since_seconds=since_seconds)
+    return {"history": items}
+
+
+@app.get("/v1/usage/history")
+async def get_usage_history(since_seconds: int = 7 * 24 * 3600, buckets: int = 60):
+    """Bucketed delta-count timeline matching pressure's resolution."""
+    items = await usage_module.history(since_seconds=since_seconds, buckets=buckets)
     return {"history": items}
 
 
