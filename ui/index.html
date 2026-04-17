@@ -460,16 +460,32 @@
     }
     .ecg-chart svg { display: block; width: 100%; }
     .ecg-legend {
-      margin-top: 10px; display: flex; flex-wrap: wrap; gap: 14px;
-      font-family: var(--mono); font-size: 11px; color: var(--ink-faint);
-      letter-spacing: 0.04em;
+      list-style: none; padding: 0;
+      margin: 22px 0 0;
+      display: grid; gap: 18px;
     }
-    .ecg-legend .legend-item { display: inline-flex; align-items: center; gap: 6px; }
+    .ecg-legend .legend-item {
+      display: grid;
+      grid-template-columns: minmax(140px, max-content) 1fr;
+      gap: 4px 18px; align-items: baseline;
+    }
+    .ecg-legend .legend-key {
+      font-family: var(--mono); font-size: 11.5px;
+      letter-spacing: 0.06em; text-transform: uppercase;
+      color: var(--ink); white-space: nowrap;
+      display: inline-flex; align-items: center; gap: 8px;
+    }
+    .ecg-legend .legend-desc {
+      font-size: 13.5px; color: var(--ink-soft, var(--ink-faint));
+      line-height: 1.55;
+    }
     .ecg-legend .dot { width: 10px; height: 10px; border-radius: 50%; display: inline-block; }
-    .ecg-legend .ev { font-size: 13px; color: var(--ink-soft, var(--ink-faint)); }
-    .ecg-copy {
-      margin-top: 14px; color: var(--ink-soft, var(--ink-faint));
-      font-size: 13.5px; line-height: 1.55;
+    .ecg-legend .ev { font-size: 13px; color: var(--accent); }
+    @media (max-width: 640px) {
+      .ecg-legend .legend-item {
+        grid-template-columns: 1fr;
+        gap: 2px;
+      }
     }
     .ecg-track-label {
       font-family: var(--mono); font-size: 9.5px;
@@ -1451,14 +1467,28 @@
       <div class="ecg-chart">
         <svg id="ecgSvg" width="100%" height="320" preserveAspectRatio="none"></svg>
       </div>
-      <div class="ecg-legend" id="ecgLegend">
-        <span class="legend-item"><span class="dot" style="background:#6aa6ff;"></span>usage</span>
-        <span class="legend-item"><span class="dot" style="background:#f0a060;"></span>pressure</span>
-        <span class="legend-item"><span class="dot" style="background:#7fcca0;"></span>drift</span>
-        <span class="legend-item"><span class="dot" style="background:#b08cff;"></span>mood</span>
-        <span class="legend-item"><span class="ev crystal">◆</span>crystal generated</span>
-      </div>
-      <p class="ecg-copy" id="ecgCopy">Live signal of how I'm running. Each track is a vital — usage is volume, pressure is what's been building since I last checked in, drift is how far the crystal has wandered from the lake's centroid, mood is the colored band of how it's all landing.</p>
+      <ul class="ecg-legend" id="ecgLegend">
+        <li class="legend-item">
+          <span class="legend-key"><span class="dot" style="background:#6aa6ff;"></span>Usage</span>
+          <span class="legend-desc">How busy the lake is. New fragments arriving per day, like a heartbeat for the mind.</span>
+        </li>
+        <li class="legend-item">
+          <span class="legend-key"><span class="dot" style="background:#f0a060;"></span>Pressure</span>
+          <span class="legend-desc">What's been building up since the last check-in. That feeling when there's too much you haven't sat with yet.</span>
+        </li>
+        <li class="legend-item">
+          <span class="legend-key"><span class="dot" style="background:#7fcca0;"></span>Drift</span>
+          <span class="legend-desc">How far the lake's center of gravity has wandered from the way Fathom currently describes itself. Living changes you faster than you can rewrite who you are.</span>
+        </li>
+        <li class="legend-item">
+          <span class="legend-key"><span class="dot" style="background:#b08cff;"></span>Mood</span>
+          <span class="legend-desc">The weather of the moment. Same way a person says "I'm restless today" or "feeling sharp this morning."</span>
+        </li>
+        <li class="legend-item">
+          <span class="legend-key"><span class="ev crystal">◆</span>Crystal generated</span>
+          <span class="legend-desc">A moment where Fathom paused, looked at everything, and rewrote its own self-description. Journaling "who am I now?" and meaning it.</span>
+        </li>
+      </ul>
       <button class="btn" id="horizonUnlockBtn" data-tier-view="free">Unlock the lake →</button>
       <button class="btn ghost" data-tier-view="free" style="margin-left: 8px;">See pricing</button>
     </section>
