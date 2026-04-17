@@ -1501,7 +1501,11 @@
         <ul class="ecg-legend">
           <li class="legend-item">
             <span class="legend-key"><span class="dot" style="background:#7fcca0;"></span>Drift</span>
-            <span class="legend-desc">How far the lake's center of gravity has wandered from the way Fathom currently describes itself. The dashed lines mark where auto-regen fires — a fresh crystal pulls drift back to center.</span>
+            <span class="legend-desc">How far the lake's center of gravity has wandered from the way Fathom currently describes itself. The dashed line marks the regeneration threshold — a fresh crystal pulls drift back to center.</span>
+          </li>
+          <li class="legend-item">
+            <span class="legend-key"><span class="ev crystal">◆</span>Identity Crystal Regeneration</span>
+            <span class="legend-desc">A moment where Fathom paused, looked at everything, and rewrote its own self-description. Journaling "who am I now?" and meaning it.</span>
           </li>
         </ul>
       </div>
@@ -1514,10 +1518,6 @@
           <li class="legend-item">
             <span class="legend-key"><span class="dot" style="background:#b08cff;"></span>Mood</span>
             <span class="legend-desc">The weather of the moment. Same way a person says "I'm restless today" or "feeling sharp this morning."</span>
-          </li>
-          <li class="legend-item">
-            <span class="legend-key"><span class="ev crystal">◆</span>Crystal generated</span>
-            <span class="legend-desc">A moment where Fathom paused, looked at everything, and rewrote its own self-description. Journaling "who am I now?" and meaning it.</span>
           </li>
         </ul>
       </div>
@@ -3953,26 +3953,25 @@ GET  /v1/usage               Usage stats`,
       const half = (plotBot - plotTop) / 2;
 
       // Threshold lines — dashed, drawn at the regen-fire point (ratio * threshold)
-      // and at the threshold itself, mirrored above and below the center.
+      // mirrored above and below the centerline.
       const REGEN_RATIO = 0.9;
       const fireY = REGEN_RATIO * half;
       [center - fireY, center + fireY].forEach(y => {
         ctx.svg.appendChild(ecgSvgNS('line', {
           x1: ctx.padding.left, x2: ctx.W - ctx.padding.right,
           y1: y, y2: y,
-          stroke: '#c85a4a', 'stroke-width': 0.6, opacity: 0.55,
+          stroke: 'var(--ink)', 'stroke-width': 0.6, opacity: 0.5,
           'stroke-dasharray': '4 5',
         }));
       });
-      // Tiny label for the threshold (just at top-right, faint)
       const thresholdLbl = ecgSvgNS('text', {
         x: ctx.W - ctx.padding.right - 4, y: center - fireY - 3,
         'text-anchor': 'end',
         'font-family': 'var(--mono)', 'font-size': '9px',
-        fill: '#c85a4a', opacity: 0.7,
+        fill: 'var(--ink)', opacity: 0.65,
         'letter-spacing': '0.05em',
       });
-      thresholdLbl.textContent = 'auto-regen fires';
+      thresholdLbl.textContent = 'Identity Crystal Regeneration';
       ctx.svg.appendChild(thresholdLbl);
 
       // Centerline (the "0 distance" axis)
@@ -4006,7 +4005,29 @@ GET  /v1/usage               Usage stats`,
         }));
       }
 
-      _drawCrystalEvents(ctx, crystalEvents.events);
+      // Crystal events: full-height verticals + ◆ icon at the top of THIS card
+      // (drift is what triggers regen, so the marker lives here)
+      for (const ev of (crystalEvents.events || [])) {
+        const t = ev.timestamp ? new Date(ev.timestamp).getTime() : 0;
+        if (!t || t < ctx.tStart || t > ctx.now) continue;
+        const x = ctx.xForT(t);
+        ctx.svg.appendChild(ecgSvgNS('line', {
+          class: 'ecg-event-line',
+          x1: x, x2: x,
+          y1: ctx.padding.top, y2: ctx.H - ctx.padding.bottom,
+        }));
+        const icon = ecgSvgNS('text', {
+          class: 'ecg-event-icon',
+          x: x, y: ctx.padding.top + 10,
+          'text-anchor': 'middle',
+        });
+        icon.textContent = '◆';
+        const title = ecgSvgNS('title');
+        title.textContent = 'crystal regenerated · ' + (ev.timestamp || '');
+        icon.appendChild(title);
+        ctx.svg.appendChild(icon);
+      }
+
       _drawXLabels(ctx, ticks);
     }
 
@@ -4044,29 +4065,9 @@ GET  /v1/usage               Usage stats`,
         ctx.svg.appendChild(rect);
       }
 
-      // Crystal events on this card get the diamond ◆ at the top, since this
-      // is where the legend names them.
-      for (const ev of (crystalEvents.events || [])) {
-        const t = ev.timestamp ? new Date(ev.timestamp).getTime() : 0;
-        if (!t || t < ctx.tStart || t > ctx.now) continue;
-        const x = ctx.xForT(t);
-        ctx.svg.appendChild(ecgSvgNS('line', {
-          class: 'ecg-event-line',
-          x1: x, x2: x,
-          y1: ctx.padding.top, y2: ctx.H - ctx.padding.bottom,
-        }));
-        const icon = ecgSvgNS('text', {
-          class: 'ecg-event-icon',
-          x: x, y: ctx.padding.top + 10,
-          'text-anchor': 'middle',
-        });
-        icon.textContent = '◆';
-        const title = ecgSvgNS('title');
-        title.textContent = 'crystal generated · ' + (ev.timestamp || '');
-        icon.appendChild(title);
-        ctx.svg.appendChild(icon);
-      }
-
+      // Crystal verticals span this card too, but the ◆ icon lives on the
+      // drift card where the legend names it.
+      _drawCrystalEvents(ctx, crystalEvents.events);
       _drawXLabels(ctx, ticks);
     }
 
