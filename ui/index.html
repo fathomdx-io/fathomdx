@@ -1301,6 +1301,31 @@
       </div>
     </section>
 
+    <!-- Local Agent -->
+    <section class="section">
+      <div class="section-head">
+        <h2>Local Agent</h2>
+        <span class="meta">watch files, system health, and more</span>
+      </div>
+      <p style="font-size: 14px; color: var(--ink-soft); line-height: 1.55; margin: 0 0 14px;">
+        Runs on your machine. Watches local files and pushes changes to the lake. Install for your platform:
+      </p>
+      <div class="extend-grid">
+        <div class="extend" data-surface="agent-linux">
+          <span class="extend-icon">🐧</span>
+          <div class="extend-text"><span class="label">Linux</span><span class="sub">systemd service</span></div>
+        </div>
+        <div class="extend" data-surface="agent-mac">
+          <span class="extend-icon">🍎</span>
+          <div class="extend-text"><span class="label">Mac</span><span class="sub">launchd agent</span></div>
+        </div>
+        <div class="extend" data-surface="agent-windows">
+          <span class="extend-icon">⊞</span>
+          <div class="extend-text"><span class="label">Windows</span><span class="sub">scheduled task</span></div>
+        </div>
+      </div>
+    </section>
+
     <!-- Extend: how to reach Fathom from elsewhere -->
     <section class="section">
       <div class="section-head">
@@ -2372,6 +2397,128 @@ fathom chat "summarize my week"            # chat with memory`,
 curl api.example.com/status | fathom write - --tags monitoring
 cat meeting-notes.md | fathom write - --tags meeting --source notes`,
             hint: 'Use - as content to read from stdin.',
+          },
+        ],
+      },
+      'agent-linux': {
+        icon: '🐧',
+        name: 'Local Agent — Linux',
+        desc: 'Watches local files, system health, and more. Runs as a systemd user service, survives reboots.',
+        steps: [
+          {
+            title: 'Step 1 · Install',
+            code: 'npm i -g fathom-agent',
+            hint: 'Requires Node.js 18+.',
+          },
+          {
+            title: 'Step 2 · Create config',
+            code: `fathom-agent init`,
+            body: 'Edit <code style="display:inline;padding:2px 6px;">~/.fathom/agent.json</code> — set your API key, enable plugins, adjust paths.',
+          },
+          {
+            title: 'Step 3 · Test it',
+            code: 'fathom-agent run',
+            hint: 'Watch the output. Ctrl+C when satisfied.',
+          },
+          {
+            title: 'Step 4 · Install as service',
+            code: `fathom-agent install
+systemctl --user daemon-reload
+systemctl --user enable fathom-agent
+systemctl --user start fathom-agent`,
+            hint: 'Starts on login, restarts on crash. Check with: systemctl --user status fathom-agent',
+          },
+          {
+            title: 'Built-in plugins',
+            code: `📁 Vault     Watch markdown directories, extract images
+💻 Sysinfo   CPU temp, load, memory, disk, battery (Linux)`,
+            hint: 'Custom plugins: drop .js files in ~/.fathom/plugins/',
+          },
+          {
+            title: 'Example config',
+            code: `{
+  "api_url": "${API_BASE}",
+  "api_key": "fth_...",
+  "plugins": {
+    "vault": {
+      "enabled": true,
+      "paths": ["/home/you/Documents/obsidian"],
+      "source": "vault",
+      "tags": ["vault-note"]
+    },
+    "sysinfo": {
+      "enabled": true,
+      "interval": 300000,
+      "expiry_days": 1,
+      "disks": ["/", "/home"],
+      "servers": ["https://your-server.com"]
+    }
+  }
+}`,
+          },
+          {
+            title: 'Commands',
+            code: `fathom-agent run          # start watching
+fathom-agent init         # create config
+fathom-agent status       # show config + connection
+fathom-agent install      # install as systemd service
+fathom-agent uninstall    # remove service
+fathom-agent help         # show all commands`,
+          },
+        ],
+      },
+      'agent-mac': {
+        icon: '🍎',
+        name: 'Local Agent — Mac',
+        desc: 'Watches local files, system health, and more. Runs as a launchd agent, starts on login.',
+        steps: [
+          {
+            title: 'Step 1 · Install',
+            code: 'npm i -g fathom-agent',
+          },
+          {
+            title: 'Step 2 · Create config and test',
+            code: `fathom-agent init
+# Edit ~/.fathom/agent.json
+fathom-agent run`,
+          },
+          {
+            title: 'Step 3 · Install as service',
+            code: `fathom-agent install
+launchctl load ~/Library/LaunchAgents/com.fathom.agent.plist
+launchctl start com.fathom.agent`,
+            hint: 'RunAtLoad + KeepAlive — starts on login, restarts if it dies.',
+          },
+          {
+            title: 'Note',
+            body: 'The sysinfo plugin is Linux-only for now. Vault works on all platforms. Community contributions for Mac system health welcome.',
+          },
+        ],
+      },
+      'agent-windows': {
+        icon: '⊞',
+        name: 'Local Agent — Windows',
+        desc: 'Watches local files and more. Runs as a scheduled task, starts on login.',
+        steps: [
+          {
+            title: 'Step 1 · Install',
+            code: 'npm i -g fathom-agent',
+          },
+          {
+            title: 'Step 2 · Create config and test',
+            code: `fathom-agent init
+# Edit %USERPROFILE%\\.fathom\\agent.json
+fathom-agent run`,
+          },
+          {
+            title: 'Step 3 · Install as service',
+            code: `fathom-agent install
+schtasks /create /tn "FathomAgent" /tr "%USERPROFILE%\\.fathom\\fathom-agent.bat" /sc onlogon /rl limited
+schtasks /run /tn "FathomAgent"`,
+          },
+          {
+            title: 'Note',
+            body: 'The sysinfo plugin is Linux-only for now. Vault works on all platforms. Community contributions for Windows system health welcome.',
           },
         ],
       },
