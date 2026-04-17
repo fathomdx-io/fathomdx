@@ -1481,6 +1481,7 @@
             <option value="all">All Time</option>
             <option value="6mo">6 Months</option>
             <option value="30d">30 days</option>
+            <option value="10d">10 days</option>
             <option value="1w" selected>1 week</option>
             <option value="3d">3 days</option>
             <option value="1d">1 day</option>
@@ -3723,6 +3724,7 @@ GET  /v1/usage               Usage stats`,
       "all": { label: "all time", days: 365 },
       "6mo": { label: "6 months", days: 180 },
       "30d": { label: "30 days",  days: 30 },
+      "10d": { label: "10 days",  days: 10 },
       "1w":  { label: "1 week",   days: 7 },
       "3d":  { label: "3 days",   days: 3 },
       "1d":  { label: "1 day",    days: 1 },
@@ -4249,17 +4251,27 @@ GET  /v1/usage               Usage stats`,
     }
 
     if (ecgWindowSelect) {
-      // Persist preference across sessions
-      const stored = localStorage.getItem('ecgWindow');
-      if (stored && ECG_WINDOWS[stored]) {
-        ecgWindowSelect.value = stored;
-        ECG_WINDOW_DAYS = ECG_WINDOWS[stored].days;
+      const isOpen = () => document.documentElement.getAttribute('data-tier') === 'open';
+
+      // Free tier always defaults to 10 days on every page load — gives ~3
+      // days of visible data plus the 7-day blackout, which fits the
+      // "Unlock Fathom" pill comfortably. Open tier persists choice.
+      if (isOpen()) {
+        const stored = localStorage.getItem('ecgWindow');
+        if (stored && ECG_WINDOWS[stored]) {
+          ecgWindowSelect.value = stored;
+          ECG_WINDOW_DAYS = ECG_WINDOWS[stored].days;
+        }
+      } else {
+        ecgWindowSelect.value = '10d';
+        ECG_WINDOW_DAYS = ECG_WINDOWS['10d'].days;
       }
+
       ecgWindowSelect.addEventListener('change', () => {
         const key = ecgWindowSelect.value;
         if (!ECG_WINDOWS[key]) return;
         ECG_WINDOW_DAYS = ECG_WINDOWS[key].days;
-        localStorage.setItem('ecgWindow', key);
+        if (isOpen()) localStorage.setItem('ecgWindow', key);
         loadECG();
       });
     }
