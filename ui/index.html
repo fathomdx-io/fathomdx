@@ -436,6 +436,23 @@
       font-family: var(--mono); font-size: 11px; letter-spacing: 0.06em;
       text-transform: uppercase; color: var(--ink-faint);
     }
+    .ecg-controls {
+      display: flex; align-items: center; gap: 14px; flex-wrap: wrap;
+    }
+    .ecg-window-select {
+      font-family: var(--mono); font-size: 11px; letter-spacing: 0.06em;
+      text-transform: uppercase; color: var(--ink-faint);
+      background: var(--surface); border: 1px solid var(--rule);
+      padding: 5px 24px 5px 10px;
+      border-radius: 6px; cursor: pointer;
+      appearance: none; -webkit-appearance: none; -moz-appearance: none;
+      background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 10 6'><path fill='%238a8d92' d='M5 6L0 0h10z'/></svg>");
+      background-repeat: no-repeat;
+      background-position: right 8px center;
+      background-size: 8px 5px;
+    }
+    .ecg-window-select:hover { border-color: var(--ink-faint); color: var(--ink-soft, var(--ink)); }
+    .ecg-window-select:focus { outline: none; border-color: var(--accent); }
     .ecg-chart {
       background: var(--surface); border: 1px solid var(--rule);
       border-radius: var(--radius); padding: 14px 12px;
@@ -1414,11 +1431,22 @@
       </div>
     </section>
 
-    <!-- ECG — multi-track time-series of Fathom's state -->
+    <!-- Stats — multi-track time-series of Fathom's state -->
     <section class="ecg-section">
       <div class="ecg-head">
-        <h2>ECG</h2>
-        <span class="meta" id="ecgMeta">loading…</span>
+        <h2>Stats</h2>
+        <div class="ecg-controls">
+          <select id="ecgWindow" class="ecg-window-select">
+            <option value="all">All Time</option>
+            <option value="6mo">6 Months</option>
+            <option value="30d">30 days</option>
+            <option value="1w" selected>1 week</option>
+            <option value="3d">3 days</option>
+            <option value="1d">1 day</option>
+            <option value="6h">6 hours</option>
+          </select>
+          <span class="meta" id="ecgMeta">loading…</span>
+        </div>
       </div>
       <div class="ecg-chart">
         <svg id="ecgSvg" width="100%" height="320" preserveAspectRatio="none"></svg>
@@ -3600,11 +3628,23 @@ GET  /v1/usage               Usage stats`,
       });
     });
 
-    // ── ECG widget (multi-track time-series) ─────
+    // ── Stats / ECG widget (multi-track time-series) ─
     const ecgSvg = document.getElementById('ecgSvg');
     const ecgMeta = document.getElementById('ecgMeta');
+    const ecgWindowSelect = document.getElementById('ecgWindow');
 
-    const ECG_WINDOW_DAYS = 12;
+    // Window options keyed by select value. days: window length, label: human,
+    // tickEvery / tickFormat: how to render the x-axis labels for that span.
+    const ECG_WINDOWS = {
+      "all": { label: "all time", days: 365 },
+      "6mo": { label: "6 months", days: 180 },
+      "30d": { label: "30 days",  days: 30 },
+      "1w":  { label: "1 week",   days: 7 },
+      "3d":  { label: "3 days",   days: 3 },
+      "1d":  { label: "1 day",    days: 1 },
+      "6h":  { label: "6 hours",  days: 0.25 },
+    };
+    let ECG_WINDOW_DAYS = ECG_WINDOWS["1w"].days;
     const ECG_HEIGHT = 280;
     const ECG_PADDING = { left: 16, right: 12, top: 14, bottom: 26 };
 
@@ -3644,11 +3684,15 @@ GET  /v1/usage               Usage stats`,
       let moodHist = { history: [] };
       let crystalEvents = { events: [] };
 
+      // Pass the chosen window length to the history endpoints so they
+      // return data covering the visible span (pressure default is 36h).
+      const sinceSeconds = Math.ceil(ECG_WINDOW_DAYS * 24 * 3600);
+
       try {
         [usage, pressureHist, driftHist, moodHist, crystalEvents] = await Promise.all([
           api('/v1/usage').catch(() => ({ days: [], total: 0 })),
-          api('/v1/pressure/history').catch(() => ({ history: [] })),
-          api('/v1/drift/history').catch(() => ({ history: [] })),
+          api(`/v1/pressure/history?since_seconds=${sinceSeconds}`).catch(() => ({ history: [] })),
+          api(`/v1/drift/history?since_seconds=${sinceSeconds}`).catch(() => ({ history: [] })),
           api('/v1/moods/history').catch(() => ({ history: [] })),
           api('/v1/crystal/events').catch(() => ({ events: [] })),
         ]);
@@ -3685,7 +3729,7 @@ GET  /v1/usage               Usage stats`,
       // Meta line: total + current mood as a colored chip
       ecgMeta.innerHTML = '';
       const totalSpan = document.createElement('span');
-      totalSpan.textContent = `${totalDeltas.toLocaleString()} total deltas · window ${ECG_WINDOW_DAYS}d`;
+      totalSpan.textContent = `${totalDeltas.toLocaleString()} total deltas`;
       ecgMeta.appendChild(totalSpan);
       const moodList = moodHist.history || [];
       if (moodList.length) {
@@ -3763,12 +3807,12 @@ GET  /v1/usage               Usage stats`,
         stroke: 'var(--rule-soft, #d8d6d2)', 'stroke-width': 0.5, opacity: 0.5,
       }));
 
-      // Vertical day gridlines
-      for (let d = 0; d <= ECG_WINDOW_DAYS; d++) {
-        const t = tStart + d * 24 * 3600 * 1000;
+      // Vertical gridlines + tick formatter — adapt to the chosen window.
+      const ticks = _ecgTicks(ECG_WINDOW_DAYS, tStart, now);
+      for (const tick of ticks) {
         ecgSvg.appendChild(ecgSvgNS('line', {
           class: 'ecg-grid',
-          x1: xForT(t), x2: xForT(t),
+          x1: xForT(tick.t), x2: xForT(tick.t),
           y1: ECG_PADDING.top, y2: H - ECG_PADDING.bottom,
         }));
       }
@@ -3861,18 +3905,77 @@ GET  /v1/usage               Usage stats`,
         ecgSvg.appendChild(icon);
       }
 
-      // ── X-axis day labels ──────────────────────
-      for (let d = 0; d <= ECG_WINDOW_DAYS; d += 2) {
-        const t = tStart + d * 24 * 3600 * 1000;
-        const dt = new Date(t);
+      // ── X-axis labels (window-adaptive) ────────
+      for (const tick of ticks) {
+        if (!tick.label) continue;
         const lbl = ecgSvgNS('text', {
           class: 'ecg-track-label',
-          x: xForT(t), y: H - 6,
+          x: xForT(tick.t), y: H - 6,
           'text-anchor': 'middle',
         });
-        lbl.textContent = `${dt.getMonth() + 1}/${dt.getDate()}`;
+        lbl.textContent = tick.label;
         ecgSvg.appendChild(lbl);
       }
+    }
+
+    function _ecgTicks(windowDays, tStart, now) {
+      // Choose tick spacing + label format that gives ~6-12 visible ticks
+      // and stays legible for the window. Returns [{t, label}].
+      const out = [];
+      let stepMs, format;
+      if (windowDays >= 180) {
+        stepMs = 30 * 24 * 3600 * 1000;
+        format = (d) => d.toLocaleString('en-US', { month: 'short' });
+      } else if (windowDays >= 30) {
+        stepMs = 7 * 24 * 3600 * 1000;
+        format = (d) => `${d.getMonth() + 1}/${d.getDate()}`;
+      } else if (windowDays >= 7) {
+        stepMs = 24 * 3600 * 1000;
+        format = (d) => `${d.getMonth() + 1}/${d.getDate()}`;
+      } else if (windowDays >= 2) {
+        stepMs = 12 * 3600 * 1000;
+        format = (d) => {
+          const h = d.getHours();
+          if (h === 0) return `${d.getMonth() + 1}/${d.getDate()}`;
+          const ampm = h >= 12 ? 'p' : 'a';
+          const h12 = ((h + 11) % 12) + 1;
+          return `${h12}${ampm}`;
+        };
+      } else if (windowDays >= 0.5) {
+        stepMs = 3 * 3600 * 1000;
+        format = (d) => {
+          const h = d.getHours();
+          const ampm = h >= 12 ? 'p' : 'a';
+          const h12 = ((h + 11) % 12) + 1;
+          return `${h12}${ampm}`;
+        };
+      } else {
+        stepMs = 30 * 60 * 1000;
+        format = (d) => `${d.getHours().toString().padStart(2, '0')}:${d.getMinutes().toString().padStart(2, '0')}`;
+      }
+      // Walk in step increments, anchored to the END of the window so "now"
+      // is always a labeled tick.
+      for (let t = now; t >= tStart; t -= stepMs) {
+        out.push({ t, label: format(new Date(t)) });
+      }
+      out.reverse();
+      return out;
+    }
+
+    if (ecgWindowSelect) {
+      // Persist preference across sessions
+      const stored = localStorage.getItem('ecgWindow');
+      if (stored && ECG_WINDOWS[stored]) {
+        ecgWindowSelect.value = stored;
+        ECG_WINDOW_DAYS = ECG_WINDOWS[stored].days;
+      }
+      ecgWindowSelect.addEventListener('change', () => {
+        const key = ecgWindowSelect.value;
+        if (!ECG_WINDOWS[key]) return;
+        ECG_WINDOW_DAYS = ECG_WINDOWS[key].days;
+        localStorage.setItem('ecgWindow', key);
+        loadECG();
+      });
     }
 
     loadECG();
