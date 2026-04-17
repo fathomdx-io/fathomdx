@@ -316,13 +316,13 @@ async function main() {
 
   console.log(`\nWatching... (Ctrl+C to stop)\n`);
 
+  let lastStatsLine = "";
   setInterval(() => {
     const s = pusher.stats;
-    if (s.pushed > 0 || s.deduped > 0 || s.failed > 0) {
-      const parts = [`pushed: ${s.pushed}`];
-      if (s.deduped) parts.push(`deduped: ${s.deduped}`);
-      if (s.failed) parts.push(`failed: ${s.failed}`);
-      console.log(`  [${new Date().toLocaleTimeString()}] ${parts.join(", ")}`);
+    const line = `pushed: ${s.pushed}, deduped: ${s.deduped}, failed: ${s.failed}`;
+    if (line !== lastStatsLine && (s.pushed > 0 || s.deduped > 0 || s.failed > 0)) {
+      console.log(`  [${new Date().toLocaleTimeString()}] ${line}`);
+      lastStatsLine = line;
     }
   }, 30000);
 
