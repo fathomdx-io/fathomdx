@@ -201,6 +201,11 @@
     }
     .mood-threads li { padding: 3px 0; opacity: 0.85; }
     .mood-threads li::before { content: "·  "; color: var(--accent); }
+    .hello-lang {
+      font-family: var(--mono); font-style: normal;
+      font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase;
+      color: var(--ink-faint); opacity: 0.85;
+    }
 
     /* Card with full-bleed image hero */
     .card-img-hero {
@@ -1325,11 +1330,11 @@
   <!-- ── Main ──────────────────────────────────── -->
   <main>
 
-    <!-- Opener: title + subtext will both be delta-rendered at runtime -->
+    <!-- Opener: title + subtext both render dynamically at runtime -->
     <section class="opener">
       <div class="stamp">Wednesday · 3:42 PM · St. Louis</div>
-      <h1 id="heroHeadline">The lake is <em>warmer</em> than yesterday.</h1>
-      <p id="heroSubtext" data-feeling="">Loading…</p>
+      <h1 id="heroHeadline">Hello…</h1>
+      <p id="heroSubtext" data-feeling=""><em class="hello-lang">English</em></p>
     </section>
 
     <!-- Feed: what Fathom noticed -->
@@ -3296,6 +3301,44 @@ GET  /v1/usage               Usage stats`,
       return escaped.replace(/\*([^*]+)\*/g, '<em>$1</em>');
     }
 
+    // Default greeting before any mood loads (and as the fallback if no
+    // mood synthesis has happened yet). Rotates through hellos.
+    const HELLO_GREETINGS = [
+      ["Hello", "English"],
+      ["Hola", "Spanish"],
+      ["Bonjour", "French"],
+      ["こんにちは", "Japanese"],
+      ["Hallo", "German"],
+      ["Olá", "Portuguese"],
+      ["Привет", "Russian"],
+      ["안녕하세요", "Korean"],
+      ["你好", "Mandarin"],
+      ["Ciao", "Italian"],
+      ["नमस्ते", "Hindi"],
+      ["Hej", "Swedish"],
+      ["Salam", "Arabic"],
+      ["Aloha", "Hawaiian"],
+      ["Sawubona", "Zulu"],
+      ["Halo", "Indonesian"],
+      ["Shalom", "Hebrew"],
+      ["Xin chào", "Vietnamese"],
+      ["Merhaba", "Turkish"],
+      ["Sannu", "Hausa"],
+      ["Sat sri akaal", "Punjabi"],
+      ["Γειά σου", "Greek"],
+      ["Talofa", "Samoan"],
+    ];
+
+    function _renderHelloDefault() {
+      const headline = document.getElementById('heroHeadline');
+      const subtext = document.getElementById('heroSubtext');
+      if (!headline || !subtext) return;
+      const [hello, lang] = HELLO_GREETINGS[Math.floor(Math.random() * HELLO_GREETINGS.length)];
+      headline.innerHTML = escapeHtml(hello) + '…';
+      subtext.innerHTML = '<em class="hello-lang">' + escapeHtml(lang) + '</em>';
+      subtext.dataset.feeling = '';
+    }
+
     async function loadHeroMood() {
       const headline = document.getElementById('heroHeadline');
       const subtext = document.getElementById('heroSubtext');
@@ -3304,19 +3347,20 @@ GET  /v1/usage               Usage stats`,
         const data = await api('/v1/moods/latest');
         const mood = data && data.mood;
         if (!mood) {
-          subtext.textContent = "Haven't checked in with myself yet. First carrier wave is still pending.";
-          subtext.dataset.feeling = '';
+          // No mood yet — leave the Hello default
           return;
         }
-        // Headline: prefer the new field, leave the static fallback alone if missing
         if (headline && mood.headline) {
           headline.innerHTML = _renderHeadline(mood.headline);
         }
-        // Subtext: prefer the new short field, fall back to carrier_wave for old deltas
-        subtext.textContent = mood.subtext || mood.carrier_wave || '';
-        subtext.dataset.feeling = mood.state || '';
+        // Prefer the new short subtext; fall back to carrier_wave for older deltas
+        const body = mood.subtext || mood.carrier_wave;
+        if (body) {
+          subtext.textContent = body;
+          subtext.dataset.feeling = mood.state || '';
+        }
       } catch (err) {
-        subtext.textContent = '';
+        // Network down — leave greeting in place
       }
     }
 
@@ -3415,6 +3459,7 @@ GET  /v1/usage               Usage stats`,
     showMoreBtn.addEventListener('click', () => loadFeedStories(true));
 
     // Load feed on page load
+    _renderHelloDefault();
     loadFeedStories(false);
     loadHeroMood();
 
