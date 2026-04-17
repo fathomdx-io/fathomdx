@@ -40,7 +40,10 @@ class Settings(BaseSettings):
     mood_state_path: str = "/data/mood-state.json"
 
     # Mood layer (carrier wave) — pressure thresholds
-    mood_pressure_threshold: float = 5.0
+    # Threshold tuned against a real lake. With ~50 deltas/hour, pressure
+    # builds to ~30 within a few hours; 25 fires roughly every 2-3 hours
+    # of sustained activity unless a contrast-wake intervenes.
+    mood_pressure_threshold: float = 25.0
     mood_decay_half_life_seconds: int = 14400  # 4 hours
     mood_contrast_wake_seconds: int = 21600    # 6 hours
 

@@ -3583,13 +3583,12 @@ GET  /v1/usage               Usage stats`,
       }).length;
 
       // Don't render the chart until there's enough rhythm to actually read.
-      // A single-line ECG is a sad consumer UX. Wait for either a meaningful
-      // amount of one signal OR a couple signals together. Tunable.
-      const moodReady     = moodCount >= 2;
+      // Only line tracks (pressure, drift) unlock the chart — mood is just a
+      // colored band and crystals are point events; neither makes the ECG
+      // feel alive on its own. They decorate once the lines are there.
       const pressureReady = pressureCount >= 6;
       const driftReady    = realDriftCount >= 3;
-      const crystalReady  = crystalCount >= 1;
-      const enoughRhythm = moodReady || pressureReady || driftReady || crystalReady;
+      const enoughRhythm  = pressureReady || driftReady;
 
       if (!enoughRhythm) {
         renderECGEmpty(totalDeltas);
