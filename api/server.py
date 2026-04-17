@@ -16,7 +16,7 @@ from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
-from . import auth, auto_regen, crystal, db, delta_client, drift, mood, pressure, usage as usage_module
+from . import auth, auto_regen, crystal, db, delta_client, drift, mood, pressure, recall, usage as usage_module
 from .prompt import (
     CRYSTAL_DIRECTIVE,
     FEED_DIRECTIVE,
@@ -670,8 +670,15 @@ async def get_pressure_history(since_seconds: int | None = None):
 
 @app.get("/v1/usage/history")
 async def get_usage_history(since_seconds: int = 7 * 24 * 3600, buckets: int = 60):
-    """Bucketed delta-count timeline matching pressure's resolution."""
+    """Bucketed write-count timeline (moments arriving)."""
     items = await usage_module.history(since_seconds=since_seconds, buckets=buckets)
+    return {"history": items}
+
+
+@app.get("/v1/recall/history")
+async def get_recall_history(since_seconds: int = 7 * 24 * 3600, buckets: int = 60):
+    """Bucketed recall-count timeline (moments retrieved)."""
+    items = await recall.history(since_seconds=since_seconds, buckets=buckets)
     return {"history": items}
 
 

@@ -510,6 +510,8 @@
     .ecg-grid { stroke: var(--rule-soft); stroke-width: 0.5; opacity: 0.5; }
     .ecg-line { fill: none; stroke-width: 1.5; }
     .ecg-line-usage { stroke: #6aa6ff; }
+    .ecg-line-usage-in { stroke: #6aa6ff; }       /* blue — moments arriving */
+    .ecg-line-usage-out { stroke: #7fcca0; }      /* green — moments retrieved */
     .ecg-line-pressure { stroke: #f0a060; }
     .ecg-line-drift { stroke: #7fcca0; }
     .ecg-event-line { stroke: var(--ink-faint); stroke-width: 0.5; opacity: 0.45; stroke-dasharray: 2 3; }
@@ -1484,12 +1486,24 @@
         </div>
         <ul class="ecg-legend">
           <li class="legend-item">
-            <span class="legend-key"><span class="dot" style="background:#6aa6ff;"></span>Usage</span>
-            <span class="legend-desc">How busy Fathom's mind is. New moments arriving over time, like a heartbeat.</span>
+            <span class="legend-key"><span class="dot" style="background:#6aa6ff;"></span>Usage In / Out</span>
+            <span class="legend-desc">Moments arriving (blue) and being retrieved (green) over time. The volume between them is the imbalance — capture-heavy means Fathom is taking in faster than it's pulling things back out; recall-heavy means the opposite.</span>
           </li>
+        </ul>
+      </div>
+
+      <div class="stat-card">
+        <div class="ecg-chart">
+          <svg id="svgPressureMood" width="100%" height="200" preserveAspectRatio="none"></svg>
+        </div>
+        <ul class="ecg-legend">
           <li class="legend-item">
             <span class="legend-key"><span class="dot" style="background:#f0a060;"></span>Pressure</span>
             <span class="legend-desc">What's been building up since the last check-in. That feeling when there's too much you haven't sat with yet.</span>
+          </li>
+          <li class="legend-item">
+            <span class="legend-key"><span class="dot" style="background:#b08cff;"></span>Mood</span>
+            <span class="legend-desc">The weather of the moment. Each colored segment starts when Fathom checks in with itself — the same instant pressure resets to zero. Mood drives the drop you see in the orange line above.</span>
           </li>
         </ul>
       </div>
@@ -1506,18 +1520,6 @@
           <li class="legend-item">
             <span class="legend-key"><span class="ev crystal">◆</span>Identity Crystal Regeneration</span>
             <span class="legend-desc">A moment where Fathom paused, looked at everything, and rewrote its own self-description. Journaling "who am I now?" and meaning it.</span>
-          </li>
-        </ul>
-      </div>
-
-      <div class="stat-card">
-        <div class="ecg-chart">
-          <svg id="svgMood" width="100%" height="120" preserveAspectRatio="none"></svg>
-        </div>
-        <ul class="ecg-legend">
-          <li class="legend-item">
-            <span class="legend-key"><span class="dot" style="background:#b08cff;"></span>Mood</span>
-            <span class="legend-desc">The weather of the moment. Same way a person says "I'm restless today" or "feeling sharp this morning."</span>
           </li>
         </ul>
       </div>
@@ -3693,7 +3695,7 @@ GET  /v1/usage               Usage stats`,
     // ── Stats / ECG widget (separated stat cards) ─
     const svgActivity = document.getElementById('svgActivity');
     const svgDrift = document.getElementById('svgDrift');
-    const svgMood = document.getElementById('svgMood');
+    const svgPressureMood = document.getElementById('svgPressureMood');
     const ecgMeta = document.getElementById('ecgMeta');
     const ecgWindowSelect = document.getElementById('ecgWindow');
 
@@ -3738,6 +3740,7 @@ GET  /v1/usage               Usage stats`,
 
       let usageTotal = { days: [], total: 0 };
       let usageHist = { history: [] };
+      let recallHist = { history: [] };
       let pressureHist = { history: [] };
       let driftHist = { history: [] };
       let moodHist = { history: [] };
@@ -3748,9 +3751,10 @@ GET  /v1/usage               Usage stats`,
       const sinceSeconds = Math.ceil(ECG_WINDOW_DAYS * 24 * 3600);
 
       try {
-        [usageTotal, usageHist, pressureHist, driftHist, moodHist, crystalEvents] = await Promise.all([
+        [usageTotal, usageHist, recallHist, pressureHist, driftHist, moodHist, crystalEvents] = await Promise.all([
           api('/v1/usage').catch(() => ({ days: [], total: 0 })),
           api(`/v1/usage/history?since_seconds=${sinceSeconds}&buckets=60`).catch(() => ({ history: [] })),
+          api(`/v1/recall/history?since_seconds=${sinceSeconds}&buckets=60`).catch(() => ({ history: [] })),
           api(`/v1/pressure/history?since_seconds=${sinceSeconds}`).catch(() => ({ history: [] })),
           api(`/v1/drift/history?since_seconds=${sinceSeconds}`).catch(() => ({ history: [] })),
           api('/v1/moods/history').catch(() => ({ history: [] })),
@@ -3785,9 +3789,9 @@ GET  /v1/usage               Usage stats`,
         return;
       }
 
-      renderActivityCard({ usage, usageHist, pressureHist, crystalEvents });
+      renderActivityCard({ usage, usageHist, recallHist, crystalEvents });
+      renderPressureMoodCard({ pressureHist, moodHist, crystalEvents });
       renderDriftCard({ driftHist, crystalEvents });
-      renderMoodCard({ moodHist, crystalEvents });
 
       // Meta line: total + current mood as a colored chip
       ecgMeta.innerHTML = '';
@@ -3814,7 +3818,7 @@ GET  /v1/usage               Usage stats`,
 
     function renderECGEmpty(totalDeltas) {
       // Show the empty state in the activity card; clear the others.
-      [svgDrift, svgMood].forEach(s => { if (s) while (s.firstChild) s.removeChild(s.firstChild); });
+      [svgDrift, svgPressureMood].forEach(s => { if (s) while (s.firstChild) s.removeChild(s.firstChild); });
       const svg = svgActivity;
       while (svg.firstChild) svg.removeChild(svg.firstChild);
       const W = svg.clientWidth || 800;
@@ -3895,12 +3899,11 @@ GET  /v1/usage               Usage stats`,
       }
     }
 
-    function renderActivityCard({ usage, usageHist, pressureHist, crystalEvents }) {
+    function renderActivityCard({ usage, usageHist, recallHist, crystalEvents }) {
       const ctx = _chartCtx(svgActivity, 170);
       const ticks = _ecgTicks(ECG_WINDOW_DAYS, ctx.tStart, ctx.now);
       _drawGrid(ctx, ticks);
 
-      // Plot zone — full body of this card
       const plotTop = ctx.padding.top + 4;
       const plotBot = ctx.H - ctx.padding.bottom - 4;
       const yFor = (v01) => plotBot - Math.max(0, Math.min(1, v01)) * (plotBot - plotTop);
@@ -3918,24 +3921,101 @@ GET  /v1/usage               Usage stats`,
         ctx.svg.appendChild(ecgSvgNS('path', { class: 'ecg-line ' + cls, d: path }));
       }
 
-      // Usage
-      const uHist = (usageHist && usageHist.history || []).filter(e => new Date(e.t).getTime() >= ctx.tStart);
-      if (uHist.length) {
-        const maxU = Math.max(1, ...uHist.map(e => e.v));
-        drawLine(uHist.map(e => [ctx.xForT(new Date(e.t).getTime()), yFor(e.v / maxU)]), 'ecg-line-usage');
+      // Usage IN (writes — moments arriving) and OUT (recalls — moments retrieved).
+      // Shared y-axis so the volume between reads as imbalance.
+      const uIn = (usageHist && usageHist.history || []).filter(e => new Date(e.t).getTime() >= ctx.tStart);
+      const uOut = (recallHist && recallHist.history || []).filter(e => new Date(e.t).getTime() >= ctx.tStart);
+
+      if (uIn.length || uOut.length) {
+        const maxBoth = Math.max(1, ...uIn.map(e => e.v), ...uOut.map(e => e.v));
+        const inPts = uIn.map(e => [ctx.xForT(new Date(e.t).getTime()), yFor(e.v / maxBoth)]);
+        const outPts = uOut.map(e => [ctx.xForT(new Date(e.t).getTime()), yFor(e.v / maxBoth)]);
+
+        if (inPts.length && outPts.length && inPts.length === outPts.length) {
+          let d = 'M' + inPts[0][0] + ' ' + inPts[0][1];
+          for (let i = 1; i < inPts.length; i++) d += ' L' + inPts[i][0] + ' ' + inPts[i][1];
+          for (let i = outPts.length - 1; i >= 0; i--) d += ' L' + outPts[i][0] + ' ' + outPts[i][1];
+          d += ' Z';
+          ctx.svg.appendChild(ecgSvgNS('path', {
+            d, fill: '#6aa6ff', 'fill-opacity': 0.10, stroke: 'none',
+          }));
+        }
+
+        drawLine(inPts, 'ecg-line-usage-in');
+        drawLine(outPts, 'ecg-line-usage-out');
       } else {
         const days = (usage && usage.days) || [];
         if (days.length) {
           const maxC = Math.max(1, ...days.map(d => d.count));
-          drawLine(days.map(d => [ctx.xForT(new Date(d.date + 'T12:00:00Z').getTime()), yFor(d.count / maxC)]), 'ecg-line-usage');
+          drawLine(days.map(d => [ctx.xForT(new Date(d.date + 'T12:00:00Z').getTime()), yFor(d.count / maxC)]), 'ecg-line-usage-in');
         }
       }
 
-      // Pressure
+      _drawCrystalEvents(ctx, crystalEvents.events);
+      _drawXLabels(ctx, ticks);
+    }
+
+    function renderPressureMoodCard({ pressureHist, moodHist, crystalEvents }) {
+      const svg = document.getElementById('svgPressureMood');
+      if (!svg) return;
+      const ctx = _chartCtx(svg, 200);
+      const ticks = _ecgTicks(ECG_WINDOW_DAYS, ctx.tStart, ctx.now);
+
+      const plotTop = ctx.padding.top + 4;
+      const plotBot = ctx.H - ctx.padding.bottom - 4;
+      const yFor = (v01) => plotBot - Math.max(0, Math.min(1, v01)) * (plotBot - plotTop);
+
+      // ── Mood backgrounds — full-height washes per segment ─
+      // Each mood segment paints the entire chart background between
+      // its synthesis time and the next segment's synthesis. The
+      // pressure line draws on top.
+      const mood = (moodHist.history || []).filter(e => new Date(e.synthesized_at).getTime() >= ctx.tStart);
+      for (let i = 0; i < mood.length; i++) {
+        const entry = mood[i];
+        const tStartSeg = new Date(entry.synthesized_at).getTime();
+        const tEndSeg = i + 1 < mood.length
+          ? new Date(mood[i + 1].synthesized_at).getTime()
+          : ctx.now;
+        const x1 = ctx.xForT(tStartSeg);
+        const x2 = ctx.xForT(tEndSeg);
+        if (x2 <= ctx.padding.left || x1 >= ctx.W - ctx.padding.right) continue;
+        const cx1 = Math.max(x1, ctx.padding.left);
+        const cx2 = Math.min(x2, ctx.W - ctx.padding.right);
+        const rect = ecgSvgNS('rect', {
+          x: cx1, y: ctx.padding.top,
+          width: Math.max(1, cx2 - cx1),
+          height: ctx.H - ctx.padding.top - ctx.padding.bottom,
+          fill: moodColor(entry.state),
+          'fill-opacity': 0.22,
+        });
+        const title = ecgSvgNS('title');
+        const startStr = new Date(tStartSeg).toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
+        title.textContent = `${entry.state} · ${startStr}\n\n${entry.carrier_wave || ''}`;
+        rect.appendChild(title);
+        ctx.svg.appendChild(rect);
+      }
+
+      // Gridlines drawn on top of the wash so they remain legible
+      _drawGrid(ctx, ticks);
+
+      // Baseline
+      ctx.svg.appendChild(ecgSvgNS('line', {
+        x1: ctx.padding.left, x2: ctx.W - ctx.padding.right,
+        y1: plotBot, y2: plotBot,
+        stroke: 'var(--rule-soft, #d8d6d2)', 'stroke-width': 0.5, opacity: 0.5,
+      }));
+
+      // ── Pressure line on top ─────────────────
       const pHist = (pressureHist.history || []).filter(e => new Date(e.t).getTime() >= ctx.tStart);
       if (pHist.length) {
         const maxP = Math.max(0.5, ...pHist.map(e => e.v));
-        drawLine(pHist.map(e => [ctx.xForT(new Date(e.t).getTime()), yFor(e.v / maxP)]), 'ecg-line-pressure');
+        const path = pHist.map((e, i) => (i === 0 ? 'M' : 'L') + ctx.xForT(new Date(e.t).getTime()) + ' ' + yFor(e.v / maxP)).join(' ');
+        // Draw a slight dark halo first so the line stays legible on light mood washes
+        ctx.svg.appendChild(ecgSvgNS('path', {
+          class: 'ecg-line', d: path,
+          stroke: 'var(--bg)', 'stroke-width': 3, 'stroke-opacity': 0.45, fill: 'none',
+        }));
+        ctx.svg.appendChild(ecgSvgNS('path', { class: 'ecg-line ecg-line-pressure', d: path }));
       }
 
       _drawCrystalEvents(ctx, crystalEvents.events);
@@ -4028,46 +4108,6 @@ GET  /v1/usage               Usage stats`,
         ctx.svg.appendChild(icon);
       }
 
-      _drawXLabels(ctx, ticks);
-    }
-
-    function renderMoodCard({ moodHist, crystalEvents }) {
-      const ctx = _chartCtx(svgMood, 120);
-      const ticks = _ecgTicks(ECG_WINDOW_DAYS, ctx.tStart, ctx.now);
-      _drawGrid(ctx, ticks);
-
-      // Mood band fills most of the plot height, leaving a little gutter for events
-      const moodTop = ctx.padding.top + 8;
-      const moodBot = ctx.H - ctx.padding.bottom - 4;
-
-      const mood = (moodHist.history || []).filter(e => new Date(e.synthesized_at).getTime() >= ctx.tStart);
-      for (let i = 0; i < mood.length; i++) {
-        const entry = mood[i];
-        const tStartSeg = new Date(entry.synthesized_at).getTime();
-        const tEndSeg = i + 1 < mood.length
-          ? new Date(mood[i + 1].synthesized_at).getTime()
-          : ctx.now;
-        const x1 = ctx.xForT(tStartSeg);
-        const x2 = ctx.xForT(tEndSeg);
-        if (x2 <= ctx.padding.left || x1 >= ctx.W - ctx.padding.right) continue;
-        const cx1 = Math.max(x1, ctx.padding.left);
-        const cx2 = Math.min(x2, ctx.W - ctx.padding.right);
-        const rect = ecgSvgNS('rect', {
-          x: cx1, y: moodTop,
-          width: Math.max(1, cx2 - cx1), height: moodBot - moodTop,
-          fill: moodColor(entry.state),
-          opacity: 0.85, rx: 2,
-        });
-        const title = ecgSvgNS('title');
-        const startStr = new Date(tStartSeg).toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
-        title.textContent = `${entry.state} · ${startStr}\n\n${entry.carrier_wave || ''}`;
-        rect.appendChild(title);
-        ctx.svg.appendChild(rect);
-      }
-
-      // Crystal verticals span this card too, but the ◆ icon lives on the
-      // drift card where the legend names it.
-      _drawCrystalEvents(ctx, crystalEvents.events);
       _drawXLabels(ctx, ticks);
     }
 
