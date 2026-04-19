@@ -33,35 +33,46 @@
     /* Agent-specific layout — not part of the shared design system. */
     * { box-sizing: border-box; }
     html, body { margin: 0; padding: 0; background: var(--bg); color: var(--ink); font-family: var(--sans); -webkit-font-smoothing: antialiased; }
-    main { max-width: 780px; margin: 0 auto; padding: 40px 28px 140px; }
-    header { display: flex; align-items: baseline; justify-content: space-between; margin-bottom: 16px; border-bottom: 1px solid var(--rule); padding-bottom: 14px; }
-    header .fth-brand { font-size: var(--text-3xl); }
-    header .host { font-family: var(--mono); font-size: var(--text-md); color: var(--ink-soft); }
+    body { min-height: 100dvh; display: flex; flex-direction: column; }
 
-    /* Dashboard link — hidden when agent has no api_url (pre-pairing).
-       Uses the shared .fth-btn system; no local button styling. */
+    /* List-view header — stays inside the .fth-view-body flow (above
+       Dashboard link / Notes / Sources). Detail view has its own topbar. */
+    .list-header { display: flex; align-items: baseline; justify-content: space-between; margin-bottom: 16px; border-bottom: 1px solid var(--rule); padding-bottom: 14px; }
+    .list-header .fth-brand { font-size: var(--text-3xl); }
+    .list-header .host { font-family: var(--mono); font-size: var(--text-md); color: var(--ink-soft); }
+
+    /* Dashboard link — hidden when agent has no api_url (pre-pairing). */
     #dashboard-link { margin-bottom: 20px; text-decoration: none; }
     #dashboard-link:not([href]) { display: none; }
+
     h2 { font-family: var(--serif); font-weight: 400; font-size: var(--text-xl); margin: 32px 0 6px; }
     /* Prose note — help text / section descriptions. Inherits sans from body. */
     .readonly { font-size: var(--text-base); line-height: 1.55; color: var(--ink-soft); margin-top: 8px; }
     code { font-family: var(--mono); font-size: var(--text-sm); color: var(--accent); background: var(--accent-soft); padding: 1px 5px; border-radius: 3px; }
 
-    /* Plugin card layout — fth-card gives the surface; the card itself is a
-       grid so the pause/resume button owns its own full-height column on the right. */
-    .plugin { margin: 16px 0; display: grid; grid-template-columns: 1fr auto; }
+    /* Plugin list row — clickable card with its own full-height action column.
+       Click anywhere except the action column drills into detail view. */
+    .plugin { margin: 16px 0; display: grid; grid-template-columns: 1fr auto; cursor: pointer; }
+    .plugin:hover { border-color: var(--ink-faint); background: var(--surface-2); }
     .plugin-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; min-width: 0; }
     .plugin-head .name { font-weight: 500; font-size: var(--text-lg); }
     .plugin-head .cap { font-family: var(--mono); font-size: var(--text-sm); color: var(--ink-faint); }
+    .plugin-head .count { font-family: var(--mono); font-size: var(--text-sm); color: var(--ink-faint); }
     .plugin-action { display: flex; align-items: center; padding: 0 20px; }
     .plugin-action .pause-btn { min-width: 104px; justify-content: center; }
     .plugin[data-enabled="false"] { opacity: 0.7; }
     .plugin[data-enabled="false"] .fth-dot { background: var(--ink-faint); box-shadow: none; }
-    .instances { display: flex; flex-direction: column; gap: 8px; margin-top: 12px; }
+    .plugin .summary { font-size: var(--text-base); line-height: 1.55; color: var(--ink-soft); margin-top: 6px; }
+
+    /* Detail-view hero — uses .fth-hero family; overrides size of the pause button so it sits comfortably in the hero. */
+    .detail-pause-btn { min-width: 120px; justify-content: center; }
+
+    /* Instance list on detail view */
+    .instance { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
     .instance .name { font-weight: 500; font-size: var(--text-base); }
     .instance .detail { font-family: var(--mono); font-size: var(--text-sm); color: var(--ink-faint); }
     .instance .actions { margin-left: auto; display: flex; gap: 6px; }
-    .instance { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+    .instances { display: flex; flex-direction: column; gap: 8px; margin-top: 12px; }
     .add-instance { margin-top: 12px; }
 
     /* Editor panel — accent-bordered to signal "edit mode"; not a shared primitive. */
@@ -69,93 +80,368 @@
     .editor.open { display: flex; }
     .editor .row { display: flex; gap: 8px; justify-content: flex-end; }
 
+    /* Config form — singleton plugin config. */
+    .config-form { display: flex; flex-direction: column; gap: 12px; }
+    .config-form .row { display: flex; gap: 8px; justify-content: flex-end; margin-top: 6px; }
+
     /* System-fold — collapsible "System" section. */
     .system-fold { margin-top: 32px; }
     .system-fold summary { cursor: pointer; list-style: none; color: var(--ink-soft); }
     .system-fold summary::-webkit-details-marker { display: none; }
     .system-fold summary::before { content: "▸ "; color: var(--ink-faint); }
     .system-fold[open] summary::before { content: "▾ "; }
+
+    /* Constrain list-view body to the narrow agent-UI width. */
+    #view-list .fth-view-body { max-width: 780px; padding: 40px 28px 140px; }
+    #view-detail .fth-view-body { max-width: 780px; padding: 32px 28px 140px; }
   </style>
 </head>
 <body>
-  <main>
-    <header>
-      <span class="fth-brand">fathom<span class="fth-brand-mark"><img src="https://design.fathomdx.io/v1/logo.svg" alt="" /></span></span>
-      <span class="host">__FATHOM_HOST__</span>
-    </header>
+  <!-- ═══ VIEW: LIST ═══════════════════════════════════ -->
+  <div id="view-list" class="fth-view">
+    <div class="fth-view-body">
+      <header class="list-header">
+        <span class="fth-brand">fathom<span class="fth-brand-mark"><img src="https://design.fathomdx.io/v1/logo.svg" alt="" /></span></span>
+        <span class="host">__FATHOM_HOST__</span>
+      </header>
 
-    <a id="dashboard-link" class="fth-btn fth-btn--ghost fth-btn--ghost-compact" target="_blank" rel="noopener" title="Open the Fathom dashboard in a new tab">
-      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-        <rect x="3" y="3" width="7" height="7" rx="1"/>
-        <rect x="14" y="3" width="7" height="7" rx="1"/>
-        <rect x="14" y="14" width="7" height="7" rx="1"/>
-        <rect x="3" y="14" width="7" height="7" rx="1"/>
-      </svg>
-      Dashboard ↗
-    </a>
+      <a id="dashboard-link" class="fth-btn fth-btn--ghost fth-btn--ghost-compact" target="_blank" rel="noopener" title="Open the Fathom dashboard in a new tab">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <rect x="3" y="3" width="7" height="7" rx="1"/>
+          <rect x="14" y="3" width="7" height="7" rx="1"/>
+          <rect x="14" y="14" width="7" height="7" rx="1"/>
+          <rect x="3" y="14" width="7" height="7" rx="1"/>
+        </svg>
+        Dashboard ↗
+      </a>
 
-    <div id="restart-banner" class="fth-banner" hidden style="margin: 20px 0;">
-      Config saved. Restart the agent to apply — <code>systemctl --user restart fathom-agent</code> (Linux) or equivalent on Mac/Windows.
+      <div id="restart-banner" class="fth-banner" hidden style="margin: 20px 0;">
+        Config saved. Restart the agent to apply — <code>systemctl --user restart fathom-agent</code> (Linux) or equivalent on Mac/Windows.
+      </div>
+
+      <p class="readonly">
+        This UI lives on the machine itself. Settings with trust-sensitive
+        implications (permission modes, veto lists, credentials that already
+        exist) are file-only — edit <code>~/.fathom/agent.json</code> directly
+        for those.
+      </p>
+
+      <h2>Sources <span class="fth-meta" id="sources-meta"></span></h2>
+      <p class="readonly">Plugins that push data into your lake — files, feeds, sensors.</p>
+      <div id="group-source"></div>
+
+      <h2>Runtime <span class="fth-meta" id="runtime-meta"></span></h2>
+      <p class="readonly">Plugins that do work from the lake — spawn sessions, execute routines.</p>
+      <div id="group-runtime"></div>
+
+      <details class="system-fold">
+        <summary><h2 style="display:inline;">System <span class="fth-meta" id="system-meta"></span></h2></summary>
+        <p class="readonly">Core infrastructure the agent needs to function. Change these rarely.</p>
+        <div id="group-system"></div>
+      </details>
     </div>
+  </div>
 
-    <p class="readonly">
-      This UI lives on the machine itself. Settings with trust-sensitive
-      implications (permission modes, veto lists, credentials that already
-      exist) are file-only — edit <code>~/.fathom/agent.json</code> directly
-      for those. Adding and removing multi-instance entries (e.g. Home
-      Assistant servers) is safe from here.
-    </p>
+  <!-- ═══ VIEW: DETAIL ═══════════════════════════════════ -->
+  <div id="view-detail" class="fth-view" hidden>
+    <header class="fth-view-topbar">
+      <div class="fth-view-topbar-left">
+        <button class="fth-icon-btn" id="detail-back" aria-label="Back to list">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/></svg>
+        </button>
+        <span class="fth-view-title" id="detail-title"></span>
+      </div>
+      <div class="fth-view-topbar-right"></div>
+    </header>
+    <div class="fth-view-body">
+      <div id="detail-banner" class="fth-banner" hidden style="margin-bottom: 20px;"></div>
 
-    <h2>Sources <span class="fth-meta" id="sources-meta"></span></h2>
-    <p class="readonly">Plugins that push data into your lake — files, feeds, sensors.</p>
-    <div id="group-source"></div>
+      <section class="fth-hero">
+        <div class="fth-hero-row">
+          <h1 id="detail-name"></h1>
+          <div class="fth-hero-actions" id="detail-actions"></div>
+        </div>
+        <p id="detail-description" class="readonly" style="margin-top: 0;"></p>
+      </section>
 
-    <h2>Runtime <span class="fth-meta" id="runtime-meta"></span></h2>
-    <p class="readonly">Plugins that do work from the lake — spawn sessions, execute routines.</p>
-    <div id="group-runtime"></div>
+      <section class="fth-section" id="detail-config-section" hidden>
+        <div class="fth-section-head"><h2>Configuration</h2></div>
+        <form class="config-form" id="detail-config-form"></form>
+      </section>
 
-    <details class="system-fold">
-      <summary><h2 style="display:inline;">System <span class="fth-meta" id="system-meta"></span></h2></summary>
-      <p class="readonly">Core infrastructure the agent needs to function. Change these rarely.</p>
-      <div id="group-system"></div>
-    </details>
-  </main>
+      <section class="fth-section" id="detail-instances-section" hidden>
+        <div class="fth-section-head">
+          <h2>Instances</h2>
+          <span class="fth-meta" id="detail-instances-count"></span>
+        </div>
+        <div class="instances" id="detail-instances"></div>
+        <div class="add-instance">
+          <button class="fth-btn fth-btn--ghost fth-btn--ghost-compact" id="detail-add-instance-btn">+ Add instance</button>
+          <div id="detail-instance-editor"></div>
+        </div>
+      </section>
+
+      <section class="fth-section" id="detail-file-managed" hidden>
+        <p class="readonly">
+          This plugin's config is file-managed. Edit <code>~/.fathom/agent.json</code> to change it, then restart the agent.
+        </p>
+      </section>
+    </div>
+  </div>
 
   <script>
     const $ = (sel, root = document) => root.querySelector(sel);
     const $$ = (sel, root = document) => [...root.querySelectorAll(sel)];
     const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 
-    // Plugins that don't declare capabilities but we still want nicely
-    // labeled. Keep this small; real labels belong in SOURCE_CAPABILITIES.
+    // Plugins that don't declare capabilities but we still want nicely labeled.
     const FALLBACK_LABELS = {
       sysinfo: "Sysinfo",
       vault: "Vault",
       kitty: "Kitty",
       heartbeat: "Heartbeat",
-      "local-ui": "Local UI",
+      localui: "Local UI",
       homeassistant: "Home Assistant",
     };
 
-    function showBanner() {
+    let state = { view: "list", pluginName: null, config: null };
+
+    // ── Banner helpers ─────────────────────────────────────
+    function showListBanner() {
       const b = document.getElementById("restart-banner");
       b.hidden = false;
       b.scrollIntoView({ behavior: "smooth", block: "nearest" });
     }
+    function showDetailBanner(reloaded) {
+      const b = document.getElementById("detail-banner");
+      if (reloaded) {
+        b.textContent = "Saved. Changes applied live.";
+        b.hidden = false;
+        setTimeout(() => { b.hidden = true; }, 3000);
+      } else {
+        b.innerHTML = 'Config saved. Restart the agent to apply — <code>systemctl --user restart fathom-agent</code>.';
+        b.hidden = false;
+      }
+    }
 
+    // ── Config load ────────────────────────────────────────
     async function loadConfig() {
       const r = await fetch("/api/config");
       if (!r.ok) throw new Error(r.status);
       return r.json();
     }
 
+    function renderDashboardLink(apiUrl) {
+      const link = document.getElementById("dashboard-link");
+      if (!link) return;
+      if (apiUrl && /^https?:\/\//i.test(apiUrl)) link.href = apiUrl;
+      else link.removeAttribute("href");
+    }
+
+    // ── Plugin label / display helpers ────────────────────
+    function labelFor(name, pc) {
+      const caps = pc.capabilities;
+      return (caps && caps.display_name) || FALLBACK_LABELS[name] || name;
+    }
+
+    // ── LIST VIEW — render each plugin as a summary card ─
+    function renderPluginRow(name, pc) {
+      const label = labelFor(name, pc);
+      const caps = pc.capabilities;
+      const kindLine = caps ? `<span class="cap">${esc(caps.kind || name)}</span>` : "";
+      const instances = Array.isArray(pc.instances) ? pc.instances : null;
+      const count = instances ? `<span class="count">· ${instances.length} instance${instances.length === 1 ? "" : "s"}</span>` : "";
+      const actionLabel = pc.enabled ? "Pause" : "Resume";
+      const summary = pc.description ? `<div class="summary">${esc(pc.description)}</div>` : "";
+      return `
+        <div class="plugin fth-card" data-plugin="${esc(name)}" data-enabled="${!!pc.enabled}">
+          <div class="fth-card-body">
+            <div class="plugin-head">
+              <span class="name">${esc(label)}</span>
+              ${kindLine}
+              ${count}
+            </div>
+            ${summary}
+          </div>
+          <div class="plugin-action">
+            <button class="fth-btn fth-btn--ghost fth-btn--ghost-compact pause-btn" data-act="toggle-enabled" data-plugin="${esc(name)}" title="${pc.enabled ? "Pause this plugin" : "Resume this plugin"}">
+              <span class="fth-dot"></span>${actionLabel}
+            </button>
+          </div>
+        </div>`;
+    }
+
+    function paintGroup(id, metaId, items) {
+      const enabled = items.filter(([, p]) => p.enabled).length;
+      const total = items.length;
+      $(`#${metaId}`).textContent = total ? `· ${enabled} of ${total} enabled` : "· none installed";
+      $(`#${id}`).innerHTML = items.length
+        ? items.map(([name, pc]) => renderPluginRow(name, pc)).join("")
+        : `<div class="fth-empty">No ${id.replace("group-", "")} plugins installed.</div>`;
+    }
+
+    async function renderList() {
+      const cfg = await loadConfig();
+      state.config = cfg;
+      renderDashboardLink(cfg.api_url);
+      const plugins = cfg.plugins || {};
+      const entries = Object.entries(plugins).filter(([name]) => !name.startsWith("_"));
+      const groups = { source: [], runtime: [], system: [], unknown: [] };
+      for (const [name, pc] of entries) {
+        const cat = pc.category || "unknown";
+        (groups[cat] || groups.unknown).push([name, pc]);
+      }
+      paintGroup("group-source", "sources-meta", [...groups.source, ...groups.unknown]);
+      paintGroup("group-runtime", "runtime-meta", groups.runtime);
+      paintGroup("group-system", "system-meta", groups.system);
+      wireList();
+    }
+
+    function wireList() {
+      $$(".plugin").forEach((row) => {
+        row.addEventListener("click", (e) => {
+          // Clicks on the pause button (action column) don't drill in.
+          if (e.target.closest(".plugin-action")) return;
+          showDetail(row.dataset.plugin);
+        });
+      });
+      $$(".pause-btn").forEach((btn) => {
+        btn.addEventListener("click", async (e) => {
+          e.stopPropagation();
+          await togglePlugin(btn.dataset.plugin, btn.closest(".plugin").dataset.enabled !== "true", /*fromList*/ true);
+        });
+      });
+    }
+
+    // ── DETAIL VIEW ──────────────────────────────────────
+    function showDetail(pluginName) {
+      state.view = "detail";
+      state.pluginName = pluginName;
+      renderDetail();
+      document.getElementById("view-list").hidden = true;
+      document.getElementById("view-detail").hidden = false;
+      document.getElementById("view-detail").scrollIntoView?.({ block: "start" });
+    }
+
+    function showList() {
+      state.view = "list";
+      state.pluginName = null;
+      document.getElementById("view-detail").hidden = true;
+      document.getElementById("view-list").hidden = false;
+      renderList();
+    }
+
+    function renderDetail() {
+      const name = state.pluginName;
+      const pc = (state.config?.plugins || {})[name];
+      if (!pc) return;
+      const label = labelFor(name, pc);
+      $("#detail-title").textContent = label;
+      $("#detail-name").textContent = label;
+      $("#detail-description").textContent = pc.description || "";
+      $("#detail-description").style.display = pc.description ? "" : "none";
+
+      // Pause/resume in the hero
+      const pauseWrap = $("#detail-actions");
+      const actionLabel = pc.enabled ? "Pause" : "Resume";
+      pauseWrap.innerHTML = `
+        <button class="fth-btn fth-btn--ghost fth-btn--ghost-compact detail-pause-btn" data-act="toggle-enabled" data-plugin="${esc(name)}">
+          <span class="fth-dot" style="${pc.enabled ? "" : "background: var(--ink-faint); box-shadow: none;"}"></span>${actionLabel}
+        </button>`;
+      pauseWrap.querySelector("button").addEventListener("click", async (e) => {
+        await togglePlugin(name, !pc.enabled, false);
+      });
+
+      // Config section — only if plugin declares a config_shape
+      const shape = pc.config_shape;
+      const cfgSection = $("#detail-config-section");
+      if (shape && Object.keys(shape).length) {
+        cfgSection.hidden = false;
+        renderConfigForm(name, pc, shape);
+      } else {
+        cfgSection.hidden = true;
+      }
+
+      // Instances section — only if plugin has instance_shape
+      const caps = pc.capabilities;
+      const instShape = caps && caps.instance_shape;
+      const instSection = $("#detail-instances-section");
+      if (instShape) {
+        instSection.hidden = false;
+        renderInstancesSection(name, pc, instShape);
+      } else {
+        instSection.hidden = true;
+      }
+
+      // File-managed fallback: no config_shape AND no instance_shape
+      $("#detail-file-managed").hidden = !!(shape && Object.keys(shape).length) || !!instShape;
+
+      $("#detail-banner").hidden = true;
+    }
+
+    function renderConfigForm(pluginName, pc, shape) {
+      const fields = Object.entries(shape).map(([key, def]) => {
+        const type = def.type === "secret" ? "password" : def.type === "url" ? "url" : def.type === "number" ? "number" : "text";
+        const multi = def.type === "string[]";
+        const locked = def.editable_from_ui === false;
+        const currentVal = def.type === "secret"
+          ? (pc[`__${key}_set`] ? "" : "")
+          : (pc[key] != null ? (Array.isArray(pc[key]) ? pc[key].join("\n") : String(pc[key])) : "");
+        const placeholder = def.type === "secret" && pc[`__${key}_set`] ? "(set — leave blank to keep)" : (def.help || "");
+        const input = multi
+          ? `<textarea class="fth-textarea" data-field="${esc(key)}"${locked ? " disabled" : ""} placeholder="${esc(placeholder)}">${esc(currentVal)}</textarea>`
+          : `<input class="fth-input" type="${type}" data-field="${esc(key)}"${locked ? " disabled" : ""} value="${esc(currentVal)}" placeholder="${esc(placeholder)}" />`;
+        const lockedTag = locked ? ` <span class="fth-meta">file-only</span>` : "";
+        return `<div>
+          <label class="fth-field-label">${esc(key)}${def.required ? " *" : ""}${lockedTag}</label>
+          ${input}
+          ${def.help ? `<div class="readonly" style="font-size: var(--text-md);">${esc(def.help)}</div>` : ""}
+        </div>`;
+      }).join("");
+      $("#detail-config-form").innerHTML = `
+        ${fields}
+        <div class="row">
+          <button type="submit" class="fth-btn">Save</button>
+        </div>`;
+      $("#detail-config-form").addEventListener("submit", async (e) => {
+        e.preventDefault();
+        const body = {};
+        $$("[data-field]", e.currentTarget).forEach((el) => {
+          if (el.disabled) return;
+          const key = el.dataset.field;
+          const def = shape[key];
+          const v = el.value;
+          if (def.type === "string[]") {
+            body[key] = v.split(/\r?\n/).map((s) => s.trim()).filter(Boolean);
+          } else if (def.type === "number") {
+            if (v !== "") body[key] = Number(v);
+          } else if (def.type === "secret") {
+            if (v !== "") body[key] = v; // empty = keep existing
+          } else {
+            body[key] = v;
+          }
+        });
+        const r = await fetch(`/api/plugin/${encodeURIComponent(pluginName)}/config`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(body),
+        });
+        if (!r.ok) { alert("save failed: " + r.status); return; }
+        const result = await r.json();
+        showDetailBanner(result.reloaded);
+        // Refresh config + re-render detail
+        state.config = await loadConfig();
+        renderDetail();
+      }, { once: true });
+    }
+
+    // ── Instances ────────────────────────────────────────
     function renderInstance(pluginName, inst, shape) {
       const detailBits = [];
       for (const [key, def] of Object.entries(shape || {})) {
         if (key === "id" || key === "name") continue;
         if (def.type === "secret") {
-          const present = inst[`__${key}_set`];
-          detailBits.push(`${key}: ${present ? "[set]" : "[not set]"}`);
+          detailBits.push(`${key}: ${inst[`__${key}_set`] ? "[set]" : "[not set]"}`);
         } else if (def.type === "string[]" && Array.isArray(inst[key])) {
           detailBits.push(`${key}: ${inst[key].length}`);
         } else if (inst[key] != null) {
@@ -174,16 +460,16 @@
     }
 
     function renderInstanceEditor(pluginName, shape) {
-      const fields = Object.entries(shape || {}).map(([key, def]) => {
+      const fields = Object.entries(shape).map(([key, def]) => {
         const type = def.type === "secret" ? "password" : def.type === "url" ? "url" : def.type === "number" ? "number" : "text";
         const multi = def.type === "string[]";
         const input = multi
           ? `<textarea class="fth-textarea" data-field="${esc(key)}" placeholder="one per line"></textarea>`
           : `<input class="fth-input" type="${type}" data-field="${esc(key)}" placeholder="${esc(def.help || "")}" />`;
-        return `<div><label class="fth-field-label">${esc(key)}${def.required ? " *" : ""}</label>${input}${def.help ? `<div class="readonly">${esc(def.help)}</div>` : ""}</div>`;
+        return `<div><label class="fth-field-label">${esc(key)}${def.required ? " *" : ""}</label>${input}${def.help ? `<div class="readonly" style="font-size: var(--text-md);">${esc(def.help)}</div>` : ""}</div>`;
       }).join("");
       return `
-        <div class="editor" data-editor-for="${esc(pluginName)}">
+        <div class="editor" id="inline-instance-editor">
           ${fields}
           <div class="row">
             <button class="fth-btn fth-btn--ghost fth-btn--ghost-compact" data-act="cancel-instance">Cancel</button>
@@ -192,163 +478,87 @@
         </div>`;
     }
 
-    function renderPlugin(name, pc) {
-      const caps = pc.capabilities;
-      const label = (caps && caps.display_name) || FALLBACK_LABELS[name] || name;
-      const kindLine = caps ? `<span class="cap">${esc(caps.kind || name)}</span>` : "";
-      const instances = Array.isArray(pc.instances) ? pc.instances : null;
-      const shape = caps && caps.instance_shape;
-      const canEditInstances = instances !== null && shape;
-      let body = "";
-      if (canEditInstances) {
-        const list = instances.length
-          ? instances.map((i) => renderInstance(name, i, shape)).join("")
-          : `<div class="fth-empty">No instances configured yet.</div>`;
-        body = `
-          <div class="instances">${list}</div>
-          <div class="add-instance">
-            <button class="fth-btn fth-btn--ghost fth-btn--ghost-compact" data-act="open-editor" data-plugin="${esc(name)}">+ Add instance</button>
-            ${renderInstanceEditor(name, shape)}
-          </div>`;
-      } else {
-        body = `<div class="readonly">
-          This plugin's config is file-managed. Edit <code>~/.fathom/agent.json</code> to change it, then restart the agent.
-        </div>`;
-      }
-      const actionLabel = pc.enabled ? "Pause" : "Resume";
-      return `
-        <div class="plugin fth-card" data-plugin="${esc(name)}" data-enabled="${!!pc.enabled}">
-          <div class="fth-card-body">
-            <div class="plugin-head">
-              <span class="name">${esc(label)}</span>
-              ${kindLine}
-            </div>
-            ${body}
-          </div>
-          <div class="plugin-action">
-            <button class="fth-btn fth-btn--ghost fth-btn--ghost-compact pause-btn" data-act="toggle-enabled" data-plugin="${esc(name)}" title="${pc.enabled ? "Pause this plugin" : "Resume this plugin"}">
-              <span class="fth-dot"></span>${actionLabel}
-            </button>
-          </div>
-        </div>`;
-    }
+    function renderInstancesSection(pluginName, pc, shape) {
+      const instances = Array.isArray(pc.instances) ? pc.instances : [];
+      $("#detail-instances-count").textContent = `${instances.length} configured`;
+      $("#detail-instances").innerHTML = instances.length
+        ? instances.map((i) => renderInstance(pluginName, i, shape)).join("")
+        : `<div class="fth-empty">No instances configured yet.</div>`;
+      $("#detail-instance-editor").innerHTML = renderInstanceEditor(pluginName, shape);
 
-    function renderDashboardLink(apiUrl) {
-      const link = document.getElementById("dashboard-link");
-      if (!link) return;
-      if (apiUrl && /^https?:\/\//i.test(apiUrl)) {
-        link.href = apiUrl;
-      } else {
-        link.removeAttribute("href");
-      }
-    }
-
-    async function render() {
-      const cfg = await loadConfig();
-      renderDashboardLink(cfg.api_url);
-      const plugins = cfg.plugins || {};
-      const entries = Object.entries(plugins).filter(([name]) => !name.startsWith("_"));
-
-      const groups = { source: [], runtime: [], system: [], unknown: [] };
-      for (const [name, pc] of entries) {
-        const cat = pc.category || "unknown";
-        (groups[cat] || groups.unknown).push([name, pc]);
-      }
-
-      const paintGroup = (id, metaId, items) => {
-        const enabled = items.filter(([, p]) => p.enabled).length;
-        const total = items.length;
-        $(`#${metaId}`).textContent = total
-          ? `· ${enabled} of ${total} enabled`
-          : "· none installed";
-        $(`#${id}`).innerHTML = items.length
-          ? items.map(([name, pc]) => renderPlugin(name, pc)).join("")
-          : `<div class="fth-empty">No ${id.replace("group-", "")} plugins installed.</div>`;
+      const openBtn = $("#detail-add-instance-btn");
+      openBtn.onclick = () => {
+        $("#inline-instance-editor").classList.add("open");
+        openBtn.style.display = "none";
       };
-
-      paintGroup("group-source", "sources-meta", [...groups.source, ...groups.unknown]);
-      paintGroup("group-runtime", "runtime-meta", groups.runtime);
-      paintGroup("group-system", "system-meta", groups.system);
-      wire();
-    }
-
-    function wire() {
-      $$("[data-act='open-editor']").forEach((btn) => {
-        btn.addEventListener("click", () => {
-          const name = btn.dataset.plugin;
-          const plugin = btn.closest(".plugin");
-          const editor = plugin.querySelector(".editor");
-          editor.classList.add("open");
-          btn.style.display = "none";
-        });
+      $$(`[data-act='delete-instance']`, $("#detail-instances")).forEach((btn) => {
+        btn.onclick = async () => {
+          const id = btn.dataset.id;
+          if (!confirm(`Delete instance "${id}"?`)) return;
+          const r = await fetch(`/api/plugin/${encodeURIComponent(pluginName)}/instance/${encodeURIComponent(id)}`, { method: "DELETE" });
+          if (!r.ok) { alert("delete failed: " + r.status); return; }
+          const result = await r.json();
+          showDetailBanner(result.reloaded);
+          state.config = await loadConfig();
+          renderDetail();
+        };
       });
-      $$("[data-act='cancel-instance']").forEach((btn) => {
-        btn.addEventListener("click", () => {
-          const editor = btn.closest(".editor");
-          editor.classList.remove("open");
-          const plugin = editor.closest(".plugin");
-          plugin.querySelector("[data-act='open-editor']").style.display = "";
-          editor.querySelectorAll("input, textarea").forEach((i) => (i.value = ""));
-        });
+      $$(`[data-act='cancel-instance']`, $("#inline-instance-editor")).forEach((btn) => {
+        btn.onclick = () => {
+          $("#inline-instance-editor").classList.remove("open");
+          openBtn.style.display = "";
+          $$("[data-field]", $("#inline-instance-editor")).forEach((el) => (el.value = ""));
+        };
       });
-      $$("[data-act='save-instance']").forEach((btn) => {
-        btn.addEventListener("click", async () => {
-          const editor = btn.closest(".editor");
-          const name = btn.dataset.plugin;
+      $$(`[data-act='save-instance']`, $("#inline-instance-editor")).forEach((btn) => {
+        btn.onclick = async () => {
           const body = {};
-          editor.querySelectorAll("[data-field]").forEach((el) => {
-            const key = el.dataset.field;
+          $$("[data-field]", $("#inline-instance-editor")).forEach((el) => {
             const v = el.value.trim();
             if (!v) return;
-            if (el.tagName === "TEXTAREA") {
-              body[key] = v.split(/\r?\n/).map((s) => s.trim()).filter(Boolean);
-            } else if (el.type === "number") {
-              body[key] = Number(v);
-            } else {
-              body[key] = v;
-            }
+            if (el.tagName === "TEXTAREA") body[el.dataset.field] = v.split(/\r?\n/).map((s) => s.trim()).filter(Boolean);
+            else if (el.type === "number") body[el.dataset.field] = Number(v);
+            else body[el.dataset.field] = v;
           });
           if (!body.id) { alert("id is required"); return; }
-          const r = await fetch(`/api/plugin/${encodeURIComponent(name)}/instance`, {
+          const r = await fetch(`/api/plugin/${encodeURIComponent(pluginName)}/instance`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify(body),
           });
           if (!r.ok) { alert("save failed: " + r.status); return; }
-          showBanner();
-          await render();
-        });
-      });
-      $$("[data-act='delete-instance']").forEach((btn) => {
-        btn.addEventListener("click", async () => {
-          const name = btn.dataset.plugin;
-          const id = btn.dataset.id;
-          if (!confirm(`Delete instance "${id}"?`)) return;
-          const r = await fetch(`/api/plugin/${encodeURIComponent(name)}/instance/${encodeURIComponent(id)}`, { method: "DELETE" });
-          if (!r.ok) { alert("delete failed: " + r.status); return; }
-          showBanner();
-          await render();
-        });
-      });
-      $$("[data-act='toggle-enabled']").forEach((btn) => {
-        btn.addEventListener("click", async () => {
-          const name = btn.dataset.plugin;
-          const plugin = btn.closest(".plugin");
-          const next = plugin.dataset.enabled !== "true";
-          const r = await fetch(`/api/plugin/${encodeURIComponent(name)}/enabled`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ enabled: next }),
-          });
-          if (!r.ok) { alert("toggle failed: " + r.status); return; }
-          showBanner();
-          await render();
-        });
+          const result = await r.json();
+          showDetailBanner(result.reloaded);
+          state.config = await loadConfig();
+          renderDetail();
+        };
       });
     }
 
-    render().catch((e) => {
-      document.body.innerHTML = `<main><h1 style="font-family: serif;">Error loading config</h1><p>${esc(e.message)}</p></main>`;
+    // ── Plugin toggle (shared from list + detail) ─────────
+    async function togglePlugin(name, next, fromList) {
+      const r = await fetch(`/api/plugin/${encodeURIComponent(name)}/enabled`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ enabled: next }),
+      });
+      if (!r.ok) { alert("toggle failed: " + r.status); return; }
+      const result = await r.json();
+      if (fromList) {
+        if (!result.reloaded) showListBanner();
+        await renderList();
+      } else {
+        showDetailBanner(result.reloaded);
+        state.config = await loadConfig();
+        renderDetail();
+      }
+    }
+
+    // ── Back button wiring ─────────────────────────────────
+    document.getElementById("detail-back").addEventListener("click", showList);
+
+    renderList().catch((e) => {
+      document.body.innerHTML = `<div class="fth-view"><div class="fth-view-body"><h1 style="font-family: serif;">Error loading config</h1><p>${esc(e.message)}</p></div></div>`;
     });
   </script>
 </body>
