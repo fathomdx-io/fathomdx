@@ -14,13 +14,36 @@
 #   # edit .env: set LLM_API_KEY (and pick LLM_PROVIDER if not gemini)
 #   docker compose up -d
 #   open http://localhost:8201
+#
+# ── State layout ─────────────────────────────────────────────────────────────
+# Everything lake-related lives at ${LAKE_DIR} (defaults to
+# ~/.fathom/${COMPOSE_PROJECT_NAME}) — outside this repo, so `git clone` into
+# a new directory or `rm -rf` this checkout does NOT touch your memory:
+#
+#   ${LAKE_DIR}/deltas/         delta-store media + state
+#   ${LAKE_DIR}/backups/        pg_dump snapshots
+#   ${LAKE_DIR}/source-runner/  source poller state
+#   ${LAKE_DIR}/api/            api state (drift, mood, tokens)
+#
+# Postgres data lives in a named volume (`${COMPOSE_PROJECT_NAME}-pg`) —
+# postgres refuses to run on Dropbox-synced paths (WAL/checkpoint races).
+# Named volumes are stable across repo moves.
+#
+# ── Multiple instances on one machine ────────────────────────────────────────
+# Set COMPOSE_PROJECT_NAME in .env (e.g. "fathom-dev") for a second instance.
+# Container names, the postgres volume, and the lake dir all re-scope from
+# that one variable. Two clones, two .env values, zero collisions.
 
 networks:
   fathom:
     driver: bridge
 
 volumes:
-  pgdata:
+  # Explicit name pins the volume to the project identifier, not to the
+  # filesystem path of this checkout. Moving or renaming the clone doesn't
+  # orphan the lake DB.
+  pg:
+    name: ${COMPOSE_PROJECT_NAME:-fathom}-pg
 
 services:
   postgres:
@@ -30,7 +53,7 @@ services:
     # HNSW index builds need room in /dev/shm — default 64MB isn't enough.
     shm_size: 1g
     volumes:
-      - pgdata:/var/lib/postgresql/data
+      - pg:/var/lib/postgresql/data
     environment:
       TZ: ${TZ:-UTC}
       POSTGRES_USER: fathom
@@ -58,8 +81,8 @@ services:
       - "127.0.0.1:4246:8000"
       - "[::1]:4246:8000"
     volumes:
-      - ./data/deltas:/data
-      - ./data/backups:/backups
+      - ${LAKE_DIR}/deltas:/data
+      - ${LAKE_DIR}/backups:/backups
     environment:
       TZ: ${TZ:-UTC}
       DATABASE_URL: postgresql://fathom:${POSTGRES_PASSWORD:-fathom}@postgres:5432/deltas
@@ -81,7 +104,7 @@ services:
     ports:
       - "127.0.0.1:4260:8000"
     volumes:
-      - ./data/source-runner:/data
+      - ${LAKE_DIR}/source-runner:/data
     environment:
       TZ: ${TZ:-UTC}
       DELTA_STORE_URL: http://delta-store:8000
@@ -103,7 +126,7 @@ services:
       - "127.0.0.1:8201:8200"
       - "[::1]:8201:8200"
     volumes:
-      - ./data/api:/data
+      - ${LAKE_DIR}/api:/data
     environment:
       TZ: ${TZ:-UTC}
       LLM_PROVIDER: ${LLM_PROVIDER:-gemini}

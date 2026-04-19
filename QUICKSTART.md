@@ -14,6 +14,10 @@ Self-host Fathom on a single Linux machine. About five minutes from clone to run
 git clone https://github.com/myrakrusemark/consumer-fathom.git
 cd consumer-fathom
 cp .env.example .env
+
+# Point LAKE_DIR at your user's home (compose doesn't expand ~ inside .env).
+sed -i "s|^LAKE_DIR=.*|LAKE_DIR=$HOME/.fathom/fathom|" .env
+mkdir -p "$HOME/.fathom/fathom"/{deltas,backups,source-runner,api}
 ```
 
 Open `.env` and set `LLM_API_KEY` (the key for your LLM provider — Gemini, OpenAI, etc). If you want a provider other than Gemini, change `LLM_PROVIDER` too (`openai` or `ollama`).
@@ -69,7 +73,7 @@ Need to pair another machine later? Re-open the same tile and mint a new code. I
 
 ### What a paired agent unlocks
 
-- **Routines.** Scheduled prompts that fire into a local Claude Code session on that machine. Write a prompt, pick a cron schedule, and the agent runs it. Requires [kitty](https://sw.kovidgoyal.net/kitty/) (the terminal) and the `claude` CLI on PATH — the agent spawns a kitty window per fire and injects the prompt via kitty's remote-control protocol. No `kitty.conf` setup needed; the agent passes the remote-control flags inline per spawn.
+- **Routines.** Scheduled prompts that fire into a local Claude Code session on that machine. Write a prompt, pick a cron schedule, and the agent runs it. Requires both [kitty](https://sw.kovidgoyal.net/kitty/) (the terminal) and [Claude Code](https://docs.claude.com/en/docs/claude-code) installed and authenticated — the agent spawns a kitty window per fire, runs `claude` inside it, and injects the prompt via kitty's remote-control protocol. Both binaries must be on PATH. No `kitty.conf` setup needed; the agent passes the remote-control flags inline per spawn.
 - **Local sources.** Plugins for things only a local process can see: a notes vault, Home Assistant, system health, kitty config, whatever else you wire up.
 - **Presence.** The dashboard now knows when the machine is online, and that signal feeds the lake alongside everything else.
 
@@ -81,13 +85,36 @@ docker compose build
 docker compose up -d
 ```
 
+## Where your data lives
+
+Your lake lives in **two** places on disk:
+
+- **Postgres data** — in a named container volume called `fathom-pg` (or `<COMPOSE_PROJECT_NAME>-pg` if you set a different instance name). Managed by docker/podman; inspect with `docker volume ls`. Can't live on Dropbox — postgres corrupts syncing files.
+- **Everything else** — `~/.fathom/fathom/` by default (images, backups, drift history, mood state, API tokens). Set `LAKE_DIR=` in `.env` to move it, e.g. to an external drive.
+
+Neither path is inside this checkout. Cloning into a new directory, renaming this folder, or `rm -rf`-ing the repo doesn't touch your memory.
+
+## Running a second instance on the same machine
+
+```bash
+git clone https://github.com/myrakrusemark/consumer-fathom.git fathom-dev
+cd fathom-dev
+cp .env.example .env
+# edit .env: set COMPOSE_PROJECT_NAME=fathom-dev (and change host port mappings)
+docker compose up -d
+```
+
+`COMPOSE_PROJECT_NAME` re-scopes container names, the postgres volume (`fathom-dev-pg`), and the lake dir (`~/.fathom/fathom-dev/`) from one variable.
+
 ## Teardown
 
 ```bash
-docker compose down            # stop, keep data
-docker compose down -v         # stop and drop the lake (deletes pgdata volume)
-rm -rf data/                   # drop delta-store media and source-runner state
+docker compose down                   # stop containers, lake + state preserved
+docker compose down -v                # also drops the postgres volume (destroys lake DB)
+rm -rf ~/.fathom/fathom/              # also drops images, backups, state (full wipe)
 ```
+
+Each command's blast radius is explicit. Running only the first is safe — it's what you want between upgrades. The second two are deliberately destructive and named separately.
 
 ## Troubleshooting
 
@@ -97,4 +124,6 @@ rm -rf data/                   # drop delta-store media and source-runner state
 
 **Gemini quota errors.** The free tier is fine for trying it out but rate-limits aggressively. If you hit the ceiling, grab an OpenAI key and set `LLM_PROVIDER=openai`.
 
-**Podman on SELinux systems.** If bind mounts fail with permission errors, add `:z` to each volume mount in `docker-compose.yml`, or run `chcon -Rt container_file_t data/`.
+**Podman on SELinux systems.** If bind mounts fail with permission errors, add `:z` to each volume mount in `docker-compose.yml`, or run `chcon -Rt container_file_t ~/.fathom/`.
+
+**Rootless podman: bind-mount target missing.** If `docker compose up -d` fails with `no such file or directory` for `~/.fathom/fathom/...`, create the dirs first: `mkdir -p ~/.fathom/fathom/{deltas,backups,source-runner,api}`. Rootless podman is stricter than docker about auto-creating bind-mount targets.
