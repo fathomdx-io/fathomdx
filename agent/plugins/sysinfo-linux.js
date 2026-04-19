@@ -19,6 +19,14 @@ import { hostname } from "os";
 const DEFAULT_INTERVAL = 300000; // 5 minutes
 const DEFAULT_DISKS = ["/", "/home"];
 
+export const CONFIG_SHAPE = {
+  interval: { type: "number", required: false, help: "Poll interval in ms. Default: 300000 (5 min)." },
+  disks: { type: "string[]", required: false, help: "Mount points to check (one per line). Default: /, /home." },
+  servers: { type: "string[]", required: false, help: "Server URLs to ping (one per line)." },
+  tags: { type: "string[]", required: false, help: "Extra tags applied to every health snapshot." },
+  expiry_days: { type: "number", required: false, help: "Delta expiry in days. Default: 1." },
+};
+
 export default {
   name: "Sysinfo",
   category: "source",

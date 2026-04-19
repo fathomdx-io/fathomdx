@@ -33,6 +33,13 @@ const IMAGE_EXTENSIONS = new Set([".png", ".jpg", ".jpeg", ".gif", ".webp", ".sv
 const WIKILINK_IMG = /!\[\[([^\]]+?)(?:\|[^\]]*?)?\]\]/g;
 const MD_IMG = /!\[([^\]]*?)\]\(([^)]+?)\)/g;
 
+// Config shape surfaced to the agent UI.
+export const CONFIG_SHAPE = {
+  paths: { type: "string[]", required: true, help: "Directories to watch (one per line)." },
+  tags: { type: "string[]", required: false, help: "Extra tags applied to every delta from this vault." },
+  source: { type: "string", required: false, help: "Source label for deltas. Default: 'vault'." },
+};
+
 export default {
   name: "Vault",
   category: "source",

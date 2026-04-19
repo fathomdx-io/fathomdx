@@ -22,6 +22,11 @@ import { fileURLToPath, pathToFileURL } from "url";
 const CONFIG_PATH = join(homedir(), ".fathom", "agent.json");
 const VERSION = "0.10.0"; // bumped when heartbeat shape changes
 
+export const CONFIG_SHAPE = {
+  interval_ms: { type: "number", required: false, help: "How often to emit a heartbeat (milliseconds). Default: 60000 (1 min)." },
+  expiry_ms: { type: "number", required: false, help: "Time before a heartbeat expires. Default: 2x interval_ms." },
+};
+
 // Plugin directories to scan for capability declarations. Matches how the
 // agent loader resolves plugins: built-ins ship next to this file, customs
 // live in ~/.fathom/plugins/. If the loader ever changes its search path,

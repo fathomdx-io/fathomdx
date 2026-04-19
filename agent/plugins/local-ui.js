@@ -35,6 +35,11 @@ import { dirname, join } from "path";
 import { fileURLToPath, pathToFileURL } from "url";
 
 const CONFIG_PATH = join(process.env.HOME || "", ".fathom", "agent.json");
+
+export const CONFIG_SHAPE = {
+  port: { type: "number", required: false, help: "HTTP port for the local UI. Default: 8202." },
+  bind: { type: "string", required: false, help: "Bind address. Keep 127.0.0.1 for localhost-only. Default: 127.0.0.1." },
+};
 const BUILTIN_PLUGIN_DIR = dirname(fileURLToPath(import.meta.url));
 const CUSTOM_PLUGIN_DIR = join(homedir(), ".fathom", "plugins");
 const BUILTIN_UI_DIR = join(BUILTIN_PLUGIN_DIR, "..", "local-ui");

@@ -24,6 +24,18 @@ import { join, dirname } from "path";
 const STATE_PATH = join(homedir(), ".fathom", "kitty-state.json");
 const SOCKET_DIR = "/tmp";
 
+// Permission modes are deliberately file-only — accidentally widening the
+// veto list from a browser is the exact risk the trust discussion flagged.
+// Everything else is UI-editable.
+export const CONFIG_SHAPE = {
+  workspace_root: { type: "string", required: false, help: "Base directory for workspace-pinned routines. Default: ~/Dropbox/Work." },
+  claude_command: { type: "string", required: false, help: "Claude CLI binary. Default: 'claude'." },
+  kitty_command: { type: "string", required: false, help: "Kitty binary. Default: 'kitty'." },
+  kitty_background: { type: "string", required: false, help: "Background hex color for the spawned kitty window. Default: #17303a." },
+  auto_submit: { type: "string", required: false, help: "'true' to auto-submit prompts after injection, anything else to wait. Default: true." },
+  allowed_permission_modes: { type: "string[]", required: false, editable_from_ui: false, help: "Which claude permission modes routines may request. File-only for safety." },
+};
+
 // Map of fire-delta-id → { socket, routineId, launched_at } for open windows.
 // When a routine-summary delta lands tagged `fire-delta:<id>` matching one of
 // these, the corresponding kitty window is closed via `kitten @ close-window`.
