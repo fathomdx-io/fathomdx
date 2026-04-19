@@ -1,0 +1,467 @@
+"""Bounding box query engine — Postgres + pgvector edition.
+
+Semantic candidate retrieval uses pgvector's HNSW index via <=> operator.
+Temporal and provenance filtering still happen in Python to preserve exact
+v1 bounding-box semantics. Sessions and subsets remain in-memory.
+"""
+
+from __future__ import annotations
+
+import os
+import time
+import uuid
+from dataclasses import dataclass, field
+from datetime import UTC, datetime
+
+import asyncpg
+import numpy as np
+
+from deltas.embedder import embed_image, embed_text
+from deltas.models import (
+    DeltaOut,
+    DeltaSlim,
+    DimensionWeights,
+    ScoredDelta,
+    ScoredDeltaSlim,
+    SearchResult,
+)
+from deltas.store import DeltaStore, _format_ts, _vec_to_list
+
+# ── Config ───────────────────────────────────────────────────────────────────
+
+
+@dataclass
+class QueryConfig:
+    session_ttl: float = float(os.environ.get("QUERY_SESSION_TTL", "300"))
+    max_sessions: int = int(os.environ.get("QUERY_MAX_SESSIONS", "1000"))
+
+
+# ── Session store ────────────────────────────────────────────────────────────
+
+
+@dataclass
+class QuerySession:
+    result_ids: set[str]
+    last_used: float
+
+
+class SessionStore:
+    """In-memory cache of query session result sets with TTL."""
+
+    def __init__(self, config: QueryConfig):
+        self._sessions: dict[str, QuerySession] = {}
+        self._config = config
+
+    def get(self, session_id: str) -> QuerySession | None:
+        session = self._sessions.get(session_id)
+        if session is None:
+            return None
+        if time.monotonic() - session.last_used > self._config.session_ttl:
+            del self._sessions[session_id]
+            return None
+        session.last_used = time.monotonic()
+        return session
+
+    def put(self, session_id: str, result_ids: set[str]) -> None:
+        self._evict_expired()
+        if len(self._sessions) >= self._config.max_sessions:
+            self._evict_oldest()
+        self._sessions[session_id] = QuerySession(
+            result_ids=result_ids,
+            last_used=time.monotonic(),
+        )
+
+    def _evict_expired(self) -> None:
+        now = time.monotonic()
+        expired = [
+            sid for sid, s in self._sessions.items() if now - s.last_used > self._config.session_ttl
+        ]
+        for sid in expired:
+            del self._sessions[sid]
+
+    def _evict_oldest(self) -> None:
+        if not self._sessions:
+            return
+        oldest = min(self._sessions, key=lambda k: self._sessions[k].last_used)
+        del self._sessions[oldest]
+
+    @property
+    def active_count(self) -> int:
+        self._evict_expired()
+        return len(self._sessions)
+
+
+# ── Subset store ────────────────────────────────────────────────────────────
+
+
+@dataclass
+class Subset:
+    delta_ids: set[str]
+    queries: list[str]
+    created: float
+    last_used: float
+
+
+class SubsetStore:
+    """Ephemeral named sets of delta IDs. 1-hour TTL, garbage collected on access."""
+
+    TTL = 3600  # 1 hour
+
+    def __init__(self):
+        self._subsets: dict[str, Subset] = {}
+
+    def create(self, delta_ids: set[str], query: str) -> str:
+        self._gc()
+        subset_id = f"ss_{uuid.uuid4().hex[:8]}"
+        now = time.monotonic()
+        self._subsets[subset_id] = Subset(
+            delta_ids=delta_ids,
+            queries=[query],
+            created=now,
+            last_used=now,
+        )
+        return subset_id
+
+    def get(self, subset_id: str) -> Subset | None:
+        self._gc()
+        subset = self._subsets.get(subset_id)
+        if subset is None:
+            return None
+        subset.last_used = time.monotonic()
+        return subset
+
+    def broaden(self, subset_id: str, delta_ids: set[str], query: str) -> int:
+        subset = self.get(subset_id)
+        if subset is None:
+            return -1
+        subset.delta_ids |= delta_ids
+        subset.queries.append(query)
+        return len(subset.delta_ids)
+
+    def _gc(self) -> None:
+        now = time.monotonic()
+        expired = [sid for sid, s in self._subsets.items() if now - s.last_used > self.TTL]
+        for sid in expired:
+            del self._subsets[sid]
+
+
+# ── Distance computation ────────────────────────────────────────────────────
+
+
+def _cosine_distance(a: list[float], b: list[float]) -> float:
+    """1 - cosine similarity. Returns 0 (identical) to 2 (opposite)."""
+    if not a or not b:
+        return 1.0
+    va = np.array(a, dtype=np.float32)
+    vb = np.array(b, dtype=np.float32)
+    dot = np.dot(va, vb)
+    norm = np.linalg.norm(va) * np.linalg.norm(vb)
+    if norm == 0:
+        return 1.0
+    return float(1.0 - dot / norm)
+
+
+def _temporal_distance(origin_ts: str, delta_ts: str, max_span_ms: float) -> float:
+    """Normalized temporal distance (0-1)."""
+
+    def _parse(ts: str) -> float:
+        ts = ts.replace("Z", "+00:00")
+        return datetime.fromisoformat(ts).replace(tzinfo=UTC).timestamp() * 1000
+
+    if max_span_ms == 0:
+        return 0.0
+    diff = abs(_parse(origin_ts) - _parse(delta_ts))
+    return min(diff / max_span_ms, 1.0)
+
+
+# ── Query engine ─────────────────────────────────────────────────────────────
+
+
+def _new_session_id() -> str:
+    return f"qs_{uuid.uuid4().hex[:8]}"
+
+
+def _now_as_iso() -> str:
+    return datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z"
+
+
+def _to_slim(s: ScoredDelta) -> ScoredDeltaSlim:
+    """Strip embedding vectors from a scored delta."""
+    d = s.delta
+    return ScoredDeltaSlim(
+        delta=DeltaSlim(
+            id=d.id,
+            timestamp=d.timestamp,
+            modality=d.modality,
+            content=d.content,
+            source=d.source,
+            tags=d.tags,
+            media_hash=d.media_hash,
+            expires_at=d.expires_at,
+        ),
+        distance=s.distance,
+        dimensions=s.dimensions,
+    )
+
+
+@dataclass
+class QueryEngine:
+    """Bounding box query with pgvector candidate retrieval."""
+
+    store: DeltaStore
+    pool: asyncpg.Pool
+    config: QueryConfig = field(default_factory=QueryConfig)
+    sessions: SessionStore = field(init=False)
+    subsets: SubsetStore = field(init=False)
+
+    def __post_init__(self):
+        self.sessions = SessionStore(self.config)
+        self.subsets = SubsetStore()
+
+    async def _centroid_from_ids(self, ids: list[str]) -> list[float]:
+        """Compute normalized centroid from stored embeddings of the given delta IDs."""
+        embeddings = []
+        for delta_id in ids:
+            d = await self.store.get(delta_id)
+            if d and d.get("embedding"):
+                embeddings.append(d["embedding"])
+        if not embeddings:
+            return []
+        arr = np.array(embeddings, dtype=np.float32)
+        centroid = arr.mean(axis=0)
+        norm = np.linalg.norm(centroid)
+        if norm > 0:
+            centroid = centroid / norm
+        return centroid.tolist()
+
+    async def _fetch_candidates_pgvector(
+        self,
+        origin_embedding: list[float],
+        *,
+        tags_include: list[str] | None = None,
+        tags_exclude: list[str] | None = None,
+        modality: str | None = None,
+        limit: int = 2000,
+    ) -> list[dict]:
+        """Use pgvector HNSW to fetch nearest candidates, with optional filters."""
+        emb_arr = np.array(origin_embedding, dtype=np.float32)
+
+        conditions = [
+            "d.embedding IS NOT NULL",
+            "(d.expires_at IS NULL OR d.expires_at > NOW())",
+        ]
+        params: list = [emb_arr]
+        idx = 2
+
+        if tags_include:
+            conditions.append(f"d.tags @> ${idx}")
+            params.append(tags_include)
+            idx += 1
+        if tags_exclude:
+            conditions.append(f"NOT (d.tags && ${idx})")
+            params.append(tags_exclude)
+            idx += 1
+        if modality:
+            conditions.append(f"d.modality = ${idx}")
+            params.append(modality)
+            idx += 1
+
+        where = " AND ".join(conditions)
+        params.append(limit)
+
+        sql = f"""
+            SELECT d.*,
+                   (d.embedding <=> $1) AS s_dist,
+                   (d.provenance_embedding <=> $1) AS p_dist
+            FROM deltas d
+            WHERE {where}
+            ORDER BY d.embedding <=> $1
+            LIMIT ${idx}
+        """
+
+        rows = await self.pool.fetch(sql, *params)
+
+        results = []
+        for r in rows:
+            d = {
+                "id": r["id"],
+                "timestamp": _format_ts(r["timestamp"]),
+                "modality": r["modality"],
+                "content": r["content"],
+                "embedding": _vec_to_list(r["embedding"]),
+                "provenance_embedding": _vec_to_list(r["provenance_embedding"]),
+                "source": r["source"],
+                "tags": list(r["tags"]) if r["tags"] else [],
+                "s_dist": float(r["s_dist"]) if r["s_dist"] is not None else 1.0,
+                "p_dist": float(r["p_dist"]) if r["p_dist"] is not None else 1.0,
+            }
+            if r["media_hash"]:
+                d["media_hash"] = r["media_hash"]
+            if r["expires_at"]:
+                d["expires_at"] = _format_ts(r["expires_at"])
+            results.append(d)
+
+        return results
+
+    async def search(
+        self,
+        origin: str | None = None,
+        origin_ids: list[str] | None = None,
+        origin_image: str | None = None,
+        radius: float = 0.7,
+        radii: DimensionWeights | None = None,
+        session_id: str | None = None,
+        tags_include: list[str] | None = None,
+        tags_exclude: list[str] | None = None,
+        modality: str | None = None,
+        create_subset: bool = False,
+        subset_id: str | None = None,
+        limit: int = 50,
+        weights: DimensionWeights | None = None,
+    ) -> SearchResult:
+        r = radii or weights or DimensionWeights()
+        r_t = r.temporal
+        r_s = r.semantic
+        r_p = r.provenance
+
+        # 1. Compute origin embedding
+        if origin_ids:
+            origin_embedding = await self._centroid_from_ids(origin_ids)
+            if not origin_embedding:
+                origin_embedding = embed_text(origin) if origin else []
+        elif origin_image:
+            origin_embedding = embed_image(origin_image)
+            if origin:
+                text_emb = embed_text(origin)
+                arr = np.array([origin_embedding, text_emb], dtype=np.float32).mean(axis=0)
+                norm = np.linalg.norm(arr)
+                origin_embedding = (arr / norm).tolist() if norm > 0 else arr.tolist()
+        elif origin:
+            origin_embedding = embed_text(origin)
+        else:
+            new_sid = session_id or _new_session_id()
+            self.sessions.put(new_sid, set())
+            return SearchResult(session_id=new_sid, full=True, results=[], added=[], removed=[])
+
+        # 2. Fetch candidates via pgvector HNSW
+        candidates = await self._fetch_candidates_pgvector(
+            origin_embedding,
+            tags_include=tags_include,
+            tags_exclude=tags_exclude,
+            modality=modality,
+        )
+
+        # 2b. Scope to subset if provided
+        if subset_id:
+            subset = self.subsets.get(subset_id)
+            if subset is None:
+                raise ValueError(
+                    f"Subset {subset_id} not available — create a new one to get an updated ID"
+                )
+            allowed = subset.delta_ids
+            candidates = [d for d in candidates if d["id"] in allowed]
+
+        if not candidates:
+            new_sid = session_id or _new_session_id()
+            self.sessions.put(new_sid, set())
+            return SearchResult(session_id=new_sid, full=True, results=[], added=[], removed=[])
+
+        # 3. Compute temporal span for normalization
+        timestamps_ms = []
+        for d in candidates:
+            try:
+                ts = d["timestamp"].replace("Z", "+00:00")
+                timestamps_ms.append(
+                    datetime.fromisoformat(ts).replace(tzinfo=UTC).timestamp() * 1000
+                )
+            except Exception:
+                timestamps_ms.append(0)
+        max_span_ms = max(timestamps_ms) - min(timestamps_ms) if timestamps_ms else 1.0
+        max_span_ms = max(max_span_ms, 1.0)
+
+        origin_provenance = origin_embedding
+
+        # 4. Score — per-dimension independent filtering
+        scored: list[ScoredDelta] = []
+        for d in candidates:
+            t_dist = _temporal_distance(_now_as_iso(), d["timestamp"], max_span_ms)
+            s_dist = d.get("s_dist", _cosine_distance(origin_embedding, d["embedding"]))
+            p_dist = _cosine_distance(origin_provenance, d.get("provenance_embedding", []))
+
+            if t_dist > r_t or s_dist > r_s or p_dist > r_p:
+                continue
+
+            max_r = max(r_t, r_s, r_p, 0.001)
+            distance = max(t_dist / max_r, s_dist / max_r, p_dist / max_r)
+
+            scored.append(
+                ScoredDelta(
+                    delta=DeltaOut(**{k: v for k, v in d.items() if k not in ("s_dist", "p_dist")}),
+                    distance=round(distance, 4),
+                    dimensions=DimensionWeights(
+                        temporal=round(t_dist, 4),
+                        semantic=round(s_dist, 4),
+                        provenance=round(p_dist, 4),
+                    ),
+                )
+            )
+
+        scored.sort(key=lambda s: s.distance)
+        total_relevant = len(scored)
+
+        # 5. Create subset from results if requested
+        result_subset_id = None
+        result_subset_size = None
+        if create_subset and scored:
+            result_ids_for_subset = {s.delta.id for s in scored}
+            query_label = origin or (origin_ids[0] if origin_ids else "unknown")
+            result_subset_id = self.subsets.create(result_ids_for_subset, query_label)
+            result_subset_size = len(result_ids_for_subset)
+
+        # 6. Compute origin_radius
+        origin_radius = None
+        if origin_ids:
+            origin_set = set(origin_ids)
+            origin_dists = [s.distance for s in scored if s.delta.id in origin_set]
+            if origin_dists:
+                origin_radius = max(origin_dists) * 1.05
+
+        # 7. Session diffing
+        new_ids = {s.delta.id for s in scored}
+
+        if session_id:
+            existing = self.sessions.get(session_id)
+            if existing is not None:
+                added_ids = new_ids - existing.result_ids
+                removed_ids = existing.result_ids - new_ids
+                self.sessions.put(session_id, new_ids)
+
+                added = [s for s in scored if s.delta.id in added_ids]
+                added = added[:limit]
+                return SearchResult(
+                    session_id=session_id,
+                    full=False,
+                    results=[],
+                    added=[_to_slim(s) for s in added],
+                    removed=sorted(removed_ids),
+                    total_relevant=total_relevant,
+                    subset_id=result_subset_id,
+                    subset_size=result_subset_size,
+                )
+
+        # 8. Apply limit + strip embeddings
+        capped = scored[:limit]
+
+        sid = session_id or _new_session_id()
+        self.sessions.put(sid, new_ids)
+        return SearchResult(
+            session_id=sid,
+            full=True,
+            results=[_to_slim(s) for s in capped],
+            added=[],
+            removed=[],
+            total_relevant=total_relevant,
+            origin_radius=origin_radius,
+            subset_id=result_subset_id,
+            subset_size=result_subset_size,
+        )

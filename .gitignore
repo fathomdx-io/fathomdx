@@ -2,6 +2,12 @@
 __pycache__/
 .vite/
 *.pyc
+# runtime state written by the compose stack
+data/api/
+data/deltas/
+data/backups/
+data/source-runner/
+# legacy flat-layout state (pre-compose)
 data/tokens.json
 data/mood-state.json
 data/drift-history.json

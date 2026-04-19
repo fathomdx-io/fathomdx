@@ -1,0 +1,111 @@
+# Fathom — self-host stack
+#
+# Four services:
+#   postgres       — pgvector, the lake's storage
+#   delta-store    — HTTP API over the lake (write/search/embed)
+#   source-runner  — polls external sources, writes deltas
+#   api            — consumer API + UI (what you talk to)
+#
+# Node tools (agent, cli, mcp-node, connect) run on your host, not in compose.
+# They all default to http://localhost:8201 — which is the api service.
+#
+# Setup:
+#   cp .env.example .env
+#   # edit .env: set FATHOM_API_KEY (and pick FATHOM_PROVIDER if not gemini)
+#   docker compose up -d
+#   open http://localhost:8201
+
+networks:
+  fathom:
+    driver: bridge
+
+volumes:
+  pgdata:
+
+services:
+  postgres:
+    image: pgvector/pgvector:pg17
+    networks:
+      - fathom
+    # HNSW index builds need room in /dev/shm — default 64MB isn't enough.
+    shm_size: 1g
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    environment:
+      TZ: ${TZ:-UTC}
+      POSTGRES_USER: fathom
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-fathom}
+      POSTGRES_DB: deltas
+    ports:
+      - "127.0.0.1:5432:5432"
+    restart: unless-stopped
+    command: >
+      postgres
+        -c shared_buffers=256MB
+        -c effective_cache_size=512MB
+        -c maintenance_work_mem=128MB
+        -c work_mem=16MB
+
+  delta-store:
+    build:
+      context: ./delta-store
+    networks:
+      - fathom
+    ports:
+      - "127.0.0.1:4246:8000"
+    volumes:
+      - ./data/deltas:/data
+      - ./data/backups:/backups
+    environment:
+      TZ: ${TZ:-UTC}
+      DATABASE_URL: postgresql://fathom:${POSTGRES_PASSWORD:-fathom}@postgres:5432/deltas
+      DELTA_MEDIA_DIR: /data/media
+      DELTA_BACKUP_DIR: /backups
+      DELTA_BACKUP_INTERVAL_S: "3600"
+      DELTA_BACKUP_RETAIN: "3"
+      DELTA_BACKUP_ENABLED: "true"
+      DELTA_API_KEY: ${DELTA_API_KEY:-}
+    depends_on:
+      - postgres
+    restart: unless-stopped
+
+  source-runner:
+    build:
+      context: ./source-runner
+    networks:
+      - fathom
+    ports:
+      - "127.0.0.1:4260:8000"
+    volumes:
+      - ./data/source-runner:/data
+    environment:
+      TZ: ${TZ:-UTC}
+      DELTA_STORE_URL: http://delta-store:8000
+      DELTA_API_KEY: ${DELTA_API_KEY:-}
+    depends_on:
+      - delta-store
+    restart: unless-stopped
+
+  api:
+    build:
+      context: .
+      dockerfile: api/Dockerfile
+    networks:
+      - fathom
+    ports:
+      - "127.0.0.1:8201:8200"
+    volumes:
+      - ./data/api:/data
+    environment:
+      TZ: ${TZ:-UTC}
+      FATHOM_PROVIDER: ${FATHOM_PROVIDER:-gemini}
+      FATHOM_API_KEY: ${FATHOM_API_KEY:-}
+      FATHOM_BASE_URL: ${FATHOM_BASE_URL:-}
+      FATHOM_MODEL: ${FATHOM_MODEL:-}
+      FATHOM_DELTA_STORE_URL: http://delta-store:8000
+      FATHOM_DELTA_API_KEY: ${DELTA_API_KEY:-}
+      FATHOM_SOURCE_RUNNER_URL: http://source-runner:8000
+    depends_on:
+      - delta-store
+      - source-runner
+    restart: unless-stopped
