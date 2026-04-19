@@ -68,7 +68,8 @@
     .detail-pause-btn { min-width: 120px; justify-content: center; }
 
     /* Instance list on detail view */
-    .instance { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+    .instance { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; cursor: pointer; transition: border-color 120ms, background 120ms; }
+    .instance:hover { border-color: var(--ink-faint); background: var(--surface); }
     .instance .name { font-weight: 500; font-size: var(--text-base); }
     .instance .detail { font-family: var(--mono); font-size: var(--text-sm); color: var(--ink-faint); }
     .instance .actions { margin-left: auto; display: flex; gap: 6px; }
@@ -487,12 +488,55 @@
       $("#detail-instance-editor").innerHTML = renderInstanceEditor(pluginName, shape);
 
       const openBtn = $("#detail-add-instance-btn");
-      openBtn.onclick = () => {
-        $("#inline-instance-editor").classList.add("open");
+      const editor = $("#inline-instance-editor");
+      const idField = editor.querySelector('[data-field="id"]');
+
+      function openEditor(prefillInstance) {
+        // Clear all fields first
+        $$("[data-field]", editor).forEach((el) => { el.value = ""; el.disabled = false; });
+        if (prefillInstance) {
+          // Populate for edit
+          for (const [k, def] of Object.entries(shape)) {
+            const el = editor.querySelector(`[data-field="${k}"]`);
+            if (!el) continue;
+            if (def.type === "secret") {
+              // Secret: leave blank. Server treats empty as "keep".
+              if (prefillInstance[`__${k}_set`]) el.placeholder = "(set — leave blank to keep)";
+              continue;
+            }
+            const v = prefillInstance[k];
+            if (v == null) continue;
+            el.value = Array.isArray(v) ? v.join("\n") : String(v);
+          }
+          // Lock id when editing (the id is the merge key; renaming = new instance)
+          if (idField) idField.disabled = true;
+        }
+        editor.classList.add("open");
         openBtn.style.display = "none";
-      };
+        editor.scrollIntoView({ behavior: "smooth", block: "nearest" });
+      }
+      function closeEditor() {
+        editor.classList.remove("open");
+        openBtn.style.display = "";
+        $$("[data-field]", editor).forEach((el) => { el.value = ""; el.disabled = false; });
+        if (idField) idField.disabled = false;
+      }
+
+      openBtn.onclick = () => openEditor(null);
+
+      // Click an existing instance → open editor pre-filled
+      $$("[data-instance-id]", $("#detail-instances")).forEach((row) => {
+        row.addEventListener("click", (e) => {
+          if (e.target.closest(".actions")) return;  // don't open when clicking Delete
+          const id = row.dataset.instanceId;
+          const inst = instances.find((i) => i.id === id);
+          if (inst) openEditor(inst);
+        });
+      });
+
       $$(`[data-act='delete-instance']`, $("#detail-instances")).forEach((btn) => {
-        btn.onclick = async () => {
+        btn.onclick = async (e) => {
+          e.stopPropagation();
           const id = btn.dataset.id;
           if (!confirm(`Delete instance "${id}"?`)) return;
           const r = await fetch(`/api/plugin/${encodeURIComponent(pluginName)}/instance/${encodeURIComponent(id)}`, { method: "DELETE" });
@@ -503,18 +547,16 @@
           renderDetail();
         };
       });
-      $$(`[data-act='cancel-instance']`, $("#inline-instance-editor")).forEach((btn) => {
-        btn.onclick = () => {
-          $("#inline-instance-editor").classList.remove("open");
-          openBtn.style.display = "";
-          $$("[data-field]", $("#inline-instance-editor")).forEach((el) => (el.value = ""));
-        };
+      $$(`[data-act='cancel-instance']`, editor).forEach((btn) => {
+        btn.onclick = closeEditor;
       });
-      $$(`[data-act='save-instance']`, $("#inline-instance-editor")).forEach((btn) => {
+      $$(`[data-act='save-instance']`, editor).forEach((btn) => {
         btn.onclick = async () => {
           const body = {};
-          $$("[data-field]", $("#inline-instance-editor")).forEach((el) => {
+          $$("[data-field]", editor).forEach((el) => {
             const v = el.value.trim();
+            // Include the (disabled) id field when editing — it's the merge key.
+            if (el.dataset.field === "id" && el.disabled) body.id = el.value;
             if (!v) return;
             if (el.tagName === "TEXTAREA") body[el.dataset.field] = v.split(/\r?\n/).map((s) => s.trim()).filter(Boolean);
             else if (el.type === "number") body[el.dataset.field] = Number(v);

@@ -128,6 +128,20 @@ async function scrubFullConfig(cfg) {
     if (meta.category) slim.category = meta.category;
     if (meta.description) slim.description = meta.description;
     if (meta.config_shape) slim.config_shape = meta.config_shape;
+    // Legacy-vault migration, read-only for the UI. If a plugin declares
+    // instance_shape and has no instances but does have a legacy `paths`
+    // array, synthesize one instance per path so users see their existing
+    // config in the UI. First save from the UI persists as real instances.
+    if (meta.capabilities?.instance_shape
+        && (!Array.isArray(slim.instances) || !slim.instances.length)
+        && Array.isArray(slim.paths) && slim.paths.length) {
+      slim.instances = slim.paths.map((p, i) => ({
+        id: `vault-${i}`,
+        name: (p.split("/").filter(Boolean).pop()) || `Vault ${i + 1}`,
+        path: p,
+        tags: Array.isArray(slim.tags) ? slim.tags : [],
+      }));
+    }
     plugins[name] = slim;
   }
   return { plugins, api_url: cfg.api_url || "" };

@@ -33,12 +33,41 @@ const IMAGE_EXTENSIONS = new Set([".png", ".jpg", ".jpeg", ".gif", ".webp", ".sv
 const WIKILINK_IMG = /!\[\[([^\]]+?)(?:\|[^\]]*?)?\]\]/g;
 const MD_IMG = /!\[([^\]]*?)\]\(([^)]+?)\)/g;
 
-// Config shape surfaced to the agent UI.
-export const CONFIG_SHAPE = {
-  paths: { type: "string[]", required: true, help: "Directories to watch (one per line)." },
-  tags: { type: "string[]", required: false, help: "Extra tags applied to every delta from this vault." },
-  source: { type: "string", required: false, help: "Source label for deltas. Default: 'vault'." },
+// Capability descriptor — same shape as homeassistant.js so the UI
+// renders a per-instance editor. Each instance is a single watched
+// directory with its own label and optional tags.
+export const SOURCE_CAPABILITIES = {
+  kind: "vault",
+  display_name: "Vault",
+  description: "Watch markdown directories. Pushes file changes, extracts images.",
+  instance_shape: {
+    id: { type: "string", required: true, help: "stable identifier, e.g. 'obsidian' or 'work-notes'" },
+    name: { type: "string", required: true, help: "human label" },
+    path: { type: "string", required: true, help: "absolute directory path" },
+    tags: { type: "string[]", required: false, help: "extra tags applied to this vault's deltas" },
+  },
 };
+
+// Legacy config (pre-instances) had a top-level `paths` array. We still
+// read it in start() as a fallback so existing installs keep working,
+// but the UI only edits instances from here forward.
+
+function normalizeInstances(config) {
+  if (Array.isArray(config.instances) && config.instances.length) return config.instances;
+  // Legacy migration: convert a flat paths array to synthetic instances
+  // so existing deployments don't silently stop watching anything. These
+  // synthetic instances never get written back — user must re-save from
+  // the UI to persist them as instances.
+  if (Array.isArray(config.paths)) {
+    return config.paths.map((p, i) => ({
+      id: `vault-${i}`,
+      name: basename(p) || `Vault ${i + 1}`,
+      path: p,
+      tags: config.tags || [],
+    }));
+  }
+  return [];
+}
 
 export default {
   name: "Vault",
@@ -48,24 +77,33 @@ export default {
   description: "Watch markdown directories. Pushes file changes, extracts images.",
 
   defaults: {
-    paths: ["~/Documents/notes", "~/Documents/obsidian"],
+    instances: [],
     source: "vault",
-    tags: ["vault-note"],
   },
 
   start(config, pusher) {
-    const allPaths = config.paths || [];
-    const paths = allPaths.filter((p) => {
-      try { statSync(p); return true; } catch { return false; }
+    const instances = normalizeInstances(config);
+    const validInstances = instances.filter((inst) => {
+      try { statSync(inst.path); return true; } catch { return false; }
     });
-    if (!paths.length) {
-      const skipped = allPaths.length ? ` (${allPaths.length} paths not found)` : "";
-      console.log(`  vault: no valid paths${skipped}`);
+    if (!validInstances.length) {
+      const skipped = instances.length ? ` (${instances.length} paths not found)` : "";
+      console.log(`  vault: no valid instances${skipped}`);
       return null;
     }
-    if (paths.length < allPaths.length) {
-      const missing = allPaths.filter((p) => !paths.includes(p));
+    if (validInstances.length < instances.length) {
+      const missing = instances.filter((i) => !validInstances.includes(i)).map((i) => i.path);
       console.log(`  vault: skipping missing paths: ${missing.join(", ")}`);
+    }
+
+    const paths = validInstances.map((i) => i.path);
+    const pathToInstance = new Map(validInstances.map((i) => [resolve(i.path), i]));
+    function findInstance(filepath) {
+      const f = resolve(filepath);
+      for (const [p, inst] of pathToInstance) {
+        if (f === p || f.startsWith(p + "/")) return inst;
+      }
+      return null;
     }
 
     const diskState = loadState(); // { path: contentHash }
@@ -126,9 +164,12 @@ export default {
       dirty = true;
       fileCount++;
 
+      const inst = findInstance(filepath);
       const relPath = bestRelative(paths, filepath);
       console.log(`  + ${relPath}`);
       const tags = ["vault-note", `doc:${relPath.replace(/\.[^.]+$/, "")}`];
+      if (inst) tags.push(`instance:${inst.id}`);
+      if (inst?.tags) tags.push(...inst.tags);
       if (config.tags) tags.push(...config.tags);
 
       // Extract and upload images
@@ -164,16 +205,22 @@ export default {
       seen.delete(filepath);
       dirty = true;
 
+      const inst = findInstance(filepath);
       const relPath = bestRelative(paths, filepath);
       console.log(`  ✗ ${relPath} (deleted)`);
+      const tags = ["vault-deletion", "deleted", `doc:${relPath.replace(/\.[^.]+$/, "")}`];
+      if (inst) tags.push(`instance:${inst.id}`);
       pusher.push({
         content: `Vault note deleted: ${basename(filepath)}`,
-        tags: ["vault-deletion", "deleted", `doc:${relPath.replace(/\.[^.]+$/, "")}`],
+        tags,
         source,
       });
     }
 
-    console.log(`  vault: watching ${paths.join(", ")}`);
+    console.log(`  vault: ${validInstances.length} instance${validInstances.length === 1 ? "" : "s"} configured`);
+    for (const inst of validInstances) {
+      console.log(`    · ${inst.id} → ${inst.path}`);
+    }
     return { stop: () => { persistState(); clearInterval(saveTimer); watcher.close(); } };
   },
 };
