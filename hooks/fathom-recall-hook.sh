@@ -80,13 +80,13 @@ total = int(r.get('total_count') or 0)
 if not as_prompt or total == 0:
     sys.exit(0)
 
-header = f'--- Delta Recall: {total} surfaced ---'
+header = f'--- You remember {total} things ---'
 context = f'{header}\n\n{as_prompt}'
 
 print(json.dumps({
     'hookSpecificOutput': {
         'hookEventName': 'UserPromptSubmit',
-        'systemMessage': f'Delta recall: {total} surfaced',
+        'systemMessage': f'You remember {total} things',
         'additionalContext': context,
     }
 }))

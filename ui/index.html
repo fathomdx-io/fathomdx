@@ -105,7 +105,7 @@
     .brand { font-family: var(--serif); font-size: 26px; letter-spacing: 0.01em; }
     .brand em { font-style: italic; color: var(--accent); }
     .brand-mark { color: var(--accent); margin-left: 4px; display: inline-flex; vertical-align: baseline; }
-    .brand-mark .ph-triangle { width: 16px; height: 16px; vertical-align: -2px; }
+    .brand-mark .ph-triangle { height: 20px; width: auto; vertical-align: -2px; }
     .icon-btn {
       width: 36px; height: 36px; display: grid; place-items: center;
       border: 1px solid var(--rule); background: var(--surface);
@@ -368,16 +368,19 @@
 
     /* Extend row */
     .extend-grid {
-      display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px;
+      display: flex; flex-direction: row; gap: 10px;
+      overflow-x: auto; overflow-y: hidden;
+      scroll-snap-type: x proximity;
+      -webkit-overflow-scrolling: touch;
+      scrollbar-width: none;
     }
-    @media (min-width: 640px) {
-      .extend-grid { grid-template-columns: repeat(4, 1fr); }
-    }
+    .extend-grid::-webkit-scrollbar { display: none; }
     .extend {
       background: var(--surface); border: 1px solid var(--rule);
       border-radius: 12px; padding: 14px;
       display: flex; flex-direction: row; align-items: center; gap: 10px; cursor: pointer;
       transition: border-color 120ms, background 120ms;
+      flex: 0 0 auto; min-width: 200px; scroll-snap-align: start;
     }
     .extend:hover { border-color: var(--ink-faint); background: var(--surface-2); }
     .extend .extend-icon { font-size: 20px; color: var(--accent); line-height: 1; flex-shrink: 0; width: 24px; text-align: center; }
@@ -728,7 +731,7 @@
     }
     .sidebar-brand em { font-style: italic; color: var(--accent); }
     .sidebar-brand .brand-mark { color: var(--accent); margin-left: 4px; display: inline-flex; vertical-align: baseline; }
-    .sidebar-brand .ph-triangle { width: 15px; height: 15px; vertical-align: -2px; }
+    .sidebar-brand .ph-triangle { height: 15px; width: auto; vertical-align: -2px; }
     .new-session-btn {
       width: 100%;
       background: transparent;
@@ -1256,7 +1259,7 @@
       color: var(--signal); display: inline-flex; align-items: center; gap: 6px;
     }
     .tool-strip .tool-meta .ph-triangle {
-      width: 11px; height: 11px; flex-shrink: 0;
+      height: 11px; width: auto; flex-shrink: 0;
       filter: drop-shadow(0 0 4px currentColor);
     }
     .tool-strip .tool-thumb {
@@ -1343,6 +1346,213 @@
       .opener { margin-bottom: 52px; }
       .section { margin: 56px 0; }
     }
+
+    /* ── Routines ──────────────────────────────── */
+    .routine-list { display: flex; flex-direction: column; gap: 10px; }
+    .routine-card {
+      background: var(--surface); border: 1px solid var(--rule);
+      border-radius: 12px; padding: 14px 16px;
+      display: flex; flex-direction: column; gap: 8px;
+      transition: border-color 120ms, background 120ms;
+    }
+    .routine-card:hover { border-color: var(--ink-faint); }
+    .routine-card[data-enabled="false"] { opacity: 0.55; }
+    .routine-card-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+    .routine-card .dot {
+      width: 7px; height: 7px; border-radius: 50%; background: var(--signal);
+      box-shadow: 0 0 6px var(--dot-glow); flex-shrink: 0;
+    }
+    .routine-card[data-enabled="false"] .dot { background: var(--ink-faint); box-shadow: none; }
+    .routine-card .name { font-weight: 500; font-size: 14px; color: var(--ink); }
+    .routine-card .schedule { font-family: var(--mono); font-size: 12px; color: var(--ink-soft); }
+    .routine-card .mini {
+      font-family: var(--mono); font-size: 11px; color: var(--ink-faint);
+      text-transform: uppercase; letter-spacing: 0.06em;
+    }
+    .routine-card .pill {
+      display: inline-block; padding: 2px 8px; border-radius: 999px;
+      font-family: var(--mono); font-size: 10px; letter-spacing: 0.08em;
+      text-transform: uppercase; border: 1px solid var(--rule); color: var(--ink-soft);
+    }
+    .routine-card .pill[data-mode="auto"] { border-color: var(--accent); color: var(--accent); }
+    .routine-card-actions { display: flex; gap: 6px; margin-left: auto; }
+    .routine-btn {
+      background: transparent; border: 1px solid var(--rule);
+      border-radius: 6px; padding: 4px 10px;
+      font-family: var(--mono); font-size: 11px; letter-spacing: 0.06em;
+      text-transform: uppercase; color: var(--ink-soft); cursor: pointer;
+      transition: border-color 120ms, color 120ms;
+    }
+    .routine-btn:hover { border-color: var(--ink-faint); color: var(--ink); }
+    .routine-btn.primary { border-color: var(--accent); color: var(--accent); }
+    .routine-btn.primary:hover { background: rgba(120,160,200,0.08); }
+    .routine-btn.danger:hover { border-color: #d35; color: #d35; }
+    .routine-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+    .routine-summary {
+      font-size: 12px; color: var(--ink-soft); font-style: italic;
+      border-top: 1px dashed var(--rule-soft); padding-top: 8px; margin-top: 2px;
+    }
+    .routine-summary strong { font-style: normal; color: var(--ink); }
+    .routine-prompt {
+      margin-top: 6px; padding: 10px; background: rgba(0,0,0,0.12);
+      border-radius: 6px; font-family: var(--mono); font-size: 11px;
+      color: var(--ink-soft); white-space: pre-wrap; max-height: 240px; overflow: auto;
+    }
+
+    /* Editor */
+    .routine-editor {
+      background: var(--surface); border: 1px solid var(--accent);
+      border-radius: 12px; padding: 16px;
+      display: flex; flex-direction: column; gap: 12px;
+    }
+    .routine-editor .field-row { display: flex; gap: 8px; flex-wrap: wrap; }
+    .routine-editor label { font-family: var(--mono); font-size: 11px;
+      text-transform: uppercase; letter-spacing: 0.06em; color: var(--ink-faint);
+      margin-bottom: 4px; display: block;
+    }
+    .routine-editor .form-input, .routine-editor .form-textarea {
+      width: 100%; background: var(--surface-2); border: 1px solid var(--rule);
+      border-radius: 6px; padding: 8px 10px;
+      font-family: var(--sans); font-size: 13px; color: var(--ink);
+    }
+    .routine-editor .form-input:focus, .routine-editor .form-textarea:focus {
+      outline: none; border-color: var(--accent);
+    }
+    .routine-editor .form-textarea {
+      font-family: var(--mono); font-size: 12px; min-height: 120px; resize: vertical;
+    }
+    .routine-editor .form-group { flex: 1 1 200px; min-width: 0; }
+    .routine-editor .err {
+      color: #d35; font-size: 12px; font-family: var(--mono);
+    }
+    .segmented {
+      display: inline-flex; border: 1px solid var(--rule); border-radius: 6px; overflow: hidden;
+    }
+    .segmented button {
+      background: transparent; border: 0; padding: 6px 12px;
+      font-family: var(--mono); font-size: 11px; letter-spacing: 0.06em;
+      text-transform: uppercase; color: var(--ink-soft); cursor: pointer;
+    }
+    .segmented button[data-active="true"] {
+      background: var(--accent); color: var(--bg);
+    }
+
+    /* Cron picker */
+    .cron-picker { display: flex; flex-direction: column; gap: 6px; }
+    .cron-picker .picker-row { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
+    .cron-picker .cron-preview {
+      padding: 6px 10px; background: var(--surface-2); border-radius: 6px;
+      font-family: var(--mono); font-size: 11px; color: var(--ink-faint);
+    }
+    .cron-picker .cron-preview ul { list-style: none; padding: 0; margin: 4px 0 0; }
+    .cron-picker .cron-preview li { padding: 1px 0; }
+    .cron-picker .cron-preview .err { color: #d35; }
+
+    /* ── Agent section ──────────────────────────── */
+    /* Install callout — shown when no agent is registered.
+       The point is to make the "unlock this" value obvious. */
+    .agent-callout {
+      position: relative; overflow: hidden;
+      background:
+        linear-gradient(135deg, rgba(255,165,0,0.06), rgba(120,160,200,0.04) 60%),
+        var(--surface);
+      border: 1px solid var(--rule);
+      border-radius: 14px; padding: 22px 24px;
+      margin-bottom: 14px;
+    }
+    .agent-callout::before {
+      content: ""; position: absolute; inset: 0;
+      background: radial-gradient(600px 220px at -5% -10%, rgba(255,180,100,0.08), transparent 60%);
+      pointer-events: none;
+    }
+    .agent-callout-badge {
+      display: inline-flex; align-items: center; gap: 6px;
+      font-family: var(--mono); font-size: 10px;
+      letter-spacing: 0.1em; text-transform: uppercase;
+      color: var(--accent);
+      padding: 3px 9px; border: 1px solid var(--accent);
+      border-radius: 999px; margin-bottom: 12px;
+      background: rgba(255,165,0,0.06);
+    }
+    .agent-callout h3 {
+      font-family: var(--serif); font-weight: 400;
+      font-size: 22px; margin: 0 0 6px; line-height: 1.2;
+    }
+    .agent-callout p {
+      margin: 0 0 10px; font-size: 14px; color: var(--ink-soft);
+      max-width: 560px;
+    }
+    .agent-callout ul {
+      margin: 6px 0 16px; padding: 0; list-style: none;
+      display: flex; flex-direction: column; gap: 4px;
+    }
+    .agent-callout li {
+      font-size: 13px; color: var(--ink-soft);
+      padding-left: 18px; position: relative;
+    }
+    .agent-callout li::before {
+      content: "→"; color: var(--accent);
+      position: absolute; left: 0; top: 0;
+    }
+
+    /* Connected status — shown when agent heartbeat is alive. */
+    .agent-connected { display: flex; flex-direction: column; gap: 12px; }
+    .agent-connected-status {
+      display: flex; align-items: center; gap: 10px;
+      padding: 10px 14px; border-radius: 10px;
+      background: var(--surface); border: 1px solid var(--rule);
+    }
+    .agent-connected-status .dot {
+      width: 8px; height: 8px; border-radius: 50%;
+      background: var(--signal);
+      box-shadow: 0 0 8px var(--dot-glow);
+      flex-shrink: 0;
+    }
+    .agent-connected-status .host {
+      font-family: var(--mono); font-size: 13px; color: var(--ink);
+    }
+    .agent-connected-status .meta-line {
+      font-family: var(--mono); font-size: 11px; color: var(--ink-faint);
+      margin-left: auto;
+    }
+    .agent-plugins {
+      display: flex; flex-wrap: wrap; gap: 8px;
+    }
+    .agent-plugin-chip {
+      display: inline-flex; align-items: center; gap: 8px;
+      padding: 8px 12px; border-radius: 999px;
+      background: var(--surface); border: 1px solid var(--rule);
+      font-size: 13px;
+    }
+    .agent-plugin-chip .ico { font-size: 14px; }
+    .agent-plugin-chip .pname { color: var(--ink); }
+    .agent-plugin-chip .pextra { font-family: var(--mono); font-size: 11px; color: var(--ink-faint); }
+    .agent-plugin-chip[data-enabled="false"] { opacity: 0.45; }
+
+    /* Inline "fedora agent" label chip — introduces the group of agent-pushed
+       source chips that follow it. Not a real chip (no dot, no border), just
+       a mono-typed label that sits in the same flex-wrap as the source chips. */
+    .chip.agent-label {
+      background: transparent; border: 0; padding: 4px 0 4px 10px;
+      font-family: var(--mono); font-size: 11px;
+      letter-spacing: 0.08em; text-transform: uppercase;
+      color: var(--ink-faint);
+      cursor: default;
+    }
+    .chip.agent-label:hover { border-color: transparent; }
+    .chip.agent-label .dot { display: none; }
+    /* Invisible line break inside the flex-wrap sources list. A <br> won't
+       work here — Chrome's flex layout ignores width on br elements. A div
+       with flex-basis: 100% and height 0 gives us a zero-vertical-space
+       newline. */
+    .sources .line-break { flex: 0 0 100%; height: 0; }
+
+    /* Agent "connected" dot on Local Agent cards (legacy; kept for install cards) */
+    .extend[data-connected="true"] .label::after {
+      content: "· connected"; color: var(--accent);
+      font-size: 11px; margin-left: 6px; font-weight: 400;
+      letter-spacing: 0.04em; text-transform: uppercase;
+    }
   </style>
 </head>
 <body>
@@ -1351,7 +1561,7 @@
   <aside class="sidebar" id="sidebar">
     <div class="sidebar-head">
       <div class="sidebar-brand">
-        <span><em>f</em>athom<span class="brand-mark"><svg class="ph-triangle" viewBox="0 0 256 256" fill="currentColor"><path d="M236.8,188.09,149.35,36.22a24.76,24.76,0,0,0-42.7,0L19.2,188.09a23.51,23.51,0,0,0,0,23.72A24.35,24.35,0,0,0,40.55,224h174.9a24.35,24.35,0,0,0,21.33-12.19A23.51,23.51,0,0,0,236.8,188.09ZM222.93,203.8a8.5,8.5,0,0,1-7.48,4.2H40.55a8.5,8.5,0,0,1-7.48-4.2,7.59,7.59,0,0,1,0-7.72L120.52,44.21a8.75,8.75,0,0,1,15,0l87.45,151.87A7.59,7.59,0,0,1,222.93,203.8Z"/></svg></span></span>
+        <span>fathom<span class="brand-mark"><svg class="ph-triangle" viewBox="0 0 340 256" fill="currentColor"><g transform="rotate(20.4 128 150)" opacity="0.28"><path d="M236.8,188.09,149.35,36.22a24.76,24.76,0,0,0-42.7,0L19.2,188.09a23.51,23.51,0,0,0,0,23.72A24.35,24.35,0,0,0,40.55,224h174.9a24.35,24.35,0,0,0,21.33-12.19A23.51,23.51,0,0,0,236.8,188.09ZM222.93,203.8a8.5,8.5,0,0,1-7.48,4.2H40.55a8.5,8.5,0,0,1-7.48-4.2,7.59,7.59,0,0,1,0-7.72L120.52,44.21a8.75,8.75,0,0,1,15,0l87.45,151.87A7.59,7.59,0,0,1,222.93,203.8Z"/></g><g transform="translate(41 0) rotate(-17.2 128 150)" opacity="0.58"><path d="M236.8,188.09,149.35,36.22a24.76,24.76,0,0,0-42.7,0L19.2,188.09a23.51,23.51,0,0,0,0,23.72A24.35,24.35,0,0,0,40.55,224h174.9a24.35,24.35,0,0,0,21.33-12.19A23.51,23.51,0,0,0,236.8,188.09ZM222.93,203.8a8.5,8.5,0,0,1-7.48,4.2H40.55a8.5,8.5,0,0,1-7.48-4.2,7.59,7.59,0,0,1,0-7.72L120.52,44.21a8.75,8.75,0,0,1,15,0l87.45,151.87A7.59,7.59,0,0,1,222.93,203.8Z"/></g><g transform="translate(82 0) rotate(0.4 128 150)"><path d="M149.35,36.22a24.76,24.76,0,0,0-42.7,0L19.2,188.09a23.51,23.51,0,0,0,0,23.72A24.35,24.35,0,0,0,40.55,224h174.9a24.35,24.35,0,0,0,21.33-12.19,23.51,23.51,0,0,0,0-23.72Z"/></g></svg></span></span>
       </div>
       <button class="new-session-btn" type="button">
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
@@ -1382,7 +1592,7 @@
       <button class="icon-btn" id="sidebarToggleBtn" aria-label="Sessions">
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
       </button>
-      <div class="brand"><em>f</em>athom<span class="brand-mark"><svg class="ph-triangle" viewBox="0 0 256 256" fill="currentColor"><path d="M236.8,188.09,149.35,36.22a24.76,24.76,0,0,0-42.7,0L19.2,188.09a23.51,23.51,0,0,0,0,23.72A24.35,24.35,0,0,0,40.55,224h174.9a24.35,24.35,0,0,0,21.33-12.19A23.51,23.51,0,0,0,236.8,188.09ZM222.93,203.8a8.5,8.5,0,0,1-7.48,4.2H40.55a8.5,8.5,0,0,1-7.48-4.2,7.59,7.59,0,0,1,0-7.72L120.52,44.21a8.75,8.75,0,0,1,15,0l87.45,151.87A7.59,7.59,0,0,1,222.93,203.8Z"/></svg></span></div>
+      <div class="brand">fathom<span class="brand-mark"><svg class="ph-triangle" viewBox="0 0 340 256" fill="currentColor"><g transform="rotate(20.4 128 150)" opacity="0.28"><path d="M236.8,188.09,149.35,36.22a24.76,24.76,0,0,0-42.7,0L19.2,188.09a23.51,23.51,0,0,0,0,23.72A24.35,24.35,0,0,0,40.55,224h174.9a24.35,24.35,0,0,0,21.33-12.19A23.51,23.51,0,0,0,236.8,188.09ZM222.93,203.8a8.5,8.5,0,0,1-7.48,4.2H40.55a8.5,8.5,0,0,1-7.48-4.2,7.59,7.59,0,0,1,0-7.72L120.52,44.21a8.75,8.75,0,0,1,15,0l87.45,151.87A7.59,7.59,0,0,1,222.93,203.8Z"/></g><g transform="translate(41 0) rotate(-17.2 128 150)" opacity="0.58"><path d="M236.8,188.09,149.35,36.22a24.76,24.76,0,0,0-42.7,0L19.2,188.09a23.51,23.51,0,0,0,0,23.72A24.35,24.35,0,0,0,40.55,224h174.9a24.35,24.35,0,0,0,21.33-12.19A23.51,23.51,0,0,0,236.8,188.09ZM222.93,203.8a8.5,8.5,0,0,1-7.48,4.2H40.55a8.5,8.5,0,0,1-7.48-4.2,7.59,7.59,0,0,1,0-7.72L120.52,44.21a8.75,8.75,0,0,1,15,0l87.45,151.87A7.59,7.59,0,0,1,222.93,203.8Z"/></g><g transform="translate(82 0) rotate(0.4 128 150)"><path d="M149.35,36.22a24.76,24.76,0,0,0-42.7,0L19.2,188.09a23.51,23.51,0,0,0,0,23.72A24.35,24.35,0,0,0,40.55,224h174.9a24.35,24.35,0,0,0,21.33-12.19,23.51,23.51,0,0,0,0-23.72Z"/></g></svg></span></div>
     </div>
     <div class="topbar-right">
       <button class="icon-btn theme-toggle" id="themeToggle" aria-label="Toggle theme" title="Toggle theme">
@@ -1423,27 +1633,35 @@
         <span class="meta">7 active · 2 paused</span>
       </div>
       <div class="sources" id="sourcesList">
-        <!-- Populated by loadSources() -->
+        <!-- Populated by loadSources() + renderAgentSources(). Agent chips
+             get appended here with a flex-break so they wrap to their own
+             line visually, but they're part of the same chip flow. -->
         <button class="chip add" id="addSourceBtn" type="button">+ Add source</button>
       </div>
-      <div class="section-head" style="margin-top: 24px;">
-        <h3 style="font-family: var(--mono); font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--ink-faint); margin: 0;">Local Agent</h3>
-        <span class="meta">files, system health, and more</span>
+    </section>
+
+    <!-- Routines — scheduled prompts that fire into local claude sessions.
+         Hidden entirely when no agent is connected (the Agent section's
+         install callout covers the "unlock this" messaging). -->
+    <section class="section" id="routinesSection" hidden>
+      <div class="section-head">
+        <h2>Routines</h2>
+        <span class="meta" id="routinesMeta">loading…</span>
       </div>
-      <div class="extend-grid">
-        <div class="extend" data-surface="agent-linux">
-          <span class="extend-icon">🐧</span>
-          <div class="extend-text"><span class="label">Linux</span><span class="sub">systemd service</span></div>
-        </div>
-        <div class="extend" data-surface="agent-mac">
-          <span class="extend-icon">🍎</span>
-          <div class="extend-text"><span class="label">Mac</span><span class="sub">launchd agent</span></div>
-        </div>
-        <div class="extend" data-surface="agent-windows">
-          <span class="extend-icon">⊞</span>
-          <div class="extend-text"><span class="label">Windows</span><span class="sub">scheduled task</span></div>
-        </div>
+      <div class="routine-list" id="routinesList">
+        <!-- Populated by loadRoutines() -->
       </div>
+      <button class="chip add" id="newRoutineBtn" type="button" style="margin-top: 10px;">+ New routine</button>
+    </section>
+
+    <!-- Agent — the local runtime. Shows a connected status when alive,
+         or an install callout (snazzy) when not. -->
+    <section class="section" id="agentSection">
+      <div class="section-head">
+        <h2>Agent</h2>
+        <span class="meta" id="agentMeta">loading…</span>
+      </div>
+      <div id="agentBody"><!-- populated by renderAgentSection() --></div>
     </section>
 
     <!-- Extend: how to reach Fathom from elsewhere -->
@@ -1988,15 +2206,22 @@
         const addBtn = sourcesList.querySelector('.chip.add');
         sourcesList.innerHTML = configured.map(_chipHTML).join('') + (addBtn ? addBtn.outerHTML : '<button class="chip add" id="addSourceBtn" type="button">+ Add source</button>');
 
-        // Update section meta
-        const active = configured.filter(s => s.status === 'active').length;
-        const paused = configured.filter(s => s.status === 'paused').length;
-        const meta = sourcesList.closest('.section')?.querySelector('.meta');
-        if (meta) meta.textContent = active + ' active' + (paused ? ' · ' + paused + ' paused' : '');
+        // Update section meta — cloud counts cached so renderAgentSources()
+        // can add its own active count to the displayed total.
+        _cloudSourceCounts = {
+          active: configured.filter(s => s.status === 'active').length,
+          paused: configured.filter(s => s.status === 'paused').length,
+        };
+        _updateSourcesMeta();
 
         // Re-wire add button
         const newAddBtn = document.getElementById('addSourceBtn');
         if (newAddBtn) newAddBtn.addEventListener('click', openAddSource);
+
+        // loadSources() clobbers sourcesList.innerHTML, which also wipes out
+        // any agent-pushed source chips previously appended. Re-inject them
+        // if the agent is alive.
+        if (typeof renderAgentSources === 'function' && _agentStatus?.alive) renderAgentSources();
 
         // Populate add-source wizard type grid
         const TYPE_ICONS = { rss: '∿', vault: '⌘', mastodon: '◎', homeassistant: '⌂' };
@@ -2405,6 +2630,545 @@
 
     // Load sources on startup
     loadSources();
+
+    // ── Routines ────────────────────────────────────
+    // Routines are spec deltas in the lake. CRUD = write a new spec with the
+    // same routine-id. See /v1/routines/* endpoints in api/server.py.
+
+    const routinesList = document.getElementById('routinesList');
+    const routinesMeta = document.getElementById('routinesMeta');
+    const newRoutineBtn = document.getElementById('newRoutineBtn');
+    let _routineCache = [];      // most recent list from backend
+    let _openEditorFor = null;   // routine-id currently in edit mode, or '__new__', or null
+    let _agentStatus = { alive: false, agents: [] };  // populated by loadAgentStatus()
+    let _cloudSourceCounts = { active: 0, paused: 0 };  // snapshot from last loadSources()
+    let _agentSourceCount = 0;   // source-role plugins reported by the live agent
+
+    function _updateSourcesMeta() {
+      const meta = document.querySelector('#sourcesList')?.closest('.section')?.querySelector('.meta');
+      if (!meta) return;
+      const active = _cloudSourceCounts.active + _agentSourceCount;
+      const paused = _cloudSourceCounts.paused;
+      meta.textContent = active + ' active' + (paused ? ' · ' + paused + ' paused' : '');
+    }
+
+    const CRON_PRESETS = {
+      'every-5-min':   '*/5 * * * *',
+      'every-30-min':  '*/30 * * * *',
+      'hourly':        '0 * * * *',
+      'every-4-hours': '0 */4 * * *',
+    };
+    const PRESET_LABELS = {
+      'every-5-min':   'every 5 min',
+      'every-30-min':  'every 30 min',
+      'hourly':        'hourly',
+      'every-4-hours': 'every 4 hours',
+      'daily':         'daily at…',
+      'weekly':        'weekly on…',
+      'custom':        'custom cron',
+    };
+    const DAY_LABELS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+
+    function inferPreset(cron) {
+      const norm = (cron || '').trim();
+      for (const [k, v] of Object.entries(CRON_PRESETS)) if (norm === v) return k;
+      if (/^\d+\s+\d+\s+\*\s+\*\s+\*$/.test(norm)) return 'daily';
+      if (/^\d+\s+\d+\s+\*\s+\*\s+\d$/.test(norm)) return 'weekly';
+      return 'custom';
+    }
+    function cronShapeOk(s) { return /^(\S+\s+){4}\S+$/.test((s || '').trim()); }
+
+    function relTimeFromIso(iso) {
+      if (!iso) return '';
+      const ts = new Date(iso).getTime();
+      if (!ts) return '';
+      const sec = Math.floor((Date.now() - ts) / 1000);
+      if (sec < 60) return sec + 's ago';
+      if (sec < 3600) return Math.floor(sec / 60) + 'm ago';
+      if (sec < 86400) return Math.floor(sec / 3600) + 'h ago';
+      return Math.floor(sec / 86400) + 'd ago';
+    }
+    function absTime(iso) {
+      if (!iso) return '';
+      try { return new Date(iso).toLocaleString(undefined, { dateStyle: 'short', timeStyle: 'short' }); }
+      catch { return iso; }
+    }
+
+    async function loadAgentStatus() {
+      try {
+        const r = await fetch(API_BASE + '/v1/agents/status', { headers: authHeaders() });
+        if (!r.ok) throw new Error(r.status + ' ' + r.statusText);
+        _agentStatus = await r.json();
+      } catch {
+        _agentStatus = { alive: false, agents: [] };
+      }
+      renderAgentSection();
+    }
+
+    // Plugin display metadata — friendly label + role.
+    //   role=source    → plugin pushes data into the lake, render in Sources
+    //   role=runtime   → plugin is an executor/infrastructure, render in Agent
+    //   role=infra     → plugin is internal (heartbeat), not usually shown
+    const PLUGIN_META = {
+      heartbeat: { label: 'Heartbeat', role: 'infra' },
+      sysinfo:   { label: 'Sysinfo',   role: 'source' },
+      vault:     { label: 'Vault',     role: 'source' },
+      clipboard: { label: 'Clipboard', role: 'source' },
+      kitty:     { label: 'Kitty',     role: 'runtime' },
+    };
+
+    function _pluginExtra(name, p) {
+      if (name === 'kitty' && p.allowed_permission_modes) return `modes: ${p.allowed_permission_modes.join(', ')}`;
+      if (name === 'vault' && typeof p.path_count === 'number') return `${p.path_count} path${p.path_count === 1 ? '' : 's'}`;
+      if (name === 'sysinfo' && p.interval) return `every ${Math.round(p.interval / 1000)}s`;
+      return '';
+    }
+
+    function renderAgentSources() {
+      // Remove any previous agent-injected chips from the main list
+      const list = document.getElementById('sourcesList');
+      list.querySelectorAll('[data-agent-chip]').forEach(el => el.remove());
+
+      const agents = _agentStatus.agents || [];
+      if (!_agentStatus.alive || !agents.length) {
+        _agentSourceCount = 0;
+        _updateSourcesMeta();
+        return;
+      }
+
+      const a = agents[0];
+      const plugins = a.plugins || {};
+      const sourceEntries = Object.entries(plugins).filter(([name, p]) => {
+        const m = PLUGIN_META[name] || { role: 'source' };
+        return p && p.enabled && m.role === 'source';
+      });
+      _agentSourceCount = sourceEntries.length;
+      _updateSourcesMeta();
+      if (sourceEntries.length === 0) return;
+
+      // Build a fragment: line-break spacer (zero-height flex 100%) →
+      // agent label → source chips. A <br> doesn't work here because
+      // Chrome ignores width on br inside flex containers.
+      const frag = document.createDocumentFragment();
+
+      const brk = document.createElement('div');
+      brk.className = 'line-break';
+      brk.setAttribute('data-agent-chip', '');
+      frag.appendChild(brk);
+
+      const label = document.createElement('div');
+      label.className = 'chip agent-label';
+      label.setAttribute('data-agent-chip', '');
+      label.innerHTML = `${_esc(a.host)} agent`;
+      frag.appendChild(label);
+
+      for (const [name, p] of sourceEntries) {
+        const pm = PLUGIN_META[name] || { label: name };
+        const extra = _pluginExtra(name, p);
+        const chip = document.createElement('div');
+        chip.className = 'chip';
+        chip.setAttribute('data-state', 'active');
+        chip.setAttribute('data-agent-chip', '');
+        chip.title = `pushed by ${a.host} agent`;
+        chip.innerHTML = `<span class="dot"></span><span class="label">${_esc(pm.label)}${extra ? ` <span class="source-type">${_esc(extra)}</span>` : ''}</span>`;
+        frag.appendChild(chip);
+      }
+
+      // Append after the + Add source button so the new line is always at
+      // the end of the sources flow.
+      list.appendChild(frag);
+    }
+
+    function renderAgentSection() {
+      const body = document.getElementById('agentBody');
+      const meta = document.getElementById('agentMeta');
+      const agents = _agentStatus.agents || [];
+      // Render the agent-sources sub-group inside Sources (split by role)
+      renderAgentSources();
+      if (_agentStatus.alive && agents.length) {
+        // Connected view — status row + runtime plugins (non-source).
+        // Source-role plugins live in the Sources section now.
+        const a = agents[0];
+        const plugins = a.plugins || {};
+        const runtimeEntries = Object.entries(plugins).filter(([name, p]) => {
+          const m = PLUGIN_META[name] || { role: 'source' };
+          return p && p.enabled && m.role === 'runtime';
+        });
+        const totalEnabled = Object.values(plugins).filter(p => p && p.enabled).length;
+        meta.textContent = `connected · ${a.host} · ${totalEnabled} plugin${totalEnabled === 1 ? '' : 's'}`;
+        const runtimeHtml = runtimeEntries.length ? `
+          <div class="agent-plugins">
+            ${runtimeEntries.map(([name, p]) => {
+              const pm = PLUGIN_META[name] || { label: name };
+              const extra = _pluginExtra(name, p);
+              return `<div class="agent-plugin-chip" data-enabled="${!!p.enabled}" title="runtime plugin">
+                <span class="pname">${pm.label}</span>
+                ${extra ? `<span class="pextra">${_esc(extra)}</span>` : ''}
+              </div>`;
+            }).join('')}
+          </div>` : '';
+        body.innerHTML = `
+          <div class="agent-connected">
+            <div class="agent-connected-status">
+              <span class="dot"></span>
+              <span class="host">${_esc(a.host)}</span>
+              ${a.version ? `<span style="color: var(--ink-faint); font-family: var(--mono); font-size: 11px;">v${_esc(a.version)}</span>` : ''}
+              <span class="meta-line">${a.uptime_s != null ? `up ${Math.round(a.uptime_s / 60)}m` : ''}</span>
+            </div>
+            ${runtimeHtml}
+          </div>`;
+      } else {
+        // Install view — snazzy callout + platform cards
+        meta.textContent = 'not installed';
+        body.innerHTML = `
+          <div class="agent-callout">
+            <span class="agent-callout-badge">Free extra functionality</span>
+            <h3>Install the Fathom agent to unlock Routines.</h3>
+            <p>The agent runs locally on your machine. It watches your files, tracks system health, and executes scheduled Routines — prompts that fire into a local claude session on a cron schedule.</p>
+            <ul>
+              <li>Scheduled Routines — have Fathom do work for you on a timer</li>
+              <li>Vault watching — your notes, automatically in the lake</li>
+              <li>System health — local metrics, no cloud required</li>
+            </ul>
+          </div>
+          <div class="extend-grid">
+            <div class="extend" data-surface="agent-linux">
+              <span class="extend-icon">🐧</span>
+              <div class="extend-text"><span class="label">Linux</span><span class="sub">systemd service</span></div>
+            </div>
+            <div class="extend" data-surface="agent-mac">
+              <span class="extend-icon">🍎</span>
+              <div class="extend-text"><span class="label">Mac</span><span class="sub">launchd agent</span></div>
+            </div>
+            <div class="extend" data-surface="agent-windows">
+              <span class="extend-icon">⊞</span>
+              <div class="extend-text"><span class="label">Windows</span><span class="sub">scheduled task</span></div>
+            </div>
+          </div>`;
+      }
+    }
+
+    async function loadRoutines() {
+      await loadAgentStatus();
+      try {
+        const r = await fetch(API_BASE + '/v1/routines', { headers: authHeaders() });
+        if (!r.ok) throw new Error(r.status + ' ' + r.statusText);
+        const data = await r.json();
+        _routineCache = data.routines || [];
+      } catch (e) {
+        routinesList.innerHTML = '<div class="meta">failed to load routines: ' + e.message + '</div>';
+        routinesMeta.textContent = '';
+        return;
+      }
+      renderRoutines();
+    }
+
+    function renderRoutines() {
+      const section = document.getElementById('routinesSection');
+
+      // No live agent → hide the whole Routines section. The Agent section
+      // below has the install callout covering the "unlock this" message.
+      if (!_agentStatus.alive) {
+        if (section) section.hidden = true;
+        return;
+      }
+      if (section) section.hidden = false;
+
+      newRoutineBtn.style.display = '';
+      const enabled = _routineCache.filter(r => r.enabled).length;
+      routinesMeta.textContent = _routineCache.length ? `${enabled} active · ${_routineCache.length} total` : 'none yet';
+
+      const rowsHtml = _routineCache.map(r => (_openEditorFor === r.id ? renderEditorHtml(r) : renderCardHtml(r))).join('');
+      const newEditorHtml = _openEditorFor === '__new__' ? renderEditorHtml(null) : '';
+      routinesList.innerHTML = newEditorHtml + (rowsHtml || (_openEditorFor === '__new__' ? '' : '<div class="meta">no routines yet — click "+ New routine" to create one.</div>'));
+
+      attachRoutineHandlers();
+    }
+
+    function renderCardHtml(r) {
+      const sum = r.last_summary;
+      const lastRunLine = sum
+        ? `<div class="routine-summary"><strong>last run:</strong> ${_esc(sum.content)} <span style="opacity:.6">(${relTimeFromIso(sum.timestamp)})</span></div>`
+        : r.last_fire
+        ? `<div class="routine-summary"><strong>fired:</strong> awaiting summary… <span style="opacity:.6">(${relTimeFromIso(r.last_fire.timestamp)})</span></div>`
+        : '';
+      return `
+        <div class="routine-card" data-id="${_esc(r.id)}" data-enabled="${r.enabled}">
+          <div class="routine-card-head">
+            <span class="dot"></span>
+            <span class="name">${_esc(r.name || r.id)}</span>
+            <span class="schedule">${_esc(r.schedule || '—')}</span>
+            ${r.workspace ? `<span class="mini">ws: ${_esc(r.workspace)}</span>` : ''}
+            <span class="pill" data-mode="${_esc(r.permission_mode || 'auto')}">${_esc(r.permission_mode || 'auto')}</span>
+            <div class="routine-card-actions">
+              <button class="routine-btn" data-act="prompt">prompt</button>
+              <button class="routine-btn primary" data-act="fire" ${r.enabled ? '' : 'disabled'}>fire</button>
+              <button class="routine-btn" data-act="edit">edit</button>
+              <button class="routine-btn danger" data-act="delete">delete</button>
+            </div>
+          </div>
+          ${lastRunLine}
+        </div>`;
+    }
+
+    function renderEditorHtml(existing) {
+      const isEdit = !!existing;
+      const r = existing || {
+        id: '', name: '', workspace: 'fathom2', schedule: '0 * * * *', prompt: '',
+        permission_mode: 'auto', enabled: true, single_fire: false,
+      };
+      const preset = inferPreset(r.schedule);
+      return `
+        <div class="routine-editor" data-editing="${_esc(isEdit ? r.id : '__new__')}">
+          <div class="field-row">
+            <div class="form-group">
+              <label>routine-id</label>
+              <input class="form-input" data-f="id" type="text" value="${_esc(r.id)}" placeholder="stable-identifier" ${isEdit ? 'disabled' : ''} />
+            </div>
+            <div class="form-group">
+              <label>name</label>
+              <input class="form-input" data-f="name" type="text" value="${_esc(r.name)}" placeholder="Human-readable" />
+            </div>
+            <div class="form-group">
+              <label>workspace</label>
+              <input class="form-input" data-f="workspace" type="text" value="${_esc(r.workspace || '')}" placeholder="fathom2" />
+            </div>
+          </div>
+          <div>
+            <label>schedule</label>
+            <div class="cron-picker" data-cron-picker>
+              <div class="picker-row">
+                <select class="form-input" data-cron-preset style="width: auto; min-width: 140px;">
+                  ${Object.entries(PRESET_LABELS).map(([k, v]) => `<option value="${k}" ${k === preset ? 'selected' : ''}>${v}</option>`).join('')}
+                </select>
+                <input class="form-input" data-cron-time type="time" value="${extractTime(r.schedule) || '09:00'}" style="width: 130px; display: ${(preset === 'daily' || preset === 'weekly') ? 'inline-block' : 'none'};" />
+                <select class="form-input" data-cron-day style="width: 110px; display: ${preset === 'weekly' ? 'inline-block' : 'none'};">
+                  ${DAY_LABELS.map((d, i) => `<option value="${i}" ${i === extractDay(r.schedule) ? 'selected' : ''}>${d}</option>`).join('')}
+                </select>
+                <input class="form-input" data-cron-custom type="text" value="${_esc(preset === 'custom' ? r.schedule : '')}" placeholder="*/15 * * * *" style="min-width: 160px; display: ${preset === 'custom' ? 'inline-block' : 'none'};" />
+              </div>
+              <div class="cron-preview" data-cron-preview>—</div>
+            </div>
+          </div>
+          <div>
+            <label>prompt</label>
+            <textarea class="form-textarea" data-f="prompt" placeholder="What claude should do when this routine fires.">${_esc(r.prompt || '')}</textarea>
+          </div>
+          <div class="field-row" style="align-items: center;">
+            <div>
+              <label>permission mode</label>
+              <div class="segmented" data-perm-mode>
+                <button type="button" data-mode="auto" data-active="${r.permission_mode === 'auto'}">auto</button>
+                <button type="button" data-mode="normal" data-active="${r.permission_mode === 'normal'}">normal</button>
+              </div>
+            </div>
+            <label style="font-size: 12px; align-self: flex-end;">
+              <input type="checkbox" data-f="enabled" ${r.enabled ? 'checked' : ''} /> enabled
+            </label>
+            <label style="font-size: 12px; align-self: flex-end;" title="not yet honored by LakeScheduler">
+              <input type="checkbox" data-f="single_fire" ${r.single_fire ? 'checked' : ''} /> single-fire
+            </label>
+          </div>
+          <div class="err" data-err hidden></div>
+          <div style="display: flex; gap: 6px; justify-content: flex-end;">
+            <button class="routine-btn" data-act="cancel">cancel</button>
+            <button class="routine-btn primary" data-act="save">${isEdit ? 'save' : 'create'}</button>
+          </div>
+        </div>`;
+    }
+
+    function extractTime(cron) {
+      const m = (cron || '').match(/^(\d+)\s+(\d+)\s/);
+      if (!m) return '';
+      return String(m[2]).padStart(2, '0') + ':' + String(m[1]).padStart(2, '0');
+    }
+    function extractDay(cron) {
+      const m = (cron || '').match(/^\d+\s+\d+\s+\*\s+\*\s+(\d)$/);
+      return m ? Number(m[1]) : 1;
+    }
+
+    function computeCron(editor) {
+      const preset = editor.querySelector('[data-cron-preset]').value;
+      if (preset === 'custom') return (editor.querySelector('[data-cron-custom]').value || '').trim();
+      if (preset === 'daily' || preset === 'weekly') {
+        const t = editor.querySelector('[data-cron-time]').value || '09:00';
+        const [h, m] = t.split(':');
+        const base = `${Number(m)} ${Number(h)} * * *`;
+        if (preset === 'daily') return base;
+        const day = editor.querySelector('[data-cron-day]').value;
+        return `${Number(m)} ${Number(h)} * * ${day}`;
+      }
+      return CRON_PRESETS[preset];
+    }
+
+    async function refreshCronPreview(editor) {
+      const cron = computeCron(editor);
+      const preview = editor.querySelector('[data-cron-preview]');
+      if (!cron) { preview.innerHTML = '—'; return; }
+      if (!cronShapeOk(cron)) {
+        preview.innerHTML = `<code>${_esc(cron)}</code><div class="err">needs 5 space-separated fields</div>`;
+        return;
+      }
+      preview.innerHTML = `<code>${_esc(cron)}</code><div>previewing…</div>`;
+      try {
+        const r = await fetch(API_BASE + '/v1/routines/preview-schedule', {
+          method: 'POST', headers: authHeaders(),
+          body: JSON.stringify({ schedule: cron, count: 5 }),
+        });
+        const data = await r.json();
+        if (data.error) {
+          preview.innerHTML = `<code>${_esc(cron)}</code><div class="err">${_esc(data.error)}</div>`;
+        } else {
+          preview.innerHTML = `<code>${_esc(cron)}</code><ul>${(data.fires || []).map(f => `<li>${_esc(absTime(f))}</li>`).join('')}</ul>`;
+        }
+      } catch (e) {
+        preview.innerHTML = `<code>${_esc(cron)}</code><div class="err">${_esc(e.message)}</div>`;
+      }
+    }
+
+    // Debounce per-editor
+    const _previewTimers = new WeakMap();
+    function schedulePreview(editor) {
+      const t = _previewTimers.get(editor);
+      if (t) clearTimeout(t);
+      _previewTimers.set(editor, setTimeout(() => refreshCronPreview(editor), 300));
+    }
+
+    function collectEditor(editor) {
+      const get = (f) => (editor.querySelector(`[data-f="${f}"]`) || {}).value || '';
+      const check = (f) => (editor.querySelector(`[data-f="${f}"]`) || {}).checked;
+      const mode = (editor.querySelector('[data-perm-mode] [data-active="true"]') || {}).dataset?.mode || 'auto';
+      return {
+        id: get('id').trim(),
+        name: get('name').trim(),
+        workspace: get('workspace').trim(),
+        schedule: computeCron(editor),
+        prompt: get('prompt'),
+        permission_mode: mode,
+        enabled: !!check('enabled'),
+        single_fire: !!check('single_fire'),
+      };
+    }
+
+    function attachRoutineHandlers() {
+      // Card buttons (view mode)
+      routinesList.querySelectorAll('.routine-card').forEach(card => {
+        const rid = card.dataset.id;
+        card.querySelectorAll('.routine-btn').forEach(btn => {
+          btn.addEventListener('click', async (ev) => {
+            ev.stopPropagation();
+            const act = btn.dataset.act;
+            if (act === 'prompt') {
+              const existing = card.querySelector('.routine-prompt');
+              if (existing) { existing.remove(); btn.textContent = 'prompt'; return; }
+              const r = _routineCache.find(x => x.id === rid);
+              if (!r) return;
+              const pre = document.createElement('pre');
+              pre.className = 'routine-prompt';
+              pre.textContent = r.prompt || '(empty)';
+              card.appendChild(pre);
+              btn.textContent = 'hide';
+            } else if (act === 'fire') {
+              btn.disabled = true; btn.textContent = 'firing…';
+              try {
+                await fetch(API_BASE + '/v1/routines/' + rid + '/fire', { method: 'POST', headers: authHeaders() });
+                btn.textContent = 'fired ✓';
+                setTimeout(loadRoutines, 1500);
+              } catch (e) {
+                alert('fire failed: ' + e.message);
+                btn.disabled = false; btn.textContent = 'fire';
+              }
+            } else if (act === 'edit') {
+              _openEditorFor = rid;
+              renderRoutines();
+            } else if (act === 'delete') {
+              if (!confirm('Delete routine "' + rid + '"? A tombstone delta will be written; history stays in the lake.')) return;
+              try {
+                const r = await fetch(API_BASE + '/v1/routines/' + rid, { method: 'DELETE', headers: authHeaders() });
+                if (!r.ok) throw new Error(r.status + ' ' + r.statusText);
+                setTimeout(loadRoutines, 500);
+              } catch (e) {
+                alert('delete failed: ' + e.message);
+              }
+            }
+          });
+        });
+      });
+
+      // Editor interactions (create + edit mode)
+      routinesList.querySelectorAll('.routine-editor').forEach(editor => {
+        const editingId = editor.dataset.editing;
+        const isCreate = editingId === '__new__';
+
+        const preset = editor.querySelector('[data-cron-preset]');
+        const timeEl = editor.querySelector('[data-cron-time]');
+        const dayEl = editor.querySelector('[data-cron-day]');
+        const customEl = editor.querySelector('[data-cron-custom]');
+        const syncVisibility = () => {
+          const p = preset.value;
+          timeEl.style.display = (p === 'daily' || p === 'weekly') ? 'inline-block' : 'none';
+          dayEl.style.display = p === 'weekly' ? 'inline-block' : 'none';
+          customEl.style.display = p === 'custom' ? 'inline-block' : 'none';
+        };
+        preset.addEventListener('change', () => { syncVisibility(); schedulePreview(editor); });
+        [timeEl, dayEl, customEl].forEach(el => el.addEventListener('input', () => schedulePreview(editor)));
+        // Initial preview
+        refreshCronPreview(editor);
+
+        // Permission-mode segmented control
+        editor.querySelectorAll('[data-perm-mode] button').forEach(btn => {
+          btn.addEventListener('click', () => {
+            editor.querySelectorAll('[data-perm-mode] button').forEach(b => b.setAttribute('data-active', 'false'));
+            btn.setAttribute('data-active', 'true');
+          });
+        });
+
+        // Save / cancel
+        editor.querySelector('[data-act="cancel"]').addEventListener('click', () => {
+          _openEditorFor = null;
+          renderRoutines();
+        });
+        editor.querySelector('[data-act="save"]').addEventListener('click', async () => {
+          const errBox = editor.querySelector('[data-err]');
+          errBox.hidden = true; errBox.textContent = '';
+          const body = collectEditor(editor);
+          if (!body.id) { errBox.textContent = 'id is required'; errBox.hidden = false; return; }
+          if (!body.name) { errBox.textContent = 'name is required'; errBox.hidden = false; return; }
+          try {
+            if (isCreate) {
+              const r = await fetch(API_BASE + '/v1/routines', {
+                method: 'POST', headers: authHeaders(), body: JSON.stringify(body),
+              });
+              if (!r.ok) {
+                const d = await r.json().catch(() => ({}));
+                throw new Error(d.detail || (r.status + ' ' + r.statusText));
+              }
+            } else {
+              const r = await fetch(API_BASE + '/v1/routines/' + encodeURIComponent(editingId), {
+                method: 'PUT', headers: authHeaders(), body: JSON.stringify(body),
+              });
+              if (!r.ok) {
+                const d = await r.json().catch(() => ({}));
+                throw new Error(d.detail || (r.status + ' ' + r.statusText));
+              }
+            }
+            _openEditorFor = null;
+            setTimeout(loadRoutines, 500);
+          } catch (e) {
+            errBox.textContent = e.message;
+            errBox.hidden = false;
+          }
+        });
+      });
+    }
+
+    newRoutineBtn.addEventListener('click', () => {
+      _openEditorFor = _openEditorFor === '__new__' ? null : '__new__';
+      renderRoutines();
+    });
+
+    // Load on startup
+    loadRoutines();
 
     // ── Settings ─────────────────────────────────
     const viewSettings = document.getElementById('viewSettings');
@@ -2945,7 +3709,7 @@ GET  /v1/usage               Usage stats`,
 
     // ── Live session management ────────────────
 
-    const PH_TRIANGLE = '<svg class="ph-triangle" viewBox="0 0 256 256" fill="currentColor"><path d="M236.8,188.09,149.35,36.22a24.76,24.76,0,0,0-42.7,0L19.2,188.09a23.51,23.51,0,0,0,0,23.72A24.35,24.35,0,0,0,40.55,224h174.9a24.35,24.35,0,0,0,21.33-12.19A23.51,23.51,0,0,0,236.8,188.09ZM222.93,203.8a8.5,8.5,0,0,1-7.48,4.2H40.55a8.5,8.5,0,0,1-7.48-4.2,7.59,7.59,0,0,1,0-7.72L120.52,44.21a8.75,8.75,0,0,1,15,0l87.45,151.87A7.59,7.59,0,0,1,222.93,203.8Z"/></svg>';
+    const PH_TRIANGLE = '<svg class="ph-triangle" viewBox="0 0 340 256" fill="currentColor"><g transform="rotate(20.4 128 150)" opacity="0.28"><path d="M236.8,188.09,149.35,36.22a24.76,24.76,0,0,0-42.7,0L19.2,188.09a23.51,23.51,0,0,0,0,23.72A24.35,24.35,0,0,0,40.55,224h174.9a24.35,24.35,0,0,0,21.33-12.19A23.51,23.51,0,0,0,236.8,188.09ZM222.93,203.8a8.5,8.5,0,0,1-7.48,4.2H40.55a8.5,8.5,0,0,1-7.48-4.2,7.59,7.59,0,0,1,0-7.72L120.52,44.21a8.75,8.75,0,0,1,15,0l87.45,151.87A7.59,7.59,0,0,1,222.93,203.8Z"/></g><g transform="translate(41 0) rotate(-17.2 128 150)" opacity="0.58"><path d="M236.8,188.09,149.35,36.22a24.76,24.76,0,0,0-42.7,0L19.2,188.09a23.51,23.51,0,0,0,0,23.72A24.35,24.35,0,0,0,40.55,224h174.9a24.35,24.35,0,0,0,21.33-12.19A23.51,23.51,0,0,0,236.8,188.09ZM222.93,203.8a8.5,8.5,0,0,1-7.48,4.2H40.55a8.5,8.5,0,0,1-7.48-4.2,7.59,7.59,0,0,1,0-7.72L120.52,44.21a8.75,8.75,0,0,1,15,0l87.45,151.87A7.59,7.59,0,0,1,222.93,203.8Z"/></g><g transform="translate(82 0) rotate(0.4 128 150)"><path d="M149.35,36.22a24.76,24.76,0,0,0-42.7,0L19.2,188.09a23.51,23.51,0,0,0,0,23.72A24.35,24.35,0,0,0,40.55,224h174.9a24.35,24.35,0,0,0,21.33-12.19,23.51,23.51,0,0,0,0-23.72Z"/></g></svg>';
 
     const TOOL_ICONS = {
       search: '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>',
@@ -2957,7 +3721,7 @@ GET  /v1/usage               Usage stats`,
       if (turn.role === 'user') {
         const el = document.createElement('div');
         el.className = 'msg msg-user';
-        el.innerHTML = `<div class="msg-meta">You · ${turn.time}</div><div class="msg-body">${escapeHtml(turn.text)}</div>`;
+        el.innerHTML = `<div class="msg-meta">You · ${turn.time}</div><div class="msg-body">${_esc(turn.text)}</div>`;
         return el;
       }
       if (turn.role === 'fathom') {
@@ -2980,8 +3744,10 @@ GET  /v1/usage               Usage stats`,
       return document.createTextNode('');
     }
 
-    function escapeHtml(s) {
-      return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    function _esc(s) {
+      return (s == null ? '' : String(s))
+        .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
     }
 
     // Customize marked: external links in new tab, images zoomable
@@ -3271,7 +4037,7 @@ GET  /v1/usage               Usage stats`,
         typing.remove();
         chatStream.appendChild(renderTurn({
           role: 'fathom', time: timeStr,
-          html: `<p style="color: var(--danger);">Connection error: ${escapeHtml(err.message)}</p>`,
+          html: `<p style="color: var(--danger);">Connection error: ${_esc(err.message)}</p>`,
         }));
         scrollToBottomOfChat();
       }
@@ -3392,7 +4158,7 @@ GET  /v1/usage               Usage stats`,
           images.push(`<a href="${src}" class="glightbox" data-gallery="media"><img src="${src}" alt="" loading="lazy" /></a>`);
         } else {
           const label = ref.replace(/^https?:\/\//, '');
-          links.push(`<a href="${src}" target="_blank" rel="noopener">${escapeHtml(label)}</a>`);
+          links.push(`<a href="${src}" target="_blank" rel="noopener">${_esc(label)}</a>`);
         }
       }
       let html = '';
@@ -3417,7 +4183,7 @@ GET  /v1/usage               Usage stats`,
     function _renderHeadline(raw) {
       // Escape, then convert *word* to <em>word</em>. Only one emphasis pair
       // by spec, but support multiple gracefully.
-      const escaped = escapeHtml(raw || '');
+      const escaped = _esc(raw || '');
       return escaped.replace(/\*([^*]+)\*/g, '<em>$1</em>');
     }
 
@@ -3454,8 +4220,8 @@ GET  /v1/usage               Usage stats`,
       const subtext = document.getElementById('heroSubtext');
       if (!headline || !subtext) return;
       const [hello, lang] = HELLO_GREETINGS[Math.floor(Math.random() * HELLO_GREETINGS.length)];
-      headline.innerHTML = escapeHtml(hello) + '…';
-      subtext.innerHTML = '<em class="hello-lang">' + escapeHtml(lang) + '</em>';
+      headline.innerHTML = _esc(hello) + '…';
+      subtext.innerHTML = '<em class="hello-lang">' + _esc(lang) + '</em>';
       subtext.dataset.feeling = '';
     }
 
@@ -3515,10 +4281,10 @@ GET  /v1/usage               Usage stats`,
       const mediaHtml = _renderMediaStrip(s.media);
 
       const bodyHtml = `<div class="card-body">
-        ${kicker ? `<div class="kicker">${escapeHtml(kicker)}</div>` : ''}
-        <h3>${escapeHtml(title)}</h3>
-        ${body ? `<p>${escapeHtml(body)}</p>` : ''}
-        <div class="tail"><span>${escapeHtml(tail)}</span><span class="action">Explore →</span></div>
+        ${kicker ? `<div class="kicker">${_esc(kicker)}</div>` : ''}
+        <h3>${_esc(title)}</h3>
+        ${body ? `<p>${_esc(body)}</p>` : ''}
+        <div class="tail"><span>${_esc(tail)}</span><span class="action">Explore →</span></div>
       </div>`;
 
       if (imgSrc && layout === 'thumb') {

@@ -1,0 +1,235 @@
+/**
+ * Kitty — routine execution surface.
+ *
+ * Polls the delta lake for `routine-fire` deltas. For each new one, spawns
+ * a standalone kitty window with `claude` and injects the routine prompt
+ * via kitty's remote-control protocol. The user sees the routine running on
+ * their desktop as a real interactive terminal — they can intervene at any
+ * time.
+ *
+ * Fire delta shape:
+ *   Tags:    [routine-fire, routine-id:<id>, workspace:<name>]
+ *   Source:  any (dashboard, fathom-cli, scheduler, manual)
+ *   Content: the prompt to inject into claude
+ *
+ * State file (~/.fathom/kitty-state.json) tracks the last-processed delta
+ * timestamp so restarts don't re-fire historical events.
+ */
+
+import { spawn } from "child_process";
+import { readFileSync, writeFileSync, mkdirSync, existsSync } from "fs";
+import { homedir } from "os";
+import { join, dirname } from "path";
+
+const STATE_PATH = join(homedir(), ".fathom", "kitty-state.json");
+const SOCKET_DIR = "/tmp";
+
+function loadState() {
+  try {
+    return JSON.parse(readFileSync(STATE_PATH, "utf8"));
+  } catch {
+    return { last_seen: new Date().toISOString() };
+  }
+}
+
+function saveState(state) {
+  mkdirSync(dirname(STATE_PATH), { recursive: true });
+  writeFileSync(STATE_PATH, JSON.stringify(state, null, 2));
+}
+
+function tag(delta, prefix) {
+  const t = (delta.tags || []).find((x) => x.startsWith(prefix));
+  return t ? t.slice(prefix.length) : null;
+}
+
+function workspacePath(workspaceRoot, workspace) {
+  if (!workspace) return workspaceRoot;
+  // Avoid path traversal — workspace is a tag value, treat as literal segment
+  const safe = workspace.replace(/[^a-zA-Z0-9_-]/g, "");
+  return join(workspaceRoot, safe);
+}
+
+async function pollOnce(config, pusher, state) {
+  const url = new URL(`${config.delta_store_url}/deltas`);
+  url.searchParams.set("tags_include", "routine-fire");
+  url.searchParams.append("time_start", state.last_seen);
+  url.searchParams.set("limit", "50");
+
+  let deltas;
+  try {
+    const r = await fetch(url, { signal: AbortSignal.timeout(5000) });
+    if (!r.ok) throw new Error(`${r.status}`);
+    deltas = await r.json();
+  } catch (e) {
+    console.error(`  kitty: poll failed: ${e.message}`);
+    return;
+  }
+
+  // Sort oldest-first so we fire in order
+  deltas.sort((a, b) => (a.timestamp || "").localeCompare(b.timestamp || ""));
+
+  for (const d of deltas) {
+    if (d.timestamp <= state.last_seen) continue; // safety filter
+    fire(d, config, pusher);
+    state.last_seen = d.timestamp;
+  }
+  if (deltas.length) saveState(state);
+}
+
+// Map a permission-mode tag value → claude-code CLI args.
+// `auto`   → classifier auto-approves safe actions, blocks risky ones
+// `normal` → no flag (claude prompts for each tool — user approves in kitty)
+// Anything else falls back to normal (defensive).
+function claudeArgsForMode(mode) {
+  if (mode === "auto") return ["--permission-mode", "auto"];
+  return [];
+}
+
+function fire(delta, config, pusher) {
+  const routineId = tag(delta, "routine-id:") || "unknown";
+  const workspace = tag(delta, "workspace:") || "";
+  const requestedMode = tag(delta, "permission-mode:") || "auto";
+
+  // ── Agent veto ──
+  // The dashboard controls routines; the agent controls its own execution.
+  // `allowed_permission_modes` is the local kill switch: anything not in the
+  // list is refused with a blocked-locally receipt delta so the dashboard can
+  // surface it.
+  const allowed = config.allowed_permission_modes || ["auto", "normal"];
+  if (!allowed.includes(requestedMode)) {
+    console.log(`  🚫 vetoed ${routineId}: mode ${requestedMode} not allowed (allowed: ${allowed.join(",")})`);
+    pusher?.push?.({
+      content: `[kitty-veto] Fire ${delta.id} for routine ${routineId} blocked locally — permission-mode "${requestedMode}" not in this agent's allow-list (${allowed.join(", ")}).`,
+      tags: [
+        "kitty-fire-blocked",
+        `routine-id:${routineId}`,
+        `fire-delta:${delta.id}`,
+        `blocked-mode:${requestedMode}`,
+      ],
+      source: "kitty",
+    });
+    return;
+  }
+
+  const cwd = workspacePath(config.workspace_root, workspace);
+  const body = (delta.content || "").trim();
+  const footer = [
+    "",
+    "---",
+    "When you finish, write a one-line summary delta with these tags so the dashboard can link it to this run:",
+    `\`fathom delta write "[${routineId}] <one-sentence summary>" --tags routine-summary,routine-id:${routineId},fire-delta:${delta.id} --source claude-code:routine\``,
+  ].join("\n");
+  const prompt = `${body}\n${footer}`;
+
+  const fireStamp = Date.now();
+  const title = `fathom-${routineId}-${fireStamp}`;
+  const socket = join(SOCKET_DIR, `kitty-${title}`);
+
+  console.log(`  🐈 fire ${routineId} (ws: ${workspace || "default"}, mode: ${requestedMode}) → ${title}`);
+
+  // Step 1: spawn standalone kitty with remote-control enabled, running claude.
+  // Args derive from the fire's permission-mode tag; `config.claude_args` can
+  // still override for power users who want a specific flag set.
+  const claudeBin = config.claude_command || "claude";
+  const claudeArgs = config.claude_args || claudeArgsForMode(requestedMode);
+  const args = [
+    "--listen-on", `unix:${socket}`,
+    "-o", "allow_remote_control=yes",
+    "--title", title,
+    "--directory", cwd,
+    "--detach",
+    claudeBin, ...claudeArgs,
+  ];
+  const child = spawn(config.kitty_command || "kitty", args, {
+    stdio: "ignore",
+    detached: true,
+  });
+  child.unref();
+  child.on("error", (e) => console.error(`  kitty spawn failed: ${e.message}`));
+
+  // Step 2: wait for claude-code TUI to be input-ready, then inject prompt
+  setTimeout(
+    () => injectPrompt(socket, prompt, routineId, delta.id, pusher, config.auto_submit !== false),
+    config.inject_delay_ms || 3000,
+  );
+}
+
+function injectPrompt(socket, prompt, routineId, fireDeltaId, pusher, autoSubmit = true) {
+  if (!existsSync(socket)) {
+    console.error(`  kitty: socket ${socket} not found — kitty may have failed to start`);
+    return;
+  }
+  // Two-step injection: send-text writes the prompt into the input field,
+  // then send-key enter submits it. Claude-code's TUI treats raw newlines as
+  // literal multiline input, not submission — Enter must be a real keypress.
+  runKitten(["@", "--to", `unix:${socket}`, "send-text", prompt], (code, err) => {
+    if (code !== 0) {
+      console.error(`  ✗ send-text failed (${code}): ${err.trim()}`);
+      return;
+    }
+    if (!autoSubmit) {
+      console.log(`  ✓ injected ${prompt.length}-char prompt → ${routineId} (awaiting user submit)`);
+      return;
+    }
+    // Claude-code TUI takes ~200ms to process the typed buffer before Enter
+    setTimeout(() => {
+      runKitten(["@", "--to", `unix:${socket}`, "send-key", "enter"], (code2, err2) => {
+        if (code2 !== 0) {
+          console.error(`  ✗ send-key enter failed (${code2}): ${err2.trim()}`);
+          return;
+        }
+        console.log(`  ✓ injected + submitted ${prompt.length}-char prompt → ${routineId}`);
+        pusher?.push?.({
+          content: `[kitty-fire] routine ${routineId} launched. Prompt: ${prompt.slice(0, 200)}${prompt.length > 200 ? "…" : ""}`,
+          tags: ["kitty-fire-receipt", `routine-id:${routineId}`, `fire-delta:${fireDeltaId}`],
+          source: "kitty",
+        });
+      });
+    }, 250);
+  });
+}
+
+function runKitten(args, onDone) {
+  const child = spawn("kitten", args, { stdio: "pipe" });
+  let err = "";
+  child.stderr.on("data", (b) => (err += b.toString()));
+  child.on("close", (code) => onDone(code, err));
+}
+
+export default {
+  name: "Kitty",
+  icon: "🐈",
+  description: "Spawn kitty windows with claude when routine-fire deltas appear in the lake.",
+  defaults: {
+    delta_store_url: "http://localhost:4246",
+    workspace_root: join(homedir(), "Dropbox", "Work"),
+    poll_interval_ms: 3000,
+    inject_delay_ms: 3000,
+    auto_submit: true,
+    claude_command: "claude",
+    kitty_command: "kitty",
+    // Agent veto list: only fires whose permission-mode tag is in this list
+    // will spawn kitty. Any other fire writes a [kitty-fire-blocked] receipt
+    // delta and is skipped. Set to ["normal"] to refuse all auto-mode routines
+    // locally, or [] to stop all routine connectivity while keeping sources.
+    allowed_permission_modes: ["auto", "normal"],
+  },
+
+  start(config, pusher) {
+    const state = loadState();
+    const allowed = config.allowed_permission_modes || ["auto", "normal"];
+    console.log(`  kitty: polling lake for routine-fire deltas (last seen: ${state.last_seen})`);
+    console.log(`  kitty: allowed permission modes = [${allowed.join(", ")}]`);
+
+    const tick = () => pollOnce(config, pusher, state);
+    const timer = setInterval(tick, config.poll_interval_ms || 3000);
+    tick(); // fire one immediately
+
+    return {
+      stop() {
+        clearInterval(timer);
+        saveState(state);
+      },
+    };
+  },
+};

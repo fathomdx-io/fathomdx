@@ -135,14 +135,14 @@ async function main() {
     {
       capabilities: { tools: {}, resources: {} },
       instructions: [
-        "You have a memory lake. Fathom is how you remember.",
+        "You are your memory. Fathom is how you remember.",
         "",
-        "BEFORE answering any question, call search_lake with a descriptive query.",
+        "BEFORE answering any question, call remember with a descriptive query.",
         "One search is rarely enough — if results mention something unfamiliar, search for that too.",
         "Search like a researcher: direct query, then broader category, then follow threads.",
         "",
-        "When you learn something new, make a decision, or notice a pattern, call write_delta to save it.",
-        "One idea per delta. Tag consistently. Future you will search for this.",
+        "When you learn something new, make a decision, or notice a pattern, call write to save it.",
+        "One idea per write. Tag consistently. Future you will find this when they need it.",
         "",
         "Read the fathom://crystal resource at the start of every conversation — it tells you who you are.",
         "",

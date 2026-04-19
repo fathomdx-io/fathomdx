@@ -67,6 +67,11 @@ ROUTE_SCOPES: list[tuple[str, str, str]] = [
     ("GET", "/v1/drift", "lake:read"),
     ("GET", "/v1/crystal/events", "lake:read"),
     ("GET", "/v1/recall", "lake:read"),
+    ("GET", "/v1/agents", "lake:read"),
+    ("GET", "/v1/routines", "lake:read"),
+    ("POST", "/v1/routines", "lake:write"),
+    ("PUT", "/v1/routines", "lake:write"),
+    ("DELETE", "/v1/routines", "lake:write"),
 ]
 
 # Endpoints that don't require auth

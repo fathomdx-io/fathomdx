@@ -1,10 +1,10 @@
-"""Delta lake operations as OpenAI function-calling tools."""
+"""Memory operations as function-calling tools."""
 from __future__ import annotations
 
 import base64
 import json
 
-from . import delta_client
+from . import delta_client, routines as routines_mod
 
 # ── Tool definitions (OpenAI format) ────────────
 
@@ -12,18 +12,18 @@ TOOLS = [
     {
         "type": "function",
         "function": {
-            "name": "delta_search",
+            "name": "remember",
             "description": (
-                "Semantic search across the delta lake. Returns fragments ranked "
-                "by meaning-similarity, recency, and provenance. Use this when the "
-                "user asks about something — search before answering."
+                "Search your memories. Returns moments ranked by relevance, "
+                "recency, and provenance. Use this when you need to recall "
+                "something — remember before answering."
             ),
             "parameters": {
                 "type": "object",
                 "properties": {
                     "query": {
                         "type": "string",
-                        "description": "Natural language search query",
+                        "description": "What you're trying to remember",
                     },
                     "limit": {
                         "type": "integer",
@@ -42,7 +42,7 @@ TOOLS = [
                     "tags_include": {
                         "type": "array",
                         "items": {"type": "string"},
-                        "description": "Only include deltas with ALL of these tags",
+                        "description": "Only include moments with ALL of these tags",
                     },
                 },
                 "required": ["query"],
@@ -52,17 +52,18 @@ TOOLS = [
     {
         "type": "function",
         "function": {
-            "name": "delta_write",
+            "name": "write",
             "description": (
-                "Write a new delta to the lake. Use for observations, decisions, "
-                "discoveries — anything a future search should find."
+                "Persist a thought, observation, or discovery. "
+                "Everything you write becomes part of you — "
+                "a future self will find it when they need it."
             ),
             "parameters": {
                 "type": "object",
                 "properties": {
                     "content": {
                         "type": "string",
-                        "description": "The text content of the delta",
+                        "description": "What to persist",
                     },
                     "tags": {
                         "type": "array",
@@ -81,10 +82,10 @@ TOOLS = [
     {
         "type": "function",
         "function": {
-            "name": "delta_query",
+            "name": "recall",
             "description": (
-                "Filter deltas by time, tags, or source. For structured lookups "
-                "when you know what you're looking for — not semantic search."
+                "Examine your memories by time, tags, or source. "
+                "For structured retrieval when you know what you're looking for."
             ),
             "parameters": {
                 "type": "object",
@@ -106,11 +107,11 @@ TOOLS = [
     {
         "type": "function",
         "function": {
-            "name": "delta_plan",
+            "name": "deep_recall",
             "description": (
-                "Execute a compositional query plan with multiple steps. "
+                "Connect threads across your memories with a multi-step plan. "
                 "Primitives: search, filter, intersect, union, diff, bridge, "
-                "aggregate, chain. Use for complex multi-step analysis."
+                "aggregate, chain. Use when you need to trace connections."
             ),
             "parameters": {
                 "type": "object",
@@ -133,38 +134,118 @@ TOOLS = [
     {
         "type": "function",
         "function": {
-            "name": "delta_tags",
-            "description": "List all tags in the lake with their counts.",
+            "name": "mind_tags",
+            "description": "See what tags exist in your memory, with counts.",
             "parameters": {"type": "object", "properties": {}},
         },
     },
     {
         "type": "function",
         "function": {
-            "name": "delta_stats",
-            "description": "Get lake statistics: total deltas, embedded count, pending.",
+            "name": "mind_stats",
+            "description": "Check the state of your memory: total moments, coverage, pending.",
             "parameters": {"type": "object", "properties": {}},
         },
     },
     {
         "type": "function",
         "function": {
-            "name": "delta_view_image",
+            "name": "see_image",
             "description": (
-                "View an image from the delta lake by its media_hash. "
-                "Call this when search results include a delta with a media_hash "
-                "and you want to see what the image contains. Returns the image "
-                "for visual inspection."
+                "View an image from your memory by its media_hash. "
+                "Call this when you remember a moment that includes an image "
+                "and you want to see it. Returns the image for visual inspection."
             ),
             "parameters": {
                 "type": "object",
                 "properties": {
                     "media_hash": {
                         "type": "string",
-                        "description": "The media_hash from a delta (hex string)",
+                        "description": "The media_hash from a memory (hex string)",
                     },
                 },
                 "required": ["media_hash"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "routines",
+            "description": (
+                "Manage scheduled routines — prompts that fire into a local "
+                "claude session on a cron schedule. Everything goes through "
+                "this one tool via the `action` field. "
+                "Start with action='help' to see the routine spec, or "
+                "action='list' to see existing ones. "
+                "If no local agent is connected the mutation actions "
+                "(create/update/delete/fire) will return installation "
+                "instructions — tell the user to visit the main page of the "
+                "app to set one up. "
+                "For action='create', if any required info is missing the tool "
+                "returns {status:'needs_info', missing:[...], hint:'...'} — "
+                "ask the user for what's missing and call the tool again with "
+                "the gathered info included (along with the `partial` fields "
+                "it echoed back). The tool loops this way until it has what "
+                "it needs to commit."
+            ),
+            "parameters": {
+                "type": "object",
+                "required": ["action"],
+                "properties": {
+                    "action": {
+                        "type": "string",
+                        "enum": [
+                            "help", "list", "get",
+                            "create", "update", "delete",
+                            "fire", "preview_schedule",
+                        ],
+                        "description": (
+                            "help: spec reference and action catalogue. "
+                            "list: all current routines. "
+                            "get: single routine by id. "
+                            "create: new routine (requires id, name; schedule/prompt strongly recommended). "
+                            "update: modify fields by id. "
+                            "delete: soft-delete (tombstone) by id. "
+                            "fire: trigger a routine to run now. "
+                            "preview_schedule: show next N fire times for a cron string."
+                        ),
+                    },
+                    "id": {
+                        "type": "string",
+                        "description": "routine-id (required for get/update/delete/fire)",
+                    },
+                    "name": {"type": "string", "description": "human-readable label"},
+                    "schedule": {
+                        "type": "string",
+                        "description": "5-field cron (e.g. '0 * * * *' for hourly, '*/5 * * * *' every 5 min)",
+                    },
+                    "prompt": {
+                        "type": "string",
+                        "description": "what claude should do when this routine fires",
+                    },
+                    "permission_mode": {
+                        "type": "string",
+                        "enum": ["auto", "normal"],
+                        "description": (
+                            "auto: classifier auto-approves safe actions. "
+                            "normal: claude prompts for each tool (user approves)."
+                        ),
+                    },
+                    "workspace": {
+                        "type": "string",
+                        "description": "directory under ~/Dropbox/Work/ where the kitty session opens",
+                    },
+                    "enabled": {"type": "boolean", "description": "paused if false"},
+                    "single_fire": {
+                        "type": "boolean",
+                        "description": "documented but not yet honored by scheduler",
+                    },
+                    "count": {
+                        "type": "integer",
+                        "description": "for preview_schedule: number of upcoming fires to return (default 5)",
+                    },
+                },
             },
         },
     },
@@ -213,7 +294,7 @@ def _slim_query_results(raw: list) -> dict:
 async def execute(name: str, arguments: dict) -> str:
     """Execute a tool call, return result as JSON string."""
     try:
-        if name == "delta_search":
+        if name == "remember":
             raw = await delta_client.search(
                 query=arguments["query"],
                 limit=arguments.get("limit", 20),
@@ -222,7 +303,7 @@ async def execute(name: str, arguments: dict) -> str:
             )
             return json.dumps(_slim_search_results(raw))
 
-        if name == "delta_write":
+        if name == "write":
             result = await delta_client.write(
                 content=arguments["content"],
                 tags=arguments.get("tags", []),
@@ -230,7 +311,7 @@ async def execute(name: str, arguments: dict) -> str:
             )
             return json.dumps(result)
 
-        if name == "delta_query":
+        if name == "recall":
             raw = await delta_client.query(
                 limit=arguments.get("limit", 50),
                 tags_include=arguments.get("tags_include"),
@@ -239,20 +320,23 @@ async def execute(name: str, arguments: dict) -> str:
             )
             return json.dumps(_slim_query_results(raw))
 
-        if name == "delta_plan":
+        if name == "deep_recall":
             result = await delta_client.plan(arguments["steps"])
             return json.dumps(result)
 
-        if name == "delta_tags":
+        if name == "mind_tags":
             result = await delta_client.tags()
             return json.dumps(result)
 
-        if name == "delta_stats":
+        if name == "mind_stats":
             result = await delta_client.stats()
             return json.dumps(result)
 
-        if name == "delta_view_image":
+        if name == "see_image":
             return await _fetch_image_as_tool_result(arguments.get("media_hash", ""))
+
+        if name == "routines":
+            return await _execute_routines(arguments)
 
         return json.dumps({"error": f"Unknown tool: {name}"})
 
@@ -284,3 +368,283 @@ async def _fetch_image_as_tool_result(media_hash: str) -> str:
         return f"{IMAGE_RESULT_PREFIX}data:image/webp;base64,{b64}"
     except Exception as e:
         return json.dumps({"error": f"Failed to fetch image: {e}"})
+
+
+# ── Routines tool — action-dispatched CRUD ──────────────────────────────
+
+
+ROUTINE_SPEC_HELP = """ROUTINE SPEC — quick reference
+
+A routine is a prompt + a cron schedule + a workspace. When its cron fires,
+a local `fathom-agent` picks it up, spawns a kitty window with claude in the
+named workspace, and injects the prompt. Claude runs, writes a summary delta,
+and the dashboard pairs it back to the fire.
+
+Fields (used with action=create or action=update):
+  id              (required, immutable)   stable identifier, e.g. "gold-check"
+  name            (required)              human label, e.g. "Gold Price Pulse"
+  schedule        (cron, 5 fields)        "0 * * * *" hourly · "*/5 * * * *" every 5 min
+  prompt          (the work)              what claude should do when fired
+  permission_mode auto | normal           auto = classifier guardrails · normal = user approves each tool
+  workspace                                directory under ~/Dropbox/Work/ (e.g. "fathom2")
+  enabled         bool (default true)
+  single_fire     bool (default false, not yet honored by scheduler)
+
+Actions (via this single `routines` tool):
+  help             ← you just called this
+  list             all current routines + last-run summaries
+  get id=X         single routine spec
+  create ...       new routine (id + name required, schedule strongly recommended)
+  update id=X ...  modify fields; omitted fields inherit from existing
+  delete id=X      soft-delete (writes a tombstone delta; history stays in the lake)
+  fire id=X        trigger the routine to run now
+  preview_schedule schedule="..." count=N    next N fire times for a cron
+
+When mutation actions are called without a connected local agent, the tool
+returns installation instructions instead. Tell the user to visit the main
+dashboard and pick a platform under "Local Agent".
+"""
+
+
+async def _agent_alive() -> tuple[bool, list[dict]]:
+    """Check the lake for an unexpired heartbeat. Returns (alive, agent_summaries)."""
+    try:
+        deltas = await delta_client.query(limit=5, tags_include=["agent-heartbeat"])
+    except Exception:
+        return False, []
+    agents = []
+    seen_hosts = set()
+    for d in deltas:
+        tags = d.get("tags") or []
+        host = next((t.split(":", 1)[1] for t in tags if t.startswith("host:")), "unknown")
+        if host in seen_hosts:
+            continue
+        seen_hosts.add(host)
+        try:
+            payload = json.loads(d.get("content", "{}"))
+        except Exception:
+            payload = {}
+        agents.append({"host": host, "plugins": payload.get("plugins") or {}})
+    return len(agents) > 0, agents
+
+
+def _no_agent_response(action: str) -> str:
+    return json.dumps({
+        "action": action,
+        "error": "no_agent_connected",
+        "message": (
+            "No local fathom-agent is currently registered. Mutation actions "
+            "(create/update/delete/fire) require a local agent to execute the "
+            "resulting routine-fire deltas. Tell the user to visit the main "
+            "Fathom dashboard and install a local agent from the \"Local Agent\" "
+            "section (Linux / Mac / Windows), then try again."
+        ),
+        "dashboard_hint": "the main page of the Fathom app has the Local Agent install cards",
+    })
+
+
+async def _known_workspaces() -> list[str]:
+    """Scan existing spec deltas for the set of workspaces currently in use.
+
+    Used by the clarification loop so the LLM can offer the user a menu
+    instead of inventing a workspace name.
+    """
+    try:
+        specs = await delta_client.query(limit=500, tags_include=["spec", "routine"])
+    except Exception:
+        return []
+    seen: set[str] = set()
+    for d in specs:
+        tags = d.get("tags") or []
+        ws = next((t.split(":", 1)[1] for t in tags if t.startswith("workspace:")), "")
+        if ws:
+            seen.add(ws)
+    return sorted(seen)
+
+
+async def _gather_create_gaps(args: dict) -> dict:
+    """Return {missing: [...], hint: '...'} describing what's incomplete.
+
+    Missing list is empty when everything needed is present. Hint is always
+    a single human-readable sentence the LLM can use to ask the user.
+    """
+    missing: list[str] = []
+    hints: list[str] = []
+
+    if not (args.get("id") or "").strip():
+        missing.append("id")
+        hints.append("No routine id. Ask the user for a stable short identifier (e.g. 'gold-check', 'daily-heartbeat').")
+
+    if not (args.get("name") or "").strip():
+        missing.append("name")
+        hints.append("No name. Ask the user for a human-readable label.")
+
+    if not (args.get("schedule") or "").strip():
+        missing.append("schedule")
+        hints.append(
+            "No schedule. Ask the user when the routine should fire "
+            "(e.g. 'every hour' → '0 * * * *', 'every 5 minutes' → '*/5 * * * *', "
+            "'daily at 9am' → '0 9 * * *'). Offer to preview with action=preview_schedule."
+        )
+
+    if not (args.get("prompt") or "").strip():
+        missing.append("prompt")
+        hints.append("No prompt. Ask the user what claude should do when this routine fires.")
+
+    if not (args.get("workspace") or "").strip():
+        missing.append("workspace")
+        known = await _known_workspaces()
+        if known:
+            hints.append(
+                f"No workspace. Known workspaces from existing routines: {', '.join(known)}. "
+                "Ask the user which directory under ~/Dropbox/Work/ the routine should run in."
+            )
+        else:
+            hints.append(
+                "No workspace. Ask the user which directory under ~/Dropbox/Work/ "
+                "the routine should run in (e.g. 'fathom2', 'applications')."
+            )
+
+    return {"missing": missing, "hint": " ".join(hints) if hints else ""}
+
+
+async def _execute_routines(args: dict) -> str:
+    action = (args.get("action") or "help").strip().lower()
+
+    # Informational actions — always work, even without an agent.
+    if action == "help":
+        alive, agents = await _agent_alive()
+        return json.dumps({
+            "action": "help",
+            "agent_connected": alive,
+            "agents": agents,
+            "spec": ROUTINE_SPEC_HELP,
+        })
+
+    if action == "list":
+        alive, agents = await _agent_alive()
+        routines = await routines_mod.list_routines()
+        # Slim each to keep context lean
+        slim = [
+            {
+                "id": r["id"], "name": r["name"], "enabled": r["enabled"],
+                "schedule": r.get("schedule"), "workspace": r.get("workspace"),
+                "permission_mode": r.get("permission_mode"),
+                "last_fire_at": r.get("last_fire_at"),
+                "last_summary": (r.get("last_summary") or {}).get("content"),
+            }
+            for r in routines
+        ]
+        return json.dumps({
+            "action": "list",
+            "agent_connected": alive,
+            "count": len(slim),
+            "routines": slim,
+        })
+
+    if action == "get":
+        rid = (args.get("id") or "").strip()
+        if not rid:
+            return json.dumps({"action": "get", "error": "id is required"})
+        spec = await routines_mod.get_latest_spec(rid)
+        if not spec or spec["meta"].get("deleted"):
+            return json.dumps({"action": "get", "error": f"routine {rid} not found"})
+        return json.dumps({
+            "action": "get",
+            "routine": {
+                "id": spec["meta"].get("id"),
+                "meta": spec["meta"],
+                "body": spec["body"],
+                "workspace": spec["workspace"],
+            },
+        })
+
+    if action == "preview_schedule":
+        sched = (args.get("schedule") or "").strip()
+        if not sched:
+            return json.dumps({"action": "preview_schedule", "error": "schedule is required"})
+        fires = routines_mod.preview_fires(sched, count=int(args.get("count") or 5))
+        return json.dumps({
+            "action": "preview_schedule",
+            "schedule": sched,
+            "fires": fires,
+            "error": None if fires else "invalid cron",
+        })
+
+    # Mutation actions — require an agent.
+    if action in ("create", "update", "delete", "fire"):
+        alive, _ = await _agent_alive()
+        if not alive:
+            return _no_agent_response(action)
+
+    if action == "create":
+        # Clarification loop: inspect args, return `needs_info` when gaps exist
+        # so the LLM can go back to the user and ask before committing.
+        gaps = await _gather_create_gaps(args)
+        if gaps["missing"]:
+            return json.dumps({
+                "action": "create",
+                "status": "needs_info",
+                "missing": gaps["missing"],
+                "hint": gaps["hint"],
+                "partial": {k: args[k] for k in args if k != "action"},
+            })
+        try:
+            body = {k: args[k] for k in args if k != "action"}
+            result = await routines_mod.create(body)
+            return json.dumps({"action": "create", **result})
+        except FileExistsError:
+            # Upgrade dup-collision from hard error to conversational clarification
+            rid = args.get("id", "")
+            existing = await routines_mod.get_latest_spec(rid)
+            existing_name = (existing or {}).get("meta", {}).get("name", "") if existing else ""
+            return json.dumps({
+                "action": "create",
+                "status": "needs_info",
+                "missing": ["id_or_intent"],
+                "hint": (
+                    f"A routine with id '{rid}' already exists"
+                    + (f" (name: '{existing_name}')" if existing_name else "")
+                    + ". Ask the user: do they want to update the existing one "
+                    + "(use action=update), replace it (delete first, then create), "
+                    + "or pick a different id?"
+                ),
+                "partial": {k: args[k] for k in args if k != "action"},
+            })
+        except ValueError as e:
+            return json.dumps({"action": "create", "error": "invalid", "message": str(e)})
+
+    if action == "update":
+        rid = (args.get("id") or "").strip()
+        if not rid:
+            return json.dumps({"action": "update", "error": "id is required"})
+        try:
+            body = {k: args[k] for k in args if k not in ("action", "id")}
+            result = await routines_mod.update(rid, body)
+            return json.dumps({"action": "update", **result})
+        except FileNotFoundError as e:
+            return json.dumps({"action": "update", "error": "not_found", "message": str(e)})
+        except ValueError as e:
+            return json.dumps({"action": "update", "error": "invalid", "message": str(e)})
+
+    if action == "delete":
+        rid = (args.get("id") or "").strip()
+        if not rid:
+            return json.dumps({"action": "delete", "error": "id is required"})
+        try:
+            result = await routines_mod.soft_delete(rid)
+            return json.dumps({"action": "delete", **result})
+        except FileNotFoundError as e:
+            return json.dumps({"action": "delete", "error": "not_found", "message": str(e)})
+
+    if action == "fire":
+        rid = (args.get("id") or "").strip()
+        if not rid:
+            return json.dumps({"action": "fire", "error": "id is required"})
+        try:
+            result = await routines_mod.fire(rid, prompt_override=args.get("prompt"))
+            return json.dumps({"action": "fire", **result})
+        except FileNotFoundError as e:
+            return json.dumps({"action": "fire", "error": "not_found", "message": str(e)})
+
+    return json.dumps({"action": action, "error": f"unknown action: {action}"})

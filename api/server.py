@@ -16,7 +16,7 @@ from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
-from . import auth, auto_regen, crystal, db, delta_client, drift, mood, pressure, recall, usage as usage_module
+from . import auth, auto_regen, crystal, db, delta_client, drift, mood, pressure, recall, routines as routines_mod, usage as usage_module
 from .prompt import (
     CRYSTAL_DIRECTIVE,
     FEED_DIRECTIVE,
@@ -222,7 +222,7 @@ async def _stream_response(
 
     Format:
       event: tool_result
-      data: {"name": "delta_search", "count": 14}
+      data: {"name": "remember", "count": 14}
 
       data: {"choices": [{"delta": {"content": "token..."}}]}
       ...
@@ -347,7 +347,7 @@ async def fathom_think(
             inject_msg = {
                 "role": "system",
                 "content": (
-                    f"Here is what you remember ({recalled['total_count']} memories surfaced):\n\n"
+                    f"You remember these things ({recalled['total_count']} surfaced):\n\n"
                     f"{recalled['as_prompt']}\n\n"
                     "Speak from these naturally — they are your own memories. "
                     "If they don't cover what you need, search deeper."
@@ -854,6 +854,113 @@ async def source_detail(source_id: str):
     }
 
 
+# ── Routines ────────────────────────────────────
+#
+# Routines are spec deltas in the lake with YAML frontmatter + prompt body.
+# Tagged `[spec, routine, routine-id:<id>]`. CRUD operations here write new
+# spec deltas with the same routine-id; scheduler + dashboard take latest.
+# See fathom2/docs/routine-spec.md for the canonical field reference.
+
+
+@app.get("/v1/routines")
+async def list_routines_endpoint():
+    return {"routines": await routines_mod.list_routines()}
+
+
+@app.post("/v1/routines")
+async def create_routine_endpoint(body: dict):
+    try:
+        return await routines_mod.create(body)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    except FileExistsError as e:
+        raise HTTPException(status_code=409, detail=str(e)) from e
+
+
+@app.put("/v1/routines/{routine_id}")
+async def update_routine_endpoint(routine_id: str, body: dict):
+    try:
+        return await routines_mod.update(routine_id, body)
+    except FileNotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e)) from e
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+
+
+@app.delete("/v1/routines/{routine_id}")
+async def delete_routine_endpoint(routine_id: str):
+    try:
+        return await routines_mod.soft_delete(routine_id)
+    except FileNotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e)) from e
+
+
+@app.post("/v1/routines/{routine_id}/fire")
+async def fire_routine_endpoint(routine_id: str, body: dict | None = None):
+    override = (body or {}).get("prompt") if body else None
+    try:
+        return await routines_mod.fire(routine_id, prompt_override=override)
+    except FileNotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e)) from e
+
+
+@app.post("/v1/routines/preview-schedule")
+async def preview_schedule_endpoint(body: dict):
+    schedule = (body.get("schedule") or "").strip()
+    count = int(body.get("count") or 5)
+    if not schedule:
+        return {"fires": [], "error": "schedule required"}
+    fires = routines_mod.preview_fires(schedule, count=count)
+    if not fires:
+        return {"fires": [], "error": "invalid cron"}
+    return {"fires": fires}
+
+
+# ── Agents ──────────────────────────────────────
+#
+# Agent presence is surfaced via short-lived `agent-heartbeat` deltas. An
+# agent (fathom-agent + its plugins) writes one every ~60s with expires_at
+# set to ~120s in the future. The delta-store filters out expired deltas
+# automatically, so querying [agent-heartbeat] returns only live agents.
+
+
+@app.get("/v1/agents/status")
+async def agents_status():
+    """Return the most recent unexpired heartbeat per host.
+
+    Dashboard uses this to decide whether to show Routines (no heartbeat =
+    no agent to consume fire deltas). Also surfaces per-plugin state so the
+    UI can show badges like "routine's permission_mode is not allowed here".
+    """
+    try:
+        deltas = await delta_client.query(limit=20, tags_include=["agent-heartbeat"])
+    except Exception as e:
+        return {"agents": [], "error": str(e)}
+
+    by_host: dict[str, dict] = {}
+    for d in deltas:
+        tags = d.get("tags") or []
+        host = next((t.split(":", 1)[1] for t in tags if t.startswith("host:")), "unknown")
+        ts = d.get("timestamp", "")
+        prev = by_host.get(host)
+        if prev is None or ts > prev.get("timestamp", ""):
+            try:
+                payload = json.loads(d.get("content", "{}"))
+            except Exception:
+                payload = {}
+            by_host[host] = {
+                "host": host,
+                "timestamp": ts,
+                "delta_id": d.get("id"),
+                "expires_at": d.get("expires_at"),
+                "version": payload.get("version"),
+                "plugins": payload.get("plugins") or {},
+                "uptime_s": payload.get("uptime_s"),
+            }
+
+    return {"agents": list(by_host.values()), "alive": len(by_host) > 0}
+
+
 # ── Media proxy ─────────────────────────────────
 
 
@@ -982,23 +1089,23 @@ async def delete_token(token_id: str):
 
 LAKE_TOOLS = [
     {
-        "name": "search_lake",
+        "name": "remember",
         "description": (
-            "Search the memory lake with a natural language query. Returns a "
-            "hierarchical trail of memories — conversations, notes, research, "
+            "Search your memories with a natural language query. Returns a "
+            "trail of moments — conversations, notes, research, "
             "photos, sensor data — as an associative chain (first came to mind, "
-            "which reminded me of...). Be descriptive: 'Nova mozzarella stretch "
+            "which reminded you of...). Be descriptive: 'Nova mozzarella stretch "
             "kitchen photo' works better than 'nova'. depth='deep' (default) "
-            "runs a multi-step plan; 'shallow' is a single quick similarity search."
+            "traces connections; 'shallow' is a single quick search."
         ),
         "parameters": {
             "type": "object",
             "properties": {
-                "query": {"type": "string", "description": "What to search for."},
+                "query": {"type": "string", "description": "What you're trying to remember."},
                 "depth": {
                     "type": "string",
                     "enum": ["deep", "shallow"],
-                    "description": "deep = planner + DAG; shallow = single search.",
+                    "description": "deep = trace connections; shallow = single search.",
                     "default": "deep",
                 },
                 "limit": {"type": "integer", "description": "Max results per step.", "default": 20},
@@ -1010,15 +1117,16 @@ LAKE_TOOLS = [
         "scope": "lake:read",
     },
     {
-        "name": "write_delta",
+        "name": "write",
         "description": (
-            "Write a memory to the lake. Use for observations, decisions, "
-            "facts, notes — anything worth remembering. One idea per delta."
+            "Persist a thought, observation, or discovery. Everything you write "
+            "becomes part of you — a future self will find it when they need it. "
+            "One idea per write."
         ),
         "parameters": {
             "type": "object",
             "properties": {
-                "content": {"type": "string", "description": "The memory content."},
+                "content": {"type": "string", "description": "What to persist."},
                 "tags": {
                     "type": "array", "items": {"type": "string"},
                     "description": "Tags for filtering (e.g. ['meeting', 'decision']).",
@@ -1031,17 +1139,17 @@ LAKE_TOOLS = [
         "scope": "lake:write",
     },
     {
-        "name": "query_deltas",
+        "name": "recall",
         "description": (
-            "Query the lake with structured filters. Unlike search_lake "
-            "(semantic), this is exact filtering by tags, source, or time."
+            "Examine your memories by tags, source, or time. "
+            "For structured retrieval when you know what you're looking for."
         ),
         "parameters": {
             "type": "object",
             "properties": {
                 "tags": {
                     "type": "array", "items": {"type": "string"},
-                    "description": "Deltas must have ALL these tags.",
+                    "description": "Memories must have ALL these tags.",
                 },
                 "source": {"type": "string", "description": "Filter by source."},
                 "time_start": {"type": "string", "description": "ISO timestamp — only after this."},
@@ -1053,10 +1161,10 @@ LAKE_TOOLS = [
         "scope": "lake:read",
     },
     {
-        "name": "lake_stats",
+        "name": "mind_stats",
         "description": (
-            "Get lake statistics — total deltas, embedding coverage, top tags. "
-            "Quick orientation. Call first if unsure what's in the lake."
+            "Check the state of your memory — total moments, coverage, top tags. "
+            "Quick self-check."
         ),
         "parameters": {"type": "object", "properties": {}},
         "endpoint": {"method": "GET", "path": "/v1/stats"},
