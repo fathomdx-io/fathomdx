@@ -34,9 +34,20 @@
     * { box-sizing: border-box; }
     html, body { margin: 0; padding: 0; background: var(--bg); color: var(--ink); font-family: var(--sans); -webkit-font-smoothing: antialiased; }
     main { max-width: 780px; margin: 0 auto; padding: 40px 28px 140px; }
-    header { display: flex; align-items: baseline; justify-content: space-between; margin-bottom: 32px; border-bottom: 1px solid var(--rule); padding-bottom: 14px; }
+    header { display: flex; align-items: baseline; justify-content: space-between; margin-bottom: 16px; border-bottom: 1px solid var(--rule); padding-bottom: 14px; }
     header .fth-brand { font-size: var(--text-3xl); }
     header .host { font-family: var(--mono); font-size: var(--text-md); color: var(--ink-soft); }
+
+    /* Dashboard link — small nav strip below the header. Hidden when the
+       agent hasn't been paired yet (no api_url in config). */
+    .dashboard-link { display: none; align-items: center; gap: 6px; margin-bottom: 20px;
+      padding: 6px 10px; border-radius: 6px;
+      font-family: var(--sans); font-size: var(--text-md); color: var(--ink-soft);
+      text-decoration: none; width: fit-content;
+      transition: color 120ms, background 120ms; }
+    .dashboard-link:hover { color: var(--ink); background: var(--surface-2); }
+    .dashboard-link svg { flex-shrink: 0; }
+    .dashboard-link[href] { display: inline-flex; }
     h2 { font-family: var(--serif); font-weight: 400; font-size: var(--text-xl); margin: 32px 0 6px; }
     /* Prose note — help text / section descriptions. Inherits sans from body. */
     .readonly { font-size: var(--text-base); line-height: 1.55; color: var(--ink-soft); margin-top: 8px; }
@@ -78,6 +89,16 @@
       <span class="fth-brand">fathom<span class="fth-brand-mark"><img src="https://design.fathomdx.io/v1/logo.svg" alt="" /></span></span>
       <span class="host">__FATHOM_HOST__ machine</span>
     </header>
+
+    <a id="dashboard-link" class="dashboard-link" target="_blank" rel="noopener" title="Open the Fathom dashboard in a new tab">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <rect x="3" y="3" width="7" height="7" rx="1"/>
+        <rect x="14" y="3" width="7" height="7" rx="1"/>
+        <rect x="14" y="14" width="7" height="7" rx="1"/>
+        <rect x="3" y="14" width="7" height="7" rx="1"/>
+      </svg>
+      Dashboard
+    </a>
 
     <div id="restart-banner" class="fth-banner" hidden style="margin: 20px 0;">
       Config saved. Restart the agent to apply — <code>systemctl --user restart fathom-agent</code> (Linux) or equivalent on Mac/Windows.
@@ -218,8 +239,19 @@
         </div>`;
     }
 
+    function renderDashboardLink(apiUrl) {
+      const link = document.getElementById("dashboard-link");
+      if (!link) return;
+      if (apiUrl && /^https?:\/\//i.test(apiUrl)) {
+        link.href = apiUrl;
+      } else {
+        link.removeAttribute("href");
+      }
+    }
+
     async function render() {
       const cfg = await loadConfig();
+      renderDashboardLink(cfg.api_url);
       const plugins = cfg.plugins || {};
       const entries = Object.entries(plugins).filter(([name]) => !name.startsWith("_"));
 
