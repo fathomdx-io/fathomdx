@@ -58,6 +58,8 @@ async function buildPluginMetaMap() {
         map.set(name.toLowerCase(), {
           capabilities: mod.SOURCE_CAPABILITIES || null,
           category: (mod.default && mod.default.category) || null,
+          description: (mod.default && mod.default.description) || null,
+          config_shape: mod.CONFIG_SHAPE || null,
         });
       } catch (e) {
         console.error(`  local-ui: failed to read meta for ${file}: ${e.message}`);
@@ -119,6 +121,8 @@ async function scrubFullConfig(cfg) {
     const meta = await readPluginMeta(name);
     if (meta.capabilities) slim.capabilities = meta.capabilities;
     if (meta.category) slim.category = meta.category;
+    if (meta.description) slim.description = meta.description;
+    if (meta.config_shape) slim.config_shape = meta.config_shape;
     plugins[name] = slim;
   }
   return { plugins, api_url: cfg.api_url || "" };
@@ -169,6 +173,25 @@ function sendHtml(res, html) {
   res.end(html);
 }
 
+// Stored when start() runs so handle() can trigger plugin reloads after
+// config writes. Null while the plugin hasn't been started through the
+// agent (e.g. during unit tests); in that case we gracefully fall back
+// to the restart-banner path.
+let _ctx = null;
+
+async function reloadIfPossible(name) {
+  if (!_ctx) return false;
+  // Self-reload would restart this very HTTP server mid-response; avoid.
+  if (name === "localui") return false;
+  try {
+    await _ctx.reloadPlugin(name);
+    return true;
+  } catch (e) {
+    console.error(`  local-ui: reload(${name}) failed: ${e.message}`);
+    return false;
+  }
+}
+
 async function handle(req, res, config) {
   const url = new URL(req.url, `http://${req.headers.host}`);
   const path = url.pathname;
@@ -203,7 +226,31 @@ async function handle(req, res, config) {
     if (!cfg.plugins[name]) return send(res, 404, { error: "not_found" });
     cfg.plugins[name].enabled = !!body.enabled;
     writeConfig(cfg);
-    return send(res, 200, { ok: true, restart_required: true });
+    const reloaded = await reloadIfPossible(name);
+    return send(res, 200, { ok: true, reloaded, restart_required: !reloaded });
+  }
+
+  // /api/plugin/:name/config — singleton plugin config (non-instance fields)
+  const cfgMatch = path.match(/^\/api\/plugin\/([^/]+)\/config$/);
+  if (cfgMatch && method === "POST") {
+    const name = cfgMatch[1];
+    const body = await readBody(req);
+    const cfg = readConfig();
+    if (!cfg.plugins[name]) return send(res, 404, { error: "not_found" });
+    // Merge only top-level keys; never touch 'instances' (use the instance
+    // endpoint for that) and never let 'enabled' sneak in from this path.
+    const existing = cfg.plugins[name];
+    const next = { ...existing };
+    for (const [k, v] of Object.entries(body || {})) {
+      if (k === "instances" || k === "enabled") continue;
+      // Secret passthrough: empty string = keep current value, don't clear.
+      if (SECRET_KEYS.test(k) && (v == null || v === "")) continue;
+      next[k] = v;
+    }
+    cfg.plugins[name] = next;
+    writeConfig(cfg);
+    const reloaded = await reloadIfPossible(name);
+    return send(res, 200, { ok: true, reloaded, restart_required: !reloaded });
   }
 
   // /api/plugin/:name/instance
@@ -225,7 +272,8 @@ async function handle(req, res, config) {
       cfg.plugins[name].instances.push(merged);
     }
     writeConfig(cfg);
-    return send(res, 200, { ok: true, restart_required: true, instance_id: body.id });
+    const reloaded = await reloadIfPossible(name);
+    return send(res, 200, { ok: true, reloaded, restart_required: !reloaded, instance_id: body.id });
   }
 
   // /api/plugin/:name/instance/:id
@@ -242,7 +290,8 @@ async function handle(req, res, config) {
       return send(res, 404, { error: "not_found" });
     }
     writeConfig(cfg);
-    return send(res, 200, { ok: true, restart_required: true });
+    const reloaded = await reloadIfPossible(name);
+    return send(res, 200, { ok: true, reloaded, restart_required: !reloaded });
   }
 
   send(res, 404, { error: "not_found" });
@@ -258,7 +307,8 @@ export default {
     bind: "127.0.0.1",
   },
 
-  start(config /*, pusher */) {
+  start(config, pusher, context) {
+    _ctx = context || null;
     const port = config.port || 8202;
     const bind = config.bind || "127.0.0.1";
 

@@ -409,8 +409,7 @@ async function main() {
 
   const pusher = new Pusher(apiUrl, apiKey);
   pusher.start();
-  const running = [];
-  const pluginConfigs = config.plugins || {};
+  const running = new Map();  // plugin name (lowercase) → start() handle
 
   // CLI overrides: --vault ~/path becomes { vault: { paths: ["~/path"] } }
   const overrides = cliArgs.overrides;
@@ -421,33 +420,74 @@ async function main() {
   // plugin's config so plugin-level `config.host || hostname()` fallbacks
   // still win if someone explicitly sets one, but unset plugins pick up
   // the dashboard-facing name instead of the raw OS hostname.
-  const topLevelHost = config.host || undefined;
-
-  for (const [name, plugin] of plugins) {
+  function makePluginConfig(name, pluginConfigs, topLevelHost) {
     let pc = {
       ...(topLevelHost ? { host: topLevelHost } : {}),
       ...(pluginConfigs[name] || {}),
     };
-
-    // Apply CLI overrides
     if (overrides[name]) {
       const val = overrides[name];
-      // If the override is a path string, treat as paths array
       pc = { ...pc, enabled: true, paths: typeof val === "string" ? [val] : pc.paths };
     }
+    return pc;
+  }
+
+  // context — plugins receive this as the third arg to start(). They can
+  // use it to trigger a reload of themselves or other plugins after an
+  // out-of-band config write (local-ui plugin uses this after a save).
+  const context = {
+    reloadPlugin: async (nameLower) => {
+      const plugin = plugins.get(nameLower);
+      if (!plugin) throw new Error(`unknown plugin: ${nameLower}`);
+
+      // Pick up fresh config from disk
+      const freshConfig = loadConfig();
+      const topLevelHost = freshConfig.host || undefined;
+      const pc = makePluginConfig(nameLower, freshConfig.plugins || {}, topLevelHost);
+
+      // Tear down existing
+      const existing = running.get(nameLower);
+      if (existing?.stop) {
+        try { await existing.stop(); }
+        catch (e) { console.error(`  ${plugin.name} stop failed: ${e.message}`); }
+        running.delete(nameLower);
+      }
+
+      // Start fresh if still enabled
+      if (!pc.enabled) {
+        console.log(`  ${plugin.name}: reloaded — now disabled`);
+        return;
+      }
+      try {
+        const handle = plugin.start(pc, pusher, context);
+        if (handle) running.set(nameLower, handle);
+        console.log(`  ${plugin.name}: reloaded`);
+      } catch (e) {
+        console.error(`  ${plugin.name} reload failed: ${e.message}`);
+      }
+    },
+    listPlugins: () => [...plugins.keys()],
+    getPluginMeta: (nameLower) => plugins.get(nameLower) || null,
+  };
+
+  const pluginConfigs = config.plugins || {};
+  const topLevelHost = config.host || undefined;
+
+  for (const [name, plugin] of plugins) {
+    const pc = makePluginConfig(name, pluginConfigs, topLevelHost);
 
     if (!hasOverrides && !pc.enabled) continue;
     if (hasOverrides && !overrides[name]) continue;
 
     try {
-      const handle = plugin.start(pc, pusher);
-      if (handle) running.push(handle);
+      const handle = plugin.start(pc, pusher, context);
+      if (handle) running.set(name, handle);
     } catch (e) {
       console.error(`  ${plugin.name} failed: ${e.message}`);
     }
   }
 
-  if (!running.length) {
+  if (!running.size) {
     console.log("\nNo plugins enabled. Try:");
     console.log("  fathom-agent run --vault ~/Documents/notes");
     console.log("  fathom-agent init");
@@ -456,11 +496,9 @@ async function main() {
 
   console.log(`\nWatching... (Ctrl+C to stop)\n`);
 
-  // Pusher logs each push as it happens. No periodic stats needed.
-
   process.on("SIGINT", () => {
     console.log("\nShutting down...");
-    running.forEach((h) => h.stop?.());
+    for (const h of running.values()) h.stop?.();
     pusher.stop();
     process.exit(0);
   });
