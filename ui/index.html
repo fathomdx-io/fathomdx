@@ -2865,10 +2865,13 @@
         // "+ New routine" chip defaults the host to that agent.
         const perAgentHtml = agents.map(a => {
           const plugins = a.plugins || {};
-          const runtimeEntries = Object.entries(plugins).filter(([name, p]) => {
-            const m = PLUGIN_META[name] || { role: 'source' };
-            return p && p.enabled && m.role === 'runtime';
-          });
+          // Category comes from the plugin's own default export (read by
+          // heartbeat at runtime). PLUGIN_META is now only a fallback for
+          // labels on plugins that don't self-identify.
+          const categoryOf = (name, p) => p.category || (PLUGIN_META[name] && PLUGIN_META[name].role) || 'source';
+          const runtimeEntries = Object.entries(plugins).filter(([name, p]) =>
+            p && p.enabled && categoryOf(name, p) === 'runtime'
+          );
           const runtimeInline = runtimeEntries.map(([name, p]) => {
             const pm = PLUGIN_META[name] || { label: name };
             const extra = _pluginExtra(name, p);
@@ -2877,16 +2880,15 @@
             </span>`;
           }).join('');
 
-          // Sources on this machine — one chip per enabled source-role
+          // Sources on this machine — one chip per enabled source-category
           // plugin, plus a chip per configured instance for multi-instance
-          // plugins (homeassistant gets one chip per HA server). Clicking
-          // the "Configure" link will deep-link into the machine's local
-          // UI once phase 6 lands; for now it's a placeholder.
+          // plugins (homeassistant gets one chip per HA server). System-
+          // category plugins (heartbeat, localui) are deliberately not
+          // shown in this block — they're infrastructure, not sources.
           const sourceChips = Object.entries(plugins)
-            .filter(([name, p]) => {
-              const m = PLUGIN_META[name] || { role: 'source' };
-              return p && p.enabled && m.role === 'source';
-            })
+            .filter(([name, p]) =>
+              p && p.enabled && categoryOf(name, p) === 'source'
+            )
             .flatMap(([name, p]) => {
               const pm = PLUGIN_META[name] || { label: name };
               const instances = Array.isArray(p.instances) ? p.instances : null;

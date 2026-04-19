@@ -57,6 +57,11 @@
     .editor .row { display: flex; gap: 8px; justify-content: flex-end; }
     .empty { font-family: var(--mono); font-size: 11px; color: var(--ink-faint); padding: 10px 0; }
     .banner { background: rgba(232,162,78,0.1); border: 1px solid var(--accent); border-radius: 8px; padding: 10px 14px; font-size: 13px; color: var(--ink); margin: 20px 0; }
+    .system-fold { margin-top: 32px; }
+    .system-fold summary { cursor: pointer; list-style: none; color: var(--ink-soft); }
+    .system-fold summary::-webkit-details-marker { display: none; }
+    .system-fold summary::before { content: "▸ "; color: var(--ink-faint); }
+    .system-fold[open] summary::before { content: "▾ "; }
     .readonly { font-family: var(--mono); font-size: 11px; color: var(--ink-faint); margin-top: 8px; }
     code { font-family: var(--mono); font-size: 11px; color: var(--accent); background: rgba(232,162,78,0.08); padding: 1px 5px; border-radius: 3px; }
   </style>
@@ -72,9 +77,19 @@
       Config saved. Restart the agent to apply — <code>systemctl --user restart fathom-agent</code> (Linux) or equivalent on Mac/Windows.
     </div>
 
-    <h2>Plugins</h2>
-    <div class="meta" id="plugins-meta">loading…</div>
-    <div id="plugins"></div>
+    <h2>Sources <span class="meta" id="sources-meta"></span></h2>
+    <p class="readonly">Plugins that push data into your lake — files, feeds, sensors.</p>
+    <div id="group-source"></div>
+
+    <h2>Runtime <span class="meta" id="runtime-meta"></span></h2>
+    <p class="readonly">Plugins that do work from the lake — spawn sessions, execute routines.</p>
+    <div id="group-runtime"></div>
+
+    <details class="system-fold">
+      <summary><h2 style="display:inline;">System <span class="meta" id="system-meta"></span></h2></summary>
+      <p class="readonly">Core infrastructure the agent needs to function. Change these rarely.</p>
+      <div id="group-system"></div>
+    </details>
 
     <h2>Notes</h2>
     <p class="readonly">
@@ -198,13 +213,28 @@
     async function render() {
       const cfg = await loadConfig();
       const plugins = cfg.plugins || {};
-      const meta = $("#plugins-meta");
-      const enabled = Object.values(plugins).filter((p) => p.enabled).length;
-      meta.textContent = `${Object.keys(plugins).length} installed · ${enabled} enabled`;
-      $("#plugins").innerHTML = Object.entries(plugins)
-        .filter(([name]) => !name.startsWith("_"))
-        .map(([name, pc]) => renderPlugin(name, pc))
-        .join("");
+      const entries = Object.entries(plugins).filter(([name]) => !name.startsWith("_"));
+
+      const groups = { source: [], runtime: [], system: [], unknown: [] };
+      for (const [name, pc] of entries) {
+        const cat = pc.category || "unknown";
+        (groups[cat] || groups.unknown).push([name, pc]);
+      }
+
+      const paintGroup = (id, metaId, items) => {
+        const enabled = items.filter(([, p]) => p.enabled).length;
+        const total = items.length;
+        $(`#${metaId}`).textContent = total
+          ? `· ${enabled} of ${total} enabled`
+          : "· none installed";
+        $(`#${id}`).innerHTML = items.length
+          ? items.map(([name, pc]) => renderPlugin(name, pc)).join("")
+          : `<div class="empty">No ${id.replace("group-", "")} plugins installed.</div>`;
+      };
+
+      paintGroup("group-source", "sources-meta", [...groups.source, ...groups.unknown]);
+      paintGroup("group-runtime", "runtime-meta", groups.runtime);
+      paintGroup("group-system", "system-meta", groups.system);
       wire();
     }
 

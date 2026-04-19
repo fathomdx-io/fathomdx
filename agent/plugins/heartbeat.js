@@ -52,33 +52,43 @@ function readPluginConfig() {
   }
 }
 
-// Dynamic-import a plugin module by name to read its SOURCE_CAPABILITIES
-// export. Custom plugins override built-ins (same precedence as the loader
-// in agent/index.js). Returns null for plugins that don't declare caps or
-// fail to import — callers treat "no declared caps" as the default, not an
-// error.
-const _capCache = new Map();
-async function readPluginCapabilities(name) {
-  if (_capCache.has(name)) return _capCache.get(name);
-  const candidates = [
-    join(CUSTOM_PLUGIN_DIR, `${name}.js`),
-    join(BUILTIN_PLUGIN_DIR, `${name}.js`),
+// Walk the plugin dirs once, import each .js, and index its metadata by
+// the plugin's own declared name (lowercased) — NOT the filename. The
+// loader in agent/index.js does the same keying, but its map is private;
+// duplicating the walk here is cheaper than plumbing the registry into
+// every plugin. Custom overrides built-in (same precedence as loader).
+let _metaMap = null;
+async function buildPluginMetaMap() {
+  if (_metaMap) return _metaMap;
+  const map = new Map();
+  const dirs = [
+    { dir: BUILTIN_PLUGIN_DIR, source: "built-in" },
+    { dir: CUSTOM_PLUGIN_DIR, source: "custom" },  // loaded last so it wins
   ];
-  for (const path of candidates) {
-    if (!existsSync(path)) continue;
-    try {
-      const mod = await import(pathToFileURL(path).href);
-      const caps = mod.SOURCE_CAPABILITIES || null;
-      _capCache.set(name, caps);
-      return caps;
-    } catch (e) {
-      console.error(`  heartbeat: failed to read capabilities for ${name}: ${e.message}`);
-      _capCache.set(name, null);
-      return null;
+  for (const { dir } of dirs) {
+    if (!existsSync(dir)) continue;
+    for (const file of readdirSync(dir)) {
+      if (!file.endsWith(".js")) continue;
+      const full = join(dir, file);
+      try {
+        const mod = await import(pathToFileURL(full).href);
+        const name = mod.default && mod.default.name;
+        if (!name) continue;
+        map.set(name.toLowerCase(), {
+          capabilities: mod.SOURCE_CAPABILITIES || null,
+          category: (mod.default && mod.default.category) || null,
+        });
+      } catch (e) {
+        console.error(`  heartbeat: failed to read meta for ${file}: ${e.message}`);
+      }
     }
   }
-  _capCache.set(name, null);
-  return null;
+  _metaMap = map;
+  return map;
+}
+async function readPluginMeta(name) {
+  const map = await buildPluginMetaMap();
+  return map.get(name) || { capabilities: null, category: null };
 }
 
 async function summarizePlugins() {
@@ -102,11 +112,14 @@ async function summarizePlugins() {
       slim.instances = pc.instances.map(scrub);
     }
 
-    // Capability descriptor (phase 4). Plugins self-register their shape by
-    // exporting SOURCE_CAPABILITIES; the dashboard uses this to offer Add-
-    // source UI for plugin kinds it has never seen before.
-    const caps = await readPluginCapabilities(name);
-    if (caps) slim.capabilities = caps;
+    // Capability descriptor + category. Plugins self-register their shape
+    // and their role via default export fields; heartbeat just reports
+    // what they say. Dashboard + local UI group by category so "the agent
+    // itself" (system) is visually separated from user-facing sources and
+    // runtime executors.
+    const meta = await readPluginMeta(name);
+    if (meta.capabilities) slim.capabilities = meta.capabilities;
+    if (meta.category) slim.category = meta.category;
 
     out[name] = slim;
   }
@@ -156,6 +169,10 @@ async function emitHeartbeat(config, pusher, startedAt) {
 
 export default {
   name: "Heartbeat",
+  // Core infrastructure — not really a "plugin" in the user sense. If this
+  // isn't running, the agent is invisible to the dashboard. Categorized
+  // system so UIs hide it behind a fold alongside other plumbing.
+  category: "system",
   icon: "💓",
   description: "Periodic agent-alive signal to the lake (short expiry).",
   defaults: {

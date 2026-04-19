@@ -35,6 +35,7 @@ const MD_IMG = /!\[([^\]]*?)\]\(([^)]+?)\)/g;
 
 export default {
   name: "Vault",
+  category: "source",
   icon: "📁",
   type: "watch",
   description: "Watch markdown directories. Pushes file changes, extracts images.",

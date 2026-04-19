@@ -21,6 +21,7 @@ const DEFAULT_DISKS = ["/", "/home"];
 
 export default {
   name: "Sysinfo",
+  category: "source",
   icon: "💻",
   type: "poll",
   description: "System health metrics (Linux). CPU temp, load, memory, disk, battery.",

@@ -268,6 +268,7 @@ function runKitten(args, onDone) {
 
 export default {
   name: "Kitty",
+  category: "runtime",
   icon: "🐈",
   description: "Spawn kitty windows with claude when routine-fire deltas appear in the lake.",
   defaults: {

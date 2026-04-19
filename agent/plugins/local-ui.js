@@ -30,7 +30,7 @@
  */
 
 import { createServer } from "http";
-import { existsSync, readFileSync, writeFileSync } from "fs";
+import { existsSync, readFileSync, readdirSync, writeFileSync } from "fs";
 import { homedir, hostname } from "os";
 import { dirname, join } from "path";
 import { fileURLToPath, pathToFileURL } from "url";
@@ -41,32 +41,36 @@ const CUSTOM_PLUGIN_DIR = join(homedir(), ".fathom", "plugins");
 const BUILTIN_UI_DIR = join(BUILTIN_PLUGIN_DIR, "..", "local-ui");
 const SECRET_KEYS = /^(token|api[_-]?key|key|secret|password|auth|bearer)$/i;
 
-// Walk plugin dirs to pull SOURCE_CAPABILITIES exports so the local UI can
-// render instance editors for multi-instance plugins. Mirrors the same
-// precedence the loader uses (custom overrides built-in). Cached per
-// process; plugin code is assumed stable at runtime.
-const _capCache = new Map();
-async function readPluginCapabilities(name) {
-  if (_capCache.has(name)) return _capCache.get(name);
-  const candidates = [
-    join(CUSTOM_PLUGIN_DIR, `${name}.js`),
-    join(BUILTIN_PLUGIN_DIR, `${name}.js`),
-  ];
-  for (const p of candidates) {
-    if (!existsSync(p)) continue;
-    try {
-      const mod = await import(pathToFileURL(p).href);
-      const caps = mod.SOURCE_CAPABILITIES || null;
-      _capCache.set(name, caps);
-      return caps;
-    } catch (e) {
-      console.error(`  local-ui: failed to read caps for ${name}: ${e.message}`);
-      _capCache.set(name, null);
-      return null;
+// Walk plugin dirs once and index by declared plugin name (not filename)
+// — matches the loader's keying exactly. Custom overrides built-in.
+let _metaMap = null;
+async function buildPluginMetaMap() {
+  if (_metaMap) return _metaMap;
+  const map = new Map();
+  for (const dir of [BUILTIN_PLUGIN_DIR, CUSTOM_PLUGIN_DIR]) {
+    if (!existsSync(dir)) continue;
+    for (const file of readdirSync(dir)) {
+      if (!file.endsWith(".js")) continue;
+      const full = join(dir, file);
+      try {
+        const mod = await import(pathToFileURL(full).href);
+        const name = mod.default && mod.default.name;
+        if (!name) continue;
+        map.set(name.toLowerCase(), {
+          capabilities: mod.SOURCE_CAPABILITIES || null,
+          category: (mod.default && mod.default.category) || null,
+        });
+      } catch (e) {
+        console.error(`  local-ui: failed to read meta for ${file}: ${e.message}`);
+      }
     }
   }
-  _capCache.set(name, null);
-  return null;
+  _metaMap = map;
+  return map;
+}
+async function readPluginMeta(name) {
+  const map = await buildPluginMetaMap();
+  return map.get(name) || { capabilities: null, category: null };
 }
 
 function readConfig() {
@@ -113,8 +117,9 @@ async function scrubFullConfig(cfg) {
   const plugins = {};
   for (const [name, pc] of Object.entries(cfg.plugins || {})) {
     const slim = scrubPluginConfig(pc);
-    const caps = await readPluginCapabilities(name);
-    if (caps) slim.capabilities = caps;
+    const meta = await readPluginMeta(name);
+    if (meta.capabilities) slim.capabilities = meta.capabilities;
+    if (meta.category) slim.category = meta.category;
     plugins[name] = slim;
   }
   return { plugins, api_url: cfg.api_url || "" };
@@ -248,6 +253,7 @@ async function handle(req, res, config) {
 
 export default {
   name: "LocalUI",
+  category: "system",
   icon: "⚙",
   description: "Serve a localhost-only HTTP server for on-machine agent configuration.",
   defaults: {
