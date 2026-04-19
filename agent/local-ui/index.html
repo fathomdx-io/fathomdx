@@ -38,16 +38,10 @@
     header .fth-brand { font-size: var(--text-3xl); }
     header .host { font-family: var(--mono); font-size: var(--text-md); color: var(--ink-soft); }
 
-    /* Dashboard link — small nav strip below the header. Hidden when the
-       agent hasn't been paired yet (no api_url in config). */
-    .dashboard-link { display: none; align-items: center; gap: 6px; margin-bottom: 20px;
-      padding: 6px 10px; border-radius: 6px;
-      font-family: var(--sans); font-size: var(--text-md); color: var(--ink-soft);
-      text-decoration: none; width: fit-content;
-      transition: color 120ms, background 120ms; }
-    .dashboard-link:hover { color: var(--ink); background: var(--surface-2); }
-    .dashboard-link svg { flex-shrink: 0; }
-    .dashboard-link[href] { display: inline-flex; }
+    /* Dashboard link — hidden when agent has no api_url (pre-pairing).
+       Uses the shared .fth-btn system; no local button styling. */
+    #dashboard-link { margin-bottom: 20px; text-decoration: none; }
+    #dashboard-link:not([href]) { display: none; }
     h2 { font-family: var(--serif); font-weight: 400; font-size: var(--text-xl); margin: 32px 0 6px; }
     /* Prose note — help text / section descriptions. Inherits sans from body. */
     .readonly { font-size: var(--text-base); line-height: 1.55; color: var(--ink-soft); margin-top: 8px; }
@@ -90,7 +84,7 @@
       <span class="host">__FATHOM_HOST__ machine</span>
     </header>
 
-    <a id="dashboard-link" class="dashboard-link" target="_blank" rel="noopener" title="Open the Fathom dashboard in a new tab">
+    <a id="dashboard-link" class="fth-btn fth-btn--ghost fth-btn--ghost-compact" target="_blank" rel="noopener" title="Open the Fathom dashboard in a new tab">
       <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
         <rect x="3" y="3" width="7" height="7" rx="1"/>
         <rect x="14" y="3" width="7" height="7" rx="1"/>
