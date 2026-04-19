@@ -1,0 +1,284 @@
+/**
+ * Local UI — tiny HTTP server on the machine itself.
+ *
+ * Rationale: some agent config is too awkward to live in a flat JSON file
+ * (HA instance lists with many entities, per-machine settings) but too
+ * sensitive to expose on the cloud dashboard (credentials, veto lists).
+ * A localhost-only HTTP server splits the difference: the dashboard links
+ * out to it, but only a browser on the same machine can actually open it.
+ *
+ * Scope (v1):
+ *   GET  /                      → serves the local UI HTML (index.html sibling file)
+ *   GET  /ui/fathom-tokens.css  → proxy-pass the consumer API's design tokens
+ *   GET  /api/config            → plugins dict from agent.json, secrets scrubbed
+ *   POST /api/plugin/:name/instance          → add/update an instance
+ *   DEL  /api/plugin/:name/instance/:id      → remove an instance
+ *   POST /api/plugin/:name/enabled           → { enabled: bool }
+ *
+ * What this server does NOT do in v1:
+ *   - edit permission_mode / allowed_permission_modes (file-only — the
+ *     concern raised during design was accidentally expanding veto lists
+ *     from a browser; keep that decision deliberate).
+ *   - trigger a live config reload. Writes land in agent.json; the UI
+ *     tells the user to restart the agent (systemd restart or equivalent).
+ *     A live-reload system is a later phase once we know the edit patterns.
+ *
+ * Heartbeat coordinates with this plugin: when local-ui is enabled and the
+ * server is bound, the heartbeat payload includes agent_url pointing here.
+ * The consumer dashboard reads that URL and renders the "configure ↗" link
+ * on the matching agent block.
+ */
+
+import { createServer } from "http";
+import { existsSync, readFileSync, writeFileSync } from "fs";
+import { homedir, hostname } from "os";
+import { dirname, join } from "path";
+import { fileURLToPath, pathToFileURL } from "url";
+
+const CONFIG_PATH = join(process.env.HOME || "", ".fathom", "agent.json");
+const BUILTIN_PLUGIN_DIR = dirname(fileURLToPath(import.meta.url));
+const CUSTOM_PLUGIN_DIR = join(homedir(), ".fathom", "plugins");
+const BUILTIN_UI_DIR = join(BUILTIN_PLUGIN_DIR, "..", "local-ui");
+const SECRET_KEYS = /^(token|api[_-]?key|key|secret|password|auth|bearer)$/i;
+
+// Walk plugin dirs to pull SOURCE_CAPABILITIES exports so the local UI can
+// render instance editors for multi-instance plugins. Mirrors the same
+// precedence the loader uses (custom overrides built-in). Cached per
+// process; plugin code is assumed stable at runtime.
+const _capCache = new Map();
+async function readPluginCapabilities(name) {
+  if (_capCache.has(name)) return _capCache.get(name);
+  const candidates = [
+    join(CUSTOM_PLUGIN_DIR, `${name}.js`),
+    join(BUILTIN_PLUGIN_DIR, `${name}.js`),
+  ];
+  for (const p of candidates) {
+    if (!existsSync(p)) continue;
+    try {
+      const mod = await import(pathToFileURL(p).href);
+      const caps = mod.SOURCE_CAPABILITIES || null;
+      _capCache.set(name, caps);
+      return caps;
+    } catch (e) {
+      console.error(`  local-ui: failed to read caps for ${name}: ${e.message}`);
+      _capCache.set(name, null);
+      return null;
+    }
+  }
+  _capCache.set(name, null);
+  return null;
+}
+
+function readConfig() {
+  try {
+    return JSON.parse(readFileSync(CONFIG_PATH, "utf8"));
+  } catch {
+    return { plugins: {} };
+  }
+}
+
+function writeConfig(cfg) {
+  writeFileSync(CONFIG_PATH, JSON.stringify(cfg, null, 2));
+}
+
+function scrubInstance(inst) {
+  if (!inst || typeof inst !== "object") return inst;
+  const out = {};
+  for (const [k, v] of Object.entries(inst)) {
+    if (SECRET_KEYS.test(k)) {
+      out[`__${k}_set`] = v != null && v !== "";
+    } else {
+      out[k] = v;
+    }
+  }
+  return out;
+}
+
+function scrubPluginConfig(pc) {
+  if (!pc || typeof pc !== "object") return pc;
+  const out = {};
+  for (const [k, v] of Object.entries(pc)) {
+    if (SECRET_KEYS.test(k)) {
+      out[`__${k}_set`] = v != null && v !== "";
+    } else if (k === "instances" && Array.isArray(v)) {
+      out[k] = v.map(scrubInstance);
+    } else {
+      out[k] = v;
+    }
+  }
+  return out;
+}
+
+async function scrubFullConfig(cfg) {
+  const plugins = {};
+  for (const [name, pc] of Object.entries(cfg.plugins || {})) {
+    const slim = scrubPluginConfig(pc);
+    const caps = await readPluginCapabilities(name);
+    if (caps) slim.capabilities = caps;
+    plugins[name] = slim;
+  }
+  return { plugins, api_url: cfg.api_url || "" };
+}
+
+// Merge incoming instance against existing — preserve secret fields that
+// the caller didn't re-send (UI didn't display them, so it can't re-submit
+// them; absence means "keep the old value").
+function mergeInstance(existing, incoming) {
+  const out = { ...(existing || {}), ...(incoming || {}) };
+  for (const [k, v] of Object.entries(incoming || {})) {
+    if (SECRET_KEYS.test(k) && (v == null || v === "")) {
+      // Caller explicitly cleared the secret? Treat empty string as keep,
+      // not clear. Use an explicit `{__clear: true}` marker to actually
+      // remove a secret (out of scope for v1; leave existing in place).
+      if (existing && k in existing) out[k] = existing[k];
+      else delete out[k];
+    }
+  }
+  return out;
+}
+
+async function readBody(req) {
+  const chunks = [];
+  for await (const ch of req) chunks.push(ch);
+  if (!chunks.length) return {};
+  try {
+    return JSON.parse(Buffer.concat(chunks).toString("utf8"));
+  } catch {
+    return {};
+  }
+}
+
+function send(res, status, bodyObj, extraHeaders = {}) {
+  res.writeHead(status, {
+    "Content-Type": "application/json",
+    "Cache-Control": "no-store",
+    ...extraHeaders,
+  });
+  res.end(JSON.stringify(bodyObj));
+}
+
+function sendHtml(res, html) {
+  res.writeHead(200, {
+    "Content-Type": "text/html; charset=utf-8",
+    "Cache-Control": "no-store",
+  });
+  res.end(html);
+}
+
+async function handle(req, res, config) {
+  const url = new URL(req.url, `http://${req.headers.host}`);
+  const path = url.pathname;
+  const method = req.method;
+
+  if (method === "GET" && path === "/") {
+    try {
+      const html = readFileSync(join(BUILTIN_UI_DIR, "index.html"), "utf8");
+      const cfg = readConfig();
+      const apiUrl = cfg.api_url || config.api_url_fallback || "";
+      // Embed the consumer API URL + hostname so the browser doesn't need
+      // a separate bootstrap round-trip.
+      const rendered = html
+        .replaceAll("__FATHOM_API_URL__", apiUrl)
+        .replaceAll("__FATHOM_HOST__", hostname());
+      sendHtml(res, rendered);
+    } catch (e) {
+      send(res, 500, { error: "ui_html_missing", message: e.message });
+    }
+    return;
+  }
+
+  if (method === "GET" && path === "/api/config") {
+    send(res, 200, await scrubFullConfig(readConfig()));
+    return;
+  }
+
+  // /api/plugin/:name/enabled
+  const enabledMatch = path.match(/^\/api\/plugin\/([^/]+)\/enabled$/);
+  if (enabledMatch && method === "POST") {
+    const name = enabledMatch[1];
+    const body = await readBody(req);
+    const cfg = readConfig();
+    if (!cfg.plugins[name]) return send(res, 404, { error: "not_found" });
+    cfg.plugins[name].enabled = !!body.enabled;
+    writeConfig(cfg);
+    return send(res, 200, { ok: true, restart_required: true });
+  }
+
+  // /api/plugin/:name/instance
+  const addInstMatch = path.match(/^\/api\/plugin\/([^/]+)\/instance$/);
+  if (addInstMatch && method === "POST") {
+    const name = addInstMatch[1];
+    const body = await readBody(req);
+    if (!body.id) return send(res, 400, { error: "id_required" });
+    const cfg = readConfig();
+    if (!cfg.plugins[name]) return send(res, 404, { error: "not_found" });
+    cfg.plugins[name].instances = cfg.plugins[name].instances || [];
+    const existing = cfg.plugins[name].instances.find((i) => i.id === body.id);
+    const merged = mergeInstance(existing, body);
+    if (existing) {
+      cfg.plugins[name].instances = cfg.plugins[name].instances.map((i) =>
+        i.id === body.id ? merged : i,
+      );
+    } else {
+      cfg.plugins[name].instances.push(merged);
+    }
+    writeConfig(cfg);
+    return send(res, 200, { ok: true, restart_required: true, instance_id: body.id });
+  }
+
+  // /api/plugin/:name/instance/:id
+  const delInstMatch = path.match(/^\/api\/plugin\/([^/]+)\/instance\/([^/]+)$/);
+  if (delInstMatch && method === "DELETE") {
+    const [, name, id] = delInstMatch;
+    const cfg = readConfig();
+    if (!cfg.plugins[name] || !Array.isArray(cfg.plugins[name].instances)) {
+      return send(res, 404, { error: "not_found" });
+    }
+    const before = cfg.plugins[name].instances.length;
+    cfg.plugins[name].instances = cfg.plugins[name].instances.filter((i) => i.id !== id);
+    if (cfg.plugins[name].instances.length === before) {
+      return send(res, 404, { error: "not_found" });
+    }
+    writeConfig(cfg);
+    return send(res, 200, { ok: true, restart_required: true });
+  }
+
+  send(res, 404, { error: "not_found" });
+}
+
+export default {
+  name: "LocalUI",
+  icon: "⚙",
+  description: "Serve a localhost-only HTTP server for on-machine agent configuration.",
+  defaults: {
+    port: 8202,
+    bind: "127.0.0.1",
+  },
+
+  start(config /*, pusher */) {
+    const port = config.port || 8202;
+    const bind = config.bind || "127.0.0.1";
+
+    const server = createServer((req, res) => {
+      handle(req, res, config).catch((e) => {
+        console.error(`  local-ui: handler error: ${e.message}`);
+        try {
+          send(res, 500, { error: "server_error", message: e.message });
+        } catch {}
+      });
+    });
+
+    server.listen(port, bind, () => {
+      console.log(`  local-ui: serving on http://${bind}:${port}`);
+    });
+    server.on("error", (e) => {
+      console.error(`  local-ui: listen failed on ${bind}:${port}: ${e.message}`);
+    });
+
+    return {
+      stop() {
+        server.close();
+      },
+    };
+  },
+};

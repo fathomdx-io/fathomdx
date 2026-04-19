@@ -1,0 +1,289 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>fathom · __FATHOM_HOST__ machine</title>
+  <!-- Pull the design system from the consumer API. If the API is
+       unreachable (different machine, offline, stopped), a minimal fallback
+       below keeps the UI usable — degraded but not broken. -->
+  <link rel="stylesheet" href="__FATHOM_API_URL__/ui/fathom-tokens.css" />
+  <style>
+    /* Fallback tokens — used if fathom-tokens.css fails to load. Values
+       match the deep-lake defaults so the visual doesn't collapse to
+       browser stock when the consumer API is down. */
+    :root {
+      --bg: #0d1f26; --surface: #142a33; --surface-2: #1c3a45;
+      --ink: #f0e9d9; --ink-soft: #9fb0b5; --ink-faint: #5a6d74;
+      --rule: #1e3a47; --accent: #e8a24e; --signal: #5ce1c6; --danger: #e56a6a;
+      --radius: 14px;
+      --serif: Georgia, serif;
+      --sans: system-ui, sans-serif;
+      --mono: ui-monospace, monospace;
+    }
+    * { box-sizing: border-box; }
+    html, body { margin: 0; padding: 0; background: var(--bg); color: var(--ink); font-family: var(--sans); -webkit-font-smoothing: antialiased; }
+    main { max-width: 780px; margin: 0 auto; padding: 40px 28px 140px; }
+    header { display: flex; align-items: baseline; justify-content: space-between; margin-bottom: 32px; border-bottom: 1px solid var(--rule); padding-bottom: 14px; }
+    header h1 { font-family: var(--serif); font-weight: 400; font-size: 28px; margin: 0; }
+    header .host { font-family: var(--mono); font-size: 13px; color: var(--ink-soft); }
+    h2 { font-family: var(--serif); font-weight: 400; font-size: 20px; margin: 32px 0 6px; }
+    .meta { font-family: var(--mono); font-size: 10px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--ink-faint); }
+    .plugin { background: var(--surface); border: 1px solid var(--rule); border-radius: 12px; padding: 18px 20px; margin: 16px 0; }
+    .plugin-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+    .plugin-head .name { font-weight: 500; font-size: 16px; }
+    .plugin-head .cap { font-family: var(--mono); font-size: 11px; color: var(--ink-faint); }
+    .plugin-head .toggle { margin-left: auto; display: inline-flex; gap: 6px; align-items: center; cursor: pointer; font-family: var(--mono); font-size: 11px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--ink-soft); }
+    .plugin-head .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--signal); box-shadow: 0 0 6px rgba(92,225,198,0.6); }
+    .plugin[data-enabled="false"] .plugin-head .dot { background: var(--ink-faint); box-shadow: none; }
+    .plugin[data-enabled="false"] { opacity: 0.7; }
+    .instances { display: flex; flex-direction: column; gap: 8px; margin-top: 12px; }
+    .instance { background: var(--surface-2); border: 1px solid var(--rule); border-radius: 8px; padding: 10px 14px; display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+    .instance .name { font-weight: 500; font-size: 14px; }
+    .instance .detail { font-family: var(--mono); font-size: 11px; color: var(--ink-faint); }
+    .instance .actions { margin-left: auto; display: flex; gap: 6px; }
+    .btn { background: transparent; border: 1px solid var(--rule); border-radius: 6px; padding: 6px 12px; font-family: var(--mono); font-size: 11px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--ink-soft); cursor: pointer; }
+    .btn:hover { border-color: var(--ink-faint); color: var(--ink); }
+    .btn.primary { border-color: var(--accent); color: var(--accent); }
+    .btn.primary:hover { background: rgba(232,162,78,0.08); }
+    .btn.danger:hover { border-color: var(--danger); color: var(--danger); }
+    .add-instance { margin-top: 12px; }
+    .editor { background: var(--surface-2); border: 1px solid var(--accent); border-radius: 8px; padding: 14px; margin-top: 10px; display: none; flex-direction: column; gap: 10px; }
+    .editor.open { display: flex; }
+    .editor label { font-family: var(--mono); font-size: 10px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--ink-faint); margin-bottom: 4px; display: block; }
+    .editor input, .editor textarea { width: 100%; background: var(--bg); border: 1px solid var(--rule); border-radius: 6px; padding: 8px 10px; font-family: var(--sans); font-size: 13px; color: var(--ink); outline: none; }
+    .editor input:focus, .editor textarea:focus { border-color: var(--accent); }
+    .editor textarea { font-family: var(--mono); font-size: 12px; min-height: 80px; resize: vertical; }
+    .editor .row { display: flex; gap: 8px; justify-content: flex-end; }
+    .empty { font-family: var(--mono); font-size: 11px; color: var(--ink-faint); padding: 10px 0; }
+    .banner { background: rgba(232,162,78,0.1); border: 1px solid var(--accent); border-radius: 8px; padding: 10px 14px; font-size: 13px; color: var(--ink); margin: 20px 0; }
+    .readonly { font-family: var(--mono); font-size: 11px; color: var(--ink-faint); margin-top: 8px; }
+    code { font-family: var(--mono); font-size: 11px; color: var(--accent); background: rgba(232,162,78,0.08); padding: 1px 5px; border-radius: 3px; }
+  </style>
+</head>
+<body>
+  <main>
+    <header>
+      <h1>fathom</h1>
+      <span class="host">__FATHOM_HOST__ machine</span>
+    </header>
+
+    <div id="restart-banner" class="banner" hidden>
+      Config saved. Restart the agent to apply — <code>systemctl --user restart fathom-agent</code> (Linux) or equivalent on Mac/Windows.
+    </div>
+
+    <h2>Plugins</h2>
+    <div class="meta" id="plugins-meta">loading…</div>
+    <div id="plugins"></div>
+
+    <h2>Notes</h2>
+    <p class="readonly">
+      This UI lives on the machine itself. Settings with trust-sensitive
+      implications (permission modes, veto lists, credentials that already
+      exist) are file-only — edit <code>~/.fathom/agent.json</code> directly
+      for those. Adding and removing multi-instance entries (e.g. Home
+      Assistant servers) is safe from here.
+    </p>
+  </main>
+
+  <script>
+    const $ = (sel, root = document) => root.querySelector(sel);
+    const $$ = (sel, root = document) => [...root.querySelectorAll(sel)];
+    const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+
+    // Plugins that don't declare capabilities but we still want nicely
+    // labeled. Keep this small; real labels belong in SOURCE_CAPABILITIES.
+    const FALLBACK_LABELS = {
+      sysinfo: "Sysinfo",
+      vault: "Vault",
+      kitty: "Kitty",
+      heartbeat: "Heartbeat",
+      "local-ui": "Local UI",
+      homeassistant: "Home Assistant",
+    };
+
+    function showBanner() {
+      const b = document.getElementById("restart-banner");
+      b.hidden = false;
+      b.scrollIntoView({ behavior: "smooth", block: "nearest" });
+    }
+
+    async function loadConfig() {
+      const r = await fetch("/api/config");
+      if (!r.ok) throw new Error(r.status);
+      return r.json();
+    }
+
+    function renderInstance(pluginName, inst, shape) {
+      const detailBits = [];
+      for (const [key, def] of Object.entries(shape || {})) {
+        if (key === "id" || key === "name") continue;
+        if (def.type === "secret") {
+          const present = inst[`__${key}_set`];
+          detailBits.push(`${key}: ${present ? "[set]" : "[not set]"}`);
+        } else if (def.type === "string[]" && Array.isArray(inst[key])) {
+          detailBits.push(`${key}: ${inst[key].length}`);
+        } else if (inst[key] != null) {
+          const v = typeof inst[key] === "object" ? JSON.stringify(inst[key]) : String(inst[key]);
+          detailBits.push(`${key}: ${v.length > 40 ? v.slice(0, 37) + "…" : v}`);
+        }
+      }
+      return `
+        <div class="instance" data-instance-id="${esc(inst.id)}">
+          <span class="name">${esc(inst.name || inst.id)}</span>
+          <span class="detail">${esc(detailBits.join(" · "))}</span>
+          <span class="actions">
+            <button class="btn danger" data-act="delete-instance" data-plugin="${esc(pluginName)}" data-id="${esc(inst.id)}">Delete</button>
+          </span>
+        </div>`;
+    }
+
+    function renderInstanceEditor(pluginName, shape) {
+      const fields = Object.entries(shape || {}).map(([key, def]) => {
+        const type = def.type === "secret" ? "password" : def.type === "url" ? "url" : def.type === "number" ? "number" : "text";
+        const multi = def.type === "string[]";
+        const input = multi
+          ? `<textarea data-field="${esc(key)}" placeholder="one per line"></textarea>`
+          : `<input type="${type}" data-field="${esc(key)}" placeholder="${esc(def.help || "")}" />`;
+        return `<div><label>${esc(key)}${def.required ? " *" : ""}</label>${input}${def.help ? `<div class="readonly">${esc(def.help)}</div>` : ""}</div>`;
+      }).join("");
+      return `
+        <div class="editor" data-editor-for="${esc(pluginName)}">
+          ${fields}
+          <div class="row">
+            <button class="btn" data-act="cancel-instance">Cancel</button>
+            <button class="btn primary" data-act="save-instance" data-plugin="${esc(pluginName)}">Save</button>
+          </div>
+        </div>`;
+    }
+
+    function renderPlugin(name, pc) {
+      const caps = pc.capabilities;
+      const label = (caps && caps.display_name) || FALLBACK_LABELS[name] || name;
+      const kindLine = caps ? `<span class="cap">${esc(caps.kind || name)}</span>` : "";
+      const instances = Array.isArray(pc.instances) ? pc.instances : null;
+      const shape = caps && caps.instance_shape;
+      const canEditInstances = instances !== null && shape;
+      let body = "";
+      if (canEditInstances) {
+        const list = instances.length
+          ? instances.map((i) => renderInstance(name, i, shape)).join("")
+          : `<div class="empty">No instances configured yet.</div>`;
+        body = `
+          <div class="instances">${list}</div>
+          <div class="add-instance">
+            <button class="btn primary" data-act="open-editor" data-plugin="${esc(name)}">+ Add instance</button>
+            ${renderInstanceEditor(name, shape)}
+          </div>`;
+      } else {
+        body = `<div class="readonly">
+          This plugin's config is file-managed. Edit <code>~/.fathom/agent.json</code> to change it, then restart the agent.
+        </div>`;
+      }
+      return `
+        <div class="plugin" data-plugin="${esc(name)}" data-enabled="${!!pc.enabled}">
+          <div class="plugin-head">
+            <span class="dot"></span>
+            <span class="name">${esc(label)}</span>
+            ${kindLine}
+            <label class="toggle" title="Toggle enabled flag in agent.json">
+              <input type="checkbox" data-act="toggle-enabled" data-plugin="${esc(name)}" ${pc.enabled ? "checked" : ""} />
+              <span>${pc.enabled ? "enabled" : "disabled"}</span>
+            </label>
+          </div>
+          ${body}
+        </div>`;
+    }
+
+    async function render() {
+      const cfg = await loadConfig();
+      const plugins = cfg.plugins || {};
+      const meta = $("#plugins-meta");
+      const enabled = Object.values(plugins).filter((p) => p.enabled).length;
+      meta.textContent = `${Object.keys(plugins).length} installed · ${enabled} enabled`;
+      $("#plugins").innerHTML = Object.entries(plugins)
+        .filter(([name]) => !name.startsWith("_"))
+        .map(([name, pc]) => renderPlugin(name, pc))
+        .join("");
+      wire();
+    }
+
+    function wire() {
+      $$("[data-act='open-editor']").forEach((btn) => {
+        btn.addEventListener("click", () => {
+          const name = btn.dataset.plugin;
+          const plugin = btn.closest(".plugin");
+          const editor = plugin.querySelector(".editor");
+          editor.classList.add("open");
+          btn.style.display = "none";
+        });
+      });
+      $$("[data-act='cancel-instance']").forEach((btn) => {
+        btn.addEventListener("click", () => {
+          const editor = btn.closest(".editor");
+          editor.classList.remove("open");
+          const plugin = editor.closest(".plugin");
+          plugin.querySelector("[data-act='open-editor']").style.display = "";
+          editor.querySelectorAll("input, textarea").forEach((i) => (i.value = ""));
+        });
+      });
+      $$("[data-act='save-instance']").forEach((btn) => {
+        btn.addEventListener("click", async () => {
+          const editor = btn.closest(".editor");
+          const name = btn.dataset.plugin;
+          const body = {};
+          editor.querySelectorAll("[data-field]").forEach((el) => {
+            const key = el.dataset.field;
+            const v = el.value.trim();
+            if (!v) return;
+            if (el.tagName === "TEXTAREA") {
+              body[key] = v.split(/\r?\n/).map((s) => s.trim()).filter(Boolean);
+            } else if (el.type === "number") {
+              body[key] = Number(v);
+            } else {
+              body[key] = v;
+            }
+          });
+          if (!body.id) { alert("id is required"); return; }
+          const r = await fetch(`/api/plugin/${encodeURIComponent(name)}/instance`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(body),
+          });
+          if (!r.ok) { alert("save failed: " + r.status); return; }
+          showBanner();
+          await render();
+        });
+      });
+      $$("[data-act='delete-instance']").forEach((btn) => {
+        btn.addEventListener("click", async () => {
+          const name = btn.dataset.plugin;
+          const id = btn.dataset.id;
+          if (!confirm(`Delete instance "${id}"?`)) return;
+          const r = await fetch(`/api/plugin/${encodeURIComponent(name)}/instance/${encodeURIComponent(id)}`, { method: "DELETE" });
+          if (!r.ok) { alert("delete failed: " + r.status); return; }
+          showBanner();
+          await render();
+        });
+      });
+      $$("[data-act='toggle-enabled']").forEach((cb) => {
+        cb.addEventListener("change", async () => {
+          const name = cb.dataset.plugin;
+          const r = await fetch(`/api/plugin/${encodeURIComponent(name)}/enabled`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ enabled: cb.checked }),
+          });
+          if (!r.ok) { cb.checked = !cb.checked; alert("toggle failed: " + r.status); return; }
+          showBanner();
+          await render();
+        });
+      });
+    }
+
+    render().catch((e) => {
+      document.body.innerHTML = `<main><h1 style="font-family: serif;">Error loading config</h1><p>${esc(e.message)}</p></main>`;
+    });
+  </script>
+</body>
+</html>

@@ -118,11 +118,22 @@ async function emitHeartbeat(config, pusher, startedAt) {
   const expiryMs = config.expiry_ms || 2 * intervalMs;
   const host = config.host || hostname();
 
+  const allPluginConfigs = readPluginConfig();
+  const localUi = allPluginConfigs.localui;
+  // When the local-ui plugin is enabled, advertise its URL so the consumer
+  // dashboard can deep-link to it. The URL only resolves from the machine
+  // itself (bind defaults to 127.0.0.1), which is the point — it's a local
+  // management surface, not a remote one.
+  const agent_url = localUi && localUi.enabled
+    ? `http://${localUi.bind || "127.0.0.1"}:${localUi.port || 8202}`
+    : null;
+
   const payload = {
     host,
     version: VERSION,
     plugins: await summarizePlugins(),
     uptime_s: Math.round((Date.now() - startedAt) / 1000),
+    ...(agent_url ? { agent_url } : {}),
   };
 
   // Tags: one per enabled plugin so queries like

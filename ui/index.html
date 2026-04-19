@@ -2797,6 +2797,7 @@
     //   role=infra     → plugin is internal (heartbeat), not usually shown
     const PLUGIN_META = {
       heartbeat:     { label: 'Heartbeat',      role: 'infra' },
+      localui:       { label: 'Local UI',       role: 'infra' },
       sysinfo:       { label: 'Sysinfo',        role: 'source' },
       vault:         { label: 'Vault',          role: 'source' },
       clipboard:     { label: 'Clipboard',      role: 'source' },
@@ -2926,7 +2927,9 @@
                 </div>
                 <div class="sources">
                   ${sourceChips || '<span class="meta" style="padding: 8px 0;">none configured yet</span>'}
-                  <button class="chip add" data-configure-machine="${_esc(a.host)}" type="button" title="Configure in local UI (phase 6)">configure ↗</button>
+                  ${a.agent_url
+                    ? `<a class="chip add" href="${_esc(a.agent_url)}" target="_blank" rel="noopener" title="Opens the on-machine agent UI in a new tab (only resolves from ${_esc(a.host)})">configure ↗</a>`
+                    : `<button class="chip add" type="button" disabled title="local-ui plugin not enabled on this machine — add it to agent.json">configure (unavailable)</button>`}
                 </div>
               </div>
               <div class="agent-routines" data-host="${_esc(a.host)}">

@@ -956,6 +956,10 @@ async def agents_status():
                 "version": payload.get("version"),
                 "plugins": payload.get("plugins") or {},
                 "uptime_s": payload.get("uptime_s"),
+                # Local management URL advertised by the agent's local-ui
+                # plugin. Only resolvable from the machine itself; dashboard
+                # uses it to deep-link the "configure ↗" chip per agent block.
+                "agent_url": payload.get("agent_url"),
             }
 
     return {"agents": list(by_host.values()), "alive": len(by_host) > 0}
