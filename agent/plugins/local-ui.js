@@ -177,7 +177,11 @@ async function handle(req, res, config) {
   if (method === "GET" && path === "/") {
     try {
       const html = readFileSync(join(BUILTIN_UI_DIR, "index.html"), "utf8");
-      const rendered = html.replaceAll("__FATHOM_HOST__", hostname());
+      const cfg = readConfig();
+      // Prefer the friendly host name captured during pairing; fall back
+      // to the OS hostname so the UI always has something to show.
+      const displayName = (cfg && cfg.host) ? cfg.host : hostname();
+      const rendered = html.replaceAll("__FATHOM_HOST__", displayName);
       sendHtml(res, rendered);
     } catch (e) {
       send(res, 500, { error: "ui_html_missing", message: e.message });
