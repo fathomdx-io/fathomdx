@@ -47,7 +47,7 @@
     .plugin-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
     .plugin-head .name { font-weight: 500; font-size: var(--text-lg); }
     .plugin-head .cap { font-family: var(--mono); font-size: var(--text-sm); color: var(--ink-faint); }
-    .plugin-head .toggle { margin-left: auto; display: inline-flex; gap: 6px; align-items: center; cursor: pointer; font-family: var(--mono); font-size: var(--text-sm); letter-spacing: var(--tracking-wide); text-transform: uppercase; color: var(--ink-soft); }
+    .plugin-head .pause-btn { margin-left: auto; }
     .plugin[data-enabled="false"] { opacity: 0.7; }
     .plugin[data-enabled="false"] .fth-dot { background: var(--ink-faint); box-shadow: none; }
     .instances { display: flex; flex-direction: column; gap: 8px; margin-top: 12px; }
@@ -199,17 +199,16 @@
           This plugin's config is file-managed. Edit <code>~/.fathom/agent.json</code> to change it, then restart the agent.
         </div>`;
       }
+      const actionLabel = pc.enabled ? "Pause" : "Resume";
       return `
         <div class="plugin fth-card" data-plugin="${esc(name)}" data-enabled="${!!pc.enabled}">
           <div class="fth-card-body">
             <div class="plugin-head">
-              <span class="fth-dot"></span>
               <span class="name">${esc(label)}</span>
               ${kindLine}
-              <label class="toggle" title="Toggle enabled flag in agent.json">
-                <input type="checkbox" data-act="toggle-enabled" data-plugin="${esc(name)}" ${pc.enabled ? "checked" : ""} />
-                <span>${pc.enabled ? "enabled" : "disabled"}</span>
-              </label>
+              <button class="fth-btn fth-btn--ghost fth-btn--ghost-compact pause-btn" data-act="toggle-enabled" data-plugin="${esc(name)}" title="${pc.enabled ? "Pause this plugin" : "Resume this plugin"}">
+                <span class="fth-dot"></span>${actionLabel}
+              </button>
             </div>
             ${body}
           </div>
@@ -302,15 +301,17 @@
           await render();
         });
       });
-      $$("[data-act='toggle-enabled']").forEach((cb) => {
-        cb.addEventListener("change", async () => {
-          const name = cb.dataset.plugin;
+      $$("[data-act='toggle-enabled']").forEach((btn) => {
+        btn.addEventListener("click", async () => {
+          const name = btn.dataset.plugin;
+          const plugin = btn.closest(".plugin");
+          const next = plugin.dataset.enabled !== "true";
           const r = await fetch(`/api/plugin/${encodeURIComponent(name)}/enabled`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ enabled: cb.checked }),
+            body: JSON.stringify({ enabled: next }),
           });
-          if (!r.ok) { cb.checked = !cb.checked; alert("toggle failed: " + r.status); return; }
+          if (!r.ok) { alert("toggle failed: " + r.status); return; }
           showBanner();
           await render();
         });
