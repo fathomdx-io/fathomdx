@@ -22,10 +22,11 @@
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/glightbox@3/dist/css/glightbox.min.css" />
   <script src="https://cdn.jsdelivr.net/npm/glightbox@3/dist/js/glightbox.min.js"></script>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
-  <!-- Design tokens (colors, typography, radii) + Google Fonts are bundled
-       in fathom-tokens.css so any Fathom-branded surface (local agent UI,
-       partner pages, docs) can import the same system with one link. -->
-  <link rel="stylesheet" href="/ui/fathom-tokens.css" />
+  <!-- Shared Fathom design tokens. Versioned, web-hosted: any Fathom
+       surface (this dashboard, the agent local UI, partner pages) links
+       the same file and inherits the whole palette. v1 is immutable —
+       breaking changes cut a v2/ URL. Source: fathom-design repo. -->
+  <link rel="stylesheet" href="https://design.fathomdx.io/v1/tokens.css" />
   <style>
     * { box-sizing: border-box; }
     html, body { margin: 0; padding: 0; background: var(--bg); color: var(--ink); font-family: var(--sans); -webkit-font-smoothing: antialiased; }

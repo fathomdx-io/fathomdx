@@ -9,7 +9,6 @@
  *
  * Scope (v1):
  *   GET  /                      → serves the local UI HTML (index.html sibling file)
- *   GET  /ui/fathom-tokens.css  → proxy-pass the consumer API's design tokens
  *   GET  /api/config            → plugins dict from agent.json, secrets scrubbed
  *   POST /api/plugin/:name/instance          → add/update an instance
  *   DEL  /api/plugin/:name/instance/:id      → remove an instance
@@ -178,13 +177,7 @@ async function handle(req, res, config) {
   if (method === "GET" && path === "/") {
     try {
       const html = readFileSync(join(BUILTIN_UI_DIR, "index.html"), "utf8");
-      const cfg = readConfig();
-      const apiUrl = cfg.api_url || config.api_url_fallback || "";
-      // Embed the consumer API URL + hostname so the browser doesn't need
-      // a separate bootstrap round-trip.
-      const rendered = html
-        .replaceAll("__FATHOM_API_URL__", apiUrl)
-        .replaceAll("__FATHOM_HOST__", hostname());
+      const rendered = html.replaceAll("__FATHOM_HOST__", hostname());
       sendHtml(res, rendered);
     } catch (e) {
       send(res, 500, { error: "ui_html_missing", message: e.message });

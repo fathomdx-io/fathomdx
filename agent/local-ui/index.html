@@ -4,10 +4,10 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>fathom · __FATHOM_HOST__ machine</title>
-  <!-- Pull the design system from the consumer API. If the API is
-       unreachable (different machine, offline, stopped), a minimal fallback
+  <!-- Pull the shared Fathom design tokens from the versioned CDN. If
+       the CDN is unreachable (offline, DNS blip), the inline fallback
        below keeps the UI usable — degraded but not broken. -->
-  <link rel="stylesheet" href="__FATHOM_API_URL__/ui/fathom-tokens.css" />
+  <link rel="stylesheet" href="https://design.fathomdx.io/v1/tokens.css" />
   <style>
     /* Fallback tokens — used if fathom-tokens.css fails to load. Values
        match the deep-lake defaults so the visual doesn't collapse to
