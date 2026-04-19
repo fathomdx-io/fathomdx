@@ -1,11 +1,17 @@
 {
   "name": "fathom-agent",
-  "version": "0.8.5",
+  "version": "0.10.0",
   "description": "Local agent for Fathom — watches files and pushes deltas to your lake",
   "bin": {
     "fathom-agent": "index.js"
   },
   "type": "module",
+  "files": [
+    "index.js",
+    "pusher.js",
+    "plugins/",
+    "local-ui/"
+  ],
   "dependencies": {
     "chokidar": "^4.0.0"
   },
