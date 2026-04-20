@@ -120,13 +120,18 @@ services:
     networks:
       - fathom
     ports:
-      # Bind on all interfaces so phones / other devices on the LAN can
-      # reach the dashboard. The auth token protects the API; only open
-      # this up on trusted networks. One v4-wildcard entry covers both
-      # IPv4 LAN traffic and local IPv6 access via the dual-stack
-      # rootlessport mapping — adding a separate [::] entry conflicts
-      # with the wildcard on rootless podman.
+      # IPv4 wildcard exposes the dashboard to LAN (phones, other
+      # devices). The auth token protects the API; only open this up on
+      # trusted networks. The second entry binds IPv6 loopback so
+      # in-host clients like `npx fathom-agent` — whose Node fetch
+      # resolves `localhost` to ::1 first — can reach the API without
+      # a v4-only fallback. Loopback-only on v6 keeps the LAN surface
+      # IPv4-only while fixing pair-code and npx flows inside the
+      # machine. Rootless podman users: if the [::1] entry conflicts
+      # with the v4 wildcard on your platform, drop it — rootlessport
+      # already synthesizes dual-stack loopback from 0.0.0.0.
       - "0.0.0.0:8201:8200"
+      - "[::1]:8201:8200"
     volumes:
       - ${LAKE_DIR}/api:/data
     environment:
