@@ -254,7 +254,12 @@ def _chat_slug(tags: list[str]) -> str | None:
     return None
 
 
-async def write_chat_event(session_slug: str, kind: str, data: dict) -> None:
+async def write_chat_event(
+    session_slug: str,
+    kind: str,
+    data: dict,
+    ttl_seconds: int | None = None,
+) -> None:
     """Drop an ephemeral chat-event delta into the session.
 
     Tool uses (remember/recall/see_image/etc.) and silent acks all go
@@ -263,6 +268,10 @@ async def write_chat_event(session_slug: str, kind: str, data: dict) -> None:
     no in-memory state, the UI just polls /v1/sessions/{id} like
     always and renders events alongside messages.
 
+    `ttl_seconds` overrides the default EVENT_TTL for events that need
+    to outlive a quick tab-switch — e.g. routine proposals, where the
+    user may come back hours later to confirm the form.
+
     Tag contract:
       fathom-chat           — so it's findable with the same chat query
       chat:<slug>           — session membership
@@ -270,8 +279,9 @@ async def write_chat_event(session_slug: str, kind: str, data: dict) -> None:
       event:<kind>          — the kind of thing that happened
       participant:fathom    — Fathom did this (keeps own-writes filter honest)
     """
+    ttl = ttl_seconds if ttl_seconds is not None else EVENT_TTL_SECONDS
     expires_at = (
-        datetime.now(timezone.utc) + timedelta(seconds=EVENT_TTL_SECONDS)
+        datetime.now(timezone.utc) + timedelta(seconds=ttl)
     ).isoformat()
     tags = [
         "fathom-chat",

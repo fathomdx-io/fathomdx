@@ -7,7 +7,13 @@ import json
 import httpx
 
 from . import delta_client, routines as routines_mod
+from .chat_listener import write_chat_event
 from .settings import settings
+
+# How long a routine-proposal event survives in the lake before the
+# delta-store reaps it. Longer than the default chat-event TTL because
+# the user may wander off for a while before confirming the form.
+ROUTINE_PROPOSAL_TTL_SECONDS = 6 * 3600
 
 # ── Tool definitions (OpenAI format) ────────────
 
@@ -185,12 +191,18 @@ TOOLS = [
                 "(create/update/delete/fire) will return installation "
                 "instructions — tell the user to visit the main page of the "
                 "app to set one up. "
-                "For action='create', if any required info is missing the tool "
-                "returns {status:'needs_info', missing:[...], hint:'...'} — "
-                "ask the user for what's missing and call the tool again with "
-                "the gathered info included (along with the `partial` fields "
-                "it echoed back). The tool loops this way until it has what "
-                "it needs to commit."
+                "For action='create': the default flow is PROPOSE, NOT COMMIT. "
+                "Call create with whatever fields you've composed (name, "
+                "schedule, prompt at minimum — id/workspace/host may be blank) "
+                "and the tool returns {status:'needs_confirmation'} while "
+                "simultaneously painting a review form in the user's chat. "
+                "The user edits and saves that form — you do NOT re-prompt the "
+                "user for the fields in prose; just say something short like "
+                "'Here's the routine — review and save.' Pass confirm=true "
+                "only when the user has explicitly told you to skip the review "
+                "step (e.g. 'just make it', 'don't ask, create it'). "
+                "Outside a chat session (session_id absent), the tool commits "
+                "directly and returns the result."
             ),
             "parameters": {
                 "type": "object",
@@ -253,6 +265,15 @@ TOOLS = [
                     "single_fire": {
                         "type": "boolean",
                         "description": "documented but not yet honored by scheduler",
+                    },
+                    "confirm": {
+                        "type": "boolean",
+                        "description": (
+                            "create-only bypass. Default behavior proposes the "
+                            "routine in a chat form for the user to review. "
+                            "Set true only when the user explicitly asked you "
+                            "to skip the review step."
+                        ),
                     },
                     "count": {
                         "type": "integer",
@@ -391,7 +412,7 @@ async def execute(name: str, arguments: dict, session_id: str | None = None) -> 
             return await _fetch_image_as_tool_result(arguments.get("media_hash", ""))
 
         if name == "routines":
-            return await _execute_routines(arguments)
+            return await _execute_routines(arguments, session_id=session_id)
 
         if name == "explain":
             return await _execute_explain(arguments)
@@ -641,7 +662,7 @@ async def _gather_create_gaps(args: dict) -> dict:
     return {"missing": missing, "hint": " ".join(hints) if hints else ""}
 
 
-async def _execute_routines(args: dict) -> str:
+async def _execute_routines(args: dict, session_id: str | None = None) -> str:
     action = (args.get("action") or "help").strip().lower()
 
     # Informational actions — always work, even without an agent.
@@ -713,13 +734,44 @@ async def _execute_routines(args: dict) -> str:
     if action == "create":
         # Single-machine default: if exactly one agent is connected and the
         # caller didn't set `host`, silently pin to that machine. With two or
-        # more live agents, _gather_create_gaps returns a needs_info asking
-        # the user to pick. With zero live agents, the earlier _agent_alive
-        # gate already rejected the call.
+        # more live agents, the user picks from the form's host dropdown.
+        # With zero live agents, the earlier _agent_alive gate already
+        # rejected the call.
         if "host" not in args:
             _alive, agents = await _agent_alive()
             if len(agents) == 1:
                 args = {**args, "host": agents[0]["host"]}
+
+        confirm = bool(args.get("confirm"))
+
+        # Proposal flow: inside a chat, paint the routine form in the stream
+        # and let the human review/edit/save. Skipped when confirm=true
+        # (user said "just make it") or outside chat (no session_id).
+        if session_id and not confirm:
+            proposal = {k: args[k] for k in args if k not in ("action", "confirm")}
+            try:
+                await write_chat_event(
+                    session_id,
+                    "routine-proposal",
+                    {"proposal": proposal},
+                    ttl_seconds=ROUTINE_PROPOSAL_TTL_SECONDS,
+                )
+            except Exception as e:
+                return json.dumps({
+                    "action": "create",
+                    "status": "proposal_failed",
+                    "message": f"couldn't paint review form: {e}",
+                })
+            return json.dumps({
+                "action": "create",
+                "status": "needs_confirmation",
+                "hint": (
+                    "The routine form is now in the chat for the user to "
+                    "review and save. Reply briefly — do NOT restate the "
+                    "fields in prose."
+                ),
+                "proposal": proposal,
+            })
 
         # Clarification loop: inspect args, return `needs_info` when gaps exist
         # so the LLM can go back to the user and ask before committing.
@@ -730,10 +782,10 @@ async def _execute_routines(args: dict) -> str:
                 "status": "needs_info",
                 "missing": gaps["missing"],
                 "hint": gaps["hint"],
-                "partial": {k: args[k] for k in args if k != "action"},
+                "partial": {k: args[k] for k in args if k not in ("action", "confirm")},
             })
         try:
-            body = {k: args[k] for k in args if k != "action"}
+            body = {k: args[k] for k in args if k not in ("action", "confirm")}
             result = await routines_mod.create(body)
             return json.dumps({"action": "create", **result})
         except FileExistsError:
@@ -752,7 +804,7 @@ async def _execute_routines(args: dict) -> str:
                     + "(use action=update), replace it (delete first, then create), "
                     + "or pick a different id?"
                 ),
-                "partial": {k: args[k] for k in args if k != "action"},
+                "partial": {k: args[k] for k in args if k not in ("action", "confirm")},
             })
         except ValueError as e:
             return json.dumps({"action": "create", "error": "invalid", "message": str(e)})
