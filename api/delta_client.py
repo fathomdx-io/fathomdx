@@ -131,6 +131,69 @@ async def retrievals_history(since_seconds: int, buckets: int = 60) -> list[dict
     return r.json().get("history", [])
 
 
+async def usage_history(since_seconds: int, buckets: int = 60) -> list[dict]:
+    """Fetch bucketed delta-write timeline from the lake (SQL-bucketed, no row cap)."""
+    c = await _get()
+    r = await c.get(
+        "/stats/usage/history",
+        params={"since_seconds": since_seconds, "buckets": buckets},
+    )
+    r.raise_for_status()
+    return r.json().get("history", [])
+
+
+async def pressure_history(
+    *,
+    since_seconds: int,
+    buckets: int,
+    weights: dict[str, float],
+    default_weight: float,
+    user_tag_boost: float,
+    half_life_seconds: int,
+) -> list[dict]:
+    """Fetch bucketed weighted-decay pressure curve (SQL-computed, no row cap)."""
+    c = await _get()
+    r = await c.post(
+        "/stats/pressure/history",
+        json={
+            "since_seconds": since_seconds,
+            "buckets": buckets,
+            "weights": weights,
+            "default_weight": default_weight,
+            "user_tag_boost": user_tag_boost,
+            "half_life_seconds": half_life_seconds,
+        },
+    )
+    r.raise_for_status()
+    return r.json().get("history", [])
+
+
+async def pressure_volume(
+    *,
+    cutoff_ts: str | None,
+    window_seconds: int,
+    weights: dict[str, float],
+    default_weight: float,
+    user_tag_boost: float,
+    half_life_seconds: int,
+) -> float:
+    """Single weighted-decay pressure value since cutoff (or window)."""
+    c = await _get()
+    r = await c.post(
+        "/stats/pressure/volume",
+        json={
+            "cutoff_ts": cutoff_ts,
+            "window_seconds": window_seconds,
+            "weights": weights,
+            "default_weight": default_weight,
+            "user_tag_boost": user_tag_boost,
+            "half_life_seconds": half_life_seconds,
+        },
+    )
+    r.raise_for_status()
+    return float(r.json().get("volume", 0.0))
+
+
 async def upload_media(
     file_bytes: bytes,
     filename: str,

@@ -295,6 +295,174 @@ class DeltaStore:
         )
         return {r["t"]: r["c"] for r in rows}
 
+    async def pressure_history(
+        self,
+        *,
+        since_seconds: int,
+        buckets: int,
+        weights: dict[str, float],
+        default_weight: float,
+        user_tag_boost: float,
+        half_life_seconds: int,
+    ) -> list[tuple[int, float]]:
+        """Bucketed weighted-decay pressure curve, computed entirely in SQL.
+
+        For each of N buckets across the window, compute:
+            pressure(tick) = Σ w(d) × 0.5^((tick − ts(d)) / half_life)
+        summed over every delta d whose timestamp is after the most recent
+        'mood-delta' synthesis at-or-before `tick` and at-or-before `tick`.
+
+        Returns (bucket_index, pressure_value) pairs for every bucket.
+        """
+        if since_seconds <= 0 or buckets <= 0:
+            return []
+        import json as _json
+
+        # Parameters go in directly as typed literals — wrapping them in a
+        # params CTE cross-joined against deltas produces a pathological plan
+        # (observed: minutes-long queries for a 60-bucket × 18k-delta window).
+        rows = await self._pool.fetch(
+            """
+            WITH bucket_ticks AS (
+                SELECT
+                    i::int AS i,
+                    (NOW() - ($1 || ' seconds')::interval)
+                        + ((i + 0.5) * ($1::float / $2)) * INTERVAL '1 second' AS t
+                FROM generate_series(0, $2 - 1) AS i
+            ),
+            synth_events AS (
+                SELECT timestamp AS ts
+                FROM deltas
+                WHERE 'mood-delta' = ANY(tags)
+                  AND timestamp >= NOW() - ($1 || ' seconds')::interval
+                  AND (expires_at IS NULL OR expires_at > NOW())
+            ),
+            weighted_deltas AS (
+                SELECT
+                    timestamp AS ts,
+                    (
+                        COALESCE(($4::jsonb ->> source)::float, $5::float)
+                        + CASE WHEN 'user' = ANY(tags) THEN $6::float ELSE 0 END
+                    ) AS w
+                FROM deltas
+                WHERE timestamp >= NOW() - ($1 || ' seconds')::interval
+                  AND (expires_at IS NULL OR expires_at > NOW())
+                  AND NOT ('mood-delta' = ANY(tags))
+            )
+            SELECT
+                bt.i AS bucket,
+                COALESCE(
+                    SUM(
+                        wd.w * POWER(
+                            0.5,
+                            EXTRACT(EPOCH FROM (bt.t - wd.ts)) / $3::float
+                        )
+                    ),
+                    0
+                ) AS v
+            FROM bucket_ticks bt
+            LEFT JOIN weighted_deltas wd
+                ON wd.w > 0
+               AND wd.ts <= bt.t
+               AND wd.ts > COALESCE(
+                        (SELECT MAX(se.ts) FROM synth_events se WHERE se.ts <= bt.t),
+                        '-infinity'::timestamptz
+                    )
+            GROUP BY bt.i
+            ORDER BY bt.i
+            """,
+            str(since_seconds),
+            buckets,
+            float(max(1, int(half_life_seconds))),
+            _json.dumps(weights),
+            float(default_weight),
+            float(user_tag_boost),
+        )
+        return [(int(r["bucket"]), float(r["v"])) for r in rows]
+
+    async def pressure_volume(
+        self,
+        *,
+        cutoff_ts: str | None,
+        window_seconds: int,
+        weights: dict[str, float],
+        default_weight: float,
+        user_tag_boost: float,
+        half_life_seconds: int,
+    ) -> float:
+        """Sum of weighted-and-decayed contributions since cutoff.
+
+        If cutoff_ts is None, uses NOW() − window_seconds as the cutoff.
+        Returns a single pressure volume (the same number read_pressure wants).
+        """
+        import json as _json
+
+        cutoff_dt = _parse_ts(cutoff_ts) if cutoff_ts else None
+        row = await self._pool.fetchrow(
+            """
+            SELECT COALESCE(
+                SUM(
+                    (
+                        COALESCE(($4::jsonb ->> source)::float, $5::float)
+                        + CASE WHEN 'user' = ANY(tags) THEN $6::float ELSE 0 END
+                    )
+                    * POWER(
+                        0.5,
+                        EXTRACT(EPOCH FROM (NOW() - timestamp)) / $3::float
+                    )
+                ),
+                0
+            ) AS volume
+            FROM deltas
+            WHERE timestamp > COALESCE($1::timestamptz, NOW() - ($2 || ' seconds')::interval)
+              AND (expires_at IS NULL OR expires_at > NOW())
+              AND NOT ('mood-delta' = ANY(tags))
+              AND (
+                    COALESCE(($4::jsonb ->> source)::float, $5::float)
+                    + CASE WHEN 'user' = ANY(tags) THEN $6::float ELSE 0 END
+                  ) > 0
+            """,
+            cutoff_dt,
+            str(window_seconds),
+            float(max(1, int(half_life_seconds))),
+            _json.dumps(weights),
+            float(default_weight),
+            float(user_tag_boost),
+        )
+        return float(row["volume"] or 0.0)
+
+    async def usage_history(
+        self, since_seconds: int, buckets: int = 60
+    ) -> list[tuple[int, int]]:
+        """Bucketed write-count timeline over the window.
+
+        Returns a list of (bucket_index, count) pairs for non-empty buckets.
+        Bucketing is done in SQL so there's no row-limit truncation.
+        """
+        if since_seconds <= 0 or buckets <= 0:
+            return []
+        bucket_seconds = since_seconds / buckets
+        rows = await self._pool.fetch(
+            """
+            SELECT
+                LEAST(
+                    FLOOR(EXTRACT(EPOCH FROM (d.timestamp - (NOW() - ($1 || ' seconds')::interval)))
+                          / $2)::int,
+                    $3 - 1
+                ) AS bucket,
+                COUNT(*) AS c
+            FROM deltas d
+            WHERE d.timestamp >= NOW() - ($1 || ' seconds')::interval
+              AND (d.expires_at IS NULL OR d.expires_at > NOW())
+            GROUP BY bucket
+            ORDER BY bucket
+            """,
+            str(since_seconds),
+            bucket_seconds,
+            buckets,
+        )
+        return [(int(r["bucket"]), int(r["c"])) for r in rows]
+
     # ── Embeddings ───────────────────────────────────────────────────────
 
     async def unembedded(self, limit: int = 50) -> list[dict]:

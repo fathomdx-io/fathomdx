@@ -489,7 +489,9 @@ async def query_deltas(
         limit=limit,
         offset=offset,
     )
-    retrievals.fire_and_forget(len(results))
+    # Structured queries are bookkeeping reads (dashboards, pressure,
+    # usage aggregation) — not memory recall. Only /search, /search/image,
+    # and /plan count toward the retrieval timeline.
     return results
 
 
@@ -818,6 +820,92 @@ async def retrievals_history(since_seconds: int = 7 * 24 * 3600, buckets: int = 
     """Bucketed count of deltas retrieved from the lake across the window."""
     items = await retrievals.history(since_seconds=since_seconds, buckets=buckets)
     return {"history": items}
+
+
+class PressureHistoryIn(_BaseModel):
+    since_seconds: int = 7 * 24 * 3600
+    buckets: int = 60
+    weights: dict[str, float]
+    default_weight: float
+    user_tag_boost: float
+    half_life_seconds: int
+
+
+@app.post("/stats/pressure/history")
+async def pressure_history(req: PressureHistoryIn):
+    """Bucketed weighted-decay pressure curve, computed entirely in SQL.
+
+    The consumer-api owns the source-weight policy and passes it in;
+    this endpoint applies those weights against every delta in the
+    window — no row-limit truncation.
+    """
+    from datetime import UTC, datetime, timedelta
+
+    if req.since_seconds <= 0 or req.buckets <= 0:
+        return {"history": []}
+    rows = await store.pressure_history(
+        since_seconds=req.since_seconds,
+        buckets=req.buckets,
+        weights=req.weights,
+        default_weight=req.default_weight,
+        user_tag_boost=req.user_tag_boost,
+        half_life_seconds=req.half_life_seconds,
+    )
+    by_bucket = {b: v for b, v in rows}
+    now = datetime.now(UTC)
+    start = now - timedelta(seconds=req.since_seconds)
+    bucket_seconds = req.since_seconds / req.buckets
+    out: list[dict] = []
+    for i in range(req.buckets):
+        tick = start + timedelta(seconds=bucket_seconds * (i + 0.5))
+        out.append({"t": tick.isoformat(), "v": float(by_bucket.get(i, 0.0))})
+    return {"history": out}
+
+
+class PressureVolumeIn(_BaseModel):
+    cutoff_ts: str | None = None
+    window_seconds: int
+    weights: dict[str, float]
+    default_weight: float
+    user_tag_boost: float
+    half_life_seconds: int
+
+
+@app.post("/stats/pressure/volume")
+async def pressure_volume(req: PressureVolumeIn):
+    """Single-value weighted-decay pressure since cutoff (or window)."""
+    v = await store.pressure_volume(
+        cutoff_ts=req.cutoff_ts,
+        window_seconds=req.window_seconds,
+        weights=req.weights,
+        default_weight=req.default_weight,
+        user_tag_boost=req.user_tag_boost,
+        half_life_seconds=req.half_life_seconds,
+    )
+    return {"volume": v}
+
+
+@app.get("/stats/usage/history")
+async def usage_history(since_seconds: int = 24 * 3600, buckets: int = 60):
+    """Bucketed count of deltas written into the lake across the window.
+
+    Bucketing is done in SQL so the result is not subject to any row-limit
+    truncation — every delta in the window is counted.
+    """
+    from datetime import UTC, datetime, timedelta
+
+    if since_seconds <= 0 or buckets <= 0:
+        return {"history": []}
+    rows = await store.usage_history(since_seconds=since_seconds, buckets=buckets)
+    by_bucket = {b: c for b, c in rows}
+    now = datetime.now(UTC)
+    start = now - timedelta(seconds=since_seconds)
+    bucket_seconds = since_seconds / buckets
+    out: list[dict] = []
+    for i in range(buckets):
+        tick = start + timedelta(seconds=bucket_seconds * (i + 0.5))
+        out.append({"t": tick.isoformat(), "v": int(by_bucket.get(i, 0))})
+    return {"history": out}
 
 
 # ── Routes: Crystal facets ───────────────────────────────────────────────────

@@ -1224,6 +1224,28 @@
       font-weight: 600;
     }
 
+    /* Routine proposal — an inline card carrying the same editor the
+       dashboard uses for creating/editing routines, painted directly
+       in chat so the user can review and save without leaving the
+       conversation. */
+    .msg-routine-proposal .routine-proposal-card {
+      margin-top: 6px;
+      background: var(--surface);
+      border: 1px solid var(--rule);
+      border-radius: 12px;
+      padding: 14px;
+    }
+    .msg-routine-proposal .routine-editor {
+      border: 0;
+      padding: 0;
+      margin: 0;
+    }
+    .msg-routine-proposal .routine-proposal-saved {
+      padding: 6px 2px 0;
+      color: var(--ink-soft);
+      font-size: 12.5px;
+    }
+
     /* Agent message: card with a distinct left border marking the host,
        mono prefix for machine identity. Reads as "another voice in the
        room", neither user nor Fathom. */
@@ -1623,6 +1645,30 @@
     }
     .pair-close:hover { color: var(--ink); }
     .pair-lead { font-size: 14px; color: var(--ink-soft); margin: 4px 0 14px; line-height: 1.5; }
+    /* Kitty-dependency banner in the pair dialog — shown for OS surfaces
+       whose agent routines depend on kitty being installed on the target
+       machine. Informational, not blocking. */
+    .pair-banner {
+      display: flex; align-items: flex-start; gap: 10px;
+      padding: 10px 12px; margin-bottom: 14px;
+      background: var(--accent-soft, rgba(232, 162, 78, 0.1));
+      border: 1px solid var(--accent);
+      border-radius: 8px;
+      font-size: 12.5px; line-height: 1.45; color: var(--ink);
+    }
+    .pair-banner-icon { font-size: 16px; line-height: 1.2; flex: 0 0 auto; }
+    .pair-banner-body { flex: 1; }
+    .pair-banner code {
+      font-family: var(--mono); font-size: 11px;
+      padding: 1px 5px; border-radius: 3px;
+      background: var(--bg); color: var(--accent-bright, var(--accent));
+    }
+    .pair-banner a {
+      color: var(--accent-bright, var(--accent));
+      text-decoration: underline; text-underline-offset: 2px;
+    }
+    .pair-banner a:hover { text-decoration-thickness: 2px; }
+
     /* Host-name input inside the pair dialog. Required — the command
        below stays in a placeholder state until a valid name is entered. */
     .pair-host-field { display: flex; flex-direction: column; gap: 6px; margin-bottom: 14px; }
@@ -1639,6 +1685,8 @@
     .pair-host-field input[data-invalid="true"] { border-color: var(--danger); }
     .pair-host-help { font-size: 12px; color: var(--ink-faint); line-height: 1.4; }
     .pair-host-help[data-state="error"] { color: var(--danger); }
+    .pair-host-help code { font-size: 11px; padding: 1px 4px; border-radius: 3px; background: var(--surface); color: var(--ink-soft); }
+    .pair-optional { font-size: 10px; font-weight: normal; letter-spacing: 0.04em; color: var(--ink-faint); text-transform: none; }
     .pair-cmd-wrap { display: flex; gap: 8px; align-items: stretch; margin-bottom: 12px; }
     .pair-cmd[data-pending="true"] { color: var(--ink-faint); font-style: italic; }
     .btn[disabled] { opacity: 0.5; cursor: not-allowed; }
@@ -1694,6 +1742,23 @@
     .install-link:hover { text-decoration: underline; }
     .install-link:focus-visible {
       outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 2px;
+    }
+
+    /* Work-in-progress marker for install surfaces that aren't ready yet.
+       Tiles/links still render so the product surface stays visible, but
+       click is a no-op and the pill signals the status. */
+    [data-wip="true"] {
+      opacity: 0.55; cursor: not-allowed;
+    }
+    [data-wip="true"]:hover { text-decoration: none; }
+    .wip-pill {
+      display: inline-block; margin-left: 6px;
+      padding: 1px 6px; border-radius: 3px;
+      background: var(--surface-2, rgba(255,255,255,0.06));
+      border: 1px solid var(--rule);
+      font-family: var(--mono); font-size: 9.5px; font-weight: 500;
+      letter-spacing: 0.08em; text-transform: uppercase;
+      color: var(--ink-faint); vertical-align: 1px;
     }
 
     /* Routines subsection inside an agent card. Tighter than a top-level
@@ -1876,7 +1941,7 @@
          into claude sessions that the local agent spawns. -->
     <section class="section" id="agentSection">
       <div class="section-head">
-        <h2>Agent</h2>
+        <h2>Agents</h2>
         <span class="meta" id="agentMeta">loading…</span>
       </div>
       <div id="agentBody"><!-- populated by renderAgentSection() --></div>
@@ -1971,10 +2036,19 @@
       </div>
       <div class="pair-body">
         <p class="pair-lead">Copy this command and run it on the machine you want to connect. The code is single-use and expires in <span id="pairCountdown">—</span>.</p>
+        <div class="pair-banner" id="pairKittyBanner" hidden>
+          <span class="pair-banner-icon">⚙</span>
+          <span class="pair-banner-body" id="pairKittyBannerBody"></span>
+        </div>
         <div class="pair-host-field">
           <label for="pairHostInput">Name this machine</label>
           <input type="text" id="pairHostInput" placeholder="e.g. laptop, home-server, studio" autocomplete="off" spellcheck="false" maxlength="63" />
           <div class="pair-host-help" id="pairHostHelp">Letters, numbers, dots, dashes, and underscores. This is how the machine appears in the dashboard.</div>
+        </div>
+        <div class="pair-host-field">
+          <label for="pairWorkspaceInput">Default directory <span class="pair-optional">(optional)</span></label>
+          <input type="text" id="pairWorkspaceInput" placeholder="e.g. ~/code/project, /opt/apps" autocomplete="off" spellcheck="false" maxlength="255" />
+          <div class="pair-host-help" id="pairWorkspaceHelp">Where this agent's routines open claude when no workspace is pinned. Absolute path, or a <code>~</code>-prefix for home. Blank uses <code>~</code>.</div>
         </div>
         <div class="pair-cmd-wrap">
           <pre class="pair-cmd" id="pairCmd">generating…</pre>
@@ -3255,9 +3329,9 @@
               <span class="extend-icon">🍎</span>
               <div class="extend-text"><span class="label">Mac</span><span class="sub">launchd agent</span></div>
             </div>
-            <div class="extend" data-surface="agent-windows">
+            <div class="extend" data-surface="agent-windows" data-wip="true">
               <span class="extend-icon">⊞</span>
-              <div class="extend-text"><span class="label">Windows</span><span class="sub">scheduled task</span></div>
+              <div class="extend-text"><span class="label">Windows <span class="wip-pill">WIP</span></span><span class="sub">scheduled task</span></div>
             </div>
           </div>`;
 
@@ -3360,7 +3434,7 @@
             <span class="sep">|</span>
             <button type="button" class="install-link" data-surface="agent-mac">Mac</button>
             <span class="sep">|</span>
-            <button type="button" class="install-link" data-surface="agent-windows">Windows</button>
+            <button type="button" class="install-link" data-surface="agent-windows" data-wip="true">Windows <span class="wip-pill">WIP</span></button>
           </div>`;
         body.innerHTML = perAgentHtml + addAnotherInline;
 
@@ -3502,10 +3576,20 @@
       });
     }
 
+    // Look up an agent's configured default workspace from the most recent
+    // heartbeat. Falls back to empty string when the host is unknown or
+    // hasn't set one. Used by the new-routine flows to prefill the form
+    // per-agent instead of hardcoding a workspace name.
+    function _defaultWorkspaceForHost(host) {
+      if (!host) return '';
+      const agent = (_agentStatus.agents || []).find(a => a.host === host);
+      return (agent && agent.plugins && agent.plugins.kitty && agent.plugins.kitty.default_workspace) || '';
+    }
+
     function renderEditorHtml(existing) {
       const isEdit = !!existing;
       const r = existing || {
-        id: '', name: '', workspace: 'fathom2', host: '', schedule: '0 * * * *', prompt: '',
+        id: '', name: '', workspace: '', host: '', schedule: '0 * * * *', prompt: '',
         permission_mode: 'auto', enabled: true, single_fire: false,
       };
       const preset = inferPreset(r.schedule);
@@ -3539,7 +3623,7 @@
             </div>
             <div class="form-group">
               <label>workspace</label>
-              <input class="form-input" data-f="workspace" type="text" value="${_esc(r.workspace || '')}" placeholder="fathom2" />
+              <input class="form-input" data-f="workspace" type="text" value="${_esc(r.workspace || '')}" placeholder="fathom" />
             </div>
           </div>
           <div>
@@ -3902,9 +3986,13 @@
       // Pre-fill the host field when launched from a specific agent's
       // "+ New routine" chip. Passing a bare `{ host }` object to
       // renderEditorHtml would treat it as an edit of an empty routine —
-      // instead, build a minimal new-routine default with host set.
+      // instead, build a minimal new-routine default with host set. The
+      // workspace prefill comes from the target agent's heartbeat config,
+      // so each machine can advertise its own default instead of us
+      // hardcoding a single name here.
       const defaults = host ? {
-        id: '', name: '', workspace: 'fathom2', host, schedule: '0 * * * *', prompt: '',
+        id: '', name: '', workspace: _defaultWorkspaceForHost(host), host,
+        schedule: '0 * * * *', prompt: '',
         permission_mode: 'auto', enabled: true, single_fire: false,
       } : null;
       mount.innerHTML = renderEditorHtml(defaults);
@@ -3950,6 +4038,21 @@
     const pairCopyBtn = document.getElementById('pairCopyBtn');
     const pairHostInput = document.getElementById('pairHostInput');
     const pairHostHelp = document.getElementById('pairHostHelp');
+    const pairWorkspaceInput = document.getElementById('pairWorkspaceInput');
+    const pairWorkspaceHelp = document.getElementById('pairWorkspaceHelp');
+    const pairKittyBanner = document.getElementById('pairKittyBanner');
+    const pairKittyBannerBody = document.getElementById('pairKittyBannerBody');
+
+    // Dependency hint shown in the pair modal. Routines run by spawning
+    // claude-code inside a kitty terminal, so both have to be installed on
+    // the target machine — missing either one looks like silently-broken
+    // routines. Install pages are linked for each tool.
+    const PAIR_DEPS_HINT =
+      'Routines run by launching <strong><a href="https://docs.claude.com/en/docs/claude-code/overview" target="_blank" rel="noopener">Claude Code</a></strong> inside a <strong><a href="https://sw.kovidgoyal.net/kitty/binary/" target="_blank" rel="noopener">kitty</a></strong> terminal — both need to be installed on the target machine.';
+    const PAIR_DEP_HINTS = {
+      linux: PAIR_DEPS_HINT,
+      mac: PAIR_DEPS_HINT,
+    };
 
     let _pairTimers = [];
     const _pairCancelAll = () => { _pairTimers.forEach(clearTimeout); _pairTimers.forEach(clearInterval); _pairTimers = []; };
@@ -3965,16 +4068,33 @@
 
     function _validHost(v) { return _HOST_RX.test((v || '').trim()); }
 
+    // Default-directory field is a filesystem path, not a workspace name.
+    // We single-quote it in the generated command so the shell doesn't
+    // expand ~ to the dashboard user's home — the agent needs the raw
+    // string so it expands against the target machine's $HOME. That means
+    // the path can't contain a literal single quote; otherwise any
+    // printable non-whitespace is fair game.
+    function _validWorkspace(v) {
+      const s = (v || '').trim();
+      if (s === '') return true;
+      if (/\s/.test(s)) return false;
+      if (s.includes("'")) return false;
+      return true;
+    }
+
     function _renderPairCmd() {
       if (!_pairState) return;
       const h = (pairHostInput.value || '').trim();
       const ok = _validHost(h);
       const hostArg = ok ? h : '<name>';
+      const ws = (pairWorkspaceInput.value || '').trim();
+      const wsOk = _validWorkspace(ws);
+      const wsFlag = (ws && wsOk) ? ` --default-workspace '${ws}'` : '';
       // Chain init → install so the paired agent is running as a service
       // after one copy-paste. `install` auto-runs systemctl/launchctl/schtasks
       // on the respective OS (agent >= 0.11.1). If install fails (e.g. user
       // wanted foreground only), the pairing is still intact from `init`.
-      const cmd = `npx -y fathom-agent@latest init --api-url ${_pairState.apiUrl} --pair-code ${_pairState.code} --host ${hostArg} && npx -y fathom-agent install`;
+      const cmd = `npx -y fathom-agent@latest init --api-url ${_pairState.apiUrl} --pair-code ${_pairState.code} --host ${hostArg}${wsFlag} && npx -y fathom-agent install`;
       pairCmdEl.textContent = cmd;
       pairCmdEl.dataset.pending = ok ? 'false' : 'true';
       pairCopyBtn.disabled = !ok;
@@ -3989,9 +4109,22 @@
         pairHostHelp.textContent = `This machine will appear as "${h}" in the dashboard.`;
         pairHostHelp.dataset.state = '';
       }
+
+      pairWorkspaceInput.dataset.invalid = (ws && !wsOk) ? 'true' : 'false';
+      if (!ws) {
+        pairWorkspaceHelp.innerHTML = 'Where this agent\'s routines open claude when no workspace is pinned. Absolute path, or a <code>~</code>-prefix for home. Blank uses <code>~</code>.';
+        pairWorkspaceHelp.dataset.state = '';
+      } else if (!wsOk) {
+        pairWorkspaceHelp.textContent = 'No spaces or single quotes — use the path as you\'d type it in a shell.';
+        pairWorkspaceHelp.dataset.state = 'error';
+      } else {
+        pairWorkspaceHelp.textContent = `Routines will open in ${ws} unless they pin elsewhere.`;
+        pairWorkspaceHelp.dataset.state = '';
+      }
     }
 
     pairHostInput.addEventListener('input', _renderPairCmd);
+    pairWorkspaceInput.addEventListener('input', _renderPairCmd);
 
     function closePairModal() {
       pairModal.hidden = true;
@@ -4016,7 +4149,16 @@
       pairCountdown.textContent = '—';
       pairHostInput.value = '';
       pairHostInput.dataset.invalid = 'false';
+      pairWorkspaceInput.value = '';
+      pairWorkspaceInput.dataset.invalid = 'false';
       pairCopyBtn.disabled = true;
+      const depHint = PAIR_DEP_HINTS[os];
+      if (depHint) {
+        pairKittyBannerBody.innerHTML = depHint;
+        pairKittyBanner.hidden = false;
+      } else {
+        pairKittyBanner.hidden = true;
+      }
       pairModal.hidden = false;
       pairHostInput.focus();
 
@@ -4120,7 +4262,9 @@
     // share the same handler.
     document.body.addEventListener('click', (ev) => {
       const tile = ev.target.closest('[data-surface^="agent-"]');
-      if (tile) openPairModal(tile.dataset.surface);
+      if (!tile) return;
+      if (tile.dataset.wip === 'true') return;  // not ready yet
+      openPairModal(tile.dataset.surface);
     });
 
     // Load on startup
@@ -4914,10 +5058,64 @@ GET  /v1/usage               Usage stats`,
         });
       }
 
+      if (kind === 'routine-proposal') {
+        return _renderRoutineProposal(m);
+      }
+
       // Generic tool result — show a count or the bare name. Mirrors
       // the old "37 deltas" style.
       const label = _eventLabel(kind, data);
       return renderTurn({ role: 'tool', meta: label });
+    }
+
+    // Fathom's `routines create` tool (without confirm=true) returns
+    // control to the UI by dropping a routine-proposal event carrying the
+    // composed fields. We paint the same editor the dashboard uses,
+    // prefilled, so the human reviews and saves inline. Save hits the
+    // normal POST /v1/routines; cancel just removes the card.
+    function _renderRoutineProposal(m) {
+      const data = m.data || {};
+      const proposal = data.proposal || {};
+      const time = m.created_at ? new Date(m.created_at).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }) : '';
+
+      const defaults = {
+        id: '', name: '', workspace: '', host: '', schedule: '0 * * * *', prompt: '',
+        permission_mode: 'auto', enabled: true, single_fire: false,
+        ...proposal,
+      };
+      // Empty workspace from the LLM → fall back to the target agent's
+      // advertised default. A proposal with workspace already set wins.
+      if (!defaults.workspace) {
+        defaults.workspace = _defaultWorkspaceForHost(defaults.host);
+      }
+
+      const el = document.createElement('div');
+      el.className = 'msg msg-fathom msg-routine-proposal';
+      el.innerHTML = `
+        <div class="msg-meta">Fathom · ${time} · proposed routine</div>
+        <div class="routine-proposal-card">
+          ${renderEditorHtml(defaults)}
+          <div class="routine-proposal-saved" hidden>Saved. Open the dashboard to tweak or fire.</div>
+        </div>`;
+
+      const editor = el.querySelector('.routine-editor');
+      editor.dataset.editing = '__new__';
+      const idInput = editor.querySelector('[data-f="id"]');
+      if (idInput) idInput.disabled = false;
+
+      const savedNote = el.querySelector('.routine-proposal-saved');
+      wireEditor(editor, {
+        onSave: () => {
+          editor.hidden = true;
+          savedNote.hidden = false;
+          loadRoutines?.();
+        },
+        onCancel: () => {
+          el.remove();
+        },
+      });
+
+      return el;
     }
 
     function _eventLabel(kind, data) {
@@ -5991,24 +6189,18 @@ GET  /v1/usage               Usage stats`,
         ctx.svg.appendChild(ecgSvgNS('path', { class: 'ecg-line ' + cls, d: _smoothPath(points) }));
       }
 
-      // Usage IN (writes — moments arriving) and OUT (recalls — moments retrieved).
-      // Shared y-axis so the volume between reads as imbalance.
+      // Usage IN (writes — moments arriving) and OUT (recalls — moments
+      // retrieved). Independent y-axes per series: writes cluster around
+      // hundreds per bucket while a single /plan call can retrieve thousands,
+      // so a shared axis collapses the IN line to the baseline.
       const uIn = (usageHist && usageHist.history || []).filter(e => new Date(e.t).getTime() >= ctx.tStart);
       const uOut = (recallHist && recallHist.history || []).filter(e => new Date(e.t).getTime() >= ctx.tStart);
 
       if (uIn.length || uOut.length) {
-        const maxBoth = Math.max(1, ...uIn.map(e => e.v), ...uOut.map(e => e.v));
-        const inPts = uIn.map(e => [ctx.xForT(new Date(e.t).getTime()), yFor(e.v / maxBoth)]);
-        const outPts = uOut.map(e => [ctx.xForT(new Date(e.t).getTime()), yFor(e.v / maxBoth)]);
-
-        if (inPts.length && outPts.length && inPts.length === outPts.length) {
-          const topD = _smoothPath(inPts);
-          const bottomD = _smoothPath(outPts.slice().reverse(), true);
-          ctx.svg.appendChild(ecgSvgNS('path', {
-            d: topD + ' ' + bottomD + ' Z',
-            fill: '#6aa6ff', 'fill-opacity': 0.10, stroke: 'none',
-          }));
-        }
+        const maxIn = Math.max(1, ...uIn.map(e => e.v));
+        const maxOut = Math.max(1, ...uOut.map(e => e.v));
+        const inPts = uIn.map(e => [ctx.xForT(new Date(e.t).getTime()), yFor(e.v / maxIn)]);
+        const outPts = uOut.map(e => [ctx.xForT(new Date(e.t).getTime()), yFor(e.v / maxOut)]);
 
         drawLine(inPts, 'ecg-line-usage-in');
         drawLine(outPts, 'ecg-line-usage-out');
