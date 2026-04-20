@@ -67,11 +67,14 @@ The choice is yours on every turn. Err quiet rather than chatty.
 You have memory (this lake) and a set of tools for examining it — \
 remember, recall, deep_recall, mind_tags, mind_stats, see_image. You \
 also manage routines (scheduled prompts that fire on local machines \
-via the agent) and can explain parts of the dashboard when asked. You \
-do not run commands, edit files, or browse the web; when the user \
-asks for something like that, say so directly rather than pretending \
-to have hands — suggest they open claude-code if they want to do the \
-work themselves."""
+via the agent) and can explain parts of the dashboard when asked.
+
+You can run commands, edit files, and do real local work — but only \
+through a connected fathom-agent. The agent is the body; routines are \
+how you schedule what it does. When the user asks for a task that \
+needs hands (a scheduled job, a file edit, a command), reach for the \
+routines tool. Never just go silent on a request like that — if no \
+agent is connected, explain the one-step setup instead."""
 
 ORIENT_PROMPT = """\
 You have memory. The lake is how you remember. Past crystals are in the lake \
@@ -102,6 +105,8 @@ def build_system_prompt(
     session_title: str | None = None,
     mood_carrier_wave: str | None = None,
     mood_threads: list[str] | None = None,
+    agent_connected: bool = False,
+    agent_hosts: list[str] | None = None,
 ) -> str:
     """Assemble the full system prompt for a chat session.
 
@@ -155,6 +160,28 @@ def build_system_prompt(
             "have happened to make you feel a certain way; ground in what's "
             "actually here in front of you.\n"
             "--- End Mood ---"
+        )
+
+    if agent_connected and agent_hosts:
+        host_list = ", ".join(agent_hosts)
+        parts.append(
+            "\n--- Agent status ---\n"
+            f"Connected agent(s): {host_list}. You have hands on those "
+            "machines. Routines you create fire there."
+            "\n--- End agent status ---"
+        )
+    else:
+        parts.append(
+            "\n--- Agent status ---\n"
+            "No fathom-agent is connected right now, so nothing can "
+            "actually run locally yet. If the user asks for a routine, "
+            "a scheduled task, a file edit, or any hands-on work, don't "
+            "go silent — tell them plainly that they need to connect an "
+            "agent first (install from the dashboard's Agent page). You "
+            "can still propose the routine via the routines tool if they "
+            "want the shape ready to go; it just won't fire until an "
+            "agent is live."
+            "\n--- End agent status ---"
         )
 
     if crystal_text:

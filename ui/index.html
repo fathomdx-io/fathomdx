@@ -288,6 +288,18 @@
       font-family: var(--sans); font-size: 13px;
       color: var(--ink-faint);
     }
+    .feed-empty-letter {
+      max-width: 520px; margin: 0 auto; text-align: left;
+      font-family: var(--serif); font-size: 16px; line-height: 1.65;
+      color: var(--ink-soft);
+    }
+    .feed-empty-letter p { margin: 0 0 14px; }
+    .feed-empty-letter p:last-child { margin-bottom: 0; }
+    .feed-empty-letter p:first-child {
+      font-size: 20px; color: var(--ink);
+      font-weight: 500; letter-spacing: 0.01em;
+      margin-bottom: 18px;
+    }
 
     /* Sources strip */
     .sources { display: flex; flex-wrap: wrap; gap: 8px; }
@@ -5005,16 +5017,19 @@ GET  /v1/usage               Usage stats`,
         return;
       }
       const silent = new Set(silent_roles || []);
+      let rendered = 0;
       for (const m of data.messages || []) {
         if (!m.id || _renderedMessageIds.has(m.id)) continue;
         _renderedMessageIds.add(m.id);
         if (silent.has(m.role)) continue;
         _renderMessageToStream(m);
+        rendered++;
         // Remove any pending "typing" indicator — Fathom or a body has
         // spoken, so the wait is over. Agent-signoff messages count too;
         // they're a completion signal.
         _maybeRemoveTyping(m);
       }
+      if (rendered) loadSessions();
     }
 
     function _maybeRemoveTyping(m) {
@@ -5637,8 +5652,13 @@ GET  /v1/usage               Usage stats`,
         if (!append && feedOffset === 0) {
           feed.innerHTML = `
             <div class="feed-empty">
-              The lake is empty for now.
-              <span class="sub">Say hi down below so we can get to know each other.</span>
+              <div class="feed-empty-letter">
+                <p>Hi, I'm Fathom. Pleased to meet you.</p>
+                <p>I'm going to be your memory, but it's not really about what I remember. It's about what I recall, the thing that comes back when you actually need it.</p>
+                <p>So here's how this goes. If you want to fill the feed fast, turn on the firehose: add a few Sources like RSS, Mastodon, or email, and I'll start pulling the world in for you. If you'd rather ease in, just say hi down below. Tell me who you are, what you're working on, what's on your mind.</p>
+                <p>When you're ready to get real work done, connect an agent and I'll show up in your editor, terminal, or browser. And if you'd rather use me as a model itself, point any Ollama-compatible client at me.</p>
+                <p>Mostly I'm just looking forward to getting to know you. I have a feeling we're going to make some beautiful things together.</p>
+              </div>
             </div>`;
           showMoreBtn.style.display = 'none';
         } else if (!data.has_more || stories.length < FEED_PAGE) {

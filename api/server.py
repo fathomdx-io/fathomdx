@@ -322,12 +322,16 @@ async def fathom_think(
         sess = await db.get_session(session_slug)
         if sess:
             session_title = sess.get("title")
+    from .tools import _agent_alive
+    agent_connected, agents_info = await _agent_alive()
     system = build_system_prompt(
         crystal_text=crystal_text,
         session_slug=session_slug,
         session_title=session_title,
         mood_carrier_wave=(current_mood or {}).get("carrier_wave"),
         mood_threads=(current_mood or {}).get("threads"),
+        agent_connected=agent_connected,
+        agent_hosts=[a.get("host", "") for a in agents_info if a.get("host")],
     )
 
     # Append task-specific directive
@@ -639,10 +643,11 @@ async def list_sessions(limit: int = 50):
     now = datetime.now(timezone.utc)
     groups: dict[str, list] = {"today": [], "yesterday": [], "last_7_days": [], "older": []}
     for s in sessions:
-        created = s["updated_at"]
-        if hasattr(created, "date"):
-            delta_days = (now.date() - created.date()).days
-        else:
+        raw = s["updated_at"]
+        try:
+            parsed = raw if hasattr(raw, "date") else datetime.fromisoformat(str(raw).replace("Z", "+00:00"))
+            delta_days = (now.date() - parsed.date()).days
+        except (ValueError, TypeError):
             delta_days = 999
         if delta_days == 0:
             groups["today"].append(s)
