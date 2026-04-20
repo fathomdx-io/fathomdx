@@ -48,14 +48,16 @@ POLL_INTERVAL_SECONDS = 3
 EVENT_TTL_SECONDS = 300
 
 # Sources whose deltas should NOT trigger a Fathom turn:
-#   - fathom-chat: Fathom's own chat writes. Would loop forever.
+#   - fathom-chat-event: our own ephemeral tool/silence events.
 #   - fathom-mood, fathom-feed, consumer-api:route: other consumer-api
 #     writes. These are side effects, not conversation.
-# Anything else landing with a `chat:<slug>` tag is treated as a
-# participant's message and fires a turn.
+# NOTE: `fathom-chat` is NOT in this list. Both user messages and
+# Fathom's own replies use that source (db.add_message writes with
+# LAKE_CHAT_SOURCE="fathom-chat"), so filtering by source would miss
+# legitimate user turns. Fathom's own writes are filtered by the
+# participant:fathom tag check below instead.
 IGNORED_SOURCES = {
-    "fathom-chat",
-    "fathom-chat-event",  # ephemeral tool/silence events Fathom wrote
+    "fathom-chat-event",
     "fathom-mood",
     "fathom-feed",
     "consumer-api:route",  # Fathom's own route_to_agent writes
