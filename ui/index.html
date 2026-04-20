@@ -1215,6 +1215,15 @@
       padding: 2px 0 0;
     }
 
+    /* Silent-ack variant — renders only a meta line (no body bubble)
+       with a checkmark. Occupies a turn's worth of visual space so
+       you notice it on the same scan as a real reply, but doesn't
+       pretend there's a message where there isn't. */
+    .msg-silence .silence-check {
+      color: var(--signal, var(--accent));
+      font-weight: 600;
+    }
+
     /* Agent message: card with a distinct left border marking the host,
        mono prefix for machine identity. Reads as "another voice in the
        room", neither user nor Fathom. */
@@ -4911,9 +4920,14 @@ GET  /v1/usage               Usage stats`,
       const data = m.data || {};
 
       if (kind === 'silence') {
+        // A silent ack renders as a compact Fathom meta-line with a
+        // checkmark — occupies the same slot a reply would (so you
+        // notice it on the same scan), but takes one line instead of
+        // a bubble. "FATHOM · 11:45 PM · ✓"
+        const time = m.created_at ? new Date(m.created_at).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }) : '';
         const el = document.createElement('div');
-        el.className = 'msg-signoff';
-        el.textContent = 'Fathom acknowledged · stayed quiet';
+        el.className = 'msg msg-fathom msg-silence';
+        el.innerHTML = `<div class="msg-meta">Fathom · ${time} · <span class="silence-check" title="Fathom acknowledged and chose not to reply">✓</span></div>`;
         return el;
       }
 

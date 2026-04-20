@@ -243,11 +243,12 @@ class ChatListener:
             # Active silence — Fathom heard, chose not to speak. Write a
             # short-lived ack delta so the UI knows the turn happened.
             # No persistence value, just a live receipt.
-            print(f"chat-listener: silence in {slug} (<...>)", flush=True)
+            print(f"chat-listener: silence in {slug} (<...>) — writing ack", flush=True)
             try:
                 await write_chat_event(slug, "silence", {})
+                print(f"chat-listener: silence ack written for {slug}", flush=True)
             except Exception as e:
-                print(f"chat-listener: silence ack failed: {e}", flush=True)
+                print(f"chat-listener: silence ack failed: {type(e).__name__}: {e}", flush=True)
             return
 
         # Persist Fathom's reply the same way the old chat endpoint did.
