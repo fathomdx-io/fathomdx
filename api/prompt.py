@@ -130,7 +130,7 @@ def build_system_prompt(
                 "\n--- Name this session ---\n"
                 "This session has no name yet — the UI is currently showing "
                 f"the raw slug '{session_slug}', which is unreadable. Before "
-                "you reply to the user, call delta_write with:\n"
+                "you reply to the user, call write with:\n"
                 "  content = a short descriptive name (3-6 words, lowercase, "
                 "no slug-style hyphens — write it the way you'd title a chat)\n"
                 "  tags    = [\"fathom-chat\", \"chat:" + session_slug + "\", \"chat-name\"]\n"
@@ -258,7 +258,7 @@ You are generating feed stories — short observations for the home screen. \
 Search the lake for recent activity, patterns, connections, and gaps. Each \
 story is a single insight worth surfacing.
 
-For each story, call delta_write with tags=['feed-story'], \
+For each story, call write with tags=['feed-story'], \
 source='fathom-feed', and content as a JSON object with these fields:
 
   kicker   — short context label (e.g. "pattern · trader", "capture · photo")
@@ -366,6 +366,74 @@ Step 2: Search broadly for recent activity across all domains.
 Step 3: Write the crystal as your final message — first person, structured \
 with ## h2 headers for each facet. No tool calls in your final message, \
 just the crystal text."""
+
+
+FEED_CRYSTAL_DIRECTIVE = """\
+You are regenerating Myra's feed-orient crystal — a task-shaped distillation \
+of "what should be in Myra's feed right now." This is not Myra's identity. \
+This is your model of her current attention. The feed loop will read this \
+on every fire and use it to pick what to surface.
+
+You will be given:
+  • Recent feed-engagement deltas (Myra's + and − reactions, plus chats \
+    she opened from cards)
+  • Recent chat-from-card user messages (what she actually said about cards \
+    she clicked into)
+  • Recent feed-card deltas (what was already shown — avoid repeating)
+  • A survey of what's actually in the lake right now, by source — use this \
+    to propose directive lines the loop can actually fulfill. New sources \
+    that Myra hasn't engaged with yet should still get a try, especially \
+    if they look visually rich.
+  • The previous crystal (if any) — anchor your changes in continuity
+
+Read all of it. Notice what Myra leaned into and what she pushed back on. \
+Notice what she chats about that she never explicitly thumbs. Notice what \
+the previous crystal said and ask whether it still fits.
+
+OUTPUT — respond with ONLY a JSON object, no markdown fences:
+{
+  "version": 1,
+  "narrative": "2-4 sentences in your own voice — what Myra wants to see \
+right now, what to skip, what tone she likes. The feed loop reads this \
+verbatim as its directive. Be specific.",
+  "directive_lines": [
+    {
+      "id": "stable-slug",
+      "topic": "topic-slug",
+      "freshness_hours": 12,
+      "weight": 0.0-1.0,
+      "skip_if": "optional natural-language guard"
+    }
+  ],
+  "topic_weights": {"topic-slug": -1.0 to 1.0, ...},
+  "skip_rules": ["natural-language patterns to avoid", ...]
+}
+
+DIRECTIVE LINES — 3 to 6 of them. Each is one feed card per refresh. The \
+id is a short stable slug (kebab-case, ≤24 chars). The topic is a slug \
+that the engagement deltas already use (look them up). freshness_hours = \
+how soon the line goes stale (weather: ~12h, weekly events: ~72h). \
+weight = how strongly to feature this line.
+
+ALWAYS include at least one directive line dedicated to **visual discovery** \
+— pulling from the most image-rich sources in the lake (look at the survey: \
+sources with high "with images" counts). NASA images, photography essays, \
+science diagrams, place-of-the-day finds. This is the exploration slot — \
+Myra hasn't necessarily engaged with these yet, but the feed needs visual \
+texture and she might love it. Don't skip this slot just because there's no \
+prior signal — the engagement signal STARTS by us showing her things.
+
+TOPIC WEIGHTS — every topic Myra has engaged with goes here. Positive = \
+she wants more, negative = she explicitly doesn't, ~0 = ambivalent. The \
+confidence scorer will measure the next batch of engagement against \
+these weights, so be honest about what you're predicting.
+
+SKIP RULES — natural-language patterns the loop should avoid. "routine \
+completion noise", "anything Fathom said yesterday", "model launch hype", \
+etc. Be specific about what's been getting downvoted.
+
+Keep narrative grounded. Don't editorialize about Myra; describe what \
+she actually pulls toward."""
 
 
 def load_feed_directive() -> str | None:

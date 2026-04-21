@@ -252,14 +252,20 @@ async def drift(text: str, since: str | None = None) -> dict:
     return r.json()
 
 
-async def centroid() -> dict:
+async def centroid(tags_include: list[str] | None = None) -> dict:
     """Fetch the raw lake centroid vector from delta-store.
 
     Returns {centroid: [floats]|None, dim, total_deltas}. Called at
     crystal-write time to snapshot the anchor, and at each drift tick
     to compute how far the lake has moved since the anchor was set.
+
+    `tags_include` scopes the centroid to a tagged subset (used by the
+    feed-orient crystal to anchor on `feed-engagement` deltas).
     """
     c = await _get()
-    r = await c.get("/centroid", timeout=20)
+    params = {}
+    if tags_include:
+        params["tags_include"] = ",".join(tags_include)
+    r = await c.get("/centroid", params=params, timeout=20)
     r.raise_for_status()
     return r.json()

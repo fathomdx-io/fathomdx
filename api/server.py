@@ -17,7 +17,7 @@ from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
-from . import auth, auto_regen, crystal, crystal_anchor, db, delta_client, drift, mood, pairing, pressure, recall, routines as routines_mod, usage as usage_module
+from . import auth, auto_regen, crystal, crystal_anchor, db, delta_client, drift, feed_crystal, feed_loop, mood, pairing, pressure, recall, routines as routines_mod, usage as usage_module
 
 log = logging.getLogger(__name__)
 from .prompt import (
@@ -73,6 +73,14 @@ class SourceUpdate(BaseModel):
     config: dict | None = None
     interval_minutes: int | None = None
     expiry_days: float | None = None
+
+
+class FeedEngagementRequest(BaseModel):
+    kind: str  # "more" | "less" | "chat"
+    card_id: str
+    topic: str | None = None
+    card_excerpt: str | None = None
+    chat_session: str | None = None
 
 
 # ── App ─────────────────────────────────────────
@@ -581,21 +589,106 @@ async def refresh_crystal():
 
 @app.post("/v1/feed/refresh")
 async def refresh_feed():
-    """Generate new feed stories via LLM + delta lake tools."""
-    # Build directive: core feed instructions + optional disk override
-    directive_parts = [FEED_DIRECTIVE]
-    disk_directive = load_feed_directive()
-    if disk_directive:
-        directive_parts.append(disk_directive)
-    directive = "\n\n".join(directive_parts)
+    """Manual kick of the feed loop, bypassing the visit-debounce.
 
-    messages = await fathom_think(
-        user_message="Generate 3-6 feed stories from what's in the lake right now.",
-        directive=directive,
-        recall=True,
-    )
-    last = messages[-1] if messages else {}
-    return {"status": "ok", "response": last.get("content", "")}
+    Still respects the single-flight lock — repeated calls during a fire
+    return `fired=False, reason=already-running`. Useful for debugging
+    and for any external trigger that wants to force a regen.
+    """
+    return await feed_loop.force_fire(reason="manual-refresh")
+
+
+@app.post("/v1/feed/visit")
+async def feed_visit():
+    """Page-view ping. Schedules a debounced fire (cooldown in settings)."""
+    return await feed_loop.mark_visit()
+
+
+@app.get("/v1/feed/status")
+async def feed_status():
+    """Current loop state for the UI's "generating…" indicator."""
+    return feed_loop.current_status()
+
+
+@app.get("/v1/feed/crystal")
+async def get_feed_crystal():
+    """Latest crystal:feed-orient delta."""
+    c = await feed_crystal.latest(force=True)
+    if not c:
+        return {"crystal": None}
+    return {"crystal": {
+        "id": c.get("id"),
+        "created_at": c.get("created_at"),
+        "confidence": c.get("confidence"),
+        "narrative": c.get("narrative"),
+        "directive_lines": c.get("directive_lines"),
+        "topic_weights": c.get("topic_weights"),
+        "skip_rules": c.get("skip_rules"),
+    }}
+
+
+@app.post("/v1/feed/crystal/refresh")
+async def refresh_feed_crystal():
+    """Manually run a feed-orient crystal regeneration (no wake-gate check)."""
+    fresh = await feed_crystal.synthesize()
+    if not fresh:
+        raise HTTPException(500, "synthesis failed — check server logs")
+    return {"status": "ok", "id": fresh.get("id"), "confidence": fresh.get("confidence")}
+
+
+@app.get("/v1/feed/crystal/events")
+async def feed_crystal_events(limit: int = 50):
+    """Crystal regeneration history (for the ECG card)."""
+    events = await feed_crystal.list_events(limit=limit)
+    return {"events": events}
+
+
+@app.get("/v1/feed/drift")
+async def feed_drift():
+    """Sample current engagement-centroid drift now."""
+    return await feed_crystal.sample_drift()
+
+
+@app.get("/v1/feed/drift/history")
+async def feed_drift_history(since_seconds: int | None = None):
+    """Drift history for the ECG card."""
+    return {"history": feed_crystal.drift_history(since_seconds=since_seconds)}
+
+
+@app.get("/v1/feed/confidence/history")
+async def feed_confidence_history(limit: int = 50):
+    """Confidence over time, derived from the confidence: tag on each crystal regen."""
+    events = await feed_crystal.list_events(limit=limit)
+    return {"history": [
+        {"t": e.get("timestamp"), "v": e.get("confidence")}
+        for e in events
+        if e.get("confidence") is not None
+    ]}
+
+
+@app.get("/v1/feed/engagement/history")
+async def feed_engagement_history(since_seconds: int = 7 * 24 * 3600, limit: int = 500):
+    """Engagement marks for the ECG bottom rule. Returns time + sign per delta."""
+    from datetime import datetime, timedelta, timezone
+    cutoff = (datetime.now(timezone.utc) - timedelta(seconds=since_seconds)).isoformat()
+    try:
+        deltas = await delta_client.query(tags_include=["feed-engagement"], time_start=cutoff, limit=limit)
+    except Exception:
+        deltas = []
+    out = []
+    for d in deltas:
+        kind = ""
+        for t in d.get("tags") or []:
+            if isinstance(t, str) and t.startswith("engagement:"):
+                kind = t.split(":", 1)[1]
+                break
+        if not kind:
+            continue
+        sign = 1 if kind in ("more", "chat") else -1 if kind == "less" else 0
+        if not sign:
+            continue
+        out.append({"t": d.get("timestamp"), "v": sign, "k": kind})
+    return {"history": out}
 
 
 @app.get("/v1/models")
@@ -702,6 +795,50 @@ async def delete_session(session_id: str):
 async def get_feed_stories(limit: int = 20, offset: int = 0):
     """Proxy to delta-store's feed stories endpoint."""
     return await delta_client.feed_stories(limit=limit, offset=offset)
+
+
+@app.post("/v1/feed/engagement")
+async def write_feed_engagement(req: FeedEngagementRequest):
+    """Capture a feed engagement signal — input to the feed-orient crystal.
+
+    Only three kinds count: `more` (the + button), `less` (the − button),
+    and `chat` (a message in a chat session opened from a card). Click
+    alone is not engagement; the chat session it opens is. See
+    docs/feed-spec.md.
+    """
+    kind = (req.kind or "").lower()
+    if kind not in ("more", "less", "chat"):
+        raise HTTPException(400, f"unknown engagement kind: {kind!r}")
+    if not req.card_id:
+        raise HTTPException(400, "card_id required")
+
+    # Note on tagging: deliberately NOT using `chat:<slug>` for the chat
+    # session linkage — that tag belongs to the chat-listener's session
+    # roster, and an engagement delta tagged with it would be processed
+    # as a user message and trip an inference turn on the JSON payload.
+    # Use `chat-from:<slug>` instead — same retrieval ergonomics, no
+    # collision with the listener's chat-trigger filter.
+    tags = ["feed-engagement", f"engagement:{kind}", f"card-id:{req.card_id}"]
+    if req.topic:
+        tags.append(f"topic:{req.topic}")
+    if req.chat_session:
+        tags.append(f"chat-from:{req.chat_session}")
+
+    payload = {
+        "kind": kind,
+        "card_id": req.card_id,
+        "topic": req.topic or "",
+        "card_excerpt": (req.card_excerpt or "")[:200],
+    }
+    if req.chat_session:
+        payload["chat_session"] = req.chat_session
+
+    written = await delta_client.write(
+        content=json.dumps(payload, ensure_ascii=False),
+        tags=tags,
+        source="consumer-api",
+    )
+    return {"status": "ok", "id": written.get("id")}
 
 
 @app.get("/v1/moods/latest")

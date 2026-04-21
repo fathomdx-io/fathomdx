@@ -61,6 +61,7 @@ ROUTE_SCOPES: list[tuple[str, str, str]] = [
     ("GET", "/v1/sessions", "chat"),
     ("POST", "/v1/sessions", "chat"),
     ("GET", "/v1/feed", "lake:read"),
+    ("POST", "/v1/feed", "lake:write"),
     ("GET", "/v1/usage", "lake:read"),
     ("GET", "/v1/media", "lake:read"),
     ("POST", "/v1/media", "lake:write"),
@@ -234,15 +235,24 @@ class TokenAuthMiddleware(BaseHTTPMiddleware):
             request.state.token = None
             return await call_next(request)
 
-        # Check Authorization header
+        # Check Authorization header — preferred path for all clients.
+        # Fallback for GET on /v1/media/* only: accept ?token=… query
+        # param. <img src="…"> tags can't pass headers, so without this
+        # fallback every in-lake media_hash image returns 401 in the
+        # browser. Scope-narrow on purpose: only GET on the media route,
+        # never write endpoints (a leaked URL with token in a referrer
+        # header would otherwise grant write access).
         auth_header = request.headers.get("authorization", "")
-        if not auth_header.startswith("Bearer "):
+        raw_token = ""
+        if auth_header.startswith("Bearer "):
+            raw_token = auth_header[7:]
+        elif method == "GET" and path.startswith("/v1/media/"):
+            raw_token = request.query_params.get("token", "")
+        if not raw_token:
             return JSONResponse(
                 status_code=401,
                 content={"error": "Missing or invalid Authorization header"},
             )
-
-        raw_token = auth_header[7:]
         token_info = validate(raw_token)
         if not token_info:
             return JSONResponse(

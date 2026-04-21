@@ -608,17 +608,24 @@ class DriftRequest(_BaseModel):
     since: str
 
 
-async def _compute_lake_centroid():
+async def _compute_lake_centroid(tags_include: list[str] | None = None):
     """Return (embedded_list, centroid_unit_vec | None).
 
     Exponentially-decayed weighted mean of all embedded delta vectors,
     7-day half-life, L2-normalized. Shared by /drift (which also needs
     the raw embedded list for the new-delta count) and /centroid.
+
+    `tags_include` scopes the centroid to a subset of deltas — used by
+    the feed-orient crystal to anchor on engagement-tagged deltas only.
+    Same semantics as store.query's tags_include (AND across tags).
     """
     import numpy as np
     from datetime import UTC, datetime
 
-    all_deltas = await store.query(limit=5000)
+    if tags_include:
+        all_deltas = await store.query(tags_include=tags_include, limit=5000)
+    else:
+        all_deltas = await store.query(limit=5000)
     embedded = [d for d in all_deltas if d.get("embedding")]
     if not embedded:
         return embedded, None
@@ -674,14 +681,20 @@ async def drift(req: DriftRequest):
 
 
 @app.get("/centroid")
-async def centroid():
+async def centroid(tags_include: str | None = None):
     """Return the raw decayed lake centroid vector.
 
     Used by consumer-fathom to snapshot an "anchor" at crystal-write time —
     drift is then the distance this anchor has drifted from the current
     centroid, independent of the crystal's own text embedding.
+
+    `tags_include` is a comma-separated tag list. When provided, the
+    centroid is computed over only the deltas matching all those tags
+    (the feed-orient crystal uses this to anchor on `feed-engagement`
+    deltas only).
     """
-    embedded, vec = await _compute_lake_centroid()
+    tag_filter = [t.strip() for t in (tags_include or "").split(",") if t.strip()] or None
+    embedded, vec = await _compute_lake_centroid(tag_filter)
     if vec is None:
         return {"centroid": None, "dim": 0, "total_deltas": 0}
     return {

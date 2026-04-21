@@ -62,6 +62,20 @@ class Settings(BaseSettings):
     crystal_drift_poll_seconds: int = 60
     crystal_regen_cooldown_seconds: int = 259200  # 3 days
 
+    # Feed-orient crystal (mood-shape regen, not identity-shape).
+    # See docs/feed-spec.md. The min-signal guard is the cold-start
+    # fail-open lesson from the 2026-04-19 auto-regen runaway.
+    feed_crystal_cooldown_seconds: int = 21600  # 6 hours
+    feed_drift_threshold: float = 0.35
+    feed_confidence_floor: float = 0.55
+    feed_min_signal_engagements: int = 10
+
+    # Feed loop — per-directive-line budgets. Without a budget,
+    # "until satisfied" is a runaway-cost grenade.
+    feed_loop_budget_tool_calls: int = 8
+    feed_loop_budget_seconds: int = 90
+    feed_loop_visit_debounce_seconds: int = 600  # 10 min
+
     # Server
     host: str = "0.0.0.0"
     port: int = 8200
