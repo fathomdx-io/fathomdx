@@ -551,38 +551,24 @@
     .ecg-line-feed-confidence { stroke: #d8b14a; stroke-dasharray: 5 4; }
     .ecg-engagement-mark { stroke-width: 1.2; opacity: 0.7; }
 
-    /* Feed-loop status pip on the "What I noticed" header. Reads
-       /v1/feed/status and renders one of four states:
-         generating → breathing purple
-         ok         → solid teal (cards written recently)
-         idle       → soft gray (nothing new — all topics fresh, etc.)
-         warn       → soft amber (no directive lines, cold start, etc.)
-       Tooltip carries the human-readable reason so the user isn't left
-       wondering why a visit produced nothing. */
+    /* Feed-loop status pip on the "What I noticed" header. Two states only:
+         generating → breathing green (LLM tokens flowing)
+         idle       → static gray (no LLM activity, anything else)
+       No warn, no ok-persistence, no color-coded history. */
     .feed-pulse {
       display: inline-block;
       width: 8px; height: 8px; border-radius: 50%;
       margin-left: 10px;
       vertical-align: middle;
-      background: var(--signal);
+      background: var(--ink-faint);
+      opacity: 0.5;
       cursor: help;
     }
     .feed-pulse[data-state="generating"] {
-      animation: feed-pulse 1.4s ease-in-out infinite;
-      box-shadow: 0 0 0 0 rgba(176, 140, 255, 0.55);
-    }
-    .feed-pulse[data-state="ok"] {
       background: var(--signal);
-      box-shadow: 0 0 6px var(--dot-glow, var(--signal));
-      opacity: 0.9;
-    }
-    .feed-pulse[data-state="idle"] {
-      background: var(--ink-faint);
-      opacity: 0.6;
-    }
-    .feed-pulse[data-state="warn"] {
-      background: var(--accent);
-      opacity: 0.75;
+      opacity: 1;
+      animation: feed-pulse 1.4s ease-in-out infinite;
+      box-shadow: 0 0 0 0 rgba(92, 225, 198, 0.55);
     }
     /* Element-level `display: inline-block` above overrides the user-agent
        stylesheet's `[hidden] { display: none }`. Restore the hide. */
@@ -602,11 +588,11 @@
     }
     .feed-activity[hidden] { display: none; }
     @keyframes feed-pulse {
-      0%, 100% { opacity: 0.45; transform: scale(0.85); box-shadow: 0 0 0 0 rgba(176, 140, 255, 0.55); }
-      50%      { opacity: 1.0;  transform: scale(1.0);  box-shadow: 0 0 0 6px rgba(176, 140, 255, 0); }
+      0%, 100% { opacity: 0.55; transform: scale(0.85); box-shadow: 0 0 0 0 rgba(92, 225, 198, 0.55); }
+      50%      { opacity: 1.0;  transform: scale(1.0);  box-shadow: 0 0 0 6px rgba(92, 225, 198, 0); }
     }
     @media (prefers-reduced-motion: reduce) {
-      .feed-pulse[data-state="generating"] { animation: none; opacity: 0.85; }
+      .feed-pulse[data-state="generating"] { animation: none; opacity: 0.9; }
     }
     .ecg-event-line { stroke: var(--ink-faint); stroke-width: 0.5; opacity: 0.45; stroke-dasharray: 2 3; }
     .ecg-event-icon { fill: var(--accent); font-size: 11px; }
@@ -2847,7 +2833,9 @@
             </div>
             <div class="pf-row">
               <label>Timezone</label>
-              <input type="text" id="pfTimezone" placeholder="America/Chicago" />
+              <select id="pfTimezone" data-tz-select>
+                <option value="">— browser default —</option>
+              </select>
             </div>
             <div class="pf-row">
               <label>Language</label>
@@ -2964,7 +2952,9 @@
             </div>
             <div class="pf-row">
               <label>Timezone</label>
-              <input type="text" id="newContactTimezone" placeholder="America/Chicago" />
+              <select id="newContactTimezone" data-tz-select>
+                <option value="">— unset —</option>
+              </select>
             </div>
             <div class="pf-row">
               <label>Language</label>
@@ -5134,9 +5124,14 @@
         const r = await fetch(API_BASE + '/v1/me/profile', { headers: authHeaders() });
         if (!r.ok) return;
         const p = await r.json();
+        _populateTimezoneSelects();
         document.getElementById('pfDisplayName').value = p.display_name || '';
         document.getElementById('pfPronouns').value = p.pronouns || '';
         document.getElementById('pfTimezone').value = p.timezone || '';
+        // The signed-in user's timezone drives the opener stamp clock so
+        // the UI matches what the LLM sees in its system prompt.
+        _userTimezone = p.timezone || null;
+        _renderOpenerStamp();
         document.getElementById('pfLanguage').value = p.language || '';
         document.getElementById('pfAliases').value = (p.aliases || []).join(', ');
         document.getElementById('pfBio').value = p.bio || '';
@@ -5629,6 +5624,7 @@
       form.hidden = !open;
       cta.textContent = open ? 'Cancel' : '+ Add contact';
       if (open) {
+        _populateTimezoneSelects();
         document.getElementById('newContactSlug')?.focus();
       }
     }
@@ -6952,6 +6948,68 @@ GET  /v1/usage               Usage stats`,
       subtext.dataset.feeling = '';
     }
 
+    // Opener stamp: "Weekday · H:MM AM · City". This renders the clock the
+    // LLM sees — same UTC anchor, formatted in the signed-in user's profile
+    // timezone. Falls back to the browser's TZ before the profile loads or
+    // when no timezone is set. City is preserved from the static markup so
+    // deployers can set it without touching JS.
+    let _userTimezone = null;
+    function _effectiveTimezone() {
+      if (_userTimezone) return _userTimezone;
+      try { return Intl.DateTimeFormat().resolvedOptions().timeZone || undefined; }
+      catch { return undefined; }
+    }
+    function _renderOpenerStamp() {
+      const el = document.querySelector('.opener .stamp');
+      if (!el) return;
+      if (!el.dataset.cityCached) {
+        const parts = el.textContent.split(' · ');
+        el.dataset.cityCached = parts.slice(2).join(' · ') || 'St. Louis';
+      }
+      const tz = _effectiveTimezone();
+      const opts = tz ? { timeZone: tz } : {};
+      const now = new Date();
+      const weekday = now.toLocaleDateString(undefined, { weekday: 'long', ...opts });
+      const time = now.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit', ...opts });
+      el.textContent = `${weekday} · ${time} · ${el.dataset.cityCached}`;
+    }
+
+    // Populate any <select data-tz-select> with IANA zone names. Modern
+    // browsers expose Intl.supportedValuesOf; fall back to a short common
+    // list if not. Idempotent — safe to call multiple times.
+    function _populateTimezoneSelects() {
+      const selects = document.querySelectorAll('select[data-tz-select]');
+      if (!selects.length) return;
+      let zones = [];
+      try {
+        if (typeof Intl.supportedValuesOf === 'function') {
+          zones = Intl.supportedValuesOf('timeZone');
+        }
+      } catch {}
+      if (!zones.length) {
+        zones = [
+          'America/Los_Angeles','America/Denver','America/Chicago','America/New_York',
+          'America/Toronto','America/Mexico_City','America/Sao_Paulo',
+          'Europe/London','Europe/Paris','Europe/Berlin','Europe/Moscow',
+          'Africa/Lagos','Africa/Johannesburg',
+          'Asia/Dubai','Asia/Kolkata','Asia/Shanghai','Asia/Tokyo','Asia/Singapore',
+          'Australia/Sydney','Pacific/Auckland','UTC',
+        ];
+      }
+      selects.forEach(sel => {
+        if (sel.dataset.tzPopulated === '1') return;
+        const frag = document.createDocumentFragment();
+        zones.forEach(z => {
+          const opt = document.createElement('option');
+          opt.value = z;
+          opt.textContent = z;
+          frag.appendChild(opt);
+        });
+        sel.appendChild(frag);
+        sel.dataset.tzPopulated = '1';
+      });
+    }
+
     function _surface(el, delayed) {
       // Replay the surface animation on an element by toggling the class
       // with a forced reflow in between (CSS won't replay an already-set
@@ -7230,15 +7288,6 @@ GET  /v1/usage               Usage stats`,
     // is hidden so backgrounded tabs don't burn requests.
     const _feedPulse = document.getElementById('feedPulse');
     let _feedStatusTimer = null;
-    // Outcome.summary → (data-state, title prefix). Keeps the pip meaningful
-    // after the loop finishes so a no-op visit doesn't look like silence.
-    const _FEED_STATE_BY_SUMMARY = {
-      generated:      { state: 'ok',   prefix: '' },
-      all_fresh:      { state: 'idle', prefix: 'All caught up — ' },
-      cold_start:     { state: 'warn', prefix: 'Cold start — ' },
-      no_directives:  { state: 'warn', prefix: 'No directives yet — ' },
-      no_cards:       { state: 'warn', prefix: 'No cards this run — ' },
-    };
 
     const _feedActivityLabel = document.getElementById('feedActivityLabel');
 
@@ -7257,32 +7306,17 @@ GET  /v1/usage               Usage stats`,
       try {
         const s = await api('/v1/feed/status');
         if (!_feedPulse) return;
-        // Pulse breathes only while an LLM call is actually in flight —
-        // crystal synthesis or card production. A no-op loop run (all
-        // directive lines fresh) fires no LLM and so never animates.
+        _feedPulse.removeAttribute('hidden');
         if (s && s.llm_active) {
-          _feedPulse.removeAttribute('hidden');
           _feedPulse.dataset.state = 'generating';
-          const live = s.activity_label || 'LLM working — synthesizing your feed…';
+          const live = s.activity_label || 'LLM working…';
           _feedPulse.title = live;
           _setActivityLabel(live);
-          return;
-        }
-        const outcome = s && s.last_outcome;
-        if (!outcome) {
-          _feedPulse.setAttribute('hidden', '');
+        } else {
+          _feedPulse.dataset.state = 'idle';
+          _feedPulse.title = '';
           _setActivityLabel(null);
-          return;
         }
-        const cfg = _FEED_STATE_BY_SUMMARY[outcome.summary] || { state: 'idle', prefix: '' };
-        _feedPulse.removeAttribute('hidden');
-        _feedPulse.dataset.state = cfg.state;
-        _feedPulse.title = cfg.prefix + (outcome.detail || '');
-        // Only idle (all-fresh) gets a label: "feed zen" — a calm indicator
-        // that the system is caught up and deliberately not firing. Other
-        // states keep the tooltip-only treatment so the header stays clean.
-        if (cfg.state === 'idle') _setActivityLabel('feed zen');
-        else _setActivityLabel(null);
       } catch (e) { /* best-effort */ }
     }
     function _startFeedStatusPoll() {
@@ -7347,6 +7381,12 @@ GET  /v1/usage               Usage stats`,
     // Load feed on page load. Visit ping nudges the in-process feed loop —
     // debounced server-side, so reloads or extra tabs don't multiply work.
     _renderHelloDefault();
+    _renderOpenerStamp();
+    setInterval(_renderOpenerStamp, 30000);
+    // Pull the signed-in user's profile so the stamp re-renders in their
+    // configured timezone. Silent if unauthenticated — loadMyProfile bails
+    // on non-200 responses.
+    loadMyProfile();
     loadFeedStories(false);
     loadHeroMood();
     _startFeedStatusPoll();

@@ -156,25 +156,40 @@ def _summarize_outcome(contact_slug: str, had_crystal: bool, had_lines: bool) ->
             "cards_written": cards,
             "at": at,
         }
-    # No cards written despite having a crystal + lines. Narrate why.
-    total_skipped_active = timeouts + skipped + format_fail + missing
-    if fresh > 0 and total_skipped_active == 0:
-        plural = "s" if fresh != 1 else ""
+    # No cards written despite having a crystal + lines. Distinguish:
+    #   - "failures" = timeouts, format-failed, missing-title/body. These
+    #     mean the LLM broke the contract and we lost a slot to noise.
+    #   - "model_skipped" = the LLM explicitly returned {"skip": true}.
+    #     That's a design-intended outcome — the prompt tells it to skip
+    #     when no candidate fits — and should be treated as calmly as
+    #     "fresh": nothing was written because nothing was warranted.
+    failures = timeouts + format_fail + missing
+    all_acquitted = fresh + skipped  # nothing actually went wrong
+    if failures == 0 and all_acquitted > 0:
+        # Calm zero-card outcome. Narrate the mix so the tooltip still
+        # informs, but classify as all_fresh so the UI stays gray.
+        parts = []
+        if fresh:
+            parts.append(f"{fresh} already-fresh")
+        if skipped:
+            plural = "s" if skipped != 1 else ""
+            parts.append(f"{skipped} model-pass{'es' if skipped != 1 else ''}")
         return {
             "summary": "all_fresh",
             "detail": (
-                f"All {fresh} directive line{plural} already have cards "
-                f"newer than their freshness window — nothing needed generating."
+                f"Nothing needed generating ({', '.join(parts)}) — the feed is "
+                "caught up."
             ),
             "cards_written": 0,
             "at": at,
         }
+    # At least one real failure — warn state.
     reasons = []
-    if fresh: reasons.append(f"{fresh} already-fresh")
     if timeouts: reasons.append(f"{timeouts} timed out")
-    if skipped: reasons.append(f"{skipped} model-skipped")
     if format_fail: reasons.append(f"{format_fail} format-failed")
     if missing: reasons.append(f"{missing} missing title/body")
+    if fresh: reasons.append(f"{fresh} already-fresh")
+    if skipped: reasons.append(f"{skipped} model-pass")
     return {
         "summary": "no_cards",
         "detail": (
