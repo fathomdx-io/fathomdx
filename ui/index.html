@@ -2281,7 +2281,7 @@
       <div class="feed">
         <!-- Populated by loadFeedStories() -->
       </div>
-      <button class="show-more-feed" id="showMoreFeed" type="button">Show more</button>
+      <button class="show-more-feed" id="showMoreFeed" type="button" style="display:none">Show more</button>
     </section>
 
     <!-- Extend: how to reach Fathom from elsewhere -->
@@ -7253,9 +7253,11 @@ GET  /v1/usage               Usage stats`,
           feed.appendChild(renderStoryCard(s, append ? i * 0.18 : i * 0.18));
         });
         feedOffset += stories.length;
-        // Empty-state on first page: no stories at all in the lake yet.
-        // Replace the feed with an invitation and hide the Show-more button.
-        if (!append && feedOffset === 0) {
+        // Empty-state: the feed has nothing visible. Check DOM truth rather
+        // than the API offset, so we fall into the letter on any path that
+        // ends up with zero cards (empty response, filtered-out stories,
+        // soft fetch failure, etc.).
+        if (!append && feed.children.length === 0) {
           feed.innerHTML = `
             <div class="feed-empty">
               <div class="feed-empty-letter">
@@ -7267,10 +7269,13 @@ GET  /v1/usage               Usage stats`,
               </div>
             </div>`;
           showMoreBtn.style.display = 'none';
-        } else if (!data.has_more || stories.length < FEED_PAGE) {
-          showMoreBtn.textContent = 'No more stories';
-          showMoreBtn.disabled = true;
-          showMoreBtn.style.opacity = '0.4';
+        } else if (data.has_more && stories.length >= FEED_PAGE) {
+          showMoreBtn.style.display = '';
+          showMoreBtn.disabled = false;
+          showMoreBtn.textContent = 'Show more';
+          showMoreBtn.style.opacity = '';
+        } else {
+          showMoreBtn.style.display = 'none';
         }
         // Update section meta. On first page only — preserves meta when
         // "show more" appends additional pages.
