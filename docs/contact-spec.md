@@ -10,21 +10,40 @@ A human keeps contacts in their phone and their head. We do the same — a small
 
 ## Anatomy
 
-A contact has two halves:
+A contact has three parts:
 
-1. **A profile** — hard state, kept in a small registry (one row / one record per contact). This is the source of truth for handle lookup.
-2. **A companion delta** — written when the profile is created or materially updated. This seeds the lake so sediment can grow around the person over time. (See: *hard environmentals growing into sediment*.)
+1. **A registry row** — the minimum hard state that a slug exists and isn't tombstoned: `{slug, created_at, disabled_at}`. Authoritative for "does this contact exist."
+2. **A profile delta** — monolithic JSON written every time the profile changes, tagged `contact + contact:<slug> + profile`. Latest wins. Holds everything that describes the person.
+3. **Handle deltas + registry rows** — one entry per `(channel, identifier)` pair, admin-bound for cross-contact uniqueness.
 
-### Profile fields
+The profile is stored as a delta, not a Postgres row. History is free — every edit leaves a layer in the lake. The registry row is the only piece that lives outside the lake, and it only exists because we need a fast "exists / disabled" check.
+
+### Profile fields (in the JSON content of the `profile` delta)
+
+| Field | Type | Edit by | Notes |
+|---|---|---|---|
+| `role` | `"admin"` \| `"member"` | **admin only** | Gate on admin-only endpoints. Stripped from self-edit bodies at the endpoint. |
+| `display_name` | string | self or admin | What Fathom calls them in generated text. |
+| `pronouns` | string | self or admin | Freeform ("she/her", "they/them", …). Fathom uses these when referring to the contact. |
+| `timezone` | IANA string | self or admin | Affects the time/date context passed to the LLM. Does *not* drive routine scheduling — routines fire on their host machine's local cron. |
+| `language` | ISO code / freeform | self or admin | Which language Fathom replies in by default. |
+| `bio` | string | self or admin | The person's own description of themselves. Relationships live here in prose ("partnered with Myra"). |
+| `avatar` | media_hash | self or admin | Profile picture. References a lake media delta. |
+| `aliases` | `list[string]` | self or admin | Nicknames Fathom should resolve to this contact. "Nov said X" → `contact:nova`. |
+
+Fields explicitly not in the profile:
+- ~~`admin_notes`~~ — dropped. An admin-only "note about this user" is an attack surface (a disgruntled admin biasing Fathom against a contact, with the bias invisible to them and structurally load-bearing in prompts). If an admin wants to observe something about a contact, they write a regular delta tagged `contact:<slug>` — that's just sediment, competes with everything else in the lake, and the contact can counter it with their own writes.
+- ~~`dashboard_access`~~ — collapsed into `role`. Admins get the dashboard; members get whatever surfaces they authenticate on.
+
+### Registry row (Postgres)
 
 | Field | Type | Notes |
 |---|---|---|
-| `slug` | string | Stable identifier. URL-safe. Cannot change. Used in the `contact:<slug>` tag. |
-| `display_name` | string | Human-readable. Shown in the dashboard and referenced by Fathom in conversation. |
-| `handles` | list | Ways this person shows up across channels. See below. |
-| `dashboard_access` | bool | If true, this contact can log into the dashboard. Default `false`. Myra is `true`. |
-| `notes` | string | Freeform. Role, relationship, how Fathom should think of them. Natural language, not enum. |
-| `created_at` | timestamp | When the profile was registered. |
+| `slug` | string PK | Stable identifier. URL-safe. Set at creation, cannot change. |
+| `created_at` | timestamp | When the registry row landed. |
+| `disabled_at` | timestamp \| null | Tombstone. Set by `DELETE /v1/contacts/<slug>`. Reads filter on this being null. |
+
+That's the whole table. No `role`, no `display_name`, no `notes`. The profile delta is the source of truth for everything soft.
 
 ### Handles
 
@@ -40,19 +59,16 @@ A handle is `(channel, identifier)`. One contact, many handles.
 | `email` | address | Incoming mail `From:` |
 | `twitter` | handle | Mention/DM source |
 
-Handles are additive — new channels can be registered onto an existing contact at any time. A handle on exactly one profile is the uniqueness contract; the same `(channel, identifier)` pair cannot map to two contacts.
+Handles are additive — new channels can be registered onto an existing contact at any time. A handle on exactly one profile is the uniqueness contract; the same `(channel, identifier)` pair cannot map to two contacts. Handle management is **admin-only** because the uniqueness check is cross-contact.
 
-### Companion delta
+### Reading a contact
 
-On profile create or material update, write a delta:
+`get_contact(slug)` merges three sources:
+1. The registry row (slug, created_at, disabled_at) — 404 if disabled.
+2. The latest `profile + contact:<slug>` delta's JSON content.
+3. The handles table.
 
-```
-Tags:    contact, contact:<slug>, spec
-Source:  dashboard  (or wherever the registration happened)
-Content: (free-form — Myra's notes + handle summary + anything she wants future-Fathom to know)
-```
-
-This is what lets `fathom delta search "<name>"` surface the contact even before the lake carries much sediment about them. Don't backfill historical deltas — contact tags apply going forward.
+Result is cached in-process for 60s. The cache key is the slug; the cache invalidates on any self-edit or admin update.
 
 ## Tagging discipline
 
