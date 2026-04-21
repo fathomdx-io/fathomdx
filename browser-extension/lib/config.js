@@ -51,21 +51,19 @@ export async function saveSettings(patch) {
   await chrome.storage.sync.set(patch);
 }
 
-const LOCAL_KEYS = ["mode", "activeTabs", "recents", "preferredMode"];
-
-export const MODE = {
-  OFF: "off",
-  THIS_TAB: "this_tab",
-  FOLLOW_ME: "follow_me"
-};
+const LOCAL_KEYS = ["enabled", "mode", "recents"];
 
 export async function getRuntime() {
   const stored = await chrome.storage.local.get(LOCAL_KEYS);
+  // Backward compat: migrate from the older mode-based state. Anything
+  // other than "off" (follow_me, this_tab) counted as enabled.
+  let enabled = stored.enabled;
+  if (enabled === undefined && stored.mode !== undefined) {
+    enabled = stored.mode !== "off";
+  }
   return {
-    mode: stored.mode ?? MODE.OFF,
-    activeTabs: stored.activeTabs ?? [],
-    recents: stored.recents ?? [],
-    preferredMode: stored.preferredMode ?? MODE.THIS_TAB
+    enabled: enabled ?? false,
+    recents: stored.recents ?? []
   };
 }
 

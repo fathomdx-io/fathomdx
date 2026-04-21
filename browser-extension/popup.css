@@ -100,36 +100,16 @@ body {
   background: color-mix(in srgb, var(--signal) 8%, transparent);
 }
 
-.mode-toggle {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 0;
-  background: var(--bg-deep);
-  border: 1px solid var(--rule);
-  border-radius: 10px;
-  padding: 3px;
-}
-
-.toggle-btn {
-  padding: 8px 10px;
-  font-family: var(--mono);
-  font-size: var(--text-sm);
-  letter-spacing: var(--tracking-wide);
-  text-transform: uppercase;
+.control-hint {
+  margin: 0;
+  font-size: var(--text-md);
   color: var(--ink-soft);
-  background: transparent;
-  border: none;
-  border-radius: 7px;
-  cursor: pointer;
-  transition: background 120ms, color 120ms;
+  line-height: 1.4;
 }
 
-.toggle-btn:hover { color: var(--ink); }
-
-.toggle-btn.active {
-  background: var(--surface);
+.control-hint strong {
   color: var(--ink);
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.25);
+  font-weight: 500;
 }
 
 /* ── TTL slider ─────────────────────────────────── */

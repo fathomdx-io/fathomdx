@@ -1,10 +1,8 @@
 import {
-  MODE,
   getRuntime,
   hostnameOf,
   loadSettings,
-  saveSettings,
-  setRuntime
+  saveSettings
 } from "./lib/config.js";
 
 const $ = (sel) => document.querySelector(sel);
@@ -31,9 +29,9 @@ async function activeTab() {
   return tab || null;
 }
 
-function paintStartStop(mode) {
+function paintStartStop(enabled) {
   const btn = $("#start-stop");
-  if (mode === MODE.OFF) {
+  if (!enabled) {
     btn.textContent = "Start capture";
     btn.classList.remove("stop");
     btn.classList.add("start");
@@ -41,14 +39,6 @@ function paintStartStop(mode) {
     btn.textContent = "Stop capture";
     btn.classList.remove("start");
     btn.classList.add("stop");
-  }
-}
-
-function paintToggle(preferred) {
-  for (const b of document.querySelectorAll(".toggle-btn")) {
-    const on = b.dataset.mode === preferred;
-    b.classList.toggle("active", on);
-    b.setAttribute("aria-selected", on ? "true" : "false");
   }
 }
 
@@ -88,16 +78,15 @@ async function render() {
   const settings = await loadSettings();
   const runtime = await getRuntime();
 
-  paintStartStop(runtime.mode);
-  paintToggle(runtime.preferredMode);
+  paintStartStop(runtime.enabled);
   paintTtl(settings);
 
   if (!settings.apiToken) {
     setStatus("paste an API token in settings →", "warn");
-  } else if (runtime.mode === MODE.OFF) {
+  } else if (!runtime.enabled) {
     setStatus("paused");
   } else {
-    setStatus(runtime.mode === MODE.FOLLOW_ME ? "following all tabs" : "capturing this tab", "ok");
+    setStatus("following you", "ok");
   }
 
   const list = $("#recents-list");
@@ -137,28 +126,12 @@ async function render() {
   }
 }
 
-async function setMode(nextMode) {
-  await chrome.runtime.sendMessage({ type: "runtime.setMode", mode: nextMode });
-}
-
 async function onStartStop() {
   const runtime = await getRuntime();
-  if (runtime.mode === MODE.OFF) {
-    await setMode(runtime.preferredMode);
-  } else {
-    await setMode(MODE.OFF);
-  }
-  render();
-}
-
-async function onToggle(e) {
-  const next = e.currentTarget.dataset.mode;
-  if (!next) return;
-  await setRuntime({ preferredMode: next });
-  const runtime = await getRuntime();
-  if (runtime.mode !== MODE.OFF) {
-    await setMode(next);
-  }
+  await chrome.runtime.sendMessage({
+    type: "runtime.setEnabled",
+    enabled: !runtime.enabled
+  });
   render();
 }
 
@@ -212,9 +185,6 @@ document.addEventListener("DOMContentLoaded", async () => {
   await render();
 
   $("#start-stop").addEventListener("click", onStartStop);
-  for (const b of document.querySelectorAll(".toggle-btn")) {
-    b.addEventListener("click", onToggle);
-  }
   $("#capture-now").addEventListener("click", onCaptureNow);
   $("#block-page").addEventListener("click", onBlockPage);
   $("#open-options").addEventListener("click", onOpenOptions);

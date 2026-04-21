@@ -6,7 +6,6 @@
 
 import {
   DEFAULTS,
-  MODE,
   getRuntime,
   isBlocked,
   loadSettings,
@@ -50,10 +49,7 @@ const scrollBaseline = new Map(); // tabId -> last captured scroll fraction
 
 async function isTabEligible(tab, settings) {
   const runtime = await getRuntime();
-  if (runtime.mode === MODE.OFF) return false;
-  if (runtime.mode === MODE.THIS_TAB && !runtime.activeTabs.includes(tab.id)) {
-    return false;
-  }
+  if (!runtime.enabled) return false;
   if (tab.incognito) return false;
   if (isBlocked(tab.url, settings.blocklist)) return false;
   return true;
@@ -73,11 +69,8 @@ async function paintBadgeForTab(tabId) {
   }
   if (!tab) return;
 
-  const active =
-    runtime.mode === MODE.FOLLOW_ME ||
-    (runtime.mode === MODE.THIS_TAB && runtime.activeTabs.includes(tabId));
   const blocked = tab.url ? isBlocked(tab.url, settings.blocklist) : true;
-  const iconState = active && !blocked ? "on" : "off";
+  const iconState = runtime.enabled && !blocked ? "on" : "off";
 
   try {
     await chrome.action.setIcon({ tabId, path: ICONS[iconState] });
@@ -88,7 +81,7 @@ async function paintBadgeForTab(tabId) {
   // Only badge we still set is KEY — a hard warning when the user has
   // activated capture but hasn't pasted a token. Everything else is
   // communicated by the icon color.
-  if (iconState === "on" && !settings.apiToken) {
+  if (runtime.enabled && !settings.apiToken) {
     await chrome.action.setBadgeBackgroundColor({ tabId, color: BADGE_COLOR_UNCONFIGURED });
     await chrome.action.setBadgeText({ tabId, text: "KEY" });
   } else {
@@ -201,11 +194,6 @@ chrome.tabs.onRemoved.addListener((tabId) => {
   lastCaptureAt.delete(tabId);
   scrollTimers.delete(tabId);
   scrollBaseline.delete(tabId);
-  getRuntime().then((rt) => {
-    if (rt.activeTabs.includes(tabId)) {
-      setRuntime({ activeTabs: rt.activeTabs.filter((id) => id !== tabId) });
-    }
-  });
 });
 
 // Content-script messages: scroll + blur hints, manual capture via popup.
@@ -272,20 +260,8 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       return;
     }
 
-    if (msg?.type === "runtime.setMode") {
-      const next = msg.mode;
-      if (![MODE.OFF, MODE.THIS_TAB, MODE.FOLLOW_ME].includes(next)) {
-        sendResponse({ ok: false });
-        return;
-      }
-      const runtime = await getRuntime();
-      let activeTabs = runtime.activeTabs;
-      if (next === MODE.OFF) activeTabs = [];
-      if (next === MODE.THIS_TAB) {
-        const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-        activeTabs = tab ? [tab.id] : [];
-      }
-      await setRuntime({ mode: next, activeTabs });
+    if (msg?.type === "runtime.setEnabled") {
+      await setRuntime({ enabled: !!msg.enabled });
       const allTabs = await chrome.tabs.query({});
       for (const t of allTabs) await paintBadgeForTab(t.id);
       sendResponse({ ok: true });
