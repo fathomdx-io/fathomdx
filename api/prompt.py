@@ -117,6 +117,8 @@ def build_system_prompt(
     mood_threads: list[str] | None = None,
     agent_connected: bool = False,
     agent_hosts: list[str] | None = None,
+    known_contacts: list[dict] | None = None,
+    current_contact_slug: str | None = None,
 ) -> str:
     """Assemble the full system prompt for a chat session.
 
@@ -196,6 +198,44 @@ def build_system_prompt(
 
     if crystal_text:
         parts.append(f"\n--- Identity Crystal ---\n{crystal_text}\n--- End Crystal ---")
+
+    # Known people — who Fathom recognizes. Rendered so the model can
+    # resolve "Nova said X" to contact:nova without guessing, and can
+    # propose a new contact via the propose_contact tool when someone
+    # shows up who isn't on this list. Proposals are silent —
+    # Fathom writes them; the admin reviews in Settings → Contacts.
+    if known_contacts:
+        lines = []
+        for c in known_contacts:
+            slug = c.get("slug") or ""
+            name = c.get("display_name") or slug
+            aliases = [a for a in (c.get("aliases") or []) if a]
+            pronouns = c.get("pronouns") or ""
+            role = c.get("role") or ""
+            tail = []
+            if aliases:
+                tail.append(f"also known as {', '.join(aliases)}")
+            if pronouns:
+                tail.append(pronouns)
+            if role == "admin":
+                tail.append("admin")
+            tail_str = f" — {' · '.join(tail)}" if tail else ""
+            you = "  (current interlocutor)" if slug == current_contact_slug else ""
+            lines.append(f"  • {name} (slug: {slug}){tail_str}{you}")
+        parts.append(
+            "\n--- Known people ---\n"
+            + "\n".join(lines)
+            + "\n\n"
+            "Resolve mentions of real people to these slugs wherever you can. "
+            "If someone shows up in conversation who clearly refers to a real "
+            "person NOT on this list — partner, coworker, frequent "
+            "correspondent, anyone substantial enough to remember — call "
+            "propose_contact silently. Only display_name and rationale are "
+            "required; the admin reviews and accepts or rejects. Do not ask "
+            "the user whether to propose; just propose when the evidence is "
+            "there. Don't propose fleeting mentions or one-off references."
+            "\n--- End Known people ---"
+        )
 
     return "\n".join(parts)
 

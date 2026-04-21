@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import json
 import logging
+from datetime import datetime, timedelta, timezone
 
 from . import delta_client
 
@@ -177,6 +178,20 @@ async def update_profile(
 PROPOSAL_TAG = "contact-proposal"
 PROPOSAL_RESOLVED_TAG = "contact-proposal-resolved"
 
+# Unresolved proposals auto-expire so the admin UI doesn't accrete
+# stale entries forever. 30d is long enough that Myra can sit with a
+# proposal across a travel trip or a deep-work stretch; short enough
+# that forgotten proposals don't ossify.
+PROPOSAL_TTL_SECONDS = 30 * 24 * 3600
+
+# Resolved tombstones stick around longer so the "already proposed this
+# person, don't re-propose" check has memory.
+PROPOSAL_RESOLVED_TTL_SECONDS = 90 * 24 * 3600
+
+
+def _expires_in(seconds: int) -> str:
+    return (datetime.now(timezone.utc) + timedelta(seconds=seconds)).isoformat()
+
 
 async def propose(
     candidate_slug: str | None,
@@ -204,6 +219,7 @@ async def propose(
         content=json.dumps(body, ensure_ascii=False),
         tags=tags,
         source="contact-proposal",
+        expires_at=_expires_in(PROPOSAL_TTL_SECONDS),
     )
     return {"id": result.get("id"), **body}
 
@@ -271,7 +287,12 @@ async def _write_proposal_resolution(
         tags.append(f"contact:{actor_slug}")
     content = note or f"Proposal {proposal_id} {outcome}."
     try:
-        await delta_client.write(content=content, tags=tags, source="dashboard")
+        await delta_client.write(
+            content=content,
+            tags=tags,
+            source="dashboard",
+            expires_at=_expires_in(PROPOSAL_RESOLVED_TTL_SECONDS),
+        )
     except Exception:
         log.exception("proposal resolution write failed for %s", proposal_id)
 

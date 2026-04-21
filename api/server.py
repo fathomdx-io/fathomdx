@@ -419,6 +419,31 @@ async def fathom_think(
                 session_title = sess.get("title")
         from .tools import _agent_alive
         agent_connected, agents_info = await _agent_alive()
+        # Known contacts hydrate the "who is Fathom talking to + about"
+        # context. Merged with session-addressee so the model can propose
+        # new contacts instead of hallucinating slugs. list_all returns
+        # a small set (typically <20); the query is 60s-cached elsewhere.
+        try:
+            known_contacts = await contacts_mod.list_all()
+        except Exception:
+            known_contacts = []
+        current_contact_slug: str | None = None
+        if session_slug:
+            # The addressee of this chat session — whoever's contact: tag
+            # appears on the user deltas in this thread. Read off the
+            # most recent user delta via the session history.
+            try:
+                latest = await delta_client.query(
+                    tags_include=[f"chat:{session_slug}", "participant:user"],
+                    limit=1,
+                )
+                if latest:
+                    for t in latest[0].get("tags") or []:
+                        if isinstance(t, str) and t.startswith("contact:"):
+                            current_contact_slug = t.split(":", 1)[1]
+                            break
+            except Exception:
+                pass
         system = build_system_prompt(
             crystal_text=crystal_text,
             session_slug=session_slug,
@@ -427,6 +452,8 @@ async def fathom_think(
             mood_threads=(current_mood or {}).get("threads"),
             agent_connected=agent_connected,
             agent_hosts=[a.get("host", "") for a in agents_info if a.get("host")],
+            known_contacts=known_contacts,
+            current_contact_slug=current_contact_slug,
         )
 
     # Append task-specific directive
