@@ -816,6 +816,12 @@
     .session-item:hover { background: var(--surface); color: var(--ink); }
     .session-item.active { background: var(--surface-2); color: var(--ink); font-weight: 500; }
 
+    /* Admin-only surfaces: hidden for members. Annotate an element with
+       `data-admin-only` to have it disappear when the current contact's
+       role isn't admin. Body gets `is-admin` / `is-member` from the
+       auth gate right after /v1/auth/me returns. */
+    body.is-member [data-admin-only] { display: none !important; }
+
     .sidebar-foot { border-top: 1px solid var(--rule-soft); }
     .account-row {
       display: flex; align-items: center; gap: 10px;
@@ -1894,10 +1900,10 @@
     </div>
     <div class="sidebar-foot">
       <button class="account-row" id="accountRowBtn" type="button">
-        <div class="avatar-sm">MK</div>
+        <div class="avatar-sm" id="accountAvatar">MK</div>
         <div class="account-row-info">
-          <div class="name">Myra Krusemark</div>
-          <div class="email">myrakrusemark@gmail.com</div>
+          <div class="name" id="accountName">Myra Krusemark</div>
+          <div class="email" id="accountRole">myrakrusemark@gmail.com</div>
         </div>
       </button>
     </div>
@@ -2525,8 +2531,8 @@
         </div>
       </section>
 
-      <!-- API Keys -->
-      <section class="section">
+      <!-- API Keys (admin-only; members can only see their own profile) -->
+      <section class="section" data-admin-only>
         <div class="section-head">
           <h2>API Keys</h2>
           <span class="meta">for CLI, MCP, browser, and API access</span>
@@ -2668,6 +2674,21 @@
       _authToken = token;
       try { localStorage.setItem('fathom-api-key', token); } catch (e) {}
     }
+    function _clearAuthToken() {
+      _authToken = '';
+      try { localStorage.removeItem('fathom-api-key'); } catch (e) {}
+    }
+    function _goToLogin() {
+      location.replace('/ui/login.html');
+    }
+
+    // Current contact — hydrated from /v1/auth/me right after a valid token
+    // is confirmed. Exposed so downstream modules (admin gates, avatar
+    // hydration) can read role + display_name without a second probe.
+    let _currentContact = null;
+    function isAdmin() {
+      return !!(_currentContact && _currentContact.role === 'admin');
+    }
 
     async function api(path, opts = {}) {
       const url = API_BASE + path;
@@ -2676,9 +2697,75 @@
         headers: { 'Content-Type': 'application/json', ...authH, ...opts.headers },
         ...opts,
       });
+      if (r.status === 401) {
+        _clearAuthToken();
+        _goToLogin();
+        throw new Error('401 — redirecting to login');
+      }
       if (!r.ok) throw new Error(`${r.status} ${r.statusText}`);
       return opts.raw ? r : r.json();
     }
+
+    // Auth gate: probe /v1/auth/me before the rest of the dashboard
+    // wakes up. Redirect to the login page if the stored key is
+    // missing, invalid, or rejected by the server.
+    //
+    // First-run (no tokens exist anywhere) is handled server-side — the
+    // middleware returns authenticated:true with contact=myra even
+    // without a Bearer header, so the dashboard comes up unlocked on a
+    // fresh install until the admin mints the first token.
+    function _hydrateAccountRow(contact) {
+      if (!contact) return;
+      const nameEl = document.getElementById('accountName');
+      const roleEl = document.getElementById('accountRole');
+      const avatarEl = document.getElementById('accountAvatar');
+      if (nameEl) nameEl.textContent = contact.display_name || contact.slug;
+      if (roleEl) roleEl.textContent = contact.role === 'admin' ? 'Admin' : 'Member';
+      if (avatarEl) {
+        const initials = (contact.display_name || contact.slug || '?')
+          .split(/\s+/).map(w => w[0] || '').join('').slice(0, 2).toUpperCase();
+        avatarEl.textContent = initials || '?';
+      }
+      // Admin-only sections get data-admin-only on the element; CSS below
+      // hides them for non-admins. Simple, one-pass gate.
+      document.body.classList.toggle('is-admin', contact.role === 'admin');
+      document.body.classList.toggle('is-member', contact.role !== 'admin');
+    }
+
+    async function _enforceAuthGate() {
+      try {
+        const headers = {};
+        if (_authToken) headers['Authorization'] = 'Bearer ' + _authToken;
+        const r = await fetch(API_BASE + '/v1/auth/me', { headers });
+        if (!r.ok) { _goToLogin(); return false; }
+        const info = await r.json();
+        if (info.authenticated && info.contact) {
+          _currentContact = info.contact;
+          _hydrateAccountRow(info.contact);
+          return true;
+        }
+        // Not authenticated. If the server has any tokens (auth_required),
+        // the only path forward is to sign in. Otherwise this is a first-
+        // run install with no tokens yet, and the dashboard comes up
+        // unlocked so the admin can mint the first key.
+        if (info.auth_required) {
+          _clearAuthToken();
+          _goToLogin();
+          return false;
+        }
+        return true;
+      } catch (e) {
+        _goToLogin();
+        return false;
+      }
+    }
+
+    // Fire the auth gate immediately. _enforceAuthGate returns async, so
+    // other init keeps running in parallel — but if the gate fails, a
+    // location.replace() will interrupt the page load before any
+    // authed API call completes. Any authed call that slips through
+    // will hit the 401 redirect in api() as a second safety net.
+    _enforceAuthGate();
 
     // Composer visibility — only show on main + chat views
     const composerWrap = document.getElementById('composerWrap');
@@ -4418,9 +4505,11 @@
       _saveSigninToken((signinTokenInput.value || '').trim());
     });
     signinClearBtn.addEventListener('click', () => {
-      _saveAuthToken('');
+      _clearAuthToken();
       renderSigninStatus();
-      if (!viewSettings.hidden) loadTokens();
+      // On a locked server, dropping the key means this tab is done —
+      // bounce to the login page so the user can paste a fresh one.
+      _goToLogin();
     });
     signinTokenInput.addEventListener('keydown', (e) => {
       if (e.key === 'Enter') { e.preventDefault(); signinSaveBtn.click(); }

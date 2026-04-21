@@ -42,16 +42,25 @@ async def create_session(title: str = "New session") -> dict:
     return {"id": slug, "title": title, "created_at": datetime.now(timezone.utc).isoformat()}
 
 
-async def list_sessions(limit: int = 50) -> list[dict]:
+async def list_sessions(
+    limit: int = 50, contact_slug: str | None = None
+) -> list[dict]:
     """Aggregate fathom-chat deltas into session list — same as loop-api.
 
     Each session: {id (slug), title (name), first_seen, last_seen, delta_count, preview}.
+
+    When `contact_slug` is set, only sessions where that contact has a
+    delta (user message, fathom reply-to-them, or event-addressed-to-them)
+    appear. Passing None returns every session — used by admin views.
     """
     since = (datetime.now(timezone.utc) - timedelta(days=LAKE_SESSION_LIST_WINDOW_DAYS)).strftime(
         "%Y-%m-%dT%H:%M:%S.000Z"
     )
+    tags = [LAKE_CHAT_TAG]
+    if contact_slug:
+        tags.append(f"contact:{contact_slug}")
     results = await delta_client.query(
-        tags_include=[LAKE_CHAT_TAG],
+        tags_include=tags,
         time_start=since,
         limit=LAKE_SESSION_LIST_LIMIT,
     )
@@ -168,6 +177,7 @@ async def add_message(
     tool_calls: str | None = None,
     tool_call_id: str | None = None,
     extra_tags: list[str] | None = None,
+    contact_slug: str | None = None,
 ) -> str:
     """Write a chat message as a delta.
 
@@ -176,6 +186,11 @@ async def add_message(
     tag (user/assistant) is still emitted for backwards compat with
     earlier sessions and the existing get_messages fallback path — new
     code should key on participant:* tags.
+
+    `contact_slug` marks the correspondence: for user messages it's the
+    author; for assistant messages it's the addressee. Either way the
+    lake carries "who is this between" without needing to reconstruct it
+    from thread tags.
 
     extra_tags: optional caller-provided tags appended verbatim.
     """
@@ -186,6 +201,8 @@ async def add_message(
     tags = [LAKE_CHAT_TAG, f"chat:{session_id}", role]
     if participant_tag:
         tags.append(participant_tag)
+    if contact_slug:
+        tags.append(f"contact:{contact_slug}")
     if extra_tags:
         tags.extend(extra_tags)
     result = await delta_client.write(

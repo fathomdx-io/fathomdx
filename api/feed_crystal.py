@@ -55,10 +55,11 @@ CRYSTAL_SOURCE = "consumer-api"
 
 # Brief in-memory cache so repeated reads inside one wake don't hammer the
 # lake. The crystal changes on regen (minutes apart at fastest); 5 seconds
-# is plenty short to feel live.
+# is plenty short to feel live. Keyed by contact_slug so each contact has
+# their own crystal cached independently.
 _CACHE_TTL_SECONDS = 5.0
-_cache: dict | None = None
-_cache_at: float = 0.0
+_cache: dict[str, dict | None] = {}
+_cache_at: dict[str, float] = {}
 _cache_lock = asyncio.Lock()
 
 
@@ -82,9 +83,14 @@ def _strip_fences(text: str) -> str:
 # ── Crystal load / write ─────────────────────────────────────────────────
 
 
-async def _fetch_latest_uncached() -> dict | None:
-    """Find the most recent crystal:feed-orient delta. Raises on transport error."""
-    results = await delta_client.query(tags_include=[CRYSTAL_TAG], limit=1)
+def _contact_tag(contact_slug: str) -> str:
+    return f"contact:{contact_slug}"
+
+
+async def _fetch_latest_uncached(contact_slug: str) -> dict | None:
+    """Find the most recent crystal:feed-orient delta for this contact."""
+    tags = [CRYSTAL_TAG, _contact_tag(contact_slug)]
+    results = await delta_client.query(tags_include=tags, limit=1)
     if not results:
         return None
     return _to_crystal(results[0])
@@ -124,30 +130,36 @@ def _confidence_from_tags(tags: list[str]) -> float | None:
     return None
 
 
-async def latest(force: bool = False) -> dict | None:
-    """Return the canonical current feed-orient crystal. Cache-gated."""
-    global _cache, _cache_at
+async def latest(contact_slug: str, force: bool = False) -> dict | None:
+    """Return the canonical current feed-orient crystal for this contact. Cache-gated."""
     now = time.monotonic()
-    if not force and _cache is not None and (now - _cache_at) < _CACHE_TTL_SECONDS:
-        return _cache
+    cached = _cache.get(contact_slug)
+    cached_at = _cache_at.get(contact_slug, 0.0)
+    if not force and cached is not None and (now - cached_at) < _CACHE_TTL_SECONDS:
+        return cached
     async with _cache_lock:
-        if not force and _cache is not None and (time.monotonic() - _cache_at) < _CACHE_TTL_SECONDS:
-            return _cache
-        fresh = await _fetch_latest_uncached()
-        _cache = fresh
-        _cache_at = time.monotonic()
+        cached = _cache.get(contact_slug)
+        cached_at = _cache_at.get(contact_slug, 0.0)
+        if not force and cached is not None and (time.monotonic() - cached_at) < _CACHE_TTL_SECONDS:
+            return cached
+        fresh = await _fetch_latest_uncached(contact_slug)
+        _cache[contact_slug] = fresh
+        _cache_at[contact_slug] = time.monotonic()
     return fresh
 
 
-def _invalidate_cache() -> None:
-    global _cache, _cache_at
-    _cache = None
-    _cache_at = 0.0
+def _invalidate_cache(contact_slug: str | None = None) -> None:
+    if contact_slug is None:
+        _cache.clear()
+        _cache_at.clear()
+    else:
+        _cache.pop(contact_slug, None)
+        _cache_at.pop(contact_slug, None)
 
 
-async def _write_crystal(payload: dict, confidence: float | None) -> dict:
+async def _write_crystal(contact_slug: str, payload: dict, confidence: float | None) -> dict:
     """Write a crystal-feed-orient delta and snapshot the drift anchor."""
-    tags = [CRYSTAL_TAG]
+    tags = [CRYSTAL_TAG, _contact_tag(contact_slug)]
     if confidence is not None:
         tags.append(f"confidence:{round(confidence, 4)}")
     written = await delta_client.write(
@@ -155,21 +167,24 @@ async def _write_crystal(payload: dict, confidence: float | None) -> dict:
         tags=tags,
         source=CRYSTAL_SOURCE,
     )
-    _invalidate_cache()
+    _invalidate_cache(contact_slug)
     # Snapshot the engagement-centroid as the new drift anchor — independent
     # of the crystal's own embedding, so a bad crystal can't self-trigger
     # a runaway regen (the 2026-04-19 lesson).
     try:
-        await _snapshot_anchor(written.get("id"))
+        await _snapshot_anchor(contact_slug, written.get("id"))
     except Exception:
         log.exception("feed_crystal: anchor snapshot failed (non-fatal)")
     return written
 
 
-async def list_events(limit: int = 50) -> list[dict]:
-    """Crystal regen events for the ECG card."""
+async def list_events(contact_slug: str, limit: int = 50) -> list[dict]:
+    """Crystal regen events for the ECG card, scoped to this contact."""
     try:
-        results = await delta_client.query(tags_include=[CRYSTAL_TAG], limit=limit)
+        results = await delta_client.query(
+            tags_include=[CRYSTAL_TAG, _contact_tag(contact_slug)],
+            limit=limit,
+        )
     except Exception:
         return []
     events = []
@@ -186,11 +201,13 @@ async def list_events(limit: int = 50) -> list[dict]:
 # ── Synthesis ────────────────────────────────────────────────────────────
 
 
-async def _fetch_engagements_since(since_iso: str | None, limit: int = 200) -> list[dict]:
-    """All feed-engagement deltas newer than the cutoff (or all if cutoff is None)."""
+async def _fetch_engagements_since(
+    contact_slug: str, since_iso: str | None, limit: int = 200
+) -> list[dict]:
+    """All feed-engagement deltas for this contact newer than the cutoff."""
     try:
         results = await delta_client.query(
-            tags_include=[ENGAGEMENT_TAG],
+            tags_include=[ENGAGEMENT_TAG, _contact_tag(contact_slug)],
             time_start=since_iso or "",
             limit=limit,
         )
@@ -200,10 +217,13 @@ async def _fetch_engagements_since(since_iso: str | None, limit: int = 200) -> l
     return results
 
 
-async def _fetch_recent_cards(limit: int = 50) -> list[dict]:
-    """Recent feed-card deltas — what's already been shown."""
+async def _fetch_recent_cards(contact_slug: str, limit: int = 50) -> list[dict]:
+    """Recent feed-card deltas for this contact — what's already been shown."""
     try:
-        return await delta_client.query(tags_include=[CARD_TAG], limit=limit)
+        return await delta_client.query(
+            tags_include=[CARD_TAG, _contact_tag(contact_slug)],
+            limit=limit,
+        )
     except Exception:
         return []
 
@@ -287,13 +307,15 @@ def _format_recent_cards(deltas: list[dict]) -> str:
     return "\n".join(lines)
 
 
-async def _fetch_chat_engagements_since(since_iso: str | None, limit: int = 50) -> str:
+async def _fetch_chat_engagements_since(
+    contact_slug: str, since_iso: str | None, limit: int = 50
+) -> str:
     """Chat-from-card user messages, formatted compactly. Empty if none.
 
     The chat-engagement deltas carry `chat:<session>` and we follow that to
     the user's first message in the session, which is the actual content.
     """
-    engs = await _fetch_engagements_since(since_iso, limit=limit)
+    engs = await _fetch_engagements_since(contact_slug, since_iso, limit=limit)
     sessions: list[str] = []
     for d in engs:
         # Chat-engagement deltas link back to the seeded chat session via
@@ -328,19 +350,19 @@ async def _fetch_chat_engagements_since(since_iso: str | None, limit: int = 50) 
     return "\n".join(summaries) if summaries else "(no chat-from-card text yet)"
 
 
-async def synthesize() -> dict | None:
-    """Run a feed-orient crystal regeneration.
+async def synthesize(contact_slug: str) -> dict | None:
+    """Run a feed-orient crystal regeneration for this contact.
 
     Reads engagement + chat + recent cards + prior crystal, calls the LLM,
     writes the result. Returns the in-process crystal shape on success,
     None on failure.
     """
-    prior = await _fetch_latest_uncached()
+    prior = await _fetch_latest_uncached(contact_slug)
     cutoff = (prior or {}).get("created_at")
 
-    engagements = await _fetch_engagements_since(cutoff, limit=200)
-    chats = await _fetch_chat_engagements_since(cutoff, limit=50)
-    cards = await _fetch_recent_cards(limit=50)
+    engagements = await _fetch_engagements_since(contact_slug, cutoff, limit=200)
+    chats = await _fetch_chat_engagements_since(contact_slug, cutoff, limit=50)
+    cards = await _fetch_recent_cards(contact_slug, limit=50)
     lake_survey = await _fetch_lake_topic_summary(window_hours=72)
 
     parts: list[str] = []
@@ -393,16 +415,21 @@ async def synthesize() -> dict | None:
     # Compute confidence of the prior crystal NOW (before we overwrite it),
     # tagged on the fresh crystal we're about to write so the ECG can show
     # how the previous regen actually performed.
-    prior_confidence = await score_confidence(prior, engagements) if prior else None
+    prior_confidence = (
+        await score_confidence(contact_slug, prior, engagements) if prior else None
+    )
 
-    written = await _write_crystal(payload, confidence=prior_confidence)
+    written = await _write_crystal(contact_slug, payload, confidence=prior_confidence)
 
     # Re-fetch to return the canonical in-process shape
-    fresh = await latest(force=True)
+    fresh = await latest(contact_slug, force=True)
     if fresh:
         log.info(
-            "feed_crystal: regen accepted (id=%s, prior_confidence=%s, lines=%d)",
-            written.get("id"), prior_confidence, len(fresh.get("directive_lines") or []),
+            "feed_crystal: regen accepted (contact=%s, id=%s, prior_confidence=%s, lines=%d)",
+            contact_slug,
+            written.get("id"),
+            prior_confidence,
+            len(fresh.get("directive_lines") or []),
         )
     return fresh
 
@@ -419,7 +446,11 @@ def _engagement_sign(kind: str) -> int:
     return 0
 
 
-async def score_confidence(crystal: dict | None, engagements: list[dict] | None = None) -> float | None:
+async def score_confidence(
+    contact_slug: str,
+    crystal: dict | None,
+    engagements: list[dict] | None = None,
+) -> float | None:
     """Confidence = how well the crystal predicted recent engagement.
 
     For each engagement delta after the crystal was written:
@@ -438,7 +469,9 @@ async def score_confidence(crystal: dict | None, engagements: list[dict] | None 
         return None
     weights = crystal.get("topic_weights") or {}
     if engagements is None:
-        engagements = await _fetch_engagements_since(crystal.get("created_at"))
+        engagements = await _fetch_engagements_since(
+            contact_slug, crystal.get("created_at")
+        )
     hits = 0
     misses = 0
     for d in engagements:
@@ -464,12 +497,18 @@ async def score_confidence(crystal: dict | None, engagements: list[dict] | None 
 # ── Drift anchor (engagement subset) ─────────────────────────────────────
 
 
-def _anchor_path() -> Path:
-    return Path(settings.mood_state_path).parent / "feed-crystal-anchor.json"
+def _anchor_path(contact_slug: str) -> Path:
+    return (
+        Path(settings.mood_state_path).parent
+        / f"feed-crystal-anchor.{contact_slug}.json"
+    )
 
 
-def _drift_history_path() -> Path:
-    return Path(settings.mood_state_path).parent / "feed-drift-history.json"
+def _drift_history_path(contact_slug: str) -> Path:
+    return (
+        Path(settings.mood_state_path).parent
+        / f"feed-drift-history.{contact_slug}.json"
+    )
 
 
 def _atomic_write(p: Path, data: dict) -> None:
@@ -487,15 +526,17 @@ def _atomic_write(p: Path, data: dict) -> None:
         raise
 
 
-async def _engagement_centroid() -> dict:
-    """Fetch the centroid over feed-engagement deltas only."""
-    return await delta_client.centroid(tags_include=[ENGAGEMENT_TAG])
+async def _engagement_centroid(contact_slug: str) -> dict:
+    """Fetch the centroid over this contact's feed-engagement deltas only."""
+    return await delta_client.centroid(
+        tags_include=[ENGAGEMENT_TAG, _contact_tag(contact_slug)]
+    )
 
 
-async def _snapshot_anchor(crystal_id: str | None) -> None:
+async def _snapshot_anchor(contact_slug: str, crystal_id: str | None) -> None:
     """Save the engagement-centroid at this moment as the drift anchor."""
     try:
-        c = await _engagement_centroid()
+        c = await _engagement_centroid(contact_slug)
     except Exception:
         log.exception("feed_crystal: anchor centroid fetch failed")
         return
@@ -504,16 +545,17 @@ async def _snapshot_anchor(crystal_id: str | None) -> None:
         # No engagement deltas yet, or all unembedded. Don't save an empty anchor.
         return
     record = {
+        "contact_slug": contact_slug,
         "crystal_id": crystal_id,
         "centroid": list(vec),
         "dim": len(vec),
         "saved_at": _now_iso(),
     }
-    _atomic_write(_anchor_path(), record)
+    _atomic_write(_anchor_path(contact_slug), record)
 
 
-def load_anchor() -> dict | None:
-    p = _anchor_path()
+def load_anchor(contact_slug: str) -> dict | None:
+    p = _anchor_path(contact_slug)
     if not p.exists():
         return None
     try:
@@ -542,18 +584,18 @@ def _cosine_distance(a: list[float], b: list[float]) -> float:
     return float(1.0 - dot / (math.sqrt(na) * math.sqrt(nb)))
 
 
-async def sample_drift() -> dict:
+async def sample_drift(contact_slug: str) -> dict:
     """Sample current engagement-centroid drift against the anchor.
 
     Appends to the drift-history sidecar for the ECG. Returns the snapshot.
     """
-    anchor = load_anchor()
+    anchor = load_anchor(contact_slug)
     snapshot: dict
     if not anchor:
         snapshot = {"drift": 0.0, "no_anchor": True}
     else:
         try:
-            c = await _engagement_centroid()
+            c = await _engagement_centroid(contact_slug)
             vec = c.get("centroid")
             total = int(c.get("total_deltas") or 0)
             if not vec:
@@ -567,7 +609,7 @@ async def sample_drift() -> dict:
 
     now_iso = _now_iso()
     entry = {"t": now_iso, "v": float(snapshot.get("drift", 0.0))}
-    p = _drift_history_path()
+    p = _drift_history_path(contact_slug)
     try:
         if p.exists():
             state = json.loads(p.read_text())
@@ -588,8 +630,8 @@ async def sample_drift() -> dict:
     return {**snapshot, "sampled_at": now_iso}
 
 
-def drift_history(since_seconds: int | None = None) -> list[dict]:
-    p = _drift_history_path()
+def drift_history(contact_slug: str, since_seconds: int | None = None) -> list[dict]:
+    p = _drift_history_path(contact_slug)
     if not p.exists():
         return []
     try:
@@ -614,18 +656,20 @@ def drift_history(since_seconds: int | None = None) -> list[dict]:
 # ── Regen predicate ──────────────────────────────────────────────────────
 
 
-async def should_regen() -> tuple[bool, str]:
-    """Decide whether the wake should regen the feed-orient crystal.
+async def should_regen(contact_slug: str) -> tuple[bool, str]:
+    """Decide whether the wake should regen this contact's feed-orient crystal.
 
     Predicate (drift OR confidence) AND (cooldown) AND (min_signal).
 
     Returns (decision, reason). Reason is for logging/telemetry.
     """
-    crystal = await latest()
+    crystal = await latest(contact_slug)
 
     # Bootstrap case — no crystal yet. Defer to min_signal check below.
     if not crystal:
-        engagements = await _fetch_engagements_since(None, limit=settings.feed_min_signal_engagements + 1)
+        engagements = await _fetch_engagements_since(
+            contact_slug, None, limit=settings.feed_min_signal_engagements + 1
+        )
         if len(engagements) < settings.feed_min_signal_engagements:
             return False, f"bootstrap:not-enough-signal({len(engagements)}/{settings.feed_min_signal_engagements})"
         return True, f"bootstrap:enough-signal({len(engagements)})"
@@ -645,18 +689,20 @@ async def should_regen() -> tuple[bool, str]:
     # Min-signal guard — the cold-start fail-open lesson from auto_regen.py.
     # If no engagement has accumulated since last regen, the crystal can't
     # be wrong about anything yet. Fail open (skip), don't fire blindly.
-    new_engagements = await _fetch_engagements_since(created_at, limit=settings.feed_min_signal_engagements + 1)
+    new_engagements = await _fetch_engagements_since(
+        contact_slug, created_at, limit=settings.feed_min_signal_engagements + 1
+    )
     if len(new_engagements) < settings.feed_min_signal_engagements:
         return False, f"not-enough-new-signal({len(new_engagements)}/{settings.feed_min_signal_engagements})"
 
     # Drift — the lake of engagement has shifted away from the anchor.
-    drift_snapshot = await sample_drift()
+    drift_snapshot = await sample_drift(contact_slug)
     drift_value = float(drift_snapshot.get("drift") or 0.0)
     if drift_value > settings.feed_drift_threshold:
         return True, f"drift({drift_value:.3f}>{settings.feed_drift_threshold})"
 
     # Confidence — recent predictions don't match observed engagement.
-    confidence = await score_confidence(crystal, new_engagements)
+    confidence = await score_confidence(contact_slug, crystal, new_engagements)
     if confidence is not None and confidence < settings.feed_confidence_floor:
         return True, f"low-confidence({confidence:.3f}<{settings.feed_confidence_floor})"
 

@@ -67,12 +67,17 @@ def _prune(codes: list[dict]) -> list[dict]:
     return [c for c in codes if c.get("created_at", 0) >= cutoff]
 
 
-def create_pair_code(ttl_seconds: int = DEFAULT_TTL_SECONDS, note: str = "") -> dict:
+def create_pair_code(
+    ttl_seconds: int = DEFAULT_TTL_SECONDS,
+    note: str = "",
+    contact_slug: str = "myra",
+) -> dict:
     """Mint a new single-use pair code with a short TTL.
 
     `note` is optional metadata (e.g. "for laptop, jordan") so the user can
     see context in the dashboard if they somehow end up with multiple open
-    pair codes at once.
+    pair codes at once. `contact_slug` binds the token that will be minted
+    on redemption — admins can mint codes on behalf of other contacts.
     """
     raw = PAIR_PREFIX + "".join(secrets.choice(ALPHABET) for _ in range(PAIR_RAND_LEN))
     now = _now()
@@ -82,6 +87,7 @@ def create_pair_code(ttl_seconds: int = DEFAULT_TTL_SECONDS, note: str = "") -> 
         "expires_at": now + max(60, ttl_seconds),
         "used_at": None,
         "note": note or "",
+        "contact_slug": contact_slug,
     }
     codes = _prune(_load())
     codes.append(record)
@@ -147,6 +153,7 @@ def redeem_pair_code(code: str, host: str = "") -> dict:
         "hash": token_hash,
         "prefix": token_raw[:8] + "…",
         "scopes": list(AGENT_SCOPES),
+        "contact_slug": target.get("contact_slug") or "myra",
         "created_at": nowiso,
         "last_used_at": None,
     }
@@ -158,6 +165,7 @@ def redeem_pair_code(code: str, host: str = "") -> dict:
         "scopes": list(AGENT_SCOPES),
         "host": host,
         "token_id": record["id"],
+        "contact_slug": record["contact_slug"],
     }
 
 

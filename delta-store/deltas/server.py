@@ -13,6 +13,7 @@ import os
 from contextlib import asynccontextmanager
 from pathlib import Path
 
+import asyncpg
 from fastapi import Depends, FastAPI, File, Form, HTTPException, Query, Security, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
@@ -20,6 +21,7 @@ from fastapi.security import APIKeyHeader
 from pydantic import BaseModel as _BaseModel
 
 from deltas import backup, retrievals
+from deltas.contacts import ContactsStore
 from deltas.db import close_pool, init_pool
 from deltas.models import (
     BackupAckRequest,
@@ -28,11 +30,17 @@ from deltas.models import (
     BackupStateOut,
     BatchIn,
     BatchResult,
+    ContactIn,
+    ContactOut,
+    ContactUpdate,
     DeltaIn,
     DeltaOut,
     DimensionWeights,
+    HandleIn,
+    HandleOut,
     PlanRequest,
     PlanResponse,
+    ResolvedHandle,
     SearchRequest,
     SearchResult,
     WriteResult,
@@ -56,6 +64,7 @@ REAP_INTERVAL = float(os.environ.get("REAP_INTERVAL", "300"))
 # ── Auth ─────────────────────────────────────────────────────────────────────
 
 store: DeltaStore | None = None
+contacts_store: ContactsStore | None = None
 query_engine: QueryEngine | None = None
 plan_executor = None  # PlanExecutor — set after import in lifespan
 api_key_header = APIKeyHeader(name="X-API-Key", auto_error=False)
@@ -274,10 +283,11 @@ async def reap_loop():
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    global store, query_engine, plan_executor
+    global store, contacts_store, query_engine, plan_executor
 
     pool = await init_pool()
     store = DeltaStore(pool)
+    contacts_store = ContactsStore(pool)
     query_engine = QueryEngine(store=store, pool=pool)
 
     from deltas.embedder import embed_text
@@ -996,6 +1006,113 @@ async def execute_plan(req: PlanRequest):
         total += int(getattr(step, "count", 0) or 0)
     retrievals.fire_and_forget(total)
     return result
+
+
+# ── Routes: Contacts & Handles ──────────────────────────────────────────────
+
+
+@app.get("/contacts", response_model=list[ContactOut])
+async def list_contacts():
+    return await contacts_store.list_all()
+
+
+@app.post("/contacts", response_model=ContactOut)
+async def create_contact(req: ContactIn):
+    try:
+        return await contacts_store.create(
+            slug=req.slug,
+            display_name=req.display_name,
+            role=req.role,
+            notes=req.notes,
+        )
+    except asyncpg.UniqueViolationError as e:
+        raise HTTPException(status_code=409, detail=f"Contact '{req.slug}' already exists") from e
+
+
+@app.get("/contacts/{slug}", response_model=ContactOut)
+async def get_contact(slug: str):
+    c = await contacts_store.get(slug)
+    if not c:
+        raise HTTPException(status_code=404, detail="Contact not found")
+    return c
+
+
+@app.patch("/contacts/{slug}", response_model=ContactOut)
+async def update_contact(slug: str, req: ContactUpdate):
+    c = await contacts_store.update(
+        slug,
+        display_name=req.display_name,
+        role=req.role,
+        notes=req.notes,
+    )
+    if not c:
+        raise HTTPException(status_code=404, detail="Contact not found")
+    return c
+
+
+@app.delete("/contacts/{slug}")
+async def delete_contact(slug: str):
+    ok = await contacts_store.delete(slug)
+    if not ok:
+        raise HTTPException(status_code=404, detail="Contact not found")
+    return {"deleted": slug}
+
+
+@app.get("/contacts/{slug}/handles", response_model=list[HandleOut])
+async def list_handles(slug: str):
+    if not await contacts_store.get(slug):
+        raise HTTPException(status_code=404, detail="Contact not found")
+    return await contacts_store.list_handles(slug)
+
+
+@app.post("/contacts/{slug}/handles", response_model=HandleOut)
+async def add_handle(slug: str, req: HandleIn):
+    if not await contacts_store.get(slug):
+        raise HTTPException(status_code=404, detail="Contact not found")
+    try:
+        return await contacts_store.add_handle(slug, req.channel, req.identifier)
+    except asyncpg.UniqueViolationError as e:
+        raise HTTPException(
+            status_code=409,
+            detail=f"Handle ({req.channel}, {req.identifier}) already bound to another contact",
+        ) from e
+
+
+@app.delete("/contacts/{slug}/handles")
+async def remove_handle(slug: str, req: HandleIn):
+    ok = await contacts_store.remove_handle(slug, req.channel, req.identifier)
+    if not ok:
+        raise HTTPException(status_code=404, detail="Handle not found")
+    return {"deleted": {"channel": req.channel, "identifier": req.identifier}}
+
+
+@app.get("/handles/resolve", response_model=ResolvedHandle)
+async def resolve_handle(channel: str, identifier: str):
+    slug = await contacts_store.resolve_handle(channel, identifier)
+    return {"contact_slug": slug}
+
+
+class BackfillContactTagIn(_BaseModel):
+    contact_slug: str
+    filter_tags: list[str]
+
+
+@app.post("/admin/backfill-contact-tag")
+async def backfill_contact_tag(req: BackfillContactTagIn):
+    """One-shot migration: add `contact:<slug>` to legacy per-user deltas
+    that predate the contact registry (feed-engagement, feed-story,
+    crystal:feed-orient, etc.). Skips deltas that already carry any
+    `contact:` tag, so re-running is a no-op.
+    """
+    if not req.filter_tags:
+        raise HTTPException(status_code=400, detail="filter_tags is required")
+    if not await contacts_store.get(req.contact_slug):
+        raise HTTPException(
+            status_code=404, detail=f"Contact '{req.contact_slug}' not found"
+        )
+    return await contacts_store.backfill_contact_tag(
+        req.contact_slug, req.filter_tags
+    )
 
 
 @app.get("/health")

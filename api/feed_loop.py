@@ -40,133 +40,178 @@ logging.getLogger(__name__).setLevel(logging.INFO)
 CARD_TAG = "feed-card"
 CARD_SOURCE = "fathom-feed"
 
-# Single-flight: at most one loop runs at a time. The visit-debouncer
-# checks this before scheduling, but a parallel manual /v1/feed/refresh
-# would also want to honor it. asyncio.Lock is enough — one event loop.
-_run_lock = asyncio.Lock()
 
-# Loop status — read by the indicator endpoint. Updated atomically inside
-# the lock; the indicator only ever reads, so no contention.
-_status: dict[str, Any] = {
-    "generating": False,
-    "started_at": None,
-    "finished_at": None,
-    "lines_total": 0,
-    "lines_done": 0,
-    "last_reason": None,
-}
+def _contact_tag(contact_slug: str) -> str:
+    return f"contact:{contact_slug}"
 
-# Visit-debounce state. Each call to mark_visit() may schedule a fire,
-# but only if enough time has passed since the last one.
-_last_fire_at: float = 0.0  # monotonic seconds
-_pending_visit: asyncio.Task | None = None
+
+def _empty_status() -> dict[str, Any]:
+    return {
+        "generating": False,
+        "started_at": None,
+        "finished_at": None,
+        "lines_total": 0,
+        "lines_done": 0,
+        "last_reason": None,
+    }
+
+
+# Per-contact single-flight locks. Myra's feed fire shouldn't block Bob's —
+# each contact gets its own asyncio.Lock, minted lazily on first use.
+_run_locks: dict[str, asyncio.Lock] = {}
+
+# Per-contact UI status. Read by /v1/feed/status for the "generating…"
+# indicator, written atomically inside the matching lock.
+_status: dict[str, dict[str, Any]] = {}
+
+# Per-contact visit-debounce state. Each call to mark_visit(slug) may
+# schedule a fire, but only if enough time has passed since that contact's
+# last one.
+_last_fire_at: dict[str, float] = {}  # monotonic seconds, keyed by slug
+_pending_visits: dict[str, asyncio.Task] = {}
+
+
+def _lock_for(contact_slug: str) -> asyncio.Lock:
+    lock = _run_locks.get(contact_slug)
+    if lock is None:
+        lock = asyncio.Lock()
+        _run_locks[contact_slug] = lock
+    return lock
 
 
 def _now() -> datetime:
     return datetime.now(timezone.utc)
 
 
-def current_status() -> dict:
-    """Snapshot for the /v1/feed/status endpoint."""
-    return dict(_status)
+def current_status(contact_slug: str) -> dict:
+    """Snapshot for the /v1/feed/status endpoint, scoped to one contact."""
+    return dict(_status.get(contact_slug) or _empty_status())
 
 
-def _set_status(**kwargs) -> None:
-    _status.update(kwargs)
+def _set_status(contact_slug: str, **kwargs) -> None:
+    st = _status.setdefault(contact_slug, _empty_status())
+    st.update(kwargs)
 
 
 # ── Visit debouncer ──────────────────────────────────────────────────────
 
 
-async def mark_visit() -> dict:
+async def mark_visit(contact_slug: str) -> dict:
     """Called when the dashboard loads. Schedules a fire if cooldown allows.
+
+    Each contact has its own debouncer, lock, and pending-fire task — a
+    visit from Bob never blocks Myra's feed from firing.
 
     Returns a small dict describing what happened — the UI doesn't strictly
     need it, but it's useful for debugging without watching server logs.
     """
-    global _last_fire_at, _pending_visit
-    elapsed = time.monotonic() - _last_fire_at
+    elapsed = time.monotonic() - _last_fire_at.get(contact_slug, 0.0)
     debounce = settings.feed_loop_visit_debounce_seconds
     if elapsed < debounce:
         return {"scheduled": False, "reason": f"debounced({int(elapsed)}s/{debounce}s)"}
-    if _run_lock.locked():
+    if _lock_for(contact_slug).locked():
         return {"scheduled": False, "reason": "already-running"}
-    if _pending_visit and not _pending_visit.done():
+    pending = _pending_visits.get(contact_slug)
+    if pending and not pending.done():
         return {"scheduled": False, "reason": "already-pending"}
-    _pending_visit = asyncio.create_task(_run_once(reason="visit"))
+    _pending_visits[contact_slug] = asyncio.create_task(
+        _run_once(contact_slug, reason="visit")
+    )
     return {"scheduled": True}
 
 
-async def force_fire(reason: str = "manual") -> dict:
+async def force_fire(contact_slug: str, reason: str = "manual") -> dict:
     """Fire the loop immediately, skipping the visit-debounce cooldown.
 
     Used by `POST /v1/feed/refresh` (the existing manual-kick endpoint).
-    Still respects the single-flight lock.
+    Still respects this contact's single-flight lock.
     """
-    if _run_lock.locked():
+    if _lock_for(contact_slug).locked():
         return {"fired": False, "reason": "already-running"}
-    asyncio.create_task(_run_once(reason=reason))
+    asyncio.create_task(_run_once(contact_slug, reason=reason))
     return {"fired": True}
 
 
 # ── The loop itself ──────────────────────────────────────────────────────
 
 
-async def _run_once(reason: str = "unspecified") -> None:
-    global _last_fire_at
-    if _run_lock.locked():
+async def _run_once(contact_slug: str, reason: str = "unspecified") -> None:
+    lock = _lock_for(contact_slug)
+    if lock.locked():
         return
-    async with _run_lock:
-        _last_fire_at = time.monotonic()
+    async with lock:
+        _last_fire_at[contact_slug] = time.monotonic()
         started = _now().isoformat()
-        _set_status(generating=True, started_at=started, finished_at=None,
-                    lines_total=0, lines_done=0, last_reason=reason)
+        _set_status(
+            contact_slug,
+            generating=True,
+            started_at=started,
+            finished_at=None,
+            lines_total=0,
+            lines_done=0,
+            last_reason=reason,
+        )
         try:
-            await _do_run(reason)
+            await _do_run(contact_slug, reason)
         except Exception:
-            log.exception("feed_loop: run failed")
+            log.exception("feed_loop: run failed (contact=%s)", contact_slug)
         finally:
-            _set_status(generating=False, finished_at=_now().isoformat())
+            _set_status(contact_slug, generating=False, finished_at=_now().isoformat())
 
 
-async def _do_run(reason: str) -> None:
+async def _do_run(contact_slug: str, reason: str) -> None:
     # Wake-gate the crystal. The predicate checks drift, confidence, and
     # the cold-start min-signal guard — see api/feed_crystal.should_regen.
     try:
-        should, why = await feed_crystal.should_regen()
+        should, why = await feed_crystal.should_regen(contact_slug)
     except Exception:
-        print("feed_loop: should_regen check failed; proceeding without regen", flush=True)
+        print(
+            f"feed_loop[{contact_slug}]: should_regen check failed; proceeding without regen",
+            flush=True,
+        )
         should, why = False, "predicate-error"
-    print(f"feed_loop: wake reason={reason}, regen-decision={should} ({why})", flush=True)
+    print(
+        f"feed_loop[{contact_slug}]: wake reason={reason}, regen-decision={should} ({why})",
+        flush=True,
+    )
     if should:
         try:
-            await feed_crystal.synthesize()
+            await feed_crystal.synthesize(contact_slug)
         except Exception as e:
-            print(f"feed_loop: crystal synthesize failed: {type(e).__name__}: {e}; using stale crystal", flush=True)
+            print(
+                f"feed_loop[{contact_slug}]: crystal synthesize failed: {type(e).__name__}: {e}; using stale crystal",
+                flush=True,
+            )
 
-    crystal = await feed_crystal.latest(force=True)
+    crystal = await feed_crystal.latest(contact_slug, force=True)
     if not crystal:
         # Cold-start path — no crystal yet, no signal yet either. Run a
         # broadly-curious single fire so the lake gets some sediment we
         # can later distill from.
-        print("feed_loop: cold-start path (no crystal)", flush=True)
-        await _cold_start_fire()
+        print(f"feed_loop[{contact_slug}]: cold-start path (no crystal)", flush=True)
+        await _cold_start_fire(contact_slug)
         return
 
     lines = crystal.get("directive_lines") or []
     if not lines:
-        print("feed_loop: crystal has no directive lines; skipping", flush=True)
+        print(f"feed_loop[{contact_slug}]: crystal has no directive lines; skipping", flush=True)
         return
 
-    print(f"feed_loop: crystal id={crystal.get('id')}, {len(lines)} directive line(s)", flush=True)
-    _set_status(lines_total=len(lines), lines_done=0)
+    print(
+        f"feed_loop[{contact_slug}]: crystal id={crystal.get('id')}, {len(lines)} directive line(s)",
+        flush=True,
+    )
+    _set_status(contact_slug, lines_total=len(lines), lines_done=0)
     for i, line in enumerate(lines):
         try:
-            await _fire_line(line, crystal)
+            await _fire_line(contact_slug, line, crystal)
         except Exception as e:
-            print(f"feed_loop: line {line.get('id')} failed: {type(e).__name__}: {e}", flush=True)
-        _set_status(lines_done=i + 1)
-    print(f"feed_loop: run complete ({len(lines)} lines processed)", flush=True)
+            print(
+                f"feed_loop[{contact_slug}]: line {line.get('id')} failed: {type(e).__name__}: {e}",
+                flush=True,
+            )
+        _set_status(contact_slug, lines_done=i + 1)
+    print(f"feed_loop[{contact_slug}]: run complete ({len(lines)} lines processed)", flush=True)
 
 
 _CARD_OUTPUT_INSTRUCTIONS = (
@@ -207,23 +252,23 @@ _CARD_OUTPUT_INSTRUCTIONS = (
 )
 
 
-async def _cold_start_fire() -> None:
+async def _cold_start_fire(contact_slug: str) -> None:
     """One broad-strokes card when there's no crystal and no engagement yet."""
     directive = (
-        "There's no feed-orient crystal yet — Myra has not given any signal "
-        "about what she wants in her feed. Pick ONE genuinely interesting "
-        "thing happening in the world right now (curiosity-default), search "
-        "the web or the lake for an authoritative source, and produce a "
-        "single feed card.\n\n"
+        f"There's no feed-orient crystal yet — this reader ({contact_slug}) has "
+        "not given any signal about what they want in their feed. Pick ONE "
+        "genuinely interesting thing happening in the world right now "
+        "(curiosity-default), search the web or the lake for an authoritative "
+        "source, and produce a single feed card.\n\n"
         + _CARD_OUTPUT_INSTRUCTIONS
     )
     try:
         await asyncio.wait_for(
-            _produce_card(line=None, crystal=None, directive=directive),
+            _produce_card(contact_slug, line=None, crystal=None, directive=directive),
             timeout=settings.feed_loop_budget_seconds,
         )
     except asyncio.TimeoutError:
-        log.info("feed_loop: cold-start fire timed out")
+        log.info("feed_loop: cold-start fire timed out (contact=%s)", contact_slug)
 
 
 async def _fetch_line_candidates(line: dict, limit: int = 20) -> list[dict]:
@@ -385,18 +430,24 @@ def _format_candidates(pool: list[dict]) -> str:
     return "\n".join(lines)
 
 
-async def _fire_line(line: dict, crystal: dict) -> None:
+async def _fire_line(contact_slug: str, line: dict, crystal: dict) -> None:
     """One directive line → one feed card (subject to freshness check)."""
     line_id = (line.get("id") or "").strip() or "unnamed"
     topic = (line.get("topic") or "").strip()
     freshness_h = float(line.get("freshness_hours") or 12)
 
-    # Freshness check — skip if we already have a card for this line that's
-    # newer than the freshness window.
-    if await _has_fresh_card(line_id, freshness_h):
-        print(f"feed_loop: line {line_id} skipped (fresh card exists, window={freshness_h}h)", flush=True)
+    # Freshness check — skip if this contact already has a card for this
+    # line that's newer than the freshness window.
+    if await _has_fresh_card(contact_slug, line_id, freshness_h):
+        print(
+            f"feed_loop[{contact_slug}]: line {line_id} skipped (fresh card exists, window={freshness_h}h)",
+            flush=True,
+        )
         return
-    print(f"feed_loop: line {line_id} firing (topic={line.get('topic')}, weight={line.get('weight')})", flush=True)
+    print(
+        f"feed_loop[{contact_slug}]: line {line_id} firing (topic={line.get('topic')}, weight={line.get('weight')})",
+        flush=True,
+    )
 
     # Pre-fetch candidates so the model isn't betting on semantic-search
     # to surface the right content. See _fetch_line_candidates.
@@ -439,11 +490,17 @@ async def _fire_line(line: dict, crystal: dict) -> None:
 
     try:
         await asyncio.wait_for(
-            _produce_card(line=line, crystal=crystal, directive=directive, candidates=candidates),
+            _produce_card(
+                contact_slug,
+                line=line,
+                crystal=crystal,
+                directive=directive,
+                candidates=candidates,
+            ),
             timeout=settings.feed_loop_budget_seconds,
         )
     except asyncio.TimeoutError:
-        print(f"feed_loop: line {line_id} timed out", flush=True)
+        print(f"feed_loop[{contact_slug}]: line {line_id} timed out", flush=True)
 
 
 def _strip_fences(text: str) -> str:
@@ -515,7 +572,13 @@ def _validate_media_list(values: list[str], valid_hashes: set[str]) -> list[str]
     return out
 
 
-async def _produce_card(line: dict | None, crystal: dict | None, directive: str, candidates: list[dict] | None = None) -> None:
+async def _produce_card(
+    contact_slug: str,
+    line: dict | None,
+    crystal: dict | None,
+    directive: str,
+    candidates: list[dict] | None = None,
+) -> None:
     """Run fathom_think; parse the JSON-shaped final assistant message; write a card.
 
     Retries on non-JSON output up to MAX_FORMAT_ATTEMPTS, each time feeding
@@ -627,7 +690,11 @@ async def _produce_card(line: dict | None, crystal: dict | None, directive: str,
         "link": link,
         "links": links,
     }
-    tags = [CARD_TAG, "feed-story"]  # `feed-story` for back-compat with existing UI reader
+    tags = [
+        CARD_TAG,
+        "feed-story",  # back-compat with existing UI reader
+        _contact_tag(contact_slug),
+    ]
     if line and line.get("id"):
         tags.append(f"directive-line:{line['id']}")
     if line and line.get("topic"):
@@ -644,11 +711,13 @@ async def _produce_card(line: dict | None, crystal: dict | None, directive: str,
         log.exception("feed_loop: card delta write failed")
 
 
-async def _has_fresh_card(line_id: str, freshness_hours: float) -> bool:
-    """True if a card with directive-line:<line_id> exists newer than the window."""
+async def _has_fresh_card(
+    contact_slug: str, line_id: str, freshness_hours: float
+) -> bool:
+    """True if this contact already has a card for this line newer than the window."""
     try:
         results = await delta_client.query(
-            tags_include=[CARD_TAG, f"directive-line:{line_id}"],
+            tags_include=[CARD_TAG, f"directive-line:{line_id}", _contact_tag(contact_slug)],
             limit=1,
         )
     except Exception:

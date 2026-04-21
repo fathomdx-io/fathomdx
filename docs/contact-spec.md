@@ -62,9 +62,16 @@ Every delta that originates from a human gets `contact:<slug>` at write time, at
 - Bob talks to Fathom via Telegram → Telegram bridge writes the delta with `contact:bob`.
 - Myra runs claude-code in `consumer-fathom/` → claude-code hook writes session deltas with `contact:myra`.
 
-Fathom's own deltas (`participant:fathom`, routines, reflections, reasoning) do **not** carry a `contact:` tag. Untagged-by-contact = Fathom's own memory.
+The rule splits two ways depending on whether a delta is **correspondence** or **reflection**:
 
-This matters for migration: **existing deltas stay untagged**. They're Fathom's memory — no backfill. The `contact:` tag is a forward-only convention.
+- **Correspondence** — any addressed utterance. User messages carry `contact:<author>`; Fathom's chat replies, tool events, and silence acks carry `contact:<addressee>` (who the reply is *to*). This lets future-Fathom pull "everything I've ever said to Bob" with one query instead of reconstructing it from thread tags.
+- **Reflection** — Fathom's routines, reasoning, identity crystals, reflections on the day, and other unaddressed thinking do **not** carry a `contact:` tag. Untagged-by-contact = Fathom's own memory, global across the system.
+
+In practice the contact tag marks *who the delta is between*, not *whose memory this is*. The `participant:` tag still identifies the author (user/fathom/agent); `contact:` identifies the person the delta concerns.
+
+Per-contact dashboard surfaces — the feed-orient crystal, feed cards, engagement signals, drift anchors — carry `contact:<slug>` by the same rule. They exist *for* a specific person and the lake needs to know.
+
+This matters for migration: **existing deltas stay untagged by default**. They're Fathom's memory — no backfill for general content. The one exception is the per-contact feed (engagement/stories/crystal), which got a one-shot `contact:myra` backfill when the registry landed, because its semantics would otherwise flip from "the feed" to "someone's feed, unclaimed." Going forward the `contact:` tag is a forward-only convention.
 
 ## Channel resolution
 

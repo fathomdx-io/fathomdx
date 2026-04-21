@@ -36,6 +36,30 @@ CREATE INDEX IF NOT EXISTS idx_deltas_source ON deltas (source);
 CREATE INDEX IF NOT EXISTS idx_deltas_tags ON deltas USING GIN (tags);
 CREATE INDEX IF NOT EXISTS idx_deltas_expires ON deltas (expires_at)
     WHERE expires_at IS NOT NULL;
+
+CREATE TABLE IF NOT EXISTS contacts (
+    slug         TEXT PRIMARY KEY,
+    display_name TEXT NOT NULL,
+    role         TEXT NOT NULL DEFAULT 'member' CHECK (role IN ('admin', 'member')),
+    notes        TEXT NOT NULL DEFAULT '',
+    created_at   TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS handles (
+    contact_slug TEXT NOT NULL REFERENCES contacts(slug) ON DELETE CASCADE,
+    channel      TEXT NOT NULL,
+    identifier   TEXT NOT NULL,
+    created_at   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    UNIQUE (channel, identifier)
+);
+
+CREATE INDEX IF NOT EXISTS idx_handles_contact ON handles (contact_slug);
+"""
+
+SEED_SQL = """
+INSERT INTO contacts (slug, display_name, role, notes)
+VALUES ('myra', 'Myra', 'admin', 'Default admin. Owner of the Fathom system.')
+ON CONFLICT (slug) DO NOTHING;
 """
 
 # HNSW indexes are expensive to create and can't use IF NOT EXISTS before pg17.
@@ -103,6 +127,8 @@ async def init_pool(dsn: str | None = None) -> asyncpg.Pool:
             "ON CONFLICT (key) DO NOTHING",
             SCHEMA_VERSION,
         )
+
+        await conn.execute(SEED_SQL)
 
     return _pool
 

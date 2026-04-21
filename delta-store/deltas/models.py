@@ -6,6 +6,8 @@ Adds plan request/response models for compositional queries.
 
 from __future__ import annotations
 
+from typing import Literal
+
 from pydantic import BaseModel, Field
 
 # ── Delta CRUD ──────────────────────────────────────────────────────────────
@@ -218,3 +220,46 @@ class PlanResponse(BaseModel):
     steps: dict[str, StepResultDeltas | StepResultAggregate]
     timing_ms: float
     warnings: list[str] = Field(default_factory=list)
+
+
+# ── Contacts & Handles ─────────────────────────────────────────────────────
+
+
+Role = Literal["admin", "member"]
+
+
+class ContactIn(BaseModel):
+    slug: str
+    display_name: str
+    role: Role = "member"
+    notes: str = ""
+
+
+class ContactUpdate(BaseModel):
+    display_name: str | None = None
+    role: Role | None = None
+    notes: str | None = None
+
+
+class ContactOut(BaseModel):
+    slug: str
+    display_name: str
+    role: str
+    notes: str
+    created_at: str
+
+
+class HandleIn(BaseModel):
+    channel: str
+    identifier: str
+
+
+class HandleOut(BaseModel):
+    contact_slug: str
+    channel: str
+    identifier: str
+    created_at: str
+
+
+class ResolvedHandle(BaseModel):
+    contact_slug: str | None

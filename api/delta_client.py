@@ -226,9 +226,19 @@ async def recent_deltas_timestamps(limit: int = 5000) -> list[str]:
     return [d.get("timestamp", "")[:10] for d in r.json() if d.get("timestamp")]
 
 
-async def feed_stories(limit: int = 50, offset: int = 0) -> dict:
+async def feed_stories(
+    limit: int = 50,
+    offset: int = 0,
+    contact_slug: str | None = None,
+) -> dict:
     c = await _get()
-    r = await c.get("/feed/stories", params={"limit": limit, "offset": offset})
+    params: dict = {"limit": limit, "offset": offset}
+    # delta-store's /feed/stories accepts an optional `layer` tag filter
+    # to narrow by a second tag. Repurpose it as the contact scope so each
+    # dashboard only sees its own contact's cards.
+    if contact_slug:
+        params["layer"] = f"contact:{contact_slug}"
+    r = await c.get("/feed/stories", params=params)
     r.raise_for_status()
     return r.json()
 
@@ -248,6 +258,99 @@ async def drift(text: str, since: str | None = None) -> dict:
     c = await _get()
     body = {"text": text, "since": since or ""}
     r = await c.post("/drift", json=body, timeout=20)
+    r.raise_for_status()
+    return r.json()
+
+
+# ── Contacts (registry passthrough) ─────────────
+
+async def get_contact(slug: str) -> dict | None:
+    """Fetch a contact record from delta-store by slug."""
+    c = await _get()
+    r = await c.get(f"/contacts/{slug}")
+    if r.status_code == 404:
+        return None
+    r.raise_for_status()
+    return r.json()
+
+
+async def list_contacts() -> list[dict]:
+    c = await _get()
+    r = await c.get("/contacts")
+    r.raise_for_status()
+    return r.json()
+
+
+async def create_contact(
+    slug: str, display_name: str, role: str = "member", notes: str = ""
+) -> dict:
+    c = await _get()
+    r = await c.post(
+        "/contacts",
+        json={"slug": slug, "display_name": display_name, "role": role, "notes": notes},
+    )
+    r.raise_for_status()
+    return r.json()
+
+
+async def update_contact(slug: str, **fields) -> dict:
+    c = await _get()
+    r = await c.patch(f"/contacts/{slug}", json=fields)
+    r.raise_for_status()
+    return r.json()
+
+
+async def delete_contact(slug: str) -> None:
+    c = await _get()
+    r = await c.delete(f"/contacts/{slug}")
+    r.raise_for_status()
+
+
+async def list_handles(slug: str) -> list[dict]:
+    c = await _get()
+    r = await c.get(f"/contacts/{slug}/handles")
+    r.raise_for_status()
+    return r.json()
+
+
+async def add_handle(slug: str, channel: str, identifier: str) -> dict:
+    c = await _get()
+    r = await c.post(
+        f"/contacts/{slug}/handles",
+        json={"channel": channel, "identifier": identifier},
+    )
+    r.raise_for_status()
+    return r.json()
+
+
+async def remove_handle(slug: str, channel: str, identifier: str) -> None:
+    c = await _get()
+    r = await c.request(
+        "DELETE",
+        f"/contacts/{slug}/handles",
+        json={"channel": channel, "identifier": identifier},
+    )
+    r.raise_for_status()
+
+
+async def resolve_handle(channel: str, identifier: str) -> str | None:
+    c = await _get()
+    r = await c.get(
+        "/handles/resolve",
+        params={"channel": channel, "identifier": identifier},
+    )
+    r.raise_for_status()
+    return r.json().get("contact_slug")
+
+
+async def backfill_contact_tag(contact_slug: str, filter_tags: list[str]) -> dict:
+    """Append contact:<slug> to legacy per-user deltas that predate the
+    contact registry. Idempotent — safe to call every boot."""
+    c = await _get()
+    r = await c.post(
+        "/admin/backfill-contact-tag",
+        json={"contact_slug": contact_slug, "filter_tags": filter_tags},
+    )
     r.raise_for_status()
     return r.json()
 

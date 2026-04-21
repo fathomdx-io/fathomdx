@@ -180,9 +180,15 @@ class ChatListener:
         if not latest_content:
             return
 
+        # Addressee = the contact who sent the triggering delta. Fathom's
+        # reply carries their `contact:<slug>` tag so future queries can
+        # pull "everything I've said to Bob" in one shot — correspondence
+        # tagged with who it was *to*, per docs/contact-spec.md §Tagging.
+        addressee_slug = _contact_slug(latest.get("tags") or [])
+
         print(
             f"chat-listener: turn in {slug} ({len(new_deltas_sorted)} new deltas, "
-            f"trigger source={latest.get('source')})",
+            f"trigger source={latest.get('source')}, addressee={addressee_slug or '?'})",
             flush=True,
         )
 
@@ -194,7 +200,9 @@ class ChatListener:
         def on_tool_event(kind: str, name: str, data: dict) -> None:
             if kind != "result":
                 return
-            asyncio.create_task(write_chat_event(slug, name, data))
+            asyncio.create_task(
+                write_chat_event(slug, name, data, contact_slug=addressee_slug)
+            )
 
         history_msgs = await db.get_messages(slug)
         # Map the session history into OpenAI-ish {role, content} pairs.
@@ -234,7 +242,7 @@ class ChatListener:
             # No persistence value, just a live receipt.
             print(f"chat-listener: silence in {slug} (<...>) — writing ack", flush=True)
             try:
-                await write_chat_event(slug, "silence", {})
+                await write_chat_event(slug, "silence", {}, contact_slug=addressee_slug)
                 print(f"chat-listener: silence ack written for {slug}", flush=True)
             except Exception as e:
                 print(f"chat-listener: silence ack failed: {type(e).__name__}: {e}", flush=True)
@@ -242,8 +250,11 @@ class ChatListener:
 
         # Persist Fathom's reply the same way the old chat endpoint did.
         # db.add_message tags it with participant:fathom so the listener's
-        # next tick skips it (own-writes filter).
-        await db.add_message(slug, "assistant", reply_text)
+        # next tick skips it (own-writes filter), and with contact:<addressee>
+        # so the correspondence carries who the reply was to.
+        await db.add_message(
+            slug, "assistant", reply_text, contact_slug=addressee_slug
+        )
         await db.touch_session(slug)
 
 
@@ -254,11 +265,19 @@ def _chat_slug(tags: list[str]) -> str | None:
     return None
 
 
+def _contact_slug(tags: list[str]) -> str | None:
+    for t in tags:
+        if isinstance(t, str) and t.startswith("contact:"):
+            return t[len("contact:"):]
+    return None
+
+
 async def write_chat_event(
     session_slug: str,
     kind: str,
     data: dict,
     ttl_seconds: int | None = None,
+    contact_slug: str | None = None,
 ) -> None:
     """Drop an ephemeral chat-event delta into the session.
 
@@ -290,6 +309,8 @@ async def write_chat_event(
         f"event:{kind}",
         "participant:fathom",
     ]
+    if contact_slug:
+        tags.append(f"contact:{contact_slug}")
     # Extra fields per event shape — a media_hash for image views, a
     # count for recall/remember, etc. Callers pass whatever matters.
     content = json.dumps({"kind": kind, **data})

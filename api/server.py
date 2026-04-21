@@ -11,13 +11,13 @@ from pathlib import Path
 from typing import AsyncGenerator
 
 import httpx
-from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
+from fastapi import Depends, FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
-from . import auth, auto_regen, crystal, crystal_anchor, db, delta_client, drift, feed_crystal, feed_loop, mood, pairing, pressure, recall, routines as routines_mod, usage as usage_module
+from . import auth, auto_regen, crystal, crystal_anchor, db, delta_client, drift, feed_crystal, feed_loop, mood, pairing, pressure, recall, reserved_tags, routines as routines_mod, usage as usage_module
 
 log = logging.getLogger(__name__)
 from .prompt import (
@@ -89,6 +89,41 @@ class FeedEngagementRequest(BaseModel):
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
     from . import chat_listener
+    migrated = auth.migrate_legacy_tokens()
+    if migrated:
+        log.info("Bound %d legacy tokens to contact 'myra'", migrated)
+    # One-shot backfill of contact:myra onto per-user deltas that predate
+    # the contact registry. Idempotent — skips deltas that already carry
+    # any contact: tag, so re-runs are no-ops. Runs in the background so
+    # a cold delta-store start doesn't block the api from accepting
+    # requests; retries until delta-store is reachable.
+    async def _backfill_once():
+        import asyncio as _a
+        for attempt in range(6):  # ~30s total with backoff
+            try:
+                result = await delta_client.backfill_contact_tag(
+                    contact_slug="myra",
+                    filter_tags=[
+                        "feed-engagement",
+                        "feed-story",
+                        "feed-card",
+                        "crystal:feed-orient",
+                    ],
+                )
+                if result.get("updated"):
+                    log.info(
+                        "Backfilled contact:myra on %d legacy feed deltas",
+                        result.get("updated"),
+                    )
+                return
+            except Exception:
+                if attempt == 5:
+                    log.exception("contact backfill failed after retries (non-fatal)")
+                    return
+                await _a.sleep(2 ** attempt)
+
+    import asyncio as _asyncio
+    _asyncio.create_task(_backfill_once())
     auto_regen.start()
     chat_listener.listener.start()
     try:
@@ -112,6 +147,19 @@ app.add_middleware(auth.TokenAuthMiddleware)
 # ── Helpers ─────────────────────────────────────
 
 MAX_TOOL_ROUNDS = 10
+
+# Default contact used before auth kicks in (first-run) or when a route
+# needs a contact but the caller is unauthenticated. Seeded contact is
+# always `myra` by the delta-store init migration.
+DEFAULT_CONTACT_SLUG = "myra"
+
+
+def _current_contact_slug(request: Request) -> str:
+    """Resolve the authenticated caller's contact slug, or fall back to
+    the default. Every feed/chat/engagement path calls through here so
+    unauthenticated-but-allowed requests (first-run) still tag writes."""
+    contact = getattr(request.state, "contact", None)
+    return (contact or {}).get("slug") or DEFAULT_CONTACT_SLUG
 
 
 def _msg_dicts(messages: list[Message]) -> list[dict]:
@@ -396,7 +444,7 @@ async def fathom_think(
 
 
 @app.post("/v1/chat/completions")
-async def chat_completions(req: ChatRequest):
+async def chat_completions(req: ChatRequest, request: Request):
     """Write a user message into a chat session and return immediately.
 
     Fathom's response comes via the chat listener (api/chat_listener.py),
@@ -424,11 +472,15 @@ async def chat_completions(req: ChatRequest):
     # delta via /v1/media so we skip writing a duplicate text delta when
     # image_uploaded is set. The write itself is what triggers the chat
     # listener to take a turn — no inference runs here synchronously.
+    contact = getattr(request.state, "contact", None)
+    contact_slug = (contact or {}).get("slug")
     for m in req.messages:
         if m.role == "user" and m.content:
             content = m.content if isinstance(m.content, str) else json.dumps(m.content)
             if not req.image_uploaded:
-                await db.add_message(session_id, "user", content)
+                await db.add_message(
+                    session_id, "user", content, contact_slug=contact_slug
+                )
 
     # Return session_id so the UI can lock onto it for its poll cycle.
     # No streaming response — there's nothing to stream. The chat listener
@@ -588,32 +640,37 @@ async def refresh_crystal():
 
 
 @app.post("/v1/feed/refresh")
-async def refresh_feed():
+async def refresh_feed(request: Request):
     """Manual kick of the feed loop, bypassing the visit-debounce.
 
-    Still respects the single-flight lock — repeated calls during a fire
-    return `fired=False, reason=already-running`. Useful for debugging
-    and for any external trigger that wants to force a regen.
+    Still respects the per-contact single-flight lock — repeated calls
+    during a fire return `fired=False, reason=already-running`. Useful
+    for debugging and for any external trigger that wants to force a
+    regen.
     """
-    return await feed_loop.force_fire(reason="manual-refresh")
+    slug = _current_contact_slug(request)
+    return await feed_loop.force_fire(slug, reason="manual-refresh")
 
 
 @app.post("/v1/feed/visit")
-async def feed_visit():
+async def feed_visit(request: Request):
     """Page-view ping. Schedules a debounced fire (cooldown in settings)."""
-    return await feed_loop.mark_visit()
+    slug = _current_contact_slug(request)
+    return await feed_loop.mark_visit(slug)
 
 
 @app.get("/v1/feed/status")
-async def feed_status():
+async def feed_status(request: Request):
     """Current loop state for the UI's "generating…" indicator."""
-    return feed_loop.current_status()
+    slug = _current_contact_slug(request)
+    return feed_loop.current_status(slug)
 
 
 @app.get("/v1/feed/crystal")
-async def get_feed_crystal():
-    """Latest crystal:feed-orient delta."""
-    c = await feed_crystal.latest(force=True)
+async def get_feed_crystal(request: Request):
+    """Latest crystal:feed-orient delta for the current contact."""
+    slug = _current_contact_slug(request)
+    c = await feed_crystal.latest(slug, force=True)
     if not c:
         return {"crystal": None}
     return {"crystal": {
@@ -628,37 +685,42 @@ async def get_feed_crystal():
 
 
 @app.post("/v1/feed/crystal/refresh")
-async def refresh_feed_crystal():
+async def refresh_feed_crystal(request: Request):
     """Manually run a feed-orient crystal regeneration (no wake-gate check)."""
-    fresh = await feed_crystal.synthesize()
+    slug = _current_contact_slug(request)
+    fresh = await feed_crystal.synthesize(slug)
     if not fresh:
         raise HTTPException(500, "synthesis failed — check server logs")
     return {"status": "ok", "id": fresh.get("id"), "confidence": fresh.get("confidence")}
 
 
 @app.get("/v1/feed/crystal/events")
-async def feed_crystal_events(limit: int = 50):
+async def feed_crystal_events(request: Request, limit: int = 50):
     """Crystal regeneration history (for the ECG card)."""
-    events = await feed_crystal.list_events(limit=limit)
+    slug = _current_contact_slug(request)
+    events = await feed_crystal.list_events(slug, limit=limit)
     return {"events": events}
 
 
 @app.get("/v1/feed/drift")
-async def feed_drift():
+async def feed_drift(request: Request):
     """Sample current engagement-centroid drift now."""
-    return await feed_crystal.sample_drift()
+    slug = _current_contact_slug(request)
+    return await feed_crystal.sample_drift(slug)
 
 
 @app.get("/v1/feed/drift/history")
-async def feed_drift_history(since_seconds: int | None = None):
+async def feed_drift_history(request: Request, since_seconds: int | None = None):
     """Drift history for the ECG card."""
-    return {"history": feed_crystal.drift_history(since_seconds=since_seconds)}
+    slug = _current_contact_slug(request)
+    return {"history": feed_crystal.drift_history(slug, since_seconds=since_seconds)}
 
 
 @app.get("/v1/feed/confidence/history")
-async def feed_confidence_history(limit: int = 50):
+async def feed_confidence_history(request: Request, limit: int = 50):
     """Confidence over time, derived from the confidence: tag on each crystal regen."""
-    events = await feed_crystal.list_events(limit=limit)
+    slug = _current_contact_slug(request)
+    events = await feed_crystal.list_events(slug, limit=limit)
     return {"history": [
         {"t": e.get("timestamp"), "v": e.get("confidence")}
         for e in events
@@ -667,12 +729,21 @@ async def feed_confidence_history(limit: int = 50):
 
 
 @app.get("/v1/feed/engagement/history")
-async def feed_engagement_history(since_seconds: int = 7 * 24 * 3600, limit: int = 500):
+async def feed_engagement_history(
+    request: Request,
+    since_seconds: int = 7 * 24 * 3600,
+    limit: int = 500,
+):
     """Engagement marks for the ECG bottom rule. Returns time + sign per delta."""
     from datetime import datetime, timedelta, timezone
+    slug = _current_contact_slug(request)
     cutoff = (datetime.now(timezone.utc) - timedelta(seconds=since_seconds)).isoformat()
     try:
-        deltas = await delta_client.query(tags_include=["feed-engagement"], time_start=cutoff, limit=limit)
+        deltas = await delta_client.query(
+            tags_include=["feed-engagement", f"contact:{slug}"],
+            time_start=cutoff,
+            limit=limit,
+        )
     except Exception:
         deltas = []
     out = []
@@ -730,8 +801,15 @@ async def create_session(req: SessionCreate):
 
 
 @app.get("/v1/sessions")
-async def list_sessions(limit: int = 50):
-    sessions = await db.list_sessions(limit)
+async def list_sessions(request: Request, limit: int = 50):
+    # Members see only sessions they participated in. Admins see every
+    # session so they can support other contacts. Auth gate upstream
+    # ensures request.state.contact is always populated when auth is
+    # enforced; first-run installs fall through to the default admin.
+    slug = _current_contact_slug(request)
+    contact = getattr(request.state, "contact", None) or {}
+    filter_slug = None if contact.get("role") == "admin" else slug
+    sessions = await db.list_sessions(limit, contact_slug=filter_slug)
     # Group by recency for the sidebar
     now = datetime.now(timezone.utc)
     groups: dict[str, list] = {"today": [], "yesterday": [], "last_7_days": [], "older": []}
@@ -792,13 +870,16 @@ async def delete_session(session_id: str):
 
 
 @app.get("/v1/feed/stories")
-async def get_feed_stories(limit: int = 20, offset: int = 0):
-    """Proxy to delta-store's feed stories endpoint."""
-    return await delta_client.feed_stories(limit=limit, offset=offset)
+async def get_feed_stories(request: Request, limit: int = 20, offset: int = 0):
+    """Proxy to delta-store's feed stories endpoint, scoped to current contact."""
+    slug = _current_contact_slug(request)
+    return await delta_client.feed_stories(
+        limit=limit, offset=offset, contact_slug=slug
+    )
 
 
 @app.post("/v1/feed/engagement")
-async def write_feed_engagement(req: FeedEngagementRequest):
+async def write_feed_engagement(req: FeedEngagementRequest, request: Request):
     """Capture a feed engagement signal — input to the feed-orient crystal.
 
     Only three kinds count: `more` (the + button), `less` (the − button),
@@ -812,6 +893,9 @@ async def write_feed_engagement(req: FeedEngagementRequest):
     if not req.card_id:
         raise HTTPException(400, "card_id required")
 
+    contact = getattr(request.state, "contact", None)
+    contact_slug = (contact or {}).get("slug")
+
     # Note on tagging: deliberately NOT using `chat:<slug>` for the chat
     # session linkage — that tag belongs to the chat-listener's session
     # roster, and an engagement delta tagged with it would be processed
@@ -823,6 +907,8 @@ async def write_feed_engagement(req: FeedEngagementRequest):
         tags.append(f"topic:{req.topic}")
     if req.chat_session:
         tags.append(f"chat-from:{req.chat_session}")
+    if contact_slug:
+        tags.append(f"contact:{contact_slug}")
 
     payload = {
         "kind": kind,
@@ -970,7 +1056,7 @@ async def list_source_types():
         return r.json()
 
 
-@app.post("/v1/sources")
+@app.post("/v1/sources", dependencies=[Depends(auth.require_admin)])
 async def create_source(req: SourceCreate):
     async with _source_runner() as c:
         r = await c.post("/api/sources", json=req.model_dump())
@@ -979,7 +1065,7 @@ async def create_source(req: SourceCreate):
         return r.json()
 
 
-@app.put("/v1/sources/{source_id}")
+@app.put("/v1/sources/{source_id}", dependencies=[Depends(auth.require_admin)])
 async def update_source(source_id: str, req: SourceUpdate):
     # Include explicitly-set fields (even if None, for "forever" expiry)
     body = {k: v for k, v in req.model_dump(exclude_unset=True).items()}
@@ -991,7 +1077,7 @@ async def update_source(source_id: str, req: SourceUpdate):
         return r.json()
 
 
-@app.post("/v1/sources/{source_id}/pause")
+@app.post("/v1/sources/{source_id}/pause", dependencies=[Depends(auth.require_admin)])
 async def pause_source(source_id: str):
     async with _source_runner() as c:
         r = await c.post(f"/api/sources/{source_id}/pause")
@@ -999,7 +1085,7 @@ async def pause_source(source_id: str):
         return r.json()
 
 
-@app.post("/v1/sources/{source_id}/resume")
+@app.post("/v1/sources/{source_id}/resume", dependencies=[Depends(auth.require_admin)])
 async def resume_source(source_id: str):
     async with _source_runner() as c:
         r = await c.post(f"/api/sources/{source_id}/resume")
@@ -1007,7 +1093,7 @@ async def resume_source(source_id: str):
         return r.json()
 
 
-@app.post("/v1/sources/{source_id}/poll")
+@app.post("/v1/sources/{source_id}/poll", dependencies=[Depends(auth.require_admin)])
 async def poll_source(source_id: str):
     async with _source_runner() as c:
         r = await c.post(f"/api/sources/{source_id}/poll")
@@ -1017,7 +1103,7 @@ async def poll_source(source_id: str):
         return r.json()
 
 
-@app.delete("/v1/sources/{source_id}")
+@app.delete("/v1/sources/{source_id}", dependencies=[Depends(auth.require_admin)])
 async def delete_source(source_id: str):
     async with _source_runner() as c:
         r = await c.delete(f"/api/sources/{source_id}")
@@ -1088,7 +1174,7 @@ async def list_routines_endpoint():
     return {"routines": await routines_mod.list_routines()}
 
 
-@app.post("/v1/routines")
+@app.post("/v1/routines", dependencies=[Depends(auth.require_admin)])
 async def create_routine_endpoint(body: dict):
     try:
         return await routines_mod.create(body)
@@ -1098,7 +1184,7 @@ async def create_routine_endpoint(body: dict):
         raise HTTPException(status_code=409, detail=str(e)) from e
 
 
-@app.put("/v1/routines/{routine_id}")
+@app.put("/v1/routines/{routine_id}", dependencies=[Depends(auth.require_admin)])
 async def update_routine_endpoint(routine_id: str, body: dict):
     try:
         return await routines_mod.update(routine_id, body)
@@ -1108,7 +1194,7 @@ async def update_routine_endpoint(routine_id: str, body: dict):
         raise HTTPException(status_code=400, detail=str(e)) from e
 
 
-@app.delete("/v1/routines/{routine_id}")
+@app.delete("/v1/routines/{routine_id}", dependencies=[Depends(auth.require_admin)])
 async def delete_routine_endpoint(routine_id: str):
     try:
         return await routines_mod.soft_delete(routine_id)
@@ -1116,7 +1202,7 @@ async def delete_routine_endpoint(routine_id: str):
         raise HTTPException(status_code=404, detail=str(e)) from e
 
 
-@app.post("/v1/routines/{routine_id}/fire")
+@app.post("/v1/routines/{routine_id}/fire", dependencies=[Depends(auth.require_admin)])
 async def fire_routine_endpoint(routine_id: str, body: dict | None = None):
     override = (body or {}).get("prompt") if body else None
     try:
@@ -1250,6 +1336,7 @@ async def proxy_media(media_hash: str):
 
 @app.post("/v1/media/upload")
 async def upload_media(
+    request: Request,
     file: UploadFile = File(...),
     session_id: str = Form(""),
     content: str = Form(""),
@@ -1281,6 +1368,11 @@ async def upload_media(
 
     if session_id:
         tag_list.append(f"chat:{session_id}")
+
+    contact = getattr(request.state, "contact", None)
+    contact_slug = (contact or {}).get("slug")
+    if contact_slug and not any(t.startswith("contact:") for t in tag_list):
+        tag_list.append(f"contact:{contact_slug}")
 
     result = await delta_client.upload_media(
         file_bytes=file_bytes,
@@ -1358,17 +1450,53 @@ def _split_facets(text: str) -> list[dict]:
     return facets
 
 
+# ── Auth identity ─────────────────────────────
+
+
+@app.get("/v1/auth/me")
+async def auth_me(request: Request):
+    """Return the current caller's contact + token shape.
+
+    Used by the dashboard shell to know who's logged in and which role
+    gates to apply. Never returns the raw token — that's one-time at
+    mint.
+
+    `auth_required` reports whether the server currently enforces auth
+    (i.e. at least one token has been minted). The login page uses it
+    to distinguish "first-run, sign-in optional" from "server is
+    locked, redirect to login."
+    """
+    contact = getattr(request.state, "contact", None)
+    token = getattr(request.state, "token", None)
+    return {
+        "authenticated": (contact is not None) and (token is not None or not auth.auth_required()),
+        "auth_required": auth.auth_required(),
+        "contact": contact,
+        "token": {
+            "id": (token or {}).get("id"),
+            "name": (token or {}).get("name"),
+            "scopes": (token or {}).get("scopes"),
+        } if token else None,
+    }
+
+
 # ── Token management ─────────────────────────────
 
 
 class TokenCreate(BaseModel):
     name: str = ""
     scopes: list[str] | None = None
+    contact_slug: str | None = None
 
 
-@app.post("/v1/tokens")
-async def create_token(req: TokenCreate):
-    return auth.create_token(req.name, req.scopes)
+@app.post("/v1/tokens", dependencies=[Depends(auth.require_admin)])
+async def create_token(req: TokenCreate, request: Request):
+    # Default to the caller's own contact. Admins can mint for others by
+    # passing contact_slug explicitly.
+    caller = getattr(request.state, "contact", None)
+    default_slug = (caller or {}).get("slug", "myra")
+    slug = req.contact_slug or default_slug
+    return auth.create_token(req.name, req.scopes, contact_slug=slug)
 
 
 @app.get("/v1/scopes")
@@ -1376,12 +1504,12 @@ async def list_scopes():
     return auth.get_scopes()
 
 
-@app.get("/v1/tokens")
+@app.get("/v1/tokens", dependencies=[Depends(auth.require_admin)])
 async def list_tokens():
     return auth.list_tokens()
 
 
-@app.delete("/v1/tokens/{token_id}")
+@app.delete("/v1/tokens/{token_id}", dependencies=[Depends(auth.require_admin)])
 async def delete_token(token_id: str):
     deleted = auth.delete_token(token_id)
     if not deleted:
@@ -1402,16 +1530,235 @@ async def delete_token(token_id: str):
 class PairCreate(BaseModel):
     note: str = ""
     ttl_seconds: int = 600
+    contact_slug: str | None = None
 
 
-@app.post("/v1/pair")
-async def pair_create(body: PairCreate):
-    return pairing.create_pair_code(ttl_seconds=body.ttl_seconds, note=body.note)
+@app.post("/v1/pair", dependencies=[Depends(auth.require_admin)])
+async def pair_create(body: PairCreate, request: Request):
+    caller = getattr(request.state, "contact", None)
+    default_slug = (caller or {}).get("slug", "myra")
+    slug = body.contact_slug or default_slug
+    return pairing.create_pair_code(
+        ttl_seconds=body.ttl_seconds,
+        note=body.note,
+        contact_slug=slug,
+    )
 
 
-@app.get("/v1/pair")
+@app.get("/v1/pair", dependencies=[Depends(auth.require_admin)])
 async def pair_list():
     return {"codes": pairing.list_active_codes()}
+
+
+# ── Contacts (registry admin) ───────────────────
+#
+# Passthrough to delta-store's contacts + handles, with a companion
+# delta written on create/update so the lake grows sediment around
+# each person alongside the hard-state row. Per docs/contact-spec.md.
+
+
+class ContactCreate(BaseModel):
+    slug: str
+    display_name: str
+    role: str = "member"
+    notes: str = ""
+
+
+class ContactUpdate(BaseModel):
+    display_name: str | None = None
+    role: str | None = None
+    notes: str | None = None
+
+
+class HandleBody(BaseModel):
+    channel: str
+    identifier: str
+
+
+async def _companion_delta(contact: dict, event: str) -> None:
+    """Write the sediment marker that shadows a contact profile change.
+
+    Not a blocker — we log and move on if the delta-store refuses. The
+    profile row is already committed; the delta is just the lake's
+    half of the hard-environmentals-grow-into-sediment pattern.
+    """
+    slug = contact.get("slug")
+    handles = []
+    try:
+        handles = await delta_client.list_handles(slug)
+    except Exception:
+        pass
+    handle_summary = ", ".join(
+        f"{h.get('channel')}:{h.get('identifier')}" for h in handles
+    ) or "(no handles yet)"
+    content = (
+        f"Contact {event}: {contact.get('display_name')} (slug={slug}, "
+        f"role={contact.get('role')}).\n"
+        f"Handles: {handle_summary}.\n"
+        f"Notes: {contact.get('notes') or '(none)'}"
+    )
+    try:
+        await delta_client.write(
+            content=content,
+            tags=["contact", f"contact:{slug}", "profile", f"profile-event:{event}"],
+            source="dashboard",
+        )
+    except Exception:
+        log.exception("companion delta write failed for contact %s (non-fatal)", slug)
+
+
+@app.get("/v1/contacts", dependencies=[Depends(auth.require_admin)])
+async def list_contacts():
+    return await delta_client.list_contacts()
+
+
+@app.post("/v1/contacts", dependencies=[Depends(auth.require_admin)])
+async def create_contact(req: ContactCreate):
+    try:
+        created = await delta_client.create_contact(
+            slug=req.slug,
+            display_name=req.display_name,
+            role=req.role,
+            notes=req.notes,
+        )
+    except httpx.HTTPStatusError as e:
+        raise HTTPException(
+            status_code=e.response.status_code,
+            detail=e.response.json().get("detail", str(e)),
+        ) from e
+    await _companion_delta(created, "created")
+    auth.invalidate_contact_cache(req.slug)
+    return created
+
+
+@app.get("/v1/contacts/{slug}", dependencies=[Depends(auth.require_admin)])
+async def get_contact(slug: str):
+    contact = await delta_client.get_contact(slug)
+    if not contact:
+        raise HTTPException(404, "Contact not found")
+    return contact
+
+
+@app.patch("/v1/contacts/{slug}", dependencies=[Depends(auth.require_admin)])
+async def update_contact(slug: str, req: ContactUpdate):
+    fields = {k: v for k, v in req.model_dump(exclude_unset=True).items() if v is not None}
+    if not fields:
+        existing = await delta_client.get_contact(slug)
+        if not existing:
+            raise HTTPException(404, "Contact not found")
+        return existing
+    try:
+        updated = await delta_client.update_contact(slug, **fields)
+    except httpx.HTTPStatusError as e:
+        if e.response.status_code == 404:
+            raise HTTPException(404, "Contact not found") from e
+        raise
+    await _companion_delta(updated, "updated")
+    auth.invalidate_contact_cache(slug)
+    return updated
+
+
+@app.delete("/v1/contacts/{slug}", dependencies=[Depends(auth.require_admin)])
+async def delete_contact(slug: str):
+    existing = await delta_client.get_contact(slug)
+    if not existing:
+        raise HTTPException(404, "Contact not found")
+    if slug == "myra":
+        raise HTTPException(400, "Cannot delete the default admin contact")
+    await delta_client.delete_contact(slug)
+    await _companion_delta(existing, "deleted")
+    auth.invalidate_contact_cache(slug)
+    return {"deleted": slug}
+
+
+@app.get("/v1/contacts/{slug}/handles", dependencies=[Depends(auth.require_admin)])
+async def list_contact_handles(slug: str):
+    return await delta_client.list_handles(slug)
+
+
+@app.post("/v1/contacts/{slug}/handles", dependencies=[Depends(auth.require_admin)])
+async def add_contact_handle(slug: str, body: HandleBody):
+    try:
+        handle = await delta_client.add_handle(slug, body.channel, body.identifier)
+    except httpx.HTTPStatusError as e:
+        raise HTTPException(
+            status_code=e.response.status_code,
+            detail=e.response.json().get("detail", str(e)),
+        ) from e
+    contact = await delta_client.get_contact(slug)
+    if contact:
+        await _companion_delta(contact, "handle-added")
+    return handle
+
+
+@app.delete("/v1/contacts/{slug}/handles", dependencies=[Depends(auth.require_admin)])
+async def remove_contact_handle(slug: str, body: HandleBody):
+    try:
+        await delta_client.remove_handle(slug, body.channel, body.identifier)
+    except httpx.HTTPStatusError as e:
+        raise HTTPException(
+            status_code=e.response.status_code,
+            detail=e.response.json().get("detail", str(e)),
+        ) from e
+    contact = await delta_client.get_contact(slug)
+    if contact:
+        await _companion_delta(contact, "handle-removed")
+    return {"deleted": {"channel": body.channel, "identifier": body.identifier}}
+
+
+# ── Self profile (named endpoint for non-admin self-edits) ───
+
+
+class SelfProfileUpdate(BaseModel):
+    display_name: str | None = None
+    notes: str | None = None
+
+
+@app.get("/v1/me/profile")
+async def get_my_profile(request: Request):
+    contact = getattr(request.state, "contact", None)
+    if not contact:
+        raise HTTPException(401, "Authentication required")
+    slug = contact.get("slug")
+    fresh = await delta_client.get_contact(slug)
+    if not fresh:
+        raise HTTPException(404, "Profile not found")
+    return fresh
+
+
+@app.patch("/v1/me/profile")
+async def update_my_profile(req: SelfProfileUpdate, request: Request):
+    """Self-edit for soft profile fields.
+
+    Role and slug are admin-only — not accepted on this endpoint. Admins
+    changing their own soft fields can use this or go through
+    /v1/contacts/<slug>; the writes land the same way.
+    """
+    contact = getattr(request.state, "contact", None)
+    if not contact:
+        raise HTTPException(401, "Authentication required")
+    slug = contact.get("slug")
+
+    fields = {
+        k: v
+        for k, v in req.model_dump(exclude_unset=True).items()
+        if v is not None
+    }
+    if not fields:
+        existing = await delta_client.get_contact(slug)
+        if not existing:
+            raise HTTPException(404, "Profile not found")
+        return existing
+
+    try:
+        updated = await delta_client.update_contact(slug, **fields)
+    except httpx.HTTPStatusError as e:
+        if e.response.status_code == 404:
+            raise HTTPException(404, "Profile not found") from e
+        raise
+    await _companion_delta(updated, "self-edited")
+    auth.invalidate_contact_cache(slug)
+    return updated
 
 
 class PairRedeem(BaseModel):
@@ -1595,9 +1942,43 @@ async def search_endpoint(request: dict):
 
 
 @app.post("/v1/deltas")
-async def proxy_write_delta(request: dict):
+async def proxy_write_delta(body: dict, request: Request):
+    """Raw lake write. Single external path that accepts caller-supplied
+    tag lists, so it carries both defenses:
+
+    1. Strip-and-re-stamp `contact:*`. Caller cannot address a delta to
+       anyone but themselves.
+    2. Reserved-tag scan. Authority-bearing tags must pass their gate
+       (see docs/reserved-tags-spec.md + api/reserved_tags.py).
+    """
+    contact = getattr(request.state, "contact", None)
+    caller_slug = (contact or {}).get("slug")
+
+    # (1) Strip caller-supplied contact:* tags; re-stamp with the
+    # authenticated caller's slug if we have one. Internal-tag callers
+    # never use this endpoint, so unknown-caller writes don't carry a
+    # contact tag at all — that's fine; the reservation scan will catch
+    # any authority-bearing write that came in unauthenticated.
+    caller_tags = reserved_tags.strip_contact_tags(list(body.get("tags") or []))
+    if caller_slug:
+        caller_tags.append(f"contact:{caller_slug}")
+    body = {**body, "tags": caller_tags}
+
+    # (2) Reservation gate.
+    result = await reserved_tags.evaluate(caller_tags, contact)
+    if not result.ok:
+        raise HTTPException(
+            status_code=403,
+            detail={
+                "error": "reserved_tag",
+                "tag": result.tag,
+                "gate": result.gate,
+                "detail": result.hint or "",
+            },
+        )
+
     c = await delta_client._get()
-    r = await c.post("/deltas", json=request)
+    r = await c.post("/deltas", json=body)
     r.raise_for_status()
     return r.json()
 

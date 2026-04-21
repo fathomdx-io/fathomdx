@@ -5,6 +5,11 @@ is only ever visible at creation time. Lookup is O(n) over the token list,
 which is fine for the expected scale (< 100 tokens per user).
 
 Token format: fth_<40 chars of base62>
+
+Each token is bound to a `contact_slug`. On successful auth the middleware
+resolves that slug to the contact record from delta-store and stamps it on
+`request.state.contact`, so every downstream handler can tag writes and
+gate admin-only routes without re-resolving.
 """
 from __future__ import annotations
 
@@ -12,10 +17,11 @@ import hashlib
 import json
 import secrets
 import string
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 
-from fastapi import Request
+from fastapi import HTTPException, Request
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.responses import JSONResponse
 
@@ -98,9 +104,20 @@ PUBLIC_PATHS = frozenset({
     "/v1/agents/latest-version",
 })
 
+# Paths that do NOT require auth but still get middleware-stamped contact
+# when a valid token is present — used by the login UI to probe current
+# identity without tripping a 401 before the user has entered a key.
+AUTH_OPTIONAL_PATHS = frozenset({
+    "/v1/auth/me",
+})
+
 PUBLIC_PREFIXES = (
     "/docs",
     "/ui",
+    # Favicon is a browser-initiated request with no Authorization header.
+    # Letting it through keeps the console clean without weakening any
+    # token-gated path. Delta-store serves 404 if no file is configured.
+    "/favicon",
 )
 
 
@@ -139,8 +156,12 @@ def _save(tokens: list[dict]) -> None:
 # ── CRUD ──────────────────────────────────────────
 
 
-def create_token(name: str = "", scopes: list[str] | None = None) -> dict:
-    """Create a new token. Returns the full token (only time it's visible)."""
+def create_token(
+    name: str = "",
+    scopes: list[str] | None = None,
+    contact_slug: str = "myra",
+) -> dict:
+    """Create a new token bound to a contact. Raw token only visible here."""
     raw = TOKEN_PREFIX + "".join(secrets.choice(ALPHABET) for _ in range(TOKEN_RAND_LEN))
     token_hash = _hash(raw)
     now = datetime.now(timezone.utc).isoformat()
@@ -157,6 +178,7 @@ def create_token(name: str = "", scopes: list[str] | None = None) -> dict:
         "hash": token_hash,
         "prefix": raw[:8] + "…",
         "scopes": granted,
+        "contact_slug": contact_slug,
         "created_at": now,
         "last_used_at": None,
     }
@@ -164,6 +186,24 @@ def create_token(name: str = "", scopes: list[str] | None = None) -> dict:
     tokens.append(record)
     _save(tokens)
     return {"token": raw, **{k: v for k, v in record.items() if k != "hash"}}
+
+
+def migrate_legacy_tokens(default_slug: str = "myra") -> int:
+    """Bind any token missing `contact_slug` to `default_slug`.
+
+    Legacy tokens were minted before contact-awareness. They all belong
+    to the admin who first set the instance up — Myra in the default
+    case, or whichever slug owns the first contact row.
+    """
+    tokens = _load()
+    changed = 0
+    for t in tokens:
+        if not t.get("contact_slug"):
+            t["contact_slug"] = default_slug
+            changed += 1
+    if changed:
+        _save(tokens)
+    return changed
 
 
 def list_tokens() -> list[dict]:
@@ -202,6 +242,55 @@ def get_scopes() -> dict[str, str]:
     return ALL_SCOPES
 
 
+# ── Contacts cache ──────────────────────────────────
+# Role + display_name live in delta-store; fetching on every request is a
+# cross-service round trip we don't need. Cache contact records for a
+# short TTL keyed by slug. Admin mutations invalidate the entry.
+
+_CONTACT_CACHE: dict[str, tuple[float, dict]] = {}
+_CONTACT_CACHE_TTL = 60.0
+
+
+async def resolve_contact(slug: str) -> dict | None:
+    """Return a contact record (dict) for a slug, using a short-lived cache."""
+    if not slug:
+        return None
+    now = time.time()
+    entry = _CONTACT_CACHE.get(slug)
+    if entry and (now - entry[0]) < _CONTACT_CACHE_TTL:
+        return entry[1]
+
+    from . import delta_client
+
+    try:
+        contact = await delta_client.get_contact(slug)
+    except Exception:
+        contact = None
+    if contact is not None:
+        _CONTACT_CACHE[slug] = (now, contact)
+    return contact
+
+
+def invalidate_contact_cache(slug: str | None = None) -> None:
+    if slug is None:
+        _CONTACT_CACHE.clear()
+    else:
+        _CONTACT_CACHE.pop(slug, None)
+
+
+def require_admin(request: Request) -> dict:
+    """Raise 403 unless the authed caller is an admin. Returns the contact."""
+    contact = getattr(request.state, "contact", None)
+    if not contact:
+        raise HTTPException(status_code=401, detail="Authentication required")
+    if contact.get("role") != "admin":
+        raise HTTPException(
+            status_code=403,
+            detail="Admin role required for this action",
+        )
+    return contact
+
+
 # ── Middleware ─────────────────────────────────────
 
 
@@ -230,9 +319,13 @@ class TokenAuthMiddleware(BaseHTTPMiddleware):
         if method == "OPTIONS":
             return await call_next(request)
 
-        # No tokens exist → everything open (first-run)
+        # No tokens exist → everything open (first-run). Default the
+        # caller to the seeded admin so any writes during first-run still
+        # carry a contact tag; once a real token is minted this branch
+        # stops firing.
         if not auth_required():
             request.state.token = None
+            request.state.contact = await resolve_contact("myra")
             return await call_next(request)
 
         # Check Authorization header — preferred path for all clients.
@@ -248,13 +341,23 @@ class TokenAuthMiddleware(BaseHTTPMiddleware):
             raw_token = auth_header[7:]
         elif method == "GET" and path.startswith("/v1/media/"):
             raw_token = request.query_params.get("token", "")
+
+        auth_optional = path in AUTH_OPTIONAL_PATHS
         if not raw_token:
+            if auth_optional:
+                request.state.token = None
+                request.state.contact = None
+                return await call_next(request)
             return JSONResponse(
                 status_code=401,
                 content={"error": "Missing or invalid Authorization header"},
             )
         token_info = validate(raw_token)
         if not token_info:
+            if auth_optional:
+                request.state.token = None
+                request.state.contact = None
+                return await call_next(request)
             return JSONResponse(
                 status_code=401,
                 content={"error": "Invalid token"},
@@ -275,4 +378,7 @@ class TokenAuthMiddleware(BaseHTTPMiddleware):
                 )
 
         request.state.token = token_info
+        request.state.contact = await resolve_contact(
+            token_info.get("contact_slug", "")
+        )
         return await call_next(request)
