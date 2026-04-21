@@ -558,7 +558,7 @@
     .feed-pulse {
       display: inline-block;
       width: 8px; height: 8px; border-radius: 50%;
-      margin-left: 10px;
+      margin-right: 6px;
       vertical-align: middle;
       background: var(--ink-faint);
       opacity: 0.5;
@@ -573,20 +573,22 @@
     /* Element-level `display: inline-block` above overrides the user-agent
        stylesheet's `[hidden] { display: none }`. Restore the hide. */
     .feed-pulse[hidden] { display: none; }
-    /* Inline activity label next to the pulse — shows what the LLM is
-       currently doing ("Generating card: <topic>"), or "feed zen" when
-       everything is fresh. Muted mono so it reads as status, not heading. */
+    /* Activity label next to the pulse — shows what the LLM is currently
+       doing ("Generating card: <topic>"), or "feed zen" when everything is
+       fresh. Lives inside .section-head .meta so it inherits uppercase,
+       mono, letter-spacing, and color from the parent status line. */
     .feed-activity {
       display: inline-block;
-      margin-left: 8px;
-      font-family: var(--mono);
-      font-size: 11px;
-      font-weight: normal;
-      letter-spacing: 0.02em;
-      color: var(--ink-faint);
       vertical-align: middle;
     }
     .feed-activity[hidden] { display: none; }
+    /* Bullet separator between the activity label and the counter text
+       ("FEED ZEN · 5 STORIES · 1H AGO"). Hidden whenever either side is
+       empty so we never render a dangling " · ". */
+    .feed-meta-sep[hidden] { display: none; }
+    /* The right-side meta group lays out pulse + label + counter inline
+       on the baseline — matches the surrounding .meta text. */
+    .section-head .section-meta-group { white-space: nowrap; }
     @keyframes feed-pulse {
       0%, 100% { opacity: 0.55; transform: scale(0.85); box-shadow: 0 0 0 0 rgba(92, 225, 198, 0.55); }
       50%      { opacity: 1.0;  transform: scale(1.0);  box-shadow: 0 0 0 6px rgba(92, 225, 198, 0); }
@@ -2255,8 +2257,13 @@
     <!-- Feed: what Fathom noticed -->
     <section class="section">
       <div class="section-head">
-        <h2>What I noticed<span class="feed-pulse" id="feedPulse" aria-hidden="true" hidden></span><span class="feed-activity" id="feedActivityLabel" aria-live="polite" hidden></span></h2>
-        <span class="meta" id="feedMeta"></span>
+        <h2>What I noticed</h2>
+        <span class="meta section-meta-group">
+          <span class="feed-pulse" id="feedPulse" aria-hidden="true" hidden></span>
+          <span class="feed-activity" id="feedActivityLabel" aria-live="polite" hidden></span>
+          <span class="feed-meta-sep" id="feedMetaSep" hidden> · </span>
+          <span id="feedMeta"></span>
+        </span>
       </div>
       <div class="feed">
         <!-- Populated by loadFeedStories() -->
@@ -6290,7 +6297,7 @@ GET  /v1/usage               Usage stats`,
         el.className = 'tool-strip';
         const labelHtml = turn.label ? `<span>${turn.label}</span>` : '';
         const thumbHtml = turn.media_hash
-          ? `<img class="tool-thumb" src="${mediaUrl(turn.media_hash)}" alt="" />`
+          ? `<a class="glightbox" data-gallery="chat" href="${mediaUrl(turn.media_hash)}"><img class="tool-thumb" src="${mediaUrl(turn.media_hash)}" alt="" /></a>`
           : '';
         el.innerHTML = `${thumbHtml}${TOOL_ICONS[turn.icon] || ''}${labelHtml}<span class="tool-meta">${PH_TRIANGLE}${turn.meta}</span>`;
         return el;
@@ -6302,6 +6309,22 @@ GET  /v1/usage               Usage stats`,
       return (s == null ? '' : String(s))
         .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
         .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+    }
+
+    // Wrap a chat thumbnail in a glightbox anchor so tap opens a lightbox
+    // just like feed cards. `cls` picks the existing size rule (msg-thumb
+    // for user uploads, tool-thumb for see_image events).
+    function _lightboxChatImage(mediaHash, cls) {
+      const a = document.createElement('a');
+      a.className = 'glightbox';
+      a.setAttribute('data-gallery', 'chat');
+      a.href = mediaUrl(mediaHash);
+      const img = document.createElement('img');
+      img.className = cls;
+      img.src = mediaUrl(mediaHash);
+      img.alt = '';
+      a.appendChild(img);
+      return a;
     }
 
     // Customize marked: external links in new tab, images zoomable
@@ -6367,15 +6390,13 @@ GET  /v1/usage               Usage stats`,
         });
       }
       if (el && m.media_hash) {
-        const img = document.createElement('img');
-        img.className = 'msg-thumb';
-        img.src = mediaUrl(m.media_hash);
         const body = el.querySelector ? el.querySelector('.msg-body') : null;
-        if (body) body.appendChild(img);
+        if (body) body.appendChild(_lightboxChatImage(m.media_hash, 'msg-thumb'));
       }
       if (el) {
         chatStream.appendChild(el);
         scrollToBottomOfChat();
+        refreshLightbox();
       }
     }
 
@@ -6734,13 +6755,13 @@ GET  /v1/usage               Usage stats`,
       // Show user message with optional thumbnail
       const userEl = renderTurn({ role: 'user', time: timeStr, text: text || '(image)' });
       if (uploadedMedia) {
-        const img = document.createElement('img');
-        img.className = 'msg-thumb';
-        img.src = mediaUrl(uploadedMedia.media_hash);
-        userEl.querySelector('.msg-body').appendChild(img);
+        userEl.querySelector('.msg-body').appendChild(
+          _lightboxChatImage(uploadedMedia.media_hash, 'msg-thumb')
+        );
       }
       chatStream.appendChild(userEl);
       scrollToBottomOfChat();
+      refreshLightbox();
 
       // Show typing indicator. It stays until the poll reconcile sees a
       // new Fathom (or body) message, then is removed by _maybeRemoveTyping.
@@ -7246,6 +7267,7 @@ GET  /v1/usage               Usage stats`,
               meta.textContent = `${total} ${total === 1 ? 'story' : 'stories'}${stamp}`;
             }
           }
+          if (typeof _updateFeedMetaSep === 'function') _updateFeedMetaSep();
         }
         refreshLightbox();
       } catch (err) {
@@ -7360,6 +7382,20 @@ GET  /v1/usage               Usage stats`,
         _feedActivityLabel.textContent = '';
         _feedActivityLabel.setAttribute('hidden', '');
       }
+      _updateFeedMetaSep();
+    }
+
+    // Show " · " only when the activity label AND the counter are both
+    // visible. Prevents a dangling separator whenever one side is empty.
+    function _updateFeedMetaSep() {
+      const sep = document.getElementById('feedMetaSep');
+      const meta = document.getElementById('feedMeta');
+      if (!sep || !_feedActivityLabel) return;
+      const hasLabel = !_feedActivityLabel.hasAttribute('hidden') &&
+        !!_feedActivityLabel.textContent;
+      const hasMeta = !!(meta && meta.textContent);
+      if (hasLabel && hasMeta) sep.removeAttribute('hidden');
+      else sep.setAttribute('hidden', '');
     }
 
     async function _pollFeedStatus() {
