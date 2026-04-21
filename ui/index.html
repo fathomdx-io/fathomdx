@@ -1250,6 +1250,15 @@
       border-radius: 4px;
     }
     .cc-handle-row .btn-x:hover { color: var(--danger); background: rgba(224,120,118,0.08); }
+    .cc-handle-row.pending {
+      border-style: dashed;
+      border-color: var(--accent);
+      background: rgba(107,185,199,0.04);
+    }
+    .cc-handle-row .pending-tag {
+      font-size: 10px; letter-spacing: 0.08em; text-transform: uppercase;
+      color: var(--accent); padding: 2px 6px;
+    }
     .cc-handle-add {
       display: flex; gap: 6px; align-items: center;
     }
@@ -4982,6 +4991,13 @@
           list.innerHTML = '<div style="color: var(--ink-faint); font-size: 13px;">No contacts yet.</div>';
           return;
         }
+        // Refresh handle staging with the authoritative original set.
+        // Any stale pending state from a previous open is dropped —
+        // Save commits; everything else is ephemeral.
+        _handleStaging.clear();
+        for (const c of contacts) {
+          _stagingFor(c.slug).original = c.handles || [];
+        }
         list.innerHTML = contacts.map(_contactCardHTML).join('');
         // Bind click-to-expand + edit handlers
         list.querySelectorAll('.contact-card').forEach(card => {
@@ -4999,16 +5015,7 @@
             if (!confirm(`Disable contact "${slug}"? This tombstones their registry row and writes a contact-deleted delta. They remain in the lake as history.`)) return;
             await disableContact(slug);
           });
-          card.querySelector('[data-action="add-handle"]')?.addEventListener('click', async (ev) => {
-            ev.stopPropagation();
-            await addContactHandle(card, slug);
-          });
-          card.querySelectorAll('[data-action="remove-handle"]').forEach(btn => {
-            btn.addEventListener('click', async (ev) => {
-              ev.stopPropagation();
-              await removeContactHandle(slug, btn.dataset.channel, btn.dataset.identifier);
-            });
-          });
+          _bindHandleRowActions(card, slug);
         });
       } catch (e) {
         list.innerHTML = '<div style="color: var(--danger); font-size: 13px;">Error: ' + e.message + '</div>';
@@ -5021,12 +5028,35 @@
       return (parts.join('').slice(0, 2) || '?').toUpperCase();
     }
 
-    function _handlesHTML(slug, handles) {
-      const rows = (handles || []).map(h => `
-        <div class="cc-handle-row">
+    // Per-card staging. Handle adds/removes and existing handles live
+    // here until Save flushes them. Keyed by slug so the state survives
+    // rerenders of the handles section.
+    const _handleStaging = new Map();  // slug -> {original, adds, removes}
+
+    function _stagingFor(slug) {
+      if (!_handleStaging.has(slug)) {
+        _handleStaging.set(slug, { original: [], adds: [], removes: [] });
+      }
+      return _handleStaging.get(slug);
+    }
+
+    function _keyOf(h) { return `${h.channel}:${h.identifier}`; }
+
+    function _visibleHandles(slug) {
+      const s = _stagingFor(slug);
+      const removedKeys = new Set(s.removes.map(_keyOf));
+      const kept = s.original.filter(h => !removedKeys.has(_keyOf(h)));
+      return kept.concat(s.adds.map(h => ({ ...h, __pending: true })));
+    }
+
+    function _handlesHTML(slug) {
+      const list = _visibleHandles(slug);
+      const rows = list.map(h => `
+        <div class="cc-handle-row${h.__pending ? ' pending' : ''}">
           <span class="chan">${h.channel}</span>
           <span class="ident">${(h.identifier || '').replace(/</g, '&lt;')}</span>
-          <button class="btn-x" data-action="remove-handle" data-channel="${h.channel}" data-identifier="${(h.identifier || '').replace(/"/g, '&quot;')}" title="Remove handle">×</button>
+          ${h.__pending ? '<span class="pending-tag">pending</span>' : ''}
+          <button class="btn-x" data-action="stage-remove" data-channel="${h.channel}" data-identifier="${(h.identifier || '').replace(/"/g, '&quot;')}" title="Remove on save">×</button>
         </div>
       `).join('');
       return `
@@ -5038,10 +5068,98 @@
           <div class="cc-handle-add">
             <input type="text" data-handle="channel" placeholder="channel (email, telegram, twitter…)" />
             <input type="text" data-handle="identifier" placeholder="identifier" />
-            <button class="btn" data-action="add-handle">Add</button>
+            <button class="btn" data-action="stage-add">Add</button>
           </div>
         </div>
       `;
+    }
+
+    function _rerenderHandles(card, slug) {
+      const container = card.querySelector('.cc-handles');
+      if (!container) return;
+      // Rebuild in place and rebind handlers for the new nodes.
+      container.outerHTML = _handlesHTML(slug);
+      _bindHandleRowActions(card, slug);
+    }
+
+    function _bindHandleRowActions(card, slug) {
+      card.querySelectorAll('[data-action="stage-remove"]').forEach(btn => {
+        btn.addEventListener('click', (ev) => {
+          ev.stopPropagation();
+          stageRemoveHandle(card, slug, btn.dataset.channel, btn.dataset.identifier);
+        });
+      });
+      card.querySelector('[data-action="stage-add"]')?.addEventListener('click', (ev) => {
+        ev.stopPropagation();
+        stageAddHandle(card, slug);
+      });
+    }
+
+    function stageRemoveHandle(card, slug, channel, identifier) {
+      const s = _stagingFor(slug);
+      const key = `${channel}:${identifier}`;
+      // If this was a pending add, just drop it — never committed.
+      const addIdx = s.adds.findIndex(h => _keyOf(h) === key);
+      if (addIdx >= 0) {
+        s.adds.splice(addIdx, 1);
+      } else {
+        // Guard against double-removes
+        if (!s.removes.some(h => _keyOf(h) === key)) {
+          s.removes.push({ channel, identifier });
+        }
+      }
+      _rerenderHandles(card, slug);
+    }
+
+    function stageAddHandle(card, slug) {
+      const channelEl = card.querySelector('[data-handle="channel"]');
+      const identEl = card.querySelector('[data-handle="identifier"]');
+      const channel = (channelEl?.value || '').trim();
+      const identifier = (identEl?.value || '').trim();
+      if (!channel || !identifier) {
+        alert('Both channel and identifier are required.');
+        return;
+      }
+      const s = _stagingFor(slug);
+      const key = `${channel}:${identifier}`;
+      // If they're re-adding something they staged for removal, uncancel it
+      const removeIdx = s.removes.findIndex(h => _keyOf(h) === key);
+      if (removeIdx >= 0) {
+        s.removes.splice(removeIdx, 1);
+      } else if (!s.adds.some(h => _keyOf(h) === key) &&
+                 !s.original.some(h => _keyOf(h) === key)) {
+        s.adds.push({ channel, identifier });
+      }
+      _rerenderHandles(card, slug);
+    }
+
+    async function flushHandleStaging(slug) {
+      const s = _stagingFor(slug);
+      const errors = [];
+      // Removes first, then adds — lets you swap an identifier without
+      // tripping the cross-contact uniqueness check on re-add.
+      for (const h of s.removes) {
+        const r = await fetch(API_BASE + '/v1/contacts/' + encodeURIComponent(slug) + '/handles', {
+          method: 'DELETE', headers: authHeaders(),
+          body: JSON.stringify(h),
+        });
+        if (!r.ok) {
+          const err = await r.json().catch(() => ({}));
+          errors.push(`remove ${h.channel}:${h.identifier} — ${err.detail || r.status}`);
+        }
+      }
+      for (const h of s.adds) {
+        const r = await fetch(API_BASE + '/v1/contacts/' + encodeURIComponent(slug) + '/handles', {
+          method: 'POST', headers: authHeaders(),
+          body: JSON.stringify(h),
+        });
+        if (!r.ok) {
+          const err = await r.json().catch(() => ({}));
+          errors.push(`add ${h.channel}:${h.identifier} — ${err.detail || r.status}`);
+        }
+      }
+      _handleStaging.delete(slug);
+      return errors;
     }
 
     function _contactCardHTML(c) {
@@ -5093,7 +5211,7 @@
               <label>Bio</label>
               <textarea data-field="bio" rows="3">${(c.bio || '').replace(/</g, '&lt;')}</textarea>
             </div>
-            ${_handlesHTML(slug, c.handles)}
+            ${_handlesHTML(slug)}
             <div class="cc-actions">
               <button class="btn ghost" data-action="disable" ${slug === 'myra' ? 'disabled title="Cannot disable the default admin"' : ''}>Disable</button>
               <button class="btn" data-action="save">Save</button>
@@ -5103,46 +5221,6 @@
       `;
     }
 
-    async function addContactHandle(card, slug) {
-      const channel = card.querySelector('[data-handle="channel"]').value.trim();
-      const identifier = card.querySelector('[data-handle="identifier"]').value.trim();
-      if (!channel || !identifier) {
-        alert('Both channel and identifier are required.');
-        return;
-      }
-      try {
-        const r = await fetch(API_BASE + '/v1/contacts/' + encodeURIComponent(slug) + '/handles', {
-          method: 'POST', headers: authHeaders(),
-          body: JSON.stringify({ channel, identifier }),
-        });
-        if (!r.ok) {
-          const err = await r.json().catch(() => ({}));
-          alert('Add handle failed: ' + (err.detail || r.status));
-          return;
-        }
-        await loadContacts();
-      } catch (e) {
-        alert('Add handle failed: ' + e.message);
-      }
-    }
-
-    async function removeContactHandle(slug, channel, identifier) {
-      if (!confirm(`Remove handle ${channel}:${identifier} from ${slug}?`)) return;
-      try {
-        const r = await fetch(API_BASE + '/v1/contacts/' + encodeURIComponent(slug) + '/handles', {
-          method: 'DELETE', headers: authHeaders(),
-          body: JSON.stringify({ channel, identifier }),
-        });
-        if (!r.ok) {
-          const err = await r.json().catch(() => ({}));
-          alert('Remove handle failed: ' + (err.detail || r.status));
-          return;
-        }
-        await loadContacts();
-      } catch (e) {
-        alert('Remove handle failed: ' + e.message);
-      }
-    }
 
     async function saveContact(card, slug) {
       const fields = {};
@@ -5156,6 +5234,9 @@
         }
         fields[k] = v;
       });
+      // Single transaction boundary: profile delta PATCH first, then
+      // the staged handle diffs (N adds/removes). loadContacts at the
+      // end gives us the authoritative server state.
       try {
         const r = await fetch(API_BASE + '/v1/contacts/' + encodeURIComponent(slug), {
           method: 'PATCH',
@@ -5166,6 +5247,10 @@
           const err = await r.json().catch(() => ({}));
           alert('Save failed: ' + (err.detail || r.status));
           return;
+        }
+        const handleErrors = await flushHandleStaging(slug);
+        if (handleErrors.length) {
+          alert('Saved profile. Some handle changes failed:\n' + handleErrors.join('\n'));
         }
         await loadContacts();
       } catch (e) {
