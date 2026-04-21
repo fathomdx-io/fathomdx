@@ -16,14 +16,22 @@ from html_to_markdown import convert as _html_to_md
 log = logging.getLogger("source.base")
 
 
+_IMG_SRC_RE = re.compile(r'<img\b[^>]*\bsrc=["\']([^"\']+)["\']', re.I)
+
+
 def convert_html(raw_html: str) -> tuple[str, list[str]]:
     """Convert HTML to markdown + extract image URLs.
 
-    Available to all source producers. Uses html-to-markdown's metadata
-    to find images even when they're inside tables or other structures
-    that collapse during conversion.
+    Available to all source producers. Three image-extraction strategies
+    in order, each catching what the prior one misses:
+      1. html-to-markdown's metadata.images (survives even when the
+         conversion drops the markup, e.g. images inside <table>)
+      2. Markdown image syntax in the converted content (the normal case)
+      3. Raw-HTML <img src="…"> regex (last-resort fallback for when
+         metadata.images is empty or the library's parser bailed)
 
-    Returns (markdown_content, image_urls).
+    Returns (markdown_content, image_urls). Order is preserved; URLs are
+    deduplicated by exact match.
     """
     if not raw_html:
         return "", []
@@ -34,17 +42,30 @@ def convert_html(raw_html: str) -> tuple[str, list[str]]:
     seen: set[str] = set()
     urls: list[str] = []
 
-    for img in result.metadata.images:
-        src = html.unescape(img.src or "")
-        if src and src not in seen:
-            urls.append(src)
-            seen.add(src)
+    # Strategy 1: metadata.images
+    try:
+        for img in result.metadata.images:
+            src = html.unescape(img.src or "")
+            if src and src not in seen:
+                urls.append(src)
+                seen.add(src)
+    except AttributeError:
+        pass  # newer/older library versions may not expose metadata
 
+    # Strategy 2: markdown image URLs in the converted content
     for url in re.findall(r"!\[[^\]]*\]\(([^)]+)\)", content):
         url = html.unescape(url)
         if url not in seen:
             urls.append(url)
             seen.add(url)
+
+    # Strategy 3: raw-HTML <img src="…"> regex — catches images the
+    # converter ate (table-wrapped thumbnails are the common offender).
+    for src in _IMG_SRC_RE.findall(raw_html):
+        src = html.unescape(src)
+        if src and src not in seen:
+            urls.append(src)
+            seen.add(src)
 
     return content, urls
 

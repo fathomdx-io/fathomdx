@@ -257,9 +257,15 @@ class SourceRunner:
         if not self._http:
             return None
 
-        # If upload failed but we have URLs, keep them in the content as fallback
+        # Always preserve image URLs in content — even when upload succeeded
+        # and we have a media_hash. Two reasons: (1) downstream consumers
+        # like the feed loop need a renderable URL handle without resolving
+        # the hash, and (2) <img src="..."> tags can render external URLs
+        # directly, while /v1/media/{hash} requires Authorization that
+        # <img> can't pass. The hash is for archival; the URL is the
+        # rendering handle.
         content = delta.content
-        if not delta.media_hash and delta.image_urls:
+        if delta.image_urls:
             img_lines = "\n".join(f"![image]({url})" for url in delta.image_urls)
             content = f"{content}\n\n{img_lines}"
 
