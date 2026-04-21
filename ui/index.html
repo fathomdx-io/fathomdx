@@ -6679,10 +6679,56 @@ GET  /v1/usage               Usage stats`,
       const now = new Date();
       const timeStr = now.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
 
+      // If we have an image on a fresh session, mint the session slug up
+      // front. The upload endpoint stamps chat:<slug> onto the image delta
+      // only when session_id is present — without that tag the image isn't
+      // part of this conversation and hits dedup against prior fathom-chat
+      // uploads (same source+tags, same content) → the write returns None
+      // and the endpoint 500s. Minting here keeps the image tied to the
+      // session from the first byte.
+      if (hasImage && !currentSessionId) {
+        try {
+          const sr = await fetch(API_BASE + '/v1/sessions', {
+            method: 'POST',
+            headers: authHeaders(),
+            body: JSON.stringify({ title: 'New session' }),
+          });
+          if (sr.ok) {
+            const sd = await sr.json();
+            if (sd && sd.id) currentSessionId = sd.id;
+          }
+        } catch { /* non-fatal — fall through to pre-mint behavior */ }
+      }
+
       // Upload image first if attached
       let uploadedMedia = null;
+      let uploadError = null;
       if (hasImage) {
-        uploadedMedia = await uploadPendingImage(currentSessionId);
+        try {
+          uploadedMedia = await uploadPendingImage(currentSessionId);
+          if (!uploadedMedia) uploadError = 'Upload failed. Your image is still attached — try Send again.';
+        } catch (err) {
+          uploadError = `Upload failed: ${err.message}. Your image is still attached.`;
+        }
+      }
+
+      // Upload failed — don't post a ghost message. Surface the error,
+      // leave pendingFile in place so the user can retry, unpause polling,
+      // and restore whatever text the user typed so they don't have to
+      // re-compose the caption.
+      if (hasImage && !uploadedMedia) {
+        chatStream.appendChild(renderTurn({
+          role: 'fathom', time: timeStr,
+          html: `<p style="color: var(--danger);">${_esc(uploadError || 'Upload failed.')}</p>`,
+        }));
+        scrollToBottomOfChat();
+        if (text) {
+          composerTa.value = text;
+          composerTa.dispatchEvent(new Event('input'));
+        }
+        _chatPollPaused = false;
+        if (currentSessionId && !_chatPollTimer) _startChatPoll();
+        return;
       }
 
       // Show user message with optional thumbnail
