@@ -444,6 +444,17 @@ async def fathom_think(
                             break
             except Exception:
                 pass
+        # Resolve the addressee's timezone so "Current time" in the prompt
+        # matches the clock rendered in the UI opener stamp. known_contacts
+        # is already fetched above, so no extra round-trip.
+        user_timezone: str | None = None
+        if current_contact_slug and known_contacts:
+            for c in known_contacts:
+                if c.get("slug") == current_contact_slug:
+                    tz_raw = c.get("timezone")
+                    if isinstance(tz_raw, str) and tz_raw.strip():
+                        user_timezone = tz_raw.strip()
+                    break
         system = build_system_prompt(
             crystal_text=crystal_text,
             session_slug=session_slug,
@@ -454,6 +465,7 @@ async def fathom_think(
             agent_hosts=[a.get("host", "") for a in agents_info if a.get("host")],
             known_contacts=known_contacts,
             current_contact_slug=current_contact_slug,
+            user_timezone=user_timezone,
         )
 
     # Append task-specific directive

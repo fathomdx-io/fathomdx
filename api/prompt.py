@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from pathlib import Path
 
 from .settings import settings
@@ -119,17 +120,31 @@ def build_system_prompt(
     agent_hosts: list[str] | None = None,
     known_contacts: list[dict] | None = None,
     current_contact_slug: str | None = None,
+    user_timezone: str | None = None,
 ) -> str:
     """Assemble the full system prompt for a chat session.
 
     session_title: the current human-readable name of the session, or None
     if it has not been named yet (i.e. the UI is still showing the raw
     slug). When None, the prompt nags the model to name it before replying.
+
+    user_timezone: IANA zone name to render "Current time" in. Falls back
+    to UTC when missing or unresolvable. This is the clock the user sees
+    in the UI opener stamp — keeping the two aligned is the point.
     """
     parts = [SYSTEM_PREAMBLE]
 
-    now = datetime.now(timezone.utc)
-    parts.append(f"\nCurrent time: {now.strftime('%A, %B %d, %Y at %I:%M %p UTC')}.")
+    tz: timezone | ZoneInfo = timezone.utc
+    if user_timezone:
+        try:
+            tz = ZoneInfo(user_timezone)
+        except (ZoneInfoNotFoundError, ValueError):
+            tz = timezone.utc
+    now = datetime.now(tz)
+    tz_label = user_timezone if tz is not timezone.utc else "UTC"
+    parts.append(
+        f"\nCurrent time: {now.strftime('%A, %B %d, %Y at %I:%M %p')} {tz_label}."
+    )
 
     if user_name:
         parts.append(f"User: {user_name}.")

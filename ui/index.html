@@ -1200,6 +1200,14 @@
     .profile-hero-sub .mono {
       font-family: var(--mono); font-size: 12px; color: var(--ink-faint);
     }
+    .profile-hero-sub .role-chip {
+      font-size: 11px; letter-spacing: 0.06em; text-transform: uppercase;
+      color: var(--ink-soft); padding: 3px 8px; border-radius: 4px;
+      background: var(--surface-2); border: 1px solid var(--rule);
+    }
+    .profile-hero-sub .role-chip[data-role="admin"] {
+      color: var(--accent); border-color: var(--accent);
+    }
 
     /* Profile form (your own self-edit) */
     .profile-form { display: flex; flex-direction: column; gap: 14px; }
@@ -2239,7 +2247,7 @@
 
     <!-- Opener: title + subtext both render dynamically at runtime -->
     <section class="opener">
-      <div class="stamp">Wednesday · 3:42 PM · St. Louis</div>
+      <div class="stamp"></div>
       <h1 id="heroHeadline">Hello…</h1>
       <p id="heroSubtext" data-feeling=""><em class="hello-lang">English</em></p>
     </section>
@@ -2814,7 +2822,7 @@
               <div class="profile-hero-name" id="profileHeroName">…</div>
               <div class="profile-hero-sub">
                 <span id="profileHeroSlug" class="mono"></span>
-                <span class="meta" id="profileRoleBadge">member</span>
+                <span class="role-chip" id="profileRoleBadge" data-role="member">member</span>
               </div>
             </div>
             <button class="btn ghost" id="profileSignOutBtn">Sign out</button>
@@ -5136,7 +5144,11 @@
         document.getElementById('pfAliases').value = (p.aliases || []).join(', ');
         document.getElementById('pfBio').value = p.bio || '';
         const badge = document.getElementById('profileRoleBadge');
-        if (badge) badge.textContent = p.role || 'member';
+        if (badge) {
+          const role = p.role || 'member';
+          badge.textContent = role;
+          badge.setAttribute('data-role', role);
+        }
         const saved = document.getElementById('pfSavedAt');
         if (saved && p._profile_updated_at) {
           saved.textContent = 'last saved ' + _relativeTime(p._profile_updated_at);
@@ -5341,6 +5353,7 @@
           _stagingFor(c.slug).original = c.handles || [];
         }
         list.innerHTML = contacts.map(_contactCardHTML).join('');
+        _populateTimezoneSelects();
         // Bind click-to-expand + edit handlers
         list.querySelectorAll('.contact-card').forEach(card => {
           const slug = card.dataset.slug;
@@ -5539,7 +5552,9 @@
             </div>
             <div class="pf-row">
               <label>Timezone</label>
-              <input type="text" data-field="timezone" value="${(c.timezone || '').replace(/"/g, '&quot;')}" />
+              <select data-field="timezone" data-tz-select data-selected="${(c.timezone || '').replace(/"/g, '&quot;')}">
+                <option value="">— unset —</option>
+              </select>
             </div>
             <div class="pf-row">
               <label>Language</label>
@@ -6948,11 +6963,10 @@ GET  /v1/usage               Usage stats`,
       subtext.dataset.feeling = '';
     }
 
-    // Opener stamp: "Weekday · H:MM AM · City". This renders the clock the
-    // LLM sees — same UTC anchor, formatted in the signed-in user's profile
-    // timezone. Falls back to the browser's TZ before the profile loads or
-    // when no timezone is set. City is preserved from the static markup so
-    // deployers can set it without touching JS.
+    // Opener stamp: "Weekday · H:MM AM". This renders the clock the LLM
+    // sees — same UTC anchor, formatted in the signed-in user's profile
+    // timezone. Falls back to the browser's TZ before the profile loads
+    // or when no timezone is set.
     let _userTimezone = null;
     function _effectiveTimezone() {
       if (_userTimezone) return _userTimezone;
@@ -6962,16 +6976,12 @@ GET  /v1/usage               Usage stats`,
     function _renderOpenerStamp() {
       const el = document.querySelector('.opener .stamp');
       if (!el) return;
-      if (!el.dataset.cityCached) {
-        const parts = el.textContent.split(' · ');
-        el.dataset.cityCached = parts.slice(2).join(' · ') || 'St. Louis';
-      }
       const tz = _effectiveTimezone();
       const opts = tz ? { timeZone: tz } : {};
       const now = new Date();
       const weekday = now.toLocaleDateString(undefined, { weekday: 'long', ...opts });
       const time = now.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit', ...opts });
-      el.textContent = `${weekday} · ${time} · ${el.dataset.cityCached}`;
+      el.textContent = `${weekday} · ${time}`;
     }
 
     // Populate any <select data-tz-select> with IANA zone names. Modern
@@ -6997,7 +7007,10 @@ GET  /v1/usage               Usage stats`,
         ];
       }
       selects.forEach(sel => {
-        if (sel.dataset.tzPopulated === '1') return;
+        if (sel.dataset.tzPopulated === '1') {
+          if (sel.dataset.selected) sel.value = sel.dataset.selected;
+          return;
+        }
         const frag = document.createDocumentFragment();
         zones.forEach(z => {
           const opt = document.createElement('option');
@@ -7007,6 +7020,7 @@ GET  /v1/usage               Usage stats`,
         });
         sel.appendChild(frag);
         sel.dataset.tzPopulated = '1';
+        if (sel.dataset.selected) sel.value = sel.dataset.selected;
       });
     }
 
