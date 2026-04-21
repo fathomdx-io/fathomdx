@@ -18,7 +18,7 @@ cp .env.example .env
 # Point LAKE_DIR at your user's home (compose doesn't expand ~ inside .env).
 sed -i "s|^LAKE_DIR=.*|LAKE_DIR=$HOME/.fathom/fathom|" .env
 mkdir -p "$HOME/.fathom/fathom"/{deltas,backups,source-runner,api}
-cp scripts/lake-dir-README.md "$HOME/.fathom/fathom/README.md"
+cp addons/scripts/lake-dir-README.md "$HOME/.fathom/fathom/README.md"
 ```
 
 Open `.env` and set `LLM_API_KEY` (the key for your LLM provider — Gemini, OpenAI, etc). If you want a provider other than Gemini, change `LLM_PROVIDER` too (`openai` or `ollama`).
@@ -52,7 +52,7 @@ Then open `http://localhost:8201` in a browser and say hello.
 
 Everything else happens inside the dashboard. Pair a local agent, connect an MCP host (Claude Code, Claude Desktop, Cursor), wire up hooks, add sources to poll, mint API tokens. The dashboard walks you through each step and hands you the commands to run when something has to happen on your host.
 
-If you prefer the terminal, the Node tools in `agent/`, `cli/`, `mcp-node/`, and `connect/` are the same flows unwrapped. They all talk to the API at `http://localhost:8201`.
+If you prefer the terminal, the Node tools in `addons/agent/`, `addons/cli/`, `addons/mcp-node/`, and `addons/connect/` are the same flows unwrapped. They all talk to the API at `http://localhost:8201`.
 
 ## Pair your first agent
 

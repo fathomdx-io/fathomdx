@@ -6,7 +6,7 @@
 #   source-runner  — polls external sources, writes deltas
 #   api            — consumer API + UI (what you talk to)
 #
-# Node tools (agent, cli, mcp-node, connect) run on your host, not in compose.
+# Node tools under addons/ (agent, cli, mcp-node, connect) run on your host, not in compose.
 # They all default to http://localhost:8201 — which is the api service.
 #
 # Setup:

@@ -6,7 +6,7 @@
 # Safe to rerun — checks for each step before acting.
 #
 # Usage:
-#   ./scripts/migrate-to-canonical-paths.sh [instance_name]
+#   ./addons/scripts/migrate-to-canonical-paths.sh [instance_name]
 #   (defaults to "fathom")
 
 set -euo pipefail
@@ -16,7 +16,7 @@ NEW_LAKE_DIR="${HOME}/.fathom/${INSTANCE}"
 NEW_PG_VOLUME="${INSTANCE}-pg"
 
 # Old layout — what we're migrating FROM.
-REPO_DIR="$(cd "$(dirname "$0")/.." && pwd)"
+REPO_DIR="$(cd "$(dirname "$0")/../.." && pwd)"
 OLD_DATA_DIR="${REPO_DIR}/data"
 # The auto-scoped postgres volume podman/docker created previously. Project
 # name is derived from the directory basename unless COMPOSE_PROJECT_NAME was
@@ -58,8 +58,8 @@ fi
 # ── Drop a README into LAKE_DIR so the split between this dir and the
 #    named postgres volume is discoverable (stumbling into ~/.fathom/fathom/
 #    should answer "where's the live DB?" without reading code).
-if [[ -f "${REPO_DIR}/scripts/lake-dir-README.md" && ! -f "${NEW_LAKE_DIR}/README.md" ]]; then
-  cp "${REPO_DIR}/scripts/lake-dir-README.md" "${NEW_LAKE_DIR}/README.md"
+if [[ -f "${REPO_DIR}/addons/scripts/lake-dir-README.md" && ! -f "${NEW_LAKE_DIR}/README.md" ]]; then
+  cp "${REPO_DIR}/addons/scripts/lake-dir-README.md" "${NEW_LAKE_DIR}/README.md"
   echo "→ wrote ${NEW_LAKE_DIR}/README.md"
 fi
 
