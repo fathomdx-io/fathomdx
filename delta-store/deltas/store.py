@@ -104,7 +104,11 @@ class DeltaStore:
         exp = _parse_ts(expires_at) if expires_at else None
 
         # Sequential dedup: check the most recent delta with same source + tags
-        if tags and source:
+        # Skip for media writes — each image upload is an explicit observation
+        # ("user sent this now"), and the chat UI expects one delta per send
+        # even when the same bytes are re-sent. Media files are already
+        # content-dedup'd by hash at the blob layer.
+        if tags and source and media_hash is None:
             prev = await self._pool.fetchrow(
                 """
                 SELECT content FROM deltas
