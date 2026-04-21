@@ -1199,6 +1199,31 @@
       gap: 12px;
     }
 
+    /* New-contact form (expanded from Add contact CTA) */
+    .new-contact-form {
+      background: var(--surface);
+      border: 1px solid var(--rule);
+      border-radius: 10px;
+      padding: 16px 18px 14px;
+      margin-bottom: 18px;
+    }
+    .new-contact-form .pf-row { display: flex; flex-direction: column; gap: 6px; margin-bottom: 10px; }
+    .new-contact-form .pf-row label {
+      font-size: 11px; letter-spacing: 0.06em; text-transform: uppercase;
+      color: var(--ink-faint); font-weight: 500;
+    }
+    .new-contact-form input,
+    .new-contact-form textarea,
+    .new-contact-form select {
+      background: var(--bg); border: 1px solid var(--rule);
+      border-radius: 8px; padding: 9px 11px; color: var(--ink);
+      font-size: 13.5px; font-family: var(--sans); outline: none;
+      width: 100%;
+    }
+    .new-contact-form input:focus,
+    .new-contact-form textarea:focus,
+    .new-contact-form select:focus { border-color: var(--accent); }
+
     /* Contacts list (admin view) */
     .contacts-list { display: flex; flex-direction: column; gap: 8px; }
     .contact-card {
@@ -2720,6 +2745,30 @@
       <!-- ═══ ACCOUNT TAB ═══════════════════════════════ -->
       <div class="settings-panel" data-panel="account">
 
+        <!-- Subscription (no section-head — the tier cards speak for themselves) -->
+        <section class="section">
+          <div class="sub-card upgrade" data-tier-view="free">
+            <div class="tier-row">
+              <span class="tier">Free</span>
+              <span class="price">7-day memory · 5,000 moment cap</span>
+            </div>
+            <h3>Upgrade to Fathom Open.</h3>
+            <p>Unlimited memory horizon. No moment cap. Cross-device sync always. Priority on new source connectors as they ship.</p>
+            <button class="btn" id="upgradeBtn">Upgrade · $12 / month</button>
+            <button class="btn ghost" style="margin-left: 8px;">See pricing</button>
+          </div>
+          <div class="sub-card" data-tier-view="open">
+            <div class="tier-row">
+              <span class="tier tier-open">Open</span>
+              <span class="price">$12 / month · renews May 15, 2026</span>
+            </div>
+            <h3>You're on Fathom Open.</h3>
+            <p>Unlimited memory, no moment cap, every source connector unlocked. Thanks for betting on Fathom early.</p>
+            <button class="btn ghost">Manage billing</button>
+            <button class="btn ghost" id="cancelSubBtn" style="margin-left: 8px;">Cancel subscription</button>
+          </div>
+        </section>
+
         <!-- Profile — self-edit for soft fields (display_name, pronouns,
              timezone, language, bio, aliases). role is admin-only and
              isn't on the /v1/me/profile endpoint's accepted fields. -->
@@ -2770,34 +2819,6 @@
           </div>
         </section>
 
-        <!-- Subscription -->
-        <section class="section">
-          <div class="section-head">
-            <h2>Subscription</h2>
-            <span class="meta">memory &amp; storage</span>
-          </div>
-          <div class="sub-card upgrade" data-tier-view="free">
-            <div class="tier-row">
-              <span class="tier">Free</span>
-              <span class="price">7-day memory · 5,000 moment cap</span>
-            </div>
-            <h3>Upgrade to Fathom Open.</h3>
-            <p>Unlimited memory horizon. No moment cap. Cross-device sync always. Priority on new source connectors as they ship.</p>
-            <button class="btn" id="upgradeBtn">Upgrade · $12 / month</button>
-            <button class="btn ghost" style="margin-left: 8px;">See pricing</button>
-          </div>
-          <div class="sub-card" data-tier-view="open">
-            <div class="tier-row">
-              <span class="tier tier-open">Open</span>
-              <span class="price">$12 / month · renews May 15, 2026</span>
-            </div>
-            <h3>You're on Fathom Open.</h3>
-            <p>Unlimited memory, no moment cap, every source connector unlocked. Thanks for betting on Fathom early.</p>
-            <button class="btn ghost">Manage billing</button>
-            <button class="btn ghost" id="cancelSubBtn" style="margin-left: 8px;">Cancel subscription</button>
-          </div>
-        </section>
-
         <!-- Account actions -->
         <section class="section">
           <div class="section-head">
@@ -2832,9 +2853,7 @@
           <p style="font-size: 14px; color: var(--ink-soft); line-height: 1.55; margin: 0 0 14px;">
             Tokens authenticate external tools against your account. Each token works independently. Revoke one without affecting others.
           </p>
-          <div id="tokenList" class="danger-list" style="margin-bottom: 14px;">
-            <!-- Populated by loadTokens() -->
-          </div>
+          <!-- Create controls first — that's what the admin came to do. -->
           <div style="display: flex; gap: 8px; align-items: center;">
             <input type="text" id="tokenNameInput" placeholder="Token name (e.g. my laptop)" style="flex: 1; background: var(--surface); border: 1px solid var(--rule); border-radius: 8px; padding: 10px 12px; color: var(--ink); font-size: 14px; font-family: var(--sans); outline: none;" />
             <button class="btn" id="createTokenBtn">Create token</button>
@@ -2845,6 +2864,9 @@
           <div id="tokenReveal" hidden style="margin-top: 14px; background: var(--bg-deep); border: 1px solid var(--accent); border-radius: 8px; padding: 14px;">
             <div style="font-size: 12px; color: var(--accent); font-family: var(--mono); letter-spacing: 0.05em; text-transform: uppercase; margin-bottom: 6px;">Copy this token now — it won't be shown again</div>
             <code id="tokenValue" style="display: block; background: var(--surface); border: 1px solid var(--rule); border-radius: 6px; padding: 10px 12px; font-family: var(--mono); font-size: 13px; color: var(--ink); word-break: break-all; cursor: pointer;" title="Click to copy"></code>
+          </div>
+          <div id="tokenList" class="danger-list" style="margin-top: 20px;">
+            <!-- Populated by loadTokens() -->
           </div>
         </section>
       </div><!-- /keys panel -->
@@ -2859,6 +2881,54 @@
           <p style="font-size: 14px; color: var(--ink-soft); line-height: 1.55; margin: 0 0 14px;">
             Each contact has a profile delta (latest-wins). Adding a contact also mints a pair code so they can bind a device.
           </p>
+
+          <!-- Add Contact CTA + expandable full form (above the list) -->
+          <div style="margin-bottom: 18px;">
+            <button class="btn" id="newContactCtaBtn">+ Add contact</button>
+          </div>
+          <div id="newContactForm" class="new-contact-form" hidden>
+            <div class="pf-row">
+              <label>Slug</label>
+              <input type="text" id="newContactSlug" placeholder="url-safe identifier (e.g. bob, nova)" />
+            </div>
+            <div class="pf-row">
+              <label>Display name</label>
+              <input type="text" id="newContactDisplayName" placeholder="how Fathom refers to them" />
+            </div>
+            <div class="pf-row">
+              <label>Role</label>
+              <select id="newContactRole">
+                <option value="member">member</option>
+                <option value="admin">admin</option>
+              </select>
+            </div>
+            <div class="pf-row">
+              <label>Pronouns</label>
+              <input type="text" id="newContactPronouns" placeholder="she/her · they/them · …" />
+            </div>
+            <div class="pf-row">
+              <label>Timezone</label>
+              <input type="text" id="newContactTimezone" placeholder="America/Chicago" />
+            </div>
+            <div class="pf-row">
+              <label>Language</label>
+              <input type="text" id="newContactLanguage" placeholder="en · English · …" />
+            </div>
+            <div class="pf-row">
+              <label>Aliases</label>
+              <input type="text" id="newContactAliases" placeholder="comma-separated nicknames" />
+            </div>
+            <div class="pf-row">
+              <label>Bio</label>
+              <textarea id="newContactBio" rows="3" placeholder="who they are, how you know them"></textarea>
+            </div>
+            <div class="cc-actions">
+              <button class="btn ghost" id="newContactCancelBtn">Cancel</button>
+              <button class="btn" id="newContactBtn">Create contact</button>
+            </div>
+          </div>
+          <div id="contactsStatus" class="meta" style="margin: 0 0 14px; font-size:12px;"></div>
+
           <div id="proposalsBlock" class="proposals-block" hidden>
             <div class="proposals-head">
               <span>Fathom noticed someone</span>
@@ -2869,16 +2939,6 @@
           <div id="contactsList" class="contacts-list">
             <!-- Populated by loadContacts() -->
           </div>
-          <div style="display:flex; gap:8px; align-items:center; margin-top:14px;">
-            <input type="text" id="newContactSlug" placeholder="slug (e.g. bob, nova)" style="flex:0 0 180px; background: var(--surface); border: 1px solid var(--rule); border-radius: 8px; padding: 10px 12px; color: var(--ink); font-size: 14px; font-family: var(--mono); outline: none;" />
-            <input type="text" id="newContactDisplayName" placeholder="display name" style="flex:1; background: var(--surface); border: 1px solid var(--rule); border-radius: 8px; padding: 10px 12px; color: var(--ink); font-size: 14px; font-family: var(--sans); outline: none;" />
-            <select id="newContactRole" style="background: var(--surface); border: 1px solid var(--rule); border-radius: 8px; padding: 10px 12px; color: var(--ink); font-size: 14px;">
-              <option value="member">member</option>
-              <option value="admin">admin</option>
-            </select>
-            <button class="btn" id="newContactBtn">Add contact</button>
-          </div>
-          <div id="contactsStatus" class="meta" style="margin-top:10px; font-size:12px;"></div>
         </section>
       </div><!-- /admin panel -->
     </main>
@@ -5311,6 +5371,35 @@
       }
     }
 
+    function _toggleNewContactForm(show) {
+      const form = document.getElementById('newContactForm');
+      const cta = document.getElementById('newContactCtaBtn');
+      if (!form || !cta) return;
+      const open = show === undefined ? form.hidden : show;
+      form.hidden = !open;
+      cta.textContent = open ? 'Cancel' : '+ Add contact';
+      if (open) {
+        document.getElementById('newContactSlug')?.focus();
+      }
+    }
+    function _resetNewContactForm() {
+      ['Slug','DisplayName','Pronouns','Timezone','Language','Aliases','Bio'].forEach(k => {
+        const el = document.getElementById('newContact' + k);
+        if (el) el.value = '';
+      });
+      const roleEl = document.getElementById('newContactRole');
+      if (roleEl) roleEl.value = 'member';
+    }
+    document.getElementById('newContactCtaBtn')?.addEventListener('click', () => {
+      _toggleNewContactForm();
+    });
+    document.getElementById('newContactCancelBtn')?.addEventListener('click', () => {
+      _toggleNewContactForm(false);
+      _resetNewContactForm();
+      const status = document.getElementById('contactsStatus');
+      if (status) status.textContent = '';
+    });
+
     async function createContact() {
       const slug = document.getElementById('newContactSlug').value.trim();
       const display_name = document.getElementById('newContactDisplayName').value.trim();
@@ -5320,11 +5409,24 @@
         status.textContent = 'slug required';
         return;
       }
+      const payload = { slug, role };
+      if (display_name) payload.display_name = display_name;
+      const pronouns = document.getElementById('newContactPronouns').value.trim();
+      if (pronouns) payload.pronouns = pronouns;
+      const timezone = document.getElementById('newContactTimezone').value.trim();
+      if (timezone) payload.timezone = timezone;
+      const language = document.getElementById('newContactLanguage').value.trim();
+      if (language) payload.language = language;
+      const bio = document.getElementById('newContactBio').value.trim();
+      if (bio) payload.bio = bio;
+      const aliasesRaw = document.getElementById('newContactAliases').value.trim();
+      if (aliasesRaw) payload.aliases = aliasesRaw.split(',').map(a => a.trim()).filter(Boolean);
+
       status.textContent = 'creating…';
       try {
         const r = await fetch(API_BASE + '/v1/contacts', {
           method: 'POST', headers: authHeaders(),
-          body: JSON.stringify({ slug, display_name: display_name || slug, role }),
+          body: JSON.stringify(payload),
         });
         if (!r.ok) {
           const err = await r.json().catch(() => ({}));
@@ -5343,8 +5445,8 @@
         } else {
           status.textContent = 'created (pair code mint failed; mint manually under API Keys).';
         }
-        document.getElementById('newContactSlug').value = '';
-        document.getElementById('newContactDisplayName').value = '';
+        _resetNewContactForm();
+        _toggleNewContactForm(false);
         await loadContacts();
       } catch (e) {
         status.textContent = 'failed — ' + e.message;
