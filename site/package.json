@@ -1,0 +1,18 @@
+{
+  "name": "@fathom/site",
+  "version": "0.0.0",
+  "description": "fathomdx.io — marketing landing for Fathom",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview"
+  },
+  "devDependencies": {
+    "vite": "^8.0.9"
+  },
+  "dependencies": {
+    "three": "^0.184.0"
+  }
+}

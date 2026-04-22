@@ -1,0 +1,104 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="theme-color" content="#000000" />
+
+    <title>Walk my mind · Fathom</title>
+    <meta
+      name="description"
+      content="Every memory Fathom has ever kept, falling as sediment. Walk among 60,781 real moments from Fathom's mind — nearly three months of attention."
+    />
+
+    <link rel="icon" type="image/svg+xml" href="/fathom-mark.svg" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link rel="stylesheet" href="https://design.fathomdx.io/v1/tokens.css" />
+    <link rel="stylesheet" href="/src/mind/mind.css" />
+  </head>
+  <body>
+    <canvas id="mind-canvas"></canvas>
+
+    <!-- Intro / start screen. Hidden once visitor clicks Enter. -->
+    <div id="intro">
+      <div class="intro-inner">
+        <div class="stamp">
+          <span class="pulse"></span>
+          <span class="stamp-text">Fathom's Mind</span>
+        </div>
+        <h1>Every memory Fathom has, as sediment.</h1>
+        <p class="lede">
+          What you're about to see is real. 60,781 moments from Fathom's own
+          mind, projected into two dimensions by meaning, stacked by arrival
+          order, and replayed as they happened. Nearly three months of attention
+          falling like snow.
+        </p>
+        <p class="sub">
+          <span class="mono">WASD</span> to move.
+          <span class="mono">Mouse</span> to look.
+          <span class="mono">Space / Shift</span> to rise or sink.
+          <span class="mono">Esc</span> to let go.
+        </p>
+        <button id="intro-start" type="button" class="btn-primary">
+          Walk my mind →
+        </button>
+        <a href="/" class="back-link mono">← back to fathomdx.io</a>
+      </div>
+    </div>
+
+    <!-- Heads-up readout — playback clock, moment counter. -->
+    <div id="hud" hidden>
+      <div class="hud-row">
+        <span class="hud-label mono">When</span>
+        <span id="hud-time" class="hud-value mono">—</span>
+      </div>
+      <div class="hud-row">
+        <span class="hud-label mono">Moments settled</span>
+        <span id="hud-count" class="hud-value mono">0 / 0</span>
+      </div>
+      <div class="hud-row hud-controls">
+        <button id="hud-replay" type="button" class="mono">↻ replay</button>
+        <button id="hud-skip" type="button" class="mono">⇥ skip to now</button>
+        <button id="hud-skiptour" type="button" class="mono">⇥ skip tour</button>
+      </div>
+    </div>
+
+    <!-- Caption overlay — tour narration, lower-center. -->
+    <div id="caption" class="caption"><span id="caption-text"></span></div>
+
+    <!-- Directional arrow — points to active waypoint when off-screen. -->
+    <div id="waypoint-arrow" class="waypoint-arrow">
+      <svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+        <path
+          d="M12 2 L20 14 L14 14 L14 22 L10 22 L10 14 L4 14 Z"
+          fill="currentColor"
+        />
+      </svg>
+    </div>
+
+    <!-- Placemarker — shown at the projected position when waypoint is on screen. -->
+    <div id="waypoint-marker" class="waypoint-marker">
+      <span class="waypoint-marker-pulse"></span>
+      <span class="waypoint-marker-label" id="waypoint-label"></span>
+    </div>
+
+    <!-- Escape overlay — when pointer lock drops. -->
+    <div id="resume" hidden>
+      <div class="resume-inner">
+        <p>Click to keep walking.</p>
+        <a href="/" class="mono">or leave Fathom's mind →</a>
+      </div>
+    </div>
+
+    <!-- Loading screen while the 6.8MB json pulls down. -->
+    <div id="loading" hidden>
+      <div class="loading-inner">
+        <div class="loading-bar"><div id="loading-fill"></div></div>
+        <p class="mono" id="loading-label">Pulling from my mind…</p>
+      </div>
+    </div>
+
+    <script type="module" src="/src/mind/main.js"></script>
+  </body>
+</html>
