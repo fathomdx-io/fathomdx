@@ -42,6 +42,16 @@ class Settings(BaseSettings):
     mood_state_path: str = "/data/mood-state.json"
     pair_codes_path: str = "/data/pair-codes.json"
 
+    # Allowlist directory for `image_path` on POST /v1/deltas and the
+    # `write` tool. When a caller hands the api a local filesystem path
+    # instead of base64, the api reads that path — a bare acceptance
+    # would be arbitrary-file-read for anyone with a lake:write token.
+    # Any path not resolving inside this prefix is rejected. Empty
+    # string (default) disables the feature entirely — callers must use
+    # image_b64. Set this only when a dedicated staging volume is
+    # mounted into the api container.
+    image_path_allowed_prefix: str = ""
+
     # Mood layer (carrier wave) — pressure thresholds
     # Threshold tuned against a real lake. With ~50 deltas/hour, pressure
     # builds to ~30 within a few hours; 25 fires roughly every 2-3 hours

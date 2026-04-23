@@ -23,8 +23,46 @@ from pydantic import BaseModel
 
 from .. import auth, delta_client, reserved_tags
 from ..search import search as nl_search
+from ..settings import settings
 
 router = APIRouter()
+
+
+def _resolve_allowed_image_path(image_path: str) -> Path:
+    """Return a resolved Path inside `settings.image_path_allowed_prefix`,
+    or raise HTTPException(400). This is the single defence against
+    arbitrary-file-read via the image_path parameter — any caller with a
+    lake:write token could otherwise hand in `/etc/passwd` or
+    `/data/tokens.json` and have the api read it off disk.
+
+    The feature is off by default (empty prefix). Operators who mount a
+    dedicated staging volume into the api container set the setting to
+    that volume's path and anything under it becomes eligible.
+    """
+    prefix = (settings.image_path_allowed_prefix or "").strip()
+    if not prefix:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "image_path uploads are disabled on this instance. "
+                "Pass image_b64 or set FATHOM_image_path_allowed_prefix."
+            ),
+        )
+    try:
+        allowed_root = Path(prefix).resolve(strict=False)
+        candidate = Path(image_path).resolve(strict=False)
+    except (OSError, ValueError) as e:
+        raise HTTPException(
+            status_code=400, detail=f"image_path invalid: {e}"
+        ) from e
+    try:
+        candidate.relative_to(allowed_root)
+    except ValueError:
+        raise HTTPException(
+            status_code=400,
+            detail="image_path must resolve under the configured allowed prefix",
+        ) from None
+    return candidate
 
 
 class EngagementRequest(BaseModel):
@@ -364,11 +402,12 @@ async def proxy_write_delta(body: dict, request: Request):
     image_b64 = body.get("image_b64")
     if image_path or image_b64:
         if image_path:
+            safe_path = _resolve_allowed_image_path(image_path)
             try:
-                file_bytes = await asyncio.to_thread(Path(image_path).read_bytes)
+                file_bytes = await asyncio.to_thread(safe_path.read_bytes)
             except (FileNotFoundError, PermissionError, OSError) as e:
                 raise HTTPException(status_code=400, detail=f"image_path unreadable: {e}") from e
-            filename = Path(image_path).name or "upload.bin"
+            filename = safe_path.name or "upload.bin"
         else:
             try:
                 file_bytes = base64.b64decode(image_b64, validate=True)
