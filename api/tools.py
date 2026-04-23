@@ -1,4 +1,5 @@
 """Memory operations as function-calling tools."""
+
 from __future__ import annotations
 
 import base64
@@ -41,6 +42,7 @@ def heartbeat_age_seconds(delta: dict) -> float | None:
 def heartbeat_is_fresh(delta: dict) -> bool:
     age = heartbeat_age_seconds(delta)
     return age is not None and age < HEARTBEAT_STALE_SECONDS
+
 
 # ── Tool definitions (OpenAI format) ────────────
 
@@ -238,9 +240,14 @@ TOOLS = [
                     "action": {
                         "type": "string",
                         "enum": [
-                            "help", "list", "get",
-                            "create", "update", "delete",
-                            "fire", "preview_schedule",
+                            "help",
+                            "list",
+                            "get",
+                            "create",
+                            "update",
+                            "delete",
+                            "fire",
+                            "preview_schedule",
                         ],
                         "description": (
                             "help: spec reference and action catalogue. "
@@ -418,8 +425,8 @@ TOOLS = [
                 "(1) the session is still showing its raw slug (e.g. "
                 "'cross-bold-goldfinch') — pick a short descriptive title; "
                 "(2) the user explicitly asks to name or rename the "
-                "conversation (\"name this X\", \"rename to X\", \"call "
-                "this X\") — use their requested string verbatim, even if "
+                'conversation ("name this X", "rename to X", "call '
+                'this X") — use their requested string verbatim, even if '
                 "it's silly. Never refuse a rename request by saying you "
                 "can't; this tool is how you do it."
             ),
@@ -479,6 +486,7 @@ TOOLS = [
 
 
 # ── Tool execution ──────────────────────────────
+
 
 def _slim_search_results(raw: dict) -> dict:
     """Strip embeddings, cap content length for context window."""
@@ -572,6 +580,7 @@ async def execute(name: str, arguments: dict, session_id: str | None = None) -> 
 
         if name == "propose_contact":
             from . import contacts as contacts_mod
+
             written = await contacts_mod.propose(
                 candidate_slug=(arguments.get("candidate_slug") or "").strip() or None,
                 display_name=arguments["display_name"],
@@ -582,17 +591,19 @@ async def execute(name: str, arguments: dict, session_id: str | None = None) -> 
                 # know it's a proposal, not who proposed it.
                 proposer_slug=None,
             )
-            return json.dumps({
-                "ok": True,
-                "proposal_id": written.get("id"),
-                "candidate_slug": written.get("candidate_slug"),
-                "display_name": written.get("display_name"),
-                "note": (
-                    "Proposal written. Admin will see it in Settings → "
-                    "Contacts and can Accept (creates the contact) or "
-                    "Reject (keeps the proposal as sediment)."
-                ),
-            })
+            return json.dumps(
+                {
+                    "ok": True,
+                    "proposal_id": written.get("id"),
+                    "candidate_slug": written.get("candidate_slug"),
+                    "display_name": written.get("display_name"),
+                    "note": (
+                        "Proposal written. Admin will see it in Settings → "
+                        "Contacts and can Accept (creates the contact) or "
+                        "Reject (keeps the proposal as sediment)."
+                    ),
+                }
+            )
 
         if name == "engage":
             kind = (arguments.get("kind") or "").lower()
@@ -607,18 +618,22 @@ async def execute(name: str, arguments: dict, session_id: str | None = None) -> 
                 tags=[f"{kind}:{target_id}"],
                 source="fathom-engagement",
             )
-            return json.dumps({
-                "ok": True,
-                "id": written.get("id"),
-                "kind": kind,
-                "target_id": target_id,
-            })
+            return json.dumps(
+                {
+                    "ok": True,
+                    "id": written.get("id"),
+                    "kind": kind,
+                    "target_id": target_id,
+                }
+            )
 
         if name == "rename_session":
             if not session_id:
-                return json.dumps({
-                    "error": "rename_session can only be called inside a chat session",
-                })
+                return json.dumps(
+                    {
+                        "error": "rename_session can only be called inside a chat session",
+                    }
+                )
             new_name = (arguments.get("name") or "").strip()
             if not new_name:
                 return json.dumps({"error": "name is required"})
@@ -773,18 +788,20 @@ async def _agent_alive() -> tuple[bool, list[dict]]:
 
 
 def _no_agent_response(action: str) -> str:
-    return json.dumps({
-        "action": action,
-        "error": "no_agent_connected",
-        "message": (
-            "No local fathom-agent is currently registered. Mutation actions "
-            "(create/update/delete/fire) require a local agent to execute the "
-            "resulting routine-fire deltas. Tell the user to visit the main "
-            "Fathom dashboard and install a local agent from the \"Local Agent\" "
-            "section (Linux / Mac / Windows), then try again."
-        ),
-        "dashboard_hint": "the main page of the Fathom app has the Local Agent install cards",
-    })
+    return json.dumps(
+        {
+            "action": action,
+            "error": "no_agent_connected",
+            "message": (
+                "No local fathom-agent is currently registered. Mutation actions "
+                "(create/update/delete/fire) require a local agent to execute the "
+                "resulting routine-fire deltas. Tell the user to visit the main "
+                'Fathom dashboard and install a local agent from the "Local Agent" '
+                "section (Linux / Mac / Windows), then try again."
+            ),
+            "dashboard_hint": "the main page of the Fathom app has the Local Agent install cards",
+        }
+    )
 
 
 async def _known_workspaces() -> list[str]:
@@ -835,7 +852,9 @@ async def _gather_create_gaps(args: dict) -> dict:
 
     if not (args.get("id") or "").strip():
         missing.append("id")
-        hints.append("No routine id. Ask the user for a stable short identifier (e.g. 'gold-check', 'daily-heartbeat').")
+        hints.append(
+            "No routine id. Ask the user for a stable short identifier (e.g. 'gold-check', 'daily-heartbeat')."
+        )
 
     if not (args.get("name") or "").strip():
         missing.append("name")
@@ -899,12 +918,14 @@ async def _execute_routines(args: dict, session_id: str | None = None) -> str:
     # Informational actions — always work, even without an agent.
     if action == "help":
         alive, agents = await _agent_alive()
-        return json.dumps({
-            "action": "help",
-            "agent_connected": alive,
-            "agents": agents,
-            "spec": await _routine_help_text(),
-        })
+        return json.dumps(
+            {
+                "action": "help",
+                "agent_connected": alive,
+                "agents": agents,
+                "spec": await _routine_help_text(),
+            }
+        )
 
     if action == "list":
         alive, agents = await _agent_alive()
@@ -912,20 +933,25 @@ async def _execute_routines(args: dict, session_id: str | None = None) -> str:
         # Slim each to keep context lean
         slim = [
             {
-                "id": r["id"], "name": r["name"], "enabled": r["enabled"],
-                "schedule": r.get("schedule"), "workspace": r.get("workspace"),
+                "id": r["id"],
+                "name": r["name"],
+                "enabled": r["enabled"],
+                "schedule": r.get("schedule"),
+                "workspace": r.get("workspace"),
                 "permission_mode": r.get("permission_mode"),
                 "last_fire_at": r.get("last_fire_at"),
                 "last_summary": (r.get("last_summary") or {}).get("content"),
             }
             for r in routines
         ]
-        return json.dumps({
-            "action": "list",
-            "agent_connected": alive,
-            "count": len(slim),
-            "routines": slim,
-        })
+        return json.dumps(
+            {
+                "action": "list",
+                "agent_connected": alive,
+                "count": len(slim),
+                "routines": slim,
+            }
+        )
 
     if action == "get":
         rid = (args.get("id") or "").strip()
@@ -934,27 +960,31 @@ async def _execute_routines(args: dict, session_id: str | None = None) -> str:
         spec = await routines_mod.get_latest_spec(rid)
         if not spec or spec["meta"].get("deleted"):
             return json.dumps({"action": "get", "error": f"routine {rid} not found"})
-        return json.dumps({
-            "action": "get",
-            "routine": {
-                "id": spec["meta"].get("id"),
-                "meta": spec["meta"],
-                "body": spec["body"],
-                "workspace": spec["workspace"],
-            },
-        })
+        return json.dumps(
+            {
+                "action": "get",
+                "routine": {
+                    "id": spec["meta"].get("id"),
+                    "meta": spec["meta"],
+                    "body": spec["body"],
+                    "workspace": spec["workspace"],
+                },
+            }
+        )
 
     if action == "preview_schedule":
         sched = (args.get("schedule") or "").strip()
         if not sched:
             return json.dumps({"action": "preview_schedule", "error": "schedule is required"})
         fires = routines_mod.preview_fires(sched, count=int(args.get("count") or 5))
-        return json.dumps({
-            "action": "preview_schedule",
-            "schedule": sched,
-            "fires": fires,
-            "error": None if fires else "invalid cron",
-        })
+        return json.dumps(
+            {
+                "action": "preview_schedule",
+                "schedule": sched,
+                "fires": fires,
+                "error": None if fires else "invalid cron",
+            }
+        )
 
     # Mutation actions — require an agent.
     if action in ("create", "update", "delete", "fire"):
@@ -988,33 +1018,39 @@ async def _execute_routines(args: dict, session_id: str | None = None) -> str:
                     ttl_seconds=ROUTINE_PROPOSAL_TTL_SECONDS,
                 )
             except Exception as e:
-                return json.dumps({
+                return json.dumps(
+                    {
+                        "action": "create",
+                        "status": "proposal_failed",
+                        "message": f"couldn't paint review form: {e}",
+                    }
+                )
+            return json.dumps(
+                {
                     "action": "create",
-                    "status": "proposal_failed",
-                    "message": f"couldn't paint review form: {e}",
-                })
-            return json.dumps({
-                "action": "create",
-                "status": "needs_confirmation",
-                "hint": (
-                    "The routine form is now in the chat for the user to "
-                    "review and save. Reply briefly — do NOT restate the "
-                    "fields in prose."
-                ),
-                "proposal": proposal,
-            })
+                    "status": "needs_confirmation",
+                    "hint": (
+                        "The routine form is now in the chat for the user to "
+                        "review and save. Reply briefly — do NOT restate the "
+                        "fields in prose."
+                    ),
+                    "proposal": proposal,
+                }
+            )
 
         # Clarification loop: inspect args, return `needs_info` when gaps exist
         # so the LLM can go back to the user and ask before committing.
         gaps = await _gather_create_gaps(args)
         if gaps["missing"]:
-            return json.dumps({
-                "action": "create",
-                "status": "needs_info",
-                "missing": gaps["missing"],
-                "hint": gaps["hint"],
-                "partial": {k: args[k] for k in args if k not in ("action", "confirm")},
-            })
+            return json.dumps(
+                {
+                    "action": "create",
+                    "status": "needs_info",
+                    "missing": gaps["missing"],
+                    "hint": gaps["hint"],
+                    "partial": {k: args[k] for k in args if k not in ("action", "confirm")},
+                }
+            )
         try:
             body = {k: args[k] for k in args if k not in ("action", "confirm")}
             result = await routines_mod.create(body)
@@ -1024,19 +1060,21 @@ async def _execute_routines(args: dict, session_id: str | None = None) -> str:
             rid = args.get("id", "")
             existing = await routines_mod.get_latest_spec(rid)
             existing_name = (existing or {}).get("meta", {}).get("name", "") if existing else ""
-            return json.dumps({
-                "action": "create",
-                "status": "needs_info",
-                "missing": ["id_or_intent"],
-                "hint": (
-                    f"A routine with id '{rid}' already exists"
-                    + (f" (name: '{existing_name}')" if existing_name else "")
-                    + ". Ask the user: do they want to update the existing one "
-                    + "(use action=update), replace it (delete first, then create), "
-                    + "or pick a different id?"
-                ),
-                "partial": {k: args[k] for k in args if k not in ("action", "confirm")},
-            })
+            return json.dumps(
+                {
+                    "action": "create",
+                    "status": "needs_info",
+                    "missing": ["id_or_intent"],
+                    "hint": (
+                        f"A routine with id '{rid}' already exists"
+                        + (f" (name: '{existing_name}')" if existing_name else "")
+                        + ". Ask the user: do they want to update the existing one "
+                        + "(use action=update), replace it (delete first, then create), "
+                        + "or pick a different id?"
+                    ),
+                    "partial": {k: args[k] for k in args if k not in ("action", "confirm")},
+                }
+            )
         except ValueError as e:
             return json.dumps({"action": "create", "error": "invalid", "message": str(e)})
 
@@ -1204,31 +1242,41 @@ async def _live_agent_summary() -> dict:
 async def _execute_explain(args: dict) -> str:
     topic = (args.get("topic") or "").strip().lower()
     if topic == "sources":
-        return json.dumps({
-            "topic": topic,
-            "doc": _EXPLAIN_SOURCES,
-            "live": await _live_sources_summary(),
-        })
+        return json.dumps(
+            {
+                "topic": topic,
+                "doc": _EXPLAIN_SOURCES,
+                "live": await _live_sources_summary(),
+            }
+        )
     if topic == "feed":
-        return json.dumps({
-            "topic": topic,
-            "doc": _EXPLAIN_FEED,
-            "live": await _live_feed_summary(),
-        })
+        return json.dumps(
+            {
+                "topic": topic,
+                "doc": _EXPLAIN_FEED,
+                "live": await _live_feed_summary(),
+            }
+        )
     if topic == "stats":
-        return json.dumps({
-            "topic": topic,
-            "doc": _EXPLAIN_STATS,
-            "live": await _live_stats_summary(),
-        })
+        return json.dumps(
+            {
+                "topic": topic,
+                "doc": _EXPLAIN_STATS,
+                "live": await _live_stats_summary(),
+            }
+        )
     if topic == "agent":
-        return json.dumps({
+        return json.dumps(
+            {
+                "topic": topic,
+                "doc": _EXPLAIN_AGENT,
+                "live": await _live_agent_summary(),
+            }
+        )
+    return json.dumps(
+        {
             "topic": topic,
-            "doc": _EXPLAIN_AGENT,
-            "live": await _live_agent_summary(),
-        })
-    return json.dumps({
-        "topic": topic,
-        "error": "unknown_topic",
-        "known": ["sources", "feed", "stats", "agent"],
-    })
+            "error": "unknown_topic",
+            "known": ["sources", "feed", "stats", "agent"],
+        }
+    )

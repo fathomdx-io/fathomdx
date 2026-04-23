@@ -178,10 +178,7 @@ def _summarize_outcome(contact_slug: str, had_crystal: bool, had_lines: bool) ->
             parts.append(f"{skipped} model-pass{'es' if skipped != 1 else ''}")
         return {
             "summary": "all_fresh",
-            "detail": (
-                f"Nothing needed generating ({', '.join(parts)}) — the feed is "
-                "caught up."
-            ),
+            "detail": (f"Nothing needed generating ({', '.join(parts)}) — the feed is caught up."),
             "cards_written": 0,
             "at": at,
         }
@@ -199,9 +196,7 @@ def _summarize_outcome(contact_slug: str, had_crystal: bool, had_lines: bool) ->
         reasons.append(f"{skipped} model-pass")
     return {
         "summary": "no_cards",
-        "detail": (
-            f"Ran, but no cards were written ({', '.join(reasons) or 'unknown reason'})."
-        ),
+        "detail": (f"Ran, but no cards were written ({', '.join(reasons) or 'unknown reason'})."),
         "cards_written": 0,
         "at": at,
     }
@@ -261,9 +256,7 @@ async def mark_visit(contact_slug: str) -> dict:
     pending = _pending_visits.get(contact_slug)
     if pending and not pending.done():
         return {"scheduled": False, "reason": "already-pending"}
-    _pending_visits[contact_slug] = asyncio.create_task(
-        _run_once(contact_slug, reason="visit")
-    )
+    _pending_visits[contact_slug] = asyncio.create_task(_run_once(contact_slug, reason="visit"))
     return {"scheduled": True}
 
 
@@ -308,8 +301,12 @@ async def _run_once(contact_slug: str, reason: str = "unspecified") -> None:
         except Exception:
             log.exception("feed_loop: run failed (contact=%s)", contact_slug)
         finally:
-            outcome = _summarize_outcome(contact_slug, run_facts["had_crystal"], run_facts["had_lines"])
-            _set_status(contact_slug, generating=False, finished_at=_now().isoformat(), last_outcome=outcome)
+            outcome = _summarize_outcome(
+                contact_slug, run_facts["had_crystal"], run_facts["had_lines"]
+            )
+            _set_status(
+                contact_slug, generating=False, finished_at=_now().isoformat(), last_outcome=outcome
+            )
 
 
 async def _do_run(contact_slug: str, reason: str, run_facts: dict) -> None:
@@ -423,8 +420,7 @@ async def _cold_start_fire(contact_slug: str) -> None:
         "not given any signal about what they want in their feed. Pick ONE "
         "genuinely interesting thing happening in the world right now "
         "(curiosity-default), search the web or the lake for an authoritative "
-        "source, and produce a single feed card.\n\n"
-        + _CARD_OUTPUT_INSTRUCTIONS
+        "source, and produce a single feed card.\n\n" + _CARD_OUTPUT_INSTRUCTIONS
     )
     _llm_active_enter(contact_slug, label="First card — picking something curious")
     try:
@@ -465,19 +461,11 @@ async def _fetch_line_candidates(line: dict, limit: int = 20) -> list[dict]:
     # run concurrently. asyncio.gather + return_exceptions=True keeps
     # one failed fetch from breaking the others, matching the per-try
     # except-pass shape the old serial code had.
-    semantic_query = (
-        f"{topic} {line_id}".replace("-", " ").strip() if (topic or line_id) else ""
-    )
-    topic_task = (
-        delta_client.query(tags_include=[f"topic:{topic}"], limit=limit)
-        if topic else None
-    )
+    semantic_query = f"{topic} {line_id}".replace("-", " ").strip() if (topic or line_id) else ""
+    topic_task = delta_client.query(tags_include=[f"topic:{topic}"], limit=limit) if topic else None
     rss_task = delta_client.query(tags_include=["rss"], limit=1000)
     ext_task = delta_client.query(tags_include=["browser-extension"], limit=15)
-    search_task = (
-        delta_client.search(query=semantic_query, limit=limit)
-        if semantic_query else None
-    )
+    search_task = delta_client.search(query=semantic_query, limit=limit) if semantic_query else None
     tasks = [t for t in (topic_task, rss_task, ext_task, search_task) if t is not None]
     results = await asyncio.gather(*tasks, return_exceptions=True)
 
@@ -549,11 +537,11 @@ async def _fetch_line_candidates(line: dict, limit: int = 20) -> list[dict]:
     return pool[:limit]
 
 
-_MARKDOWN_IMG_RE = re.compile(r'!\[[^\]]*\]\((https?://[^\s)]+)\)')
+_MARKDOWN_IMG_RE = re.compile(r"!\[[^\]]*\]\((https?://[^\s)]+)\)")
 # Match a markdown link `[label](url)` that is NOT preceded by `!` (which
 # would make it an image). The negative lookbehind keeps image markdown
 # from getting double-counted in the link extractor.
-_MARKDOWN_LINK_RE = re.compile(r'(?<!!)\[([^\]]+)\]\((https?://[^\s)]+)\)')
+_MARKDOWN_LINK_RE = re.compile(r"(?<!!)\[([^\]]+)\]\((https?://[^\s)]+)\)")
 
 
 def _extract_external_url(content: str) -> str | None:
@@ -615,7 +603,10 @@ def _format_candidates(pool: list[dict]) -> str:
 
 
 async def _fire_line(
-    contact_slug: str, line: dict, crystal: dict, freshness_map: dict[str, str] | None = None,
+    contact_slug: str,
+    line: dict,
+    crystal: dict,
+    freshness_map: dict[str, str] | None = None,
 ) -> None:
     """One directive line → one feed card (subject to freshness check).
 
@@ -686,8 +677,7 @@ async def _fire_line(
         f"body_image URL must appear verbatim in one of the candidates above. Don't "
         f"paraphrase, don't swap a seed, don't reach for a generic stock image. If the "
         f"candidates don't fit, you can still call the search tools — but candidates are "
-        f"the cheap path and usually contain what you need.\n\n"
-        + _CARD_OUTPUT_INSTRUCTIONS
+        f"the cheap path and usually contain what you need.\n\n" + _CARD_OUTPUT_INSTRUCTIONS
     )
 
     label_topic = topic or line_id
@@ -712,6 +702,7 @@ async def _fire_line(
 
 def _strip_fences(text: str) -> str:
     import re
+
     s = (text or "").strip()
     if s.startswith("```"):
         s = re.sub(r"^```(?:json)?\s*", "", s)
@@ -823,6 +814,7 @@ async def _produce_card(
     media values — drops any hash the model invented that isn't in the lake.
     """
     from .server import fathom_think  # lazy — avoid circular import
+
     line_id = (line or {}).get("id") or "(cold-start)"
 
     user_message = "Produce the card for the slot described above."
@@ -864,7 +856,10 @@ async def _produce_card(
 
         candidate = _parse_card_payload(text)
         if candidate is None:
-            print(f"feed_loop: line {line_id} attempt {attempt} — non-JSON; will retry. excerpt: {text[:200]!r}", flush=True)
+            print(
+                f"feed_loop: line {line_id} attempt {attempt} — non-JSON; will retry. excerpt: {text[:200]!r}",
+                flush=True,
+            )
             last_failed_excerpt = text[:240].replace("\n", " ")
             continue
 
@@ -877,7 +872,10 @@ async def _produce_card(
         break
 
     if payload is None:
-        print(f"feed_loop: line {line_id} — gave up after {MAX_FORMAT_ATTEMPTS} attempts (lost cause)", flush=True)
+        print(
+            f"feed_loop: line {line_id} — gave up after {MAX_FORMAT_ATTEMPTS} attempts (lost cause)",
+            flush=True,
+        )
         _tally_inc(contact_slug, "lines_format_failed")
         return
     if payload.get("skip"):
@@ -885,7 +883,10 @@ async def _produce_card(
         _tally_inc(contact_slug, "lines_model_skipped")
         return
     if not payload.get("title") or not payload.get("body"):
-        print(f"feed_loop: line {line_id} — JSON valid but missing title/body; skipping. payload keys: {list(payload.keys())}", flush=True)
+        print(
+            f"feed_loop: line {line_id} — JSON valid but missing title/body; skipping. payload keys: {list(payload.keys())}",
+            flush=True,
+        )
         _tally_inc(contact_slug, "lines_missing_fields")
         return
 
@@ -894,11 +895,17 @@ async def _produce_card(
     raw_body_image = str(payload.get("body_image", "") or "")
     body_image = _validate_body_image(raw_body_image, valid_hashes, valid_urls)
     if raw_body_image and not body_image:
-        print(f"feed_loop: line {line_id} dropped hallucinated body_image={raw_body_image!r}", flush=True)
+        print(
+            f"feed_loop: line {line_id} dropped hallucinated body_image={raw_body_image!r}",
+            flush=True,
+        )
     raw_media = [str(m) for m in (payload.get("media") or []) if m]
     media = _validate_media_list(raw_media, valid_hashes, valid_urls)
     if len(raw_media) != len(media):
-        print(f"feed_loop: line {line_id} dropped {len(raw_media) - len(media)} hallucinated media entr(ies)", flush=True)
+        print(
+            f"feed_loop: line {line_id} dropped {len(raw_media) - len(media)} hallucinated media entr(ies)",
+            flush=True,
+        )
 
     # Links: only http(s) URLs. The model could in principle invent a URL,
     # but unlike media_hash we can't validate against a candidate set —
@@ -949,9 +956,7 @@ async def _produce_card(
         log.exception("feed_loop: card delta write failed")
 
 
-async def _has_fresh_card(
-    contact_slug: str, line_id: str, freshness_hours: float
-) -> bool:
+async def _has_fresh_card(contact_slug: str, line_id: str, freshness_hours: float) -> bool:
     """True if this contact already has a card for this line newer than the window.
 
     Per-line fallback. Preferred path is _latest_card_by_line + the map-
@@ -1001,7 +1006,7 @@ async def _latest_card_by_line(contact_slug: str) -> dict[str, str]:
         ts = c.get("timestamp") or ""
         for t in c.get("tags") or []:
             if isinstance(t, str) and t.startswith("directive-line:"):
-                line_id = t[len("directive-line:"):]
+                line_id = t[len("directive-line:") :]
                 prev = latest.get(line_id)
                 if prev is None or ts > prev:
                     latest[line_id] = ts
@@ -1009,9 +1014,7 @@ async def _latest_card_by_line(contact_slug: str) -> dict[str, str]:
     return latest
 
 
-def _is_fresh_from_map(
-    freshness_map: dict[str, str], line_id: str, freshness_hours: float
-) -> bool:
+def _is_fresh_from_map(freshness_map: dict[str, str], line_id: str, freshness_hours: float) -> bool:
     """Shared is-fresh predicate for the map-based path."""
     ts = freshness_map.get(line_id)
     if not ts:

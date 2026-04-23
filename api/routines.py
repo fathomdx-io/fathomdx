@@ -15,6 +15,7 @@ tag. Scheduler and dashboard take latest per id. Deletion = tombstone with
 
 See docs/routine-spec.md for the canonical field reference.
 """
+
 from __future__ import annotations
 
 import time
@@ -250,45 +251,47 @@ async def list_routines() -> list[dict]:
             summary_by_fire.get(last_fire_d["id"]) if last_fire_d else None
         ) or latest_summary.get(rid)
 
-        routines.append({
-            "id": meta.get("id", rid),
-            "name": meta.get("name", rid),
-            "enabled": bool(meta.get("enabled", True)),
-            "schedule": meta.get("schedule", ""),
-            "interval_minutes": meta.get("interval_minutes", 0),
-            "permission_mode": str(meta.get("permission_mode") or "auto"),
-            "single_fire": bool(meta.get("single_fire", False)),
-            "workspace": workspace,
-            # `host` pins the routine to a specific agent. Empty/missing =
-            # fleet-wide (any live agent will pick up the fire delta).
-            "host": str(meta.get("host") or ""),
-            "delta_id": d.get("id"),
-            "prompt": body,
-            "last_fire_at": _ts_to_epoch(last_fire_d.get("timestamp")) if last_fire_d else 0,
-            "next_fire_at": (
-                next_fire_after(meta["schedule"], time.time())
-                if meta.get("enabled") and meta.get("schedule")
-                else None
-            ),
-            "last_fire": (
-                {
-                    "id": last_fire_d.get("id"),
-                    "timestamp": last_fire_d.get("timestamp"),
-                    "content": last_fire_d.get("content", "")[:300],
-                }
-                if last_fire_d
-                else None
-            ),
-            "last_summary": (
-                {
-                    "id": last_summary_d.get("id"),
-                    "timestamp": last_summary_d.get("timestamp"),
-                    "content": last_summary_d.get("content", "")[:500],
-                }
-                if last_summary_d
-                else None
-            ),
-        })
+        routines.append(
+            {
+                "id": meta.get("id", rid),
+                "name": meta.get("name", rid),
+                "enabled": bool(meta.get("enabled", True)),
+                "schedule": meta.get("schedule", ""),
+                "interval_minutes": meta.get("interval_minutes", 0),
+                "permission_mode": str(meta.get("permission_mode") or "auto"),
+                "single_fire": bool(meta.get("single_fire", False)),
+                "workspace": workspace,
+                # `host` pins the routine to a specific agent. Empty/missing =
+                # fleet-wide (any live agent will pick up the fire delta).
+                "host": str(meta.get("host") or ""),
+                "delta_id": d.get("id"),
+                "prompt": body,
+                "last_fire_at": _ts_to_epoch(last_fire_d.get("timestamp")) if last_fire_d else 0,
+                "next_fire_at": (
+                    next_fire_after(meta["schedule"], time.time())
+                    if meta.get("enabled") and meta.get("schedule")
+                    else None
+                ),
+                "last_fire": (
+                    {
+                        "id": last_fire_d.get("id"),
+                        "timestamp": last_fire_d.get("timestamp"),
+                        "content": last_fire_d.get("content", "")[:300],
+                    }
+                    if last_fire_d
+                    else None
+                ),
+                "last_summary": (
+                    {
+                        "id": last_summary_d.get("id"),
+                        "timestamp": last_summary_d.get("timestamp"),
+                        "content": last_summary_d.get("content", "")[:500],
+                    }
+                    if last_summary_d
+                    else None
+                ),
+            }
+        )
 
     routines.sort(key=lambda r: (r.get("workspace") or "", r["id"]))
     return routines

@@ -1,4 +1,5 @@
 """LLM provider adapter — one AsyncOpenAI client, any backend."""
+
 from __future__ import annotations
 
 from openai import AsyncOpenAI

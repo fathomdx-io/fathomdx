@@ -15,6 +15,7 @@ and single-use. Re-running step 2 on the same host with a new code
 rotates the key — no separate "rotate" endpoint needed; pairing serves
 both first-install and key-rotation.
 """
+
 from __future__ import annotations
 
 import contextlib
@@ -156,7 +157,9 @@ def redeem_pair_code(code: str, host: str = "") -> dict:
     from .auth import ALPHABET as TOKEN_ALPHABET
     from .auth import TOKEN_PREFIX, TOKEN_RAND_LEN
 
-    token_raw = TOKEN_PREFIX + "".join(secrets.choice(TOKEN_ALPHABET) for _ in range(TOKEN_RAND_LEN))
+    token_raw = TOKEN_PREFIX + "".join(
+        secrets.choice(TOKEN_ALPHABET) for _ in range(TOKEN_RAND_LEN)
+    )
     token_hash = _hash(token_raw)
     nowiso = datetime.now(UTC).isoformat()
     record = {
@@ -192,10 +195,12 @@ def list_active_codes() -> list[dict]:
             continue
         if c["expires_at"] < now:
             continue
-        out.append({
-            "code": c["code"],
-            "expires_at": c["expires_at"],
-            "seconds_remaining": max(0, c["expires_at"] - now),
-            "note": c.get("note", ""),
-        })
+        out.append(
+            {
+                "code": c["code"],
+                "expires_at": c["expires_at"],
+                "seconds_remaining": max(0, c["expires_at"] - now),
+                "note": c.get("note", ""),
+            }
+        )
     return out

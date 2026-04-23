@@ -51,13 +51,17 @@ class RSSProducer(SourceProducer):
                     raw_html = self._entry_content(entry)
                     md_content, image_urls = convert_html(raw_html)
                     title = getattr(entry, "title", "")
-                    media_hash = await extract_images(
-                        image_urls,
-                        content=title or md_content[:100],
-                        tags=["rss", "feed"],
-                        source="rss",
-                        http_client=client,
-                    ) if image_urls else None
+                    media_hash = (
+                        await extract_images(
+                            image_urls,
+                            content=title or md_content[:100],
+                            tags=["rss", "feed"],
+                            source="rss",
+                            http_client=client,
+                        )
+                        if image_urls
+                        else None
+                    )
                     items.append(
                         RawItem(
                             id=self._entry_id(entry, url),

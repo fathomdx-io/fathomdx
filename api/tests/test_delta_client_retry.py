@@ -5,6 +5,7 @@ app) by swapping the module-level httpx client for a pytest-httpx mock.
 If this test regresses, a real delta-store restart will start manifesting
 as lost reads for the dashboard instead of a brief pause.
 """
+
 from __future__ import annotations
 
 import asyncio

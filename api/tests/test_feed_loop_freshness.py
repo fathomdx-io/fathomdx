@@ -5,6 +5,7 @@ These pin the semantics that replaced the N-round-trip per-line
 per-line path, the loop either regenerates fresh cards unnecessarily
 (cost) or skips stale ones (user sees yesterday's feed).
 """
+
 from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta

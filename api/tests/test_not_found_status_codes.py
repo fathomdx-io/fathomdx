@@ -10,6 +10,7 @@ would crash or silently confuse the caller.
 These tests lock the fix in place: every "missing resource" path
 returns HTTP 404 with a proper detail body.
 """
+
 from __future__ import annotations
 
 import httpx

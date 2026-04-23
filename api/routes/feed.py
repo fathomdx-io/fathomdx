@@ -10,6 +10,7 @@ Twelve routes backing the feed loop:
 Thin HTTP wrapper around api/feed_loop.py and api/feed_crystal.py.
 Every contact-scoped endpoint reads caller slug via auth.current_contact_slug.
 """
+
 from __future__ import annotations
 
 import json
@@ -65,15 +66,17 @@ async def get_feed_crystal(request: Request):
     c = await feed_crystal.latest(slug, force=True)
     if not c:
         return {"crystal": None}
-    return {"crystal": {
-        "id": c.get("id"),
-        "created_at": c.get("created_at"),
-        "confidence": c.get("confidence"),
-        "narrative": c.get("narrative"),
-        "directive_lines": c.get("directive_lines"),
-        "topic_weights": c.get("topic_weights"),
-        "skip_rules": c.get("skip_rules"),
-    }}
+    return {
+        "crystal": {
+            "id": c.get("id"),
+            "created_at": c.get("created_at"),
+            "confidence": c.get("confidence"),
+            "narrative": c.get("narrative"),
+            "directive_lines": c.get("directive_lines"),
+            "topic_weights": c.get("topic_weights"),
+            "skip_rules": c.get("skip_rules"),
+        }
+    }
 
 
 @router.post("/v1/feed/crystal/refresh")
@@ -113,11 +116,13 @@ async def feed_confidence_history(request: Request, limit: int = 50):
     """Confidence over time, derived from the confidence: tag on each crystal regen."""
     slug = auth.current_contact_slug(request)
     events = await feed_crystal.list_events(slug, limit=limit)
-    return {"history": [
-        {"t": e.get("timestamp"), "v": e.get("confidence")}
-        for e in events
-        if e.get("confidence") is not None
-    ]}
+    return {
+        "history": [
+            {"t": e.get("timestamp"), "v": e.get("confidence")}
+            for e in events
+            if e.get("confidence") is not None
+        ]
+    }
 
 
 @router.get("/v1/feed/engagement/history")
@@ -157,9 +162,7 @@ async def feed_engagement_history(
 async def get_feed_stories(request: Request, limit: int = 20, offset: int = 0):
     """Proxy to delta-store's feed stories endpoint, scoped to current contact."""
     slug = auth.current_contact_slug(request)
-    return await delta_client.feed_stories(
-        limit=limit, offset=offset, contact_slug=slug
-    )
+    return await delta_client.feed_stories(limit=limit, offset=offset, contact_slug=slug)
 
 
 @router.post("/v1/feed/engagement")

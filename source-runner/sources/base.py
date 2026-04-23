@@ -160,7 +160,11 @@ async def extract_images(
     """
     for url in image_urls:
         media_hash = await upload_image(
-            url, content=content, tags=tags, source=source, http_client=http_client,
+            url,
+            content=content,
+            tags=tags,
+            source=source,
+            http_client=http_client,
         )
         if media_hash:
             return media_hash

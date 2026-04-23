@@ -68,9 +68,7 @@ class ContactsStore:
     async def list_all(self, include_disabled: bool = False) -> list[dict]:
         async with self._pool.acquire() as conn:
             if include_disabled:
-                rows = await conn.fetch(
-                    "SELECT * FROM contacts ORDER BY created_at"
-                )
+                rows = await conn.fetch("SELECT * FROM contacts ORDER BY created_at")
             else:
                 rows = await conn.fetch(
                     "SELECT * FROM contacts WHERE disabled_at IS NULL ORDER BY created_at"
@@ -101,16 +99,12 @@ class ContactsStore:
         sparingly — most deletion is soft via disable(). Kept for
         admin-initiated cleanup."""
         async with self._pool.acquire() as conn:
-            status = await conn.execute(
-                "DELETE FROM contacts WHERE slug = $1", slug
-            )
+            status = await conn.execute("DELETE FROM contacts WHERE slug = $1", slug)
             return status.endswith(" 1")
 
     # ── Handles ─────────────────────────────────────────────────────────
 
-    async def add_handle(
-        self, contact_slug: str, channel: str, identifier: str
-    ) -> dict:
+    async def add_handle(self, contact_slug: str, channel: str, identifier: str) -> dict:
         async with self._pool.acquire() as conn:
             row = await conn.fetchrow(
                 """
@@ -124,9 +118,7 @@ class ContactsStore:
             )
             return _row_to_handle(row)
 
-    async def remove_handle(
-        self, contact_slug: str, channel: str, identifier: str
-    ) -> bool:
+    async def remove_handle(self, contact_slug: str, channel: str, identifier: str) -> bool:
         async with self._pool.acquire() as conn:
             status = await conn.execute(
                 """
@@ -159,9 +151,7 @@ class ContactsStore:
 
     # ── Backfill (one-shot migration helper) ────────────────────────────
 
-    async def backfill_contact_tag(
-        self, contact_slug: str, filter_tags: list[str]
-    ) -> dict:
+    async def backfill_contact_tag(self, contact_slug: str, filter_tags: list[str]) -> dict:
         """Append `contact:<slug>` to every delta whose tags contain ANY of
         the filter tags and which has no `contact:` tag yet.
 

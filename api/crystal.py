@@ -31,14 +31,16 @@ from . import delta_client
 # Sources that historically wrote real crystal regenerations.
 # Used only for back-compat with deltas written before the crystal-regen
 # tag existed. New writes always carry the crystal-regen tag.
-LEGACY_REGEN_SOURCES: frozenset[str] = frozenset({
-    "consumer-api",
-    "loop-api",
-    "fathom-loop",
-    "recall-loop",
-    "claude-code",
-    "fathom-control",
-})
+LEGACY_REGEN_SOURCES: frozenset[str] = frozenset(
+    {
+        "consumer-api",
+        "loop-api",
+        "fathom-loop",
+        "recall-loop",
+        "claude-code",
+        "fathom-control",
+    }
+)
 
 REGEN_TAG = "crystal-regen"
 LEGACY_TAG = "identity-crystal"
@@ -166,11 +168,13 @@ async def list_events(limit: int = 50) -> list[dict]:
             seen[did] = d
     events = []
     for d in seen.values():
-        events.append({
-            "id": d.get("id"),
-            "timestamp": d.get("timestamp"),
-            "source": d.get("source"),
-            "preview": (d.get("content") or "")[:140],
-        })
+        events.append(
+            {
+                "id": d.get("id"),
+                "timestamp": d.get("timestamp"),
+                "source": d.get("source"),
+                "preview": (d.get("content") or "")[:140],
+            }
+        )
     events.sort(key=lambda e: e.get("timestamp") or "")
     return events[-limit:]

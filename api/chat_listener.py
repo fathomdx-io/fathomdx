@@ -12,6 +12,7 @@ with `<...>` to stay silent. Silence is the default; speaking is a choice.
 
 One process, one listener. No distributed locks, no dedup protocol.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -284,9 +285,7 @@ class ChatListener:
         # db.add_message tags it with participant:fathom so the listener's
         # next tick skips it (own-writes filter), and with contact:<addressee>
         # so the correspondence carries who the reply was to.
-        await db.add_message(
-            slug, "assistant", reply_text, contact_slug=addressee_slug
-        )
+        await db.add_message(slug, "assistant", reply_text, contact_slug=addressee_slug)
         await db.touch_session(slug)
 
 
@@ -325,9 +324,7 @@ async def write_chat_event(
       participant:fathom    — Fathom did this (keeps own-writes filter honest)
     """
     ttl = ttl_seconds if ttl_seconds is not None else EVENT_TTL_SECONDS
-    expires_at = (
-        datetime.now(UTC) + timedelta(seconds=ttl)
-    ).isoformat()
+    expires_at = (datetime.now(UTC) + timedelta(seconds=ttl)).isoformat()
     tags = [
         "fathom-chat",
         f"chat:{session_slug}",

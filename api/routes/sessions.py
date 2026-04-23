@@ -3,6 +3,7 @@
 A session groups chat messages. The chat-completions endpoint reads/writes
 through `db.*`; these endpoints are the sidebar CRUD surface.
 """
+
 from __future__ import annotations
 
 from datetime import UTC, datetime
@@ -44,7 +45,11 @@ async def list_sessions(request: Request, limit: int = 50):
     for s in sessions:
         raw = s["updated_at"]
         try:
-            parsed = raw if hasattr(raw, "date") else datetime.fromisoformat(str(raw).replace("Z", "+00:00"))
+            parsed = (
+                raw
+                if hasattr(raw, "date")
+                else datetime.fromisoformat(str(raw).replace("Z", "+00:00"))
+            )
             delta_days = (now.date() - parsed.date()).days
         except (ValueError, TypeError):
             delta_days = 999

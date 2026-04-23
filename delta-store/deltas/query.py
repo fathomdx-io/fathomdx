@@ -215,8 +215,8 @@ def _to_slim(s: ScoredDelta) -> ScoredDeltaSlim:
 
 ENGAGEMENT_POINTER_PREFIXES = ("engages", "refutes", "affirms", "reply-to", "from")
 ENGAGEMENT_FETCH_CAP = 500  # max engagement deltas pulled per search
-ENGAGEMENT_TOPK_CAP = 100   # only look up clouds for the top-N scored deltas
-VALENCE_MAX_PCT = 0.30      # cap ±30% rank shift from valence
+ENGAGEMENT_TOPK_CAP = 100  # only look up clouds for the top-N scored deltas
+VALENCE_MAX_PCT = 0.30  # cap ±30% rank shift from valence
 
 
 def _valence_modifier(cloud: list[dict]) -> float:
@@ -359,9 +359,7 @@ class QueryEngine:
 
         return results
 
-    async def _fetch_engagement_cloud(
-        self, target_ids: list[str]
-    ) -> dict[str, list[dict]]:
+    async def _fetch_engagement_cloud(self, target_ids: list[str]) -> dict[str, list[dict]]:
         """Batched lookup: for each target id, return engagement deltas pointing at it.
 
         A single query fetches all deltas whose tags include any engagement
@@ -371,9 +369,7 @@ class QueryEngine:
         if not target_ids:
             return {}
         pointers = [
-            f"{prefix}:{tid}"
-            for prefix in ENGAGEMENT_POINTER_PREFIXES
-            for tid in target_ids
+            f"{prefix}:{tid}" for prefix in ENGAGEMENT_POINTER_PREFIXES for tid in target_ids
         ]
         sql = """
             SELECT d.id, d.timestamp, d.modality, d.content, d.source, d.tags,

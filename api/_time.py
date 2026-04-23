@@ -6,6 +6,7 @@ Every module under api/ had a private `_now() -> datetime` that returned
 gives test code a single place to monkey-patch when it wants a frozen
 clock.
 """
+
 from __future__ import annotations
 
 from datetime import UTC, datetime

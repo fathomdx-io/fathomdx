@@ -1123,12 +1123,8 @@ async def backfill_contact_tag(req: BackfillContactTagIn):
     if not req.filter_tags:
         raise HTTPException(status_code=400, detail="filter_tags is required")
     if not await contacts_store.get(req.contact_slug):
-        raise HTTPException(
-            status_code=404, detail=f"Contact '{req.contact_slug}' not found"
-        )
-    return await contacts_store.backfill_contact_tag(
-        req.contact_slug, req.filter_tags
-    )
+        raise HTTPException(status_code=404, detail=f"Contact '{req.contact_slug}' not found")
+    return await contacts_store.backfill_contact_tag(req.contact_slug, req.filter_tags)
 
 
 @app.get("/health")

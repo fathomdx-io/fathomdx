@@ -115,7 +115,13 @@ class DeltaClient:
         with open(image_path, "rb") as f:
             image_bytes = f.read()
 
-        files = {"file": (image_path.split("/")[-1], image_bytes, mimetypes.guess_type(image_path)[0] or "image/png")}
+        files = {
+            "file": (
+                image_path.split("/")[-1],
+                image_bytes,
+                mimetypes.guess_type(image_path)[0] or "image/png",
+            )
+        }
         data = {"source": source}
         if content:
             data["content"] = content

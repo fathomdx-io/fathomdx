@@ -59,16 +59,16 @@ _EXACT: dict[str, str] = {
     # them are written by consumer-api code that calls delta_client.write
     # directly (not through /v1/deltas), so GATE_INTERNAL cleanly says
     # "use the named endpoint." No content-level bypass surface.
-    "profile": GATE_INTERNAL,              # /v1/contacts/<slug> (admin), /v1/me/profile (self)
-    "contact-deleted": GATE_INTERNAL,      # DELETE /v1/contacts/<slug>
-    "crystal:identity": GATE_INTERNAL,     # POST /v1/crystal/refresh
+    "profile": GATE_INTERNAL,  # /v1/contacts/<slug> (admin), /v1/me/profile (self)
+    "contact-deleted": GATE_INTERNAL,  # DELETE /v1/contacts/<slug>
+    "crystal:identity": GATE_INTERNAL,  # POST /v1/crystal/refresh
     "crystal:feed-orient": GATE_INTERNAL,  # POST /v1/feed/crystal/refresh
-    "feed-anchor": GATE_INTERNAL,          # feed_crystal._snapshot_anchor
-    "routine-fire": GATE_INTERNAL,         # POST /v1/routines/<id>/fire
-    "routine-definition": GATE_INTERNAL,   # POST /v1/routines
-    "resonance-allowed": GATE_INTERNAL,    # POST /hooks/activation/sources
-    "chat-deleted": GATE_INTERNAL,         # DELETE /v1/sessions/<id>
-    "chat-name": GATE_INTERNAL,            # PATCH /v1/sessions/<id>
+    "feed-anchor": GATE_INTERNAL,  # feed_crystal._snapshot_anchor
+    "routine-fire": GATE_INTERNAL,  # POST /v1/routines/<id>/fire
+    "routine-definition": GATE_INTERNAL,  # POST /v1/routines
+    "resonance-allowed": GATE_INTERNAL,  # POST /hooks/activation/sources
+    "chat-deleted": GATE_INTERNAL,  # DELETE /v1/sessions/<id>
+    "chat-name": GATE_INTERNAL,  # PATCH /v1/sessions/<id>
     # Tags external callers legitimately produce via /v1/deltas, bound to
     # the caller's own contact by strip-and-re-stamp. admin_or_self reads
     # "the tag's contact:<slug> must equal the caller" which is always

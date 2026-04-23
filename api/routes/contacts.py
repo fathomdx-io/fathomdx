@@ -9,6 +9,7 @@ Thin HTTP layer over api/contacts.py. That module owns the merge
 between the delta-store registry row and the latest profile delta,
 and is the only writer of profile deltas. Per docs/contact-spec.md.
 """
+
 from __future__ import annotations
 
 import httpx
@@ -49,6 +50,7 @@ class SelfProfileUpdate(BaseModel):
     does NOT include `role` — FastAPI would drop unknown fields from the
     body, and even if the client tries to include role it never reaches
     the update call."""
+
     display_name: str | None = None
     pronouns: str | None = None
     timezone: str | None = None
@@ -101,9 +103,7 @@ async def create_contact(req: ContactCreate, request: Request):
     payload = req.model_dump(exclude_unset=True)
     slug = payload.pop("slug")
     try:
-        created = await contacts_mod.create(
-            slug=slug, initial_profile=payload, actor_slug=actor
-        )
+        created = await contacts_mod.create(slug=slug, initial_profile=payload, actor_slug=actor)
     except httpx.HTTPStatusError as e:
         detail = "Contact already exists" if e.response.status_code == 409 else str(e)
         raise HTTPException(status_code=e.response.status_code, detail=detail) from e
@@ -129,9 +129,7 @@ async def update_contact(slug: str, req: ContactUpdate, request: Request):
             raise HTTPException(404, "Contact not found")
         return existing
     try:
-        updated = await contacts_mod.update_profile(
-            slug, fields, actor_slug=actor, event="updated"
-        )
+        updated = await contacts_mod.update_profile(slug, fields, actor_slug=actor, event="updated")
     except contacts_mod.LastAdminError as e:
         raise HTTPException(409, detail=str(e)) from e
     if not updated:
@@ -221,12 +219,11 @@ async def propose_contact(body: ProposeContactIn, request: Request):
     "/v1/contact-proposals/{proposal_id}/accept",
     dependencies=[Depends(auth.require_admin)],
 )
-async def accept_contact_proposal(
-    proposal_id: str, body: AcceptProposalIn, request: Request
-):
+async def accept_contact_proposal(proposal_id: str, body: AcceptProposalIn, request: Request):
     actor = _caller_slug(request)
     extras = {
-        k: v for k, v in body.model_dump(exclude_unset=True).items()
+        k: v
+        for k, v in body.model_dump(exclude_unset=True).items()
         if v is not None and k not in ("slug", "display_name", "role")
     }
     try:
@@ -249,9 +246,7 @@ async def accept_contact_proposal(
     "/v1/contact-proposals/{proposal_id}/reject",
     dependencies=[Depends(auth.require_admin)],
 )
-async def reject_contact_proposal(
-    proposal_id: str, body: RejectProposalIn, request: Request
-):
+async def reject_contact_proposal(proposal_id: str, body: RejectProposalIn, request: Request):
     await contacts_mod.reject_proposal(
         proposal_id,
         actor_slug=_caller_slug(request),
@@ -284,20 +279,14 @@ async def update_my_profile(req: SelfProfileUpdate, request: Request):
         raise HTTPException(401, "Authentication required")
     slug = contact.get("slug")
 
-    fields = {
-        k: v
-        for k, v in req.model_dump(exclude_unset=True).items()
-        if v is not None
-    }
+    fields = {k: v for k, v in req.model_dump(exclude_unset=True).items() if v is not None}
     if not fields:
         existing = await contacts_mod.get(slug)
         if not existing:
             raise HTTPException(404, "Profile not found")
         return existing
 
-    updated = await contacts_mod.update_profile(
-        slug, fields, actor_slug=slug, event="self-edited"
-    )
+    updated = await contacts_mod.update_profile(slug, fields, actor_slug=slug, event="self-edited")
     if not updated:
         raise HTTPException(404, "Profile not found")
     auth.invalidate_contact_cache(slug)

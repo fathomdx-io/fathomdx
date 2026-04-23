@@ -6,6 +6,7 @@ inline loops that all boiled down to "find the first tag with this prefix
 and return the part after the colon." Centralise those here so the
 non-string-robustness and prefix-length bookkeeping live in one place.
 """
+
 from __future__ import annotations
 
 from collections.abc import Iterable
@@ -31,7 +32,7 @@ def tag_suffix(tags: Iterable[object] | None, prefix: str) -> str | None:
         return None
     for t in tags:
         if isinstance(t, str) and t.startswith(prefix):
-            return t[len(prefix):]
+            return t[len(prefix) :]
     return None
 
 

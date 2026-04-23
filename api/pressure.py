@@ -33,7 +33,7 @@ from .settings import settings
 SOURCE_WEIGHTS: dict[str, float] = {
     "fathom-chat": 1.5,
     "fathom-feed": 0.5,
-    "fathom-mood": 0.0,           # mood deltas don't drive their own resynthesis
+    "fathom-mood": 0.0,  # mood deltas don't drive their own resynthesis
     "fathom-source-runner": 0.4,
     "fathom-agent": 0.2,
     "claude-code": 0.8,
@@ -150,7 +150,10 @@ async def should_synthesize() -> tuple[bool, str]:
         return True, "pressure"
     if p["last_synthesis_at"] is None:
         return True, "first-run"
-    if p["time_since_wake_seconds"] is not None and p["time_since_wake_seconds"] >= p["contrast_wake_seconds"]:
+    if (
+        p["time_since_wake_seconds"] is not None
+        and p["time_since_wake_seconds"] >= p["contrast_wake_seconds"]
+    ):
         return True, "contrast-wake"
     return False, "below-threshold"
 

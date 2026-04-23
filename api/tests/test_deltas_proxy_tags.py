@@ -11,6 +11,7 @@ Result: every multi-tag recall returned empty.
 If this test regresses, `fathom recall --tags a,b` silently stops
 filtering again.
 """
+
 from __future__ import annotations
 
 import httpx
@@ -48,10 +49,7 @@ async def test_proxy_deltas_splits_csv_tags_into_repeated_param(
     assert r.status_code == 200
 
     # Find the /deltas proxy call among any incidental middleware reads.
-    requests = [
-        req for req in httpx_mock.get_requests()
-        if req.url.path == "/deltas"
-    ]
+    requests = [req for req in httpx_mock.get_requests() if req.url.path == "/deltas"]
     assert len(requests) >= 1
     sent_url = str(requests[-1].url)
     # Order doesn't matter, but both must be present as separate params.
@@ -79,10 +77,7 @@ async def test_proxy_deltas_single_tag_sent_as_list_of_one(
         r = await ac.get("/v1/deltas?tags_include=chat:s")
     assert r.status_code == 200
 
-    requests = [
-        req for req in httpx_mock.get_requests()
-        if req.url.path == "/deltas"
-    ]
+    requests = [req for req in httpx_mock.get_requests() if req.url.path == "/deltas"]
     sent_url = str(requests[-1].url)
     # URL-encoded colon is %3A; either form is fine.
     assert "tags_include=chat" in sent_url
@@ -106,9 +101,6 @@ async def test_proxy_deltas_empty_tag_filter_sends_no_tag_param(
         r = await ac.get("/v1/deltas?tags_include=,,")
     assert r.status_code == 200
 
-    requests = [
-        req for req in httpx_mock.get_requests()
-        if req.url.path == "/deltas"
-    ]
+    requests = [req for req in httpx_mock.get_requests() if req.url.path == "/deltas"]
     sent_url = str(requests[-1].url)
     assert "tags_include" not in sent_url

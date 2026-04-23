@@ -244,7 +244,8 @@ async def run_cycle(pool, store) -> dict:
 
         shrink_pct = (
             f"{((prev_count - live_count) / prev_count) * 100:.2f}%"
-            if prev_count and prev_count > 0 else "n/a"
+            if prev_count and prev_count > 0
+            else "n/a"
         )
         msg = (
             f"Backup tripwire: {reason}. live_count={live_count} "
@@ -254,7 +255,9 @@ async def run_cycle(pool, store) -> dict:
         )
         log.error(msg)
         await _write_delta_safe(
-            store, msg, ["blocker", "backup-incident", "fathom"],
+            store,
+            msg,
+            ["blocker", "backup-incident", "fathom"],
         )
         return state
 
@@ -281,12 +284,16 @@ async def run_cycle(pool, store) -> dict:
         )
         log.warning(msg)
         await _write_delta_safe(
-            store, msg, ["backup-warning", "observation", "fathom"],
+            store,
+            msg,
+            ["backup-warning", "observation", "fathom"],
         )
     else:
         log.info(
             "Backup healthy: %s (%d bytes, %d deltas)",
-            final.name, new_size, live_count,
+            final.name,
+            new_size,
+            live_count,
         )
 
     return state
@@ -378,7 +385,11 @@ async def backup_loop() -> None:
 
     log.info(
         "Backup loop started: interval=%ss warn=%.3f lockdown=%.3f retain=%d dir=%s",
-        INTERVAL_S, WARN_RATIO, LOCKDOWN_RATIO, RETAIN, BACKUP_DIR,
+        INTERVAL_S,
+        WARN_RATIO,
+        LOCKDOWN_RATIO,
+        RETAIN,
+        BACKUP_DIR,
     )
     # Short initial delay so the cycle doesn't race startup.
     await asyncio.sleep(30)

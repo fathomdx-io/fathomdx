@@ -430,9 +430,7 @@ class DeltaStore:
         )
         return float(row["volume"] or 0.0)
 
-    async def usage_history(
-        self, since_seconds: int, buckets: int = 60
-    ) -> list[tuple[int, int]]:
+    async def usage_history(self, since_seconds: int, buckets: int = 60) -> list[tuple[int, int]]:
         """Bucketed write-count timeline over the window.
 
         Returns a list of (bucket_index, count) pairs for non-empty buckets.

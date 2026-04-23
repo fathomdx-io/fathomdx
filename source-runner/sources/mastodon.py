@@ -71,25 +71,35 @@ class MastodonProducer(SourceProducer):
                     orig_acct = reblog.get("account", {}).get("acct", "?")
                     orig_content = _md(reblog.get("content", ""))
                     text = f"@{acct} boosted @{orig_acct}:\n{orig_content}"
-                    image_urls = [m["url"] for m in reblog.get("media_attachments", []) if m.get("type") == "image"]
+                    image_urls = [
+                        m["url"]
+                        for m in reblog.get("media_attachments", [])
+                        if m.get("type") == "image"
+                    ]
 
-                media_hash = await extract_images(
-                    image_urls,
-                    content=text[:100],
-                    tags=["mastodon", "social"],
-                    source="mastodon",
-                    http_client=client,
-                ) if image_urls else None
+                media_hash = (
+                    await extract_images(
+                        image_urls,
+                        content=text[:100],
+                        tags=["mastodon", "social"],
+                        source="mastodon",
+                        http_client=client,
+                    )
+                    if image_urls
+                    else None
+                )
 
-                items.append(RawItem(
-                    id=post["id"],
-                    content=text,
-                    timestamp=post.get("created_at"),
-                    title=f"@{acct}",
-                    url=post.get("url"),
-                    image_urls=image_urls,
-                    meta={"media_hash": media_hash} if media_hash else {},
-                ))
+                items.append(
+                    RawItem(
+                        id=post["id"],
+                        content=text,
+                        timestamp=post.get("created_at"),
+                        title=f"@{acct}",
+                        url=post.get("url"),
+                        image_urls=image_urls,
+                        meta={"media_hash": media_hash} if media_hash else {},
+                    )
+                )
         except Exception:
             log.warning("Failed to fetch home timeline", exc_info=True)
         return items
@@ -118,13 +128,15 @@ class MastodonProducer(SourceProducer):
                 else:
                     text = f"@{acct}: {ntype}"
 
-                items.append(RawItem(
-                    id=f"notif-{notif['id']}",
-                    content=text,
-                    timestamp=notif.get("created_at"),
-                    title=f"@{acct}",
-                    url=status.get("url") if status else None,
-                ))
+                items.append(
+                    RawItem(
+                        id=f"notif-{notif['id']}",
+                        content=text,
+                        timestamp=notif.get("created_at"),
+                        title=f"@{acct}",
+                        url=status.get("url") if status else None,
+                    )
+                )
         except Exception:
             log.warning("Failed to fetch notifications", exc_info=True)
         return items

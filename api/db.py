@@ -1,4 +1,5 @@
 """Lake-backed sessions (matching loop-api pattern)."""
+
 from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
@@ -40,9 +41,7 @@ async def create_session(title: str = "New session") -> dict:
     return {"id": slug, "title": title, "created_at": datetime.now(UTC).isoformat()}
 
 
-async def list_sessions(
-    limit: int = 50, contact_slug: str | None = None
-) -> list[dict]:
+async def list_sessions(limit: int = 50, contact_slug: str | None = None) -> list[dict]:
     """Aggregate fathom-chat deltas into session list — same as loop-api.
 
     Each session: {id (slug), title (name), first_seen, last_seen, delta_count, preview}.
@@ -70,16 +69,19 @@ async def list_sessions(
         if not slug:
             slug = "legacy"
         ts = d.get("timestamp") or ""
-        b = buckets.setdefault(slug, {
-            "id": slug,
-            "title": None,
-            "_name_ts": "",
-            "created_at": ts,
-            "updated_at": ts,
-            "delta_count": 0,
-            "preview": "",
-            "_preview_ts": "",
-        })
+        b = buckets.setdefault(
+            slug,
+            {
+                "id": slug,
+                "title": None,
+                "_name_ts": "",
+                "created_at": ts,
+                "updated_at": ts,
+                "delta_count": 0,
+                "preview": "",
+                "_preview_ts": "",
+            },
+        )
         b["delta_count"] += 1
         if ts and ts < (b["created_at"] or ts):
             b["created_at"] = ts
@@ -102,14 +104,16 @@ async def list_sessions(
 
     sessions = []
     for b in buckets.values():
-        sessions.append({
-            "id": b["id"],
-            "title": b["title"] or b["id"],
-            "created_at": b["created_at"],
-            "updated_at": b["updated_at"],
-            "delta_count": b["delta_count"],
-            "preview": b.get("preview", ""),
-        })
+        sessions.append(
+            {
+                "id": b["id"],
+                "title": b["title"] or b["id"],
+                "created_at": b["created_at"],
+                "updated_at": b["updated_at"],
+                "delta_count": b["delta_count"],
+                "preview": b.get("preview", ""),
+            }
+        )
     sessions.sort(key=lambda s: s.get("updated_at") or "", reverse=True)
     return sessions[:limit]
 
@@ -242,7 +246,7 @@ async def get_messages(session_id: str, limit: int = 200) -> list[dict]:
         # their own once expires_at passes and the delta-store reaps.
         if "chat-event" in tags:
             kind = next(
-                (t[len("event:"):] for t in tags if t.startswith("event:")),
+                (t[len("event:") :] for t in tags if t.startswith("event:")),
                 "event",
             )
             data: dict = {}
@@ -250,18 +254,21 @@ async def get_messages(session_id: str, limit: int = 200) -> list[dict]:
             if content:
                 try:
                     import json as _json
+
                     parsed = _json.loads(content)
                     if isinstance(parsed, dict):
                         data = parsed
                 except Exception:
                     pass
-            messages.append({
-                "id": d.get("id"),
-                "role": "event",
-                "kind": kind,
-                "data": data,
-                "created_at": d.get("timestamp"),
-            })
+            messages.append(
+                {
+                    "id": d.get("id"),
+                    "role": "event",
+                    "kind": kind,
+                    "data": data,
+                    "created_at": d.get("timestamp"),
+                }
+            )
             continue
 
         # Derive role. Prefer participant:* tag (new convention). Fall back
@@ -271,7 +278,7 @@ async def get_messages(session_id: str, limit: int = 200) -> list[dict]:
         for t in tags:
             if t.startswith("participant:agent:"):
                 role = "agent"
-                host = t[len("participant:agent:"):]
+                host = t[len("participant:agent:") :]
                 break
             if t == "participant:user":
                 role = "user"
@@ -301,5 +308,3 @@ async def get_messages(session_id: str, limit: int = 200) -> list[dict]:
             msg["media_hash"] = d["media_hash"]
         messages.append(msg)
     return messages
-
-

@@ -6,11 +6,13 @@ tools, and routes/agents. A subtle bug here would skew contact
 resolution, chat-session routing, heartbeat hostname display, and the
 reserved-tag gate's anchor-contact logic.
 """
+
 from __future__ import annotations
 
 from api._tags import has_any_tag_with_prefix, tag_suffix
 
 # ── tag_suffix ────────────────────────────────────────────────────────
+
 
 def test_tag_suffix_returns_string_after_prefix() -> None:
     assert tag_suffix(["chat:s1", "contact:bob"], "contact:") == "bob"
@@ -52,6 +54,7 @@ def test_tag_suffix_prefix_must_match_exactly() -> None:
 
 
 # ── has_any_tag_with_prefix ───────────────────────────────────────────
+
 
 def test_has_any_tag_with_prefix_true_when_one_matches() -> None:
     assert has_any_tag_with_prefix(["contact:bob", "chat:s1"], "chat:") is True
