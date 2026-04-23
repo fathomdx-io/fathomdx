@@ -17,6 +17,7 @@ both first-install and key-rotation.
 """
 from __future__ import annotations
 
+import contextlib
 import json
 import secrets
 import string
@@ -56,7 +57,13 @@ def _load() -> list[dict]:
 def _save(codes: list[dict]) -> None:
     p = _path()
     p.parent.mkdir(parents=True, exist_ok=True)
+    # 0600 — a live pair code is a 10-minute admission ticket that mints a
+    # full agent token on redemption. Default umask (0644) lets any local
+    # user on the host grab one. Match the tokens.json permissions so both
+    # files sit in the same "credentials on disk" bucket.
     p.write_text(json.dumps(codes, indent=2))
+    with contextlib.suppress(OSError):
+        p.chmod(0o600)
 
 
 def _now() -> int:
