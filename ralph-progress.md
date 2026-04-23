@@ -46,9 +46,9 @@ Single repo (`fathomdx`) so the "matrix" is a column. `-` = not started,
 | 12| Accessibility                    | N/A      |
 | 13| Error Boundary Audit             | DONE     |
 | 14| Utility Consolidation            | DONE     |
-| 15| New Perspectives                 | -        |
+| 15| New Perspectives                 | DONE     |
 | 16| Feed Experience                  | N/A      |
-| 17| Chat & Conversation UX           | -        |
+| 17| Chat & Conversation UX           | N/A      |
 | 18| Onboarding Flow                  | N/A      |
 | 19| Scout & Suggestions UX           | N/A      |
 | 20| Backstage UX                     | N/A      |
@@ -60,6 +60,11 @@ Single repo (`fathomdx`) so the "matrix" is a column. `-` = not started,
 
 N/A cells are frontend / visual / UX concerns that live in `site/` or
 `ui/`, which are out of scope for this run (see `ralph-prd.md`).
+#17 (Chat & Conversation UX) was noted in the PRD as "partially
+applies to chat_listener behavior"; the chat_listener changes landed
+under Bug Hunt (RUF006 + race audit) and Performance (session-lock
+LRU), so the UX slice of #17 has no remaining work in scope. Marked
+N/A to close the cell.
 
 ## Baseline snapshot (pre-loop, 2026-04-23)
 

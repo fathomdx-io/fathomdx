@@ -8,6 +8,7 @@ different output rules and tool name forms.
 Updates here ship to all clients via the API the next time they boot —
 no need to republish hook scripts or re-run `npx fathom-connect`.
 """
+
 from __future__ import annotations
 
 CLAUDE_CODE = """\
