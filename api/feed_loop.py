@@ -452,6 +452,36 @@ async def _fetch_line_candidates(line: dict, limit: int = 20) -> list[dict]:
     """
     topic = (line.get("topic") or "").strip()
     line_id = (line.get("id") or "").strip()
+
+    # Fire every lake read for this card's pool in parallel. They're
+    # independent — four sequential round-trips against delta-store
+    # add up to ~1-2s at typical compose-stack latency, vs. ~500ms when
+    # run concurrently. asyncio.gather + return_exceptions=True keeps
+    # one failed fetch from breaking the others, matching the per-try
+    # except-pass shape the old serial code had.
+    semantic_query = (
+        f"{topic} {line_id}".replace("-", " ").strip() if (topic or line_id) else ""
+    )
+    topic_task = (
+        delta_client.query(tags_include=[f"topic:{topic}"], limit=limit)
+        if topic else None
+    )
+    rss_task = delta_client.query(tags_include=["rss"], limit=1000)
+    ext_task = delta_client.query(tags_include=["browser-extension"], limit=15)
+    search_task = (
+        delta_client.search(query=semantic_query, limit=limit)
+        if semantic_query else None
+    )
+    tasks = [t for t in (topic_task, rss_task, ext_task, search_task) if t is not None]
+    results = await asyncio.gather(*tasks, return_exceptions=True)
+
+    # Pull the results back out in the same order we queued them.
+    ri = iter(results)
+    topic_res = next(ri) if topic_task is not None else None
+    rss_res = next(ri)
+    ext_res = next(ri)
+    search_res = next(ri) if search_task is not None else None
+
     seen: set[str] = set()
     pool: list[dict] = []
 
@@ -462,12 +492,9 @@ async def _fetch_line_candidates(line: dict, limit: int = 20) -> list[dict]:
             pool.append(d)
 
     # 1. Topic-tagged content
-    if topic:
-        try:
-            for d in await delta_client.query(tags_include=[f"topic:{topic}"], limit=limit):
-                _add(d)
-        except Exception:
-            pass
+    if isinstance(topic_res, list):
+        for d in topic_res:
+            _add(d)
 
     # 2. Visually-rich recent deltas (rss + browser-extension).
     # The rss source plugin creates two delta families per item: the rich
@@ -481,9 +508,8 @@ async def _fetch_line_candidates(line: dict, limit: int = 20) -> list[dict]:
     # write-time timestamps, while the rich digest deltas use the
     # article's pubDate (often yesterday or older). 1000 is enough to
     # reach a few days of digests on a modest-volume install.
-    try:
-        rss_results = await delta_client.query(tags_include=["rss"], limit=1000)
-        for d in rss_results:
+    if isinstance(rss_res, list):
+        for d in rss_res:
             tags = d.get("tags") or []
             content = d.get("content") or ""
             # Keep only digest deltas: distinguished by a `feed:<domain>` tag.
@@ -495,32 +521,23 @@ async def _fetch_line_candidates(line: dict, limit: int = 20) -> list[dict]:
             if not has_image:
                 continue
             _add(d)
-    except Exception:
-        pass
 
     # Browser-extension deltas (Reddit captures, etc.) don't have the
     # sidecar problem — keep the original simple shape.
-    try:
-        for d in await delta_client.query(tags_include=["browser-extension"], limit=15):
+    if isinstance(ext_res, list):
+        for d in ext_res:
             content = d.get("content") or ""
             has_image = bool(d.get("media_hash")) or "![" in content
             if has_image:
                 _add(d)
-    except Exception:
-        pass
 
     # 3. Semantic search on the topic + line keywords. Catches near-misses
     # (e.g. line "physics-breakthroughs" surfacing Quanta articles).
-    if topic or line_id:
-        query = f"{topic} {line_id}".replace("-", " ").strip()
-        try:
-            res = await delta_client.search(query=query, limit=limit)
-            results = res.get("results") if isinstance(res, dict) else None
-            if results:
-                for d in results:
-                    _add(d)
-        except Exception:
-            pass
+    if isinstance(search_res, dict):
+        search_results = search_res.get("results")
+        if search_results:
+            for d in search_results:
+                _add(d)
 
     pool.sort(key=lambda d: d.get("timestamp") or "", reverse=True)
     return pool[:limit]
