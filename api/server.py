@@ -193,19 +193,6 @@ app.include_router(_sources_routes.router)
 
 MAX_TOOL_ROUNDS = 10
 
-def _current_contact_slug(request: Request) -> str:
-    """Resolve the authenticated caller's contact slug.
-
-    Returns an empty string on pre-bootstrap installs where no admin
-    exists yet — in practice those paths shouldn't fire because the UI
-    gates on /v1/auth/bootstrap-status and redirects to onboarding
-    before any contact-scoped endpoint is reached. After bootstrap the
-    auth middleware always populates request.state.contact (either from
-    the caller's token or, on tokenless first-run, from the first-admin
-    fallback)."""
-    contact = getattr(request.state, "contact", None)
-    return (contact or {}).get("slug") or ""
-
 
 async def _resolve_tools(
     messages: list[dict],
@@ -665,28 +652,28 @@ async def refresh_feed(request: Request):
     for debugging and for any external trigger that wants to force a
     regen.
     """
-    slug = _current_contact_slug(request)
+    slug = auth.current_contact_slug(request)
     return await feed_loop.force_fire(slug, reason="manual-refresh")
 
 
 @app.post("/v1/feed/visit")
 async def feed_visit(request: Request):
     """Page-view ping. Schedules a debounced fire (cooldown in settings)."""
-    slug = _current_contact_slug(request)
+    slug = auth.current_contact_slug(request)
     return await feed_loop.mark_visit(slug)
 
 
 @app.get("/v1/feed/status")
 async def feed_status(request: Request):
     """Current loop state for the UI's "generating…" indicator."""
-    slug = _current_contact_slug(request)
+    slug = auth.current_contact_slug(request)
     return feed_loop.current_status(slug)
 
 
 @app.get("/v1/feed/crystal")
 async def get_feed_crystal(request: Request):
     """Latest crystal:feed-orient delta for the current contact."""
-    slug = _current_contact_slug(request)
+    slug = auth.current_contact_slug(request)
     c = await feed_crystal.latest(slug, force=True)
     if not c:
         return {"crystal": None}
@@ -704,7 +691,7 @@ async def get_feed_crystal(request: Request):
 @app.post("/v1/feed/crystal/refresh")
 async def refresh_feed_crystal(request: Request):
     """Manually run a feed-orient crystal regeneration (no wake-gate check)."""
-    slug = _current_contact_slug(request)
+    slug = auth.current_contact_slug(request)
     fresh = await feed_crystal.synthesize(slug)
     if not fresh:
         raise HTTPException(500, "synthesis failed — check server logs")
@@ -714,7 +701,7 @@ async def refresh_feed_crystal(request: Request):
 @app.get("/v1/feed/crystal/events")
 async def feed_crystal_events(request: Request, limit: int = 50):
     """Crystal regeneration history (for the ECG card)."""
-    slug = _current_contact_slug(request)
+    slug = auth.current_contact_slug(request)
     events = await feed_crystal.list_events(slug, limit=limit)
     return {"events": events}
 
@@ -722,21 +709,21 @@ async def feed_crystal_events(request: Request, limit: int = 50):
 @app.get("/v1/feed/drift")
 async def feed_drift(request: Request):
     """Sample current engagement-centroid drift now."""
-    slug = _current_contact_slug(request)
+    slug = auth.current_contact_slug(request)
     return await feed_crystal.sample_drift(slug)
 
 
 @app.get("/v1/feed/drift/history")
 async def feed_drift_history(request: Request, since_seconds: int | None = None):
     """Drift history for the ECG card."""
-    slug = _current_contact_slug(request)
+    slug = auth.current_contact_slug(request)
     return {"history": feed_crystal.drift_history(slug, since_seconds=since_seconds)}
 
 
 @app.get("/v1/feed/confidence/history")
 async def feed_confidence_history(request: Request, limit: int = 50):
     """Confidence over time, derived from the confidence: tag on each crystal regen."""
-    slug = _current_contact_slug(request)
+    slug = auth.current_contact_slug(request)
     events = await feed_crystal.list_events(slug, limit=limit)
     return {"history": [
         {"t": e.get("timestamp"), "v": e.get("confidence")}
@@ -753,7 +740,7 @@ async def feed_engagement_history(
 ):
     """Engagement marks for the ECG bottom rule. Returns time + sign per delta."""
     from datetime import datetime, timedelta
-    slug = _current_contact_slug(request)
+    slug = auth.current_contact_slug(request)
     cutoff = (datetime.now(UTC) - timedelta(seconds=since_seconds)).isoformat()
     try:
         deltas = await delta_client.query(
@@ -823,7 +810,7 @@ async def list_sessions(request: Request, limit: int = 50):
     # session so they can support other contacts. Auth gate upstream
     # ensures request.state.contact is always populated when auth is
     # enforced; first-run installs fall through to the default admin.
-    slug = _current_contact_slug(request)
+    slug = auth.current_contact_slug(request)
     contact = getattr(request.state, "contact", None) or {}
     filter_slug = None if contact.get("role") == "admin" else slug
     sessions = await db.list_sessions(limit, contact_slug=filter_slug)
@@ -889,7 +876,7 @@ async def delete_session(session_id: str):
 @app.get("/v1/feed/stories")
 async def get_feed_stories(request: Request, limit: int = 20, offset: int = 0):
     """Proxy to delta-store's feed stories endpoint, scoped to current contact."""
-    slug = _current_contact_slug(request)
+    slug = auth.current_contact_slug(request)
     return await delta_client.feed_stories(
         limit=limit, offset=offset, contact_slug=slug
     )

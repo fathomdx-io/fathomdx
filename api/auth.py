@@ -302,6 +302,21 @@ def require_admin(request: Request) -> dict:
 # ── Middleware ─────────────────────────────────────
 
 
+def current_contact_slug(request: Request) -> str:
+    """Resolve the authenticated caller's contact slug.
+
+    Returns an empty string on pre-bootstrap installs where no admin
+    exists yet — in practice those paths shouldn't fire because the UI
+    gates on /v1/auth/bootstrap-status and redirects to onboarding
+    before any contact-scoped endpoint is reached. After bootstrap the
+    auth middleware always populates request.state.contact (either from
+    the caller's token or, on tokenless first-run, from the first-admin
+    fallback).
+    """
+    contact = getattr(request.state, "contact", None)
+    return (contact or {}).get("slug") or ""
+
+
 def auth_required() -> bool:
     """Check if auth is enabled (any tokens exist)."""
     return len(_load()) > 0
