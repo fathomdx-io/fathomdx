@@ -522,4 +522,4 @@ def _delta_headers() -> dict[str, str]:
 
 
 # Exported for tests / introspection
-__all__ = ["VaultProducer", "IMAGE_EXTENSIONS", "ParsedChunk"]
+__all__ = ["IMAGE_EXTENSIONS", "ParsedChunk", "VaultProducer"]
