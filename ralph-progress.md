@@ -5,20 +5,19 @@
 
 ## Next
 
-**Perspective:** Docker & DevOps
+**Perspective:** Error Boundary Audit
 **Repo:** fathomdx
-**Why next:** API Consistency is DONE. Found and fixed one latent
-correctness bug: four endpoints used `return {..., "error": ...}, 404`
-which FastAPI doesn't interpret as a status-coded response — it
-serialized the tuple as a 2-element JSON array with HTTP 200 instead.
-`proxy_media` was the only one firing in production, but all four
-paths are now properly raising `HTTPException(404)`. 4 regression
-tests.
+**Why next:** Docker & DevOps is DONE. Added healthchecks to all four
+compose services + proper `depends_on: condition: service_healthy`
+gating, plus a `.dockerignore` so `COPY api/ /app/api/` stops hauling
+in __pycache__ / .pytest_cache / tests on every rebuild. Both changes
+additive — running lake untouched.
 
-Docker & DevOps (#11) is next. Dockerfile optimization (delta-store
-+ source-runner already got layer-cache separation in the dependency
-audit; verify), docker-compose healthchecks (none currently wired?),
-entrypoint robustness.
+Error Boundary Audit (#13) is next: map every try/except, every
+.catch(), every Exception handler in the codebase. Are errors
+swallowed? Logged? Surfaced to users? The Bug Hunt iteration found
+RUF006 dangling tasks; this one goes after silent-failure patterns
+that ruff can't see.
 
 **Pending cleanup** from the server.py split: `/v1/chat/completions`
 + `fathom_think` + `_resolve_tools` (~250 lines) still in server.py,
@@ -42,7 +41,7 @@ Single repo (`fathomdx`) so the "matrix" is a column. `-` = not started,
 | 8 | Dependency Audit                 | DONE     |
 | 9 | Cross-Repo Coherence             | DONE     |
 | 10| API Consistency                  | DONE     |
-| 11| Docker & DevOps                  | -        |
+| 11| Docker & DevOps                  | DONE     |
 | 12| Accessibility                    | N/A      |
 | 13| Error Boundary Audit             | -        |
 | 14| Utility Consolidation            | -        |
@@ -109,6 +108,47 @@ Format:
 - Key findings or decisions
 - Commits: <sha> <sha>
 ```
+
+---
+
+### 2026-04-23 — Docker & DevOps / fathomdx
+
+Two commits, both additive. Running stacks keep running — neither
+change is a recreate trigger, and healthcheck blocks don't alter
+container semantics.
+
+**Fixes**
+
+1. `f9d3ad9` — healthchecks + real-readiness depends_on.
+   Before: every `depends_on: [X]` used the default `service_started`
+   condition. On cold boot, api fired /v1/stats and the chat-listener
+   poll against delta-store while pg was still doing WAL init;
+   delta-store against pg during its first second. The Quality Scaffold
+   retry helper papered over it, but the startup logs filled with
+   "delta-store GET /stats failed, retrying in 0.20s" for 3-5s.
+   Added:
+   - `postgres`: pg_isready probe every 5s, 60s total budget
+   - `delta-store`, `source-runner`, `api`: `/health` probe via
+     `python -c "import urllib.request; urlopen(...)"` (no curl
+     needed in the slim base image)
+   - `depends_on` gates via `condition: service_healthy`. Fresh
+     `docker compose up` now boots postgres → delta-store →
+     (source-runner, api) in strict readiness order.
+
+2. `e486bb6` — `.dockerignore` at the repo root. There was none.
+   Every `COPY api/ /app/api/` hauled in `__pycache__`, `.pytest_cache`,
+   `.ruff_cache`, and `tests/` — harmless at runtime but inflating
+   image size and slowing rebuild COPY. Also excludes `.sync-conflict*`
+   files (Dropbox's fingerprint when two machines edit the same file)
+   so those never ship. No runtime change; faster + smaller builds.
+
+**Audited + left alone**
+- All three service Dockerfiles run as root. Fixing requires a `USER
+  app` line and coordinating the /data volume ownership at compose
+  level. Noted for a future user-approved pass — not worth risking a
+  running-lake ownership mismatch.
+- api/Dockerfile already had COPY-requirements-first layer separation
+  (landed in the Dep Audit iteration). Verified; no change needed.
 
 ---
 
