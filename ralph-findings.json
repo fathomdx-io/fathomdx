@@ -1,11 +1,11 @@
 {
   "version": 1,
   "summary": {
-    "total_lines_removed": 4617,
-    "total_lines_added": 4578,
-    "total_bugs_fixed": 25,
-    "total_tests_added": 76,
-    "iterations_completed": 10,
+    "total_lines_removed": 4623,
+    "total_lines_added": 4686,
+    "total_bugs_fixed": 29,
+    "total_tests_added": 80,
+    "iterations_completed": 11,
     "repos_cleaned": []
   },
   "baseline": {
@@ -22,9 +22,9 @@
     "ruff_errors": 0,
     "ruff_autofixable": 0,
     "ruff_unformatted_files": 46,
-    "pytest_count": 77,
+    "pytest_count": 81,
     "api_server_py_loc": 690,
-    "_note": "Cross-Repo Coherence found one user-visible bug: /v1/deltas GET proxy forwarded tags_include as CSV string, but delta-store expects a list — multi-tag recall was silently empty. Fixed + 3 regression tests. pytest 74 -> 77."
+    "_note": "API Consistency fixed 4 sites of `return (body, 404)` tuple-returns that FastAPI silently turned into `[body, 404]` HTTP-200 responses. The /v1/media/{hash} path was the only one firing in production; the other three were latent (db helpers never returned None). 4 regression tests. pytest 77 -> 81."
   },
   "findings": [
     {
@@ -99,6 +99,19 @@
       "bugs_fixed": 2,
       "tests_added": 7,
       "commits": ["b848a5c", "1b561f5"]
+    },
+    {
+      "date": "2026-04-23",
+      "perspective": "API Consistency",
+      "repo": "fathomdx",
+      "description": "Fixed four sites using `return (body, 404)` tuple-returns that FastAPI silently serialized as `[body, 404]` with HTTP 200. /v1/media/{hash} was firing this in production; the other three (/v1/sessions/{id} GET+PATCH, /v1/chat/completions session-not-found) were latent because db.get_session never returns None. All four now raise HTTPException properly. 4 regression tests covering the 404 contract via monkeypatched db helpers.",
+      "type": "bug_fix",
+      "files_changed": 4,
+      "lines_added": 108,
+      "lines_removed": 6,
+      "bugs_fixed": 4,
+      "tests_added": 4,
+      "commits": ["cee258c"]
     },
     {
       "date": "2026-04-23",
