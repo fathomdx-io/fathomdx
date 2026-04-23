@@ -15,9 +15,8 @@ import httpx
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
 
-from .. import auth
+from .. import auth, delta_client
 from .. import contacts as contacts_mod
-from .. import delta_client
 
 router = APIRouter()
 
