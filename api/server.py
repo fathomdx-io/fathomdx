@@ -11,7 +11,7 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import httpx
-from fastapi import Depends, FastAPI, File, Form, HTTPException, Request, UploadFile
+from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
@@ -173,11 +173,13 @@ app.add_middleware(auth.TokenAuthMiddleware)
 
 # ── Routers (one file per resource cluster under api/routes/) ───
 from .routes import agents as _agents_routes  # noqa: E402
+from .routes import media as _media_routes  # noqa: E402
 from .routes import routines as _routines_routes  # noqa: E402
 from .routes import sessions as _sessions_routes  # noqa: E402
 from .routes import sources as _sources_routes  # noqa: E402
 
 app.include_router(_agents_routes.router)
+app.include_router(_media_routes.router)
 app.include_router(_routines_routes.router)
 app.include_router(_sessions_routes.router)
 app.include_router(_sources_routes.router)
@@ -993,106 +995,6 @@ async def usage():
         "embedded": stats.get("embedded", 0),
         "days": days,
     }
-
-
-# ── Media proxy ─────────────────────────────────
-
-
-@app.get("/v1/media/{media_hash}")
-async def proxy_media(media_hash: str):
-    """Proxy image from delta store so the consumer UI has one API surface."""
-    c = await delta_client._get()
-    r = await c.get(f"/media/{media_hash}", timeout=15)
-    if r.status_code != 200:
-        return {"error": "not found"}, 404
-    from fastapi.responses import Response
-    return Response(content=r.content, media_type="image/webp")
-
-
-@app.post("/v1/media/upload")
-async def upload_media(
-    request: Request,
-    file: UploadFile = File(...),
-    session_id: str = Form(""),
-    content: str = Form(""),
-    expires_at: str = Form(""),
-    tags: str = Form(""),
-    source: str = Form(""),
-):
-    """Upload an image as a lake delta. Returns {id, media_hash}.
-
-    Defaults to chat framing (tags: user,participant:user,image; source:
-    fathom-chat) for backwards compatibility with the chat UI. Non-chat
-    callers (browser extensions, screen capture, imports) pass their own
-    comma-separated ``tags`` and ``source`` to override — when ``tags``
-    is set, the chat defaults are skipped entirely. ``session_id`` still
-    appends ``chat:<slug>`` regardless, so a browse capture can also land
-    in a chat session if you want Fathom to see it there.
-
-    ``expires_at`` (optional ISO timestamp) makes the delta short-lived;
-    the reaper deletes on/after that time. Caller computes the absolute
-    timestamp themselves, matching the heartbeat / sysinfo / chat-event
-    pattern used elsewhere.
-    """
-    file_bytes = await file.read()
-
-    if tags:
-        tag_list = [t.strip() for t in tags.split(",") if t.strip()]
-    else:
-        tag_list = [db.LAKE_CHAT_TAG, "user", "participant:user", "image"]
-
-    if session_id:
-        tag_list.append(f"chat:{session_id}")
-
-    contact = getattr(request.state, "contact", None)
-    contact_slug = (contact or {}).get("slug")
-    if contact_slug and not any(t.startswith("contact:") for t in tag_list):
-        tag_list.append(f"contact:{contact_slug}")
-
-    result = await delta_client.upload_media(
-        file_bytes=file_bytes,
-        filename=file.filename or "upload.jpg",
-        content=content,
-        tags=tag_list,
-        source=source or db.LAKE_CHAT_SOURCE,
-        expires_at=expires_at or None,
-    )
-    return result
-
-
-class CaptureContext(BaseModel):
-    media_hash: str
-    content: str = ""
-    tags: list[str] = []
-    source: str = "browser-capture"
-    expires_at: str | None = None
-
-
-@app.post("/v1/media/capture-context")
-async def capture_context(req: CaptureContext):
-    """Write a context delta for a browser-captured image.
-
-    The image is already in delta-store (uploaded via /v1/media/upload).
-    This writes a companion text delta linking the media_hash to the
-    story content so the lake knows what the image means.
-
-    ``expires_at`` (optional ISO timestamp) makes the context delta
-    short-lived alongside the image — both should expire together so
-    browse captures don't leave dangling context in the lake.
-    """
-    c = await delta_client._get()
-    body: dict = {
-        "content": req.content or f"[captured image:{req.media_hash}]",
-        "tags": req.tags or ["browser-capture"],
-        "source": req.source,
-        "media_hash": req.media_hash,
-        "modality": "image",
-    }
-    if req.expires_at:
-        body["expires_at"] = req.expires_at
-    r = await c.post("/deltas", json=body)
-    r.raise_for_status()
-    return r.json()
 
 
 # ── Crystal facet parsing ───────────────────────
