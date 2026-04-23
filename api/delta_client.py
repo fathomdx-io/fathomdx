@@ -36,6 +36,7 @@ async def search(
     limit: int = 20,
     radii: dict | None = None,
     tags_include: list[str] | None = None,
+    include_engagement_cloud: bool = False,
 ) -> dict:
     c = await _get()
     body: dict = {"origin": query, "limit": min(limit, 50)}
@@ -43,6 +44,8 @@ async def search(
         body["radii"] = radii
     if tags_include:
         body["tags_include"] = tags_include
+    if include_engagement_cloud:
+        body["include_engagement_cloud"] = True
     r = await c.post("/search", json=body)
     r.raise_for_status()
     return r.json()

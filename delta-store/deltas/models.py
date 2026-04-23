@@ -117,12 +117,14 @@ class SearchRequest(BaseModel):
     create_subset: bool = False
     subset_id: str | None = None
     limit: int = 50
+    include_engagement_cloud: bool = False
 
 
 class ScoredDelta(BaseModel):
     delta: DeltaOut
     distance: float
     dimensions: DimensionWeights
+    engagement_cloud: list[DeltaSlim] = Field(default_factory=list)
 
 
 class ScoredDeltaSlim(BaseModel):
@@ -131,6 +133,7 @@ class ScoredDeltaSlim(BaseModel):
     delta: DeltaSlim
     distance: float
     dimensions: DimensionWeights
+    engagement_cloud: list[DeltaSlim] = Field(default_factory=list)
 
 
 class SearchResult(BaseModel):

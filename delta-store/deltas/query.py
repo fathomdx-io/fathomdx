@@ -201,7 +201,63 @@ def _to_slim(s: ScoredDelta) -> ScoredDeltaSlim:
         ),
         distance=s.distance,
         dimensions=s.dimensions,
+        engagement_cloud=s.engagement_cloud,
     )
+
+
+# ── Engagement cloud ─────────────────────────────────────────────────────────
+#
+# A delta's engagement cloud is every other delta that points at it via an
+# engagement pointer-tag: `engages:<id>`, `refutes:<id>`, `affirms:<id>`,
+# `reply-to:<id>`, `from:<id>`. Provenance citations (`from:`) count as
+# implicit positive engagement — a sediment citing a source is the mind
+# building on that source, which is load-bearing weight.
+
+ENGAGEMENT_POINTER_PREFIXES = ("engages", "refutes", "affirms", "reply-to", "from")
+ENGAGEMENT_FETCH_CAP = 500  # max engagement deltas pulled per search
+ENGAGEMENT_TOPK_CAP = 100   # only look up clouds for the top-N scored deltas
+VALENCE_MAX_PCT = 0.30      # cap ±30% rank shift from valence
+
+
+def _valence_modifier(cloud: list[dict]) -> float:
+    """Multiplicative modifier on distance (lower distance = better rank).
+
+    Each cloud member contributes by pointer-type and content:
+      • `refutes:<id>` or JSON payload with `engagement:less` → -1
+      • `affirms:<id>` or `engagement:more` → +1
+      • `from:<id>` (provenance citation) → +0.5 (implicit, weaker)
+      • `engages:<id>` or `reply-to:<id>` (neutral attention) → +0.25
+
+    Net score is scaled so each point shifts rank by ~5%, clamped to
+    ±VALENCE_MAX_PCT so no single cloud can nuke or anoint a delta.
+    Silence returns 1.0 (no shift).
+    """
+    if not cloud:
+        return 1.0
+    score = 0.0
+    for d in cloud:
+        tags = d.get("tags") or []
+        # Pointer-type signal
+        for t in tags:
+            if t.startswith("refutes:"):
+                score -= 1.0
+                break
+            elif t.startswith("affirms:"):
+                score += 1.0
+                break
+            elif t.startswith("from:"):
+                score += 0.5
+                break
+            elif t.startswith("engages:") or t.startswith("reply-to:"):
+                score += 0.25
+                break
+        # Feed-engagement valence signal (already-pointed deltas via engages:)
+        if "engagement:less" in tags:
+            score -= 0.5
+        elif "engagement:more" in tags:
+            score += 0.5
+    shift = max(-VALENCE_MAX_PCT, min(VALENCE_MAX_PCT, score * 0.05))
+    return 1.0 - shift
 
 
 @dataclass
@@ -303,6 +359,55 @@ class QueryEngine:
 
         return results
 
+    async def _fetch_engagement_cloud(
+        self, target_ids: list[str]
+    ) -> dict[str, list[dict]]:
+        """Batched lookup: for each target id, return engagement deltas pointing at it.
+
+        A single query fetches all deltas whose tags include any engagement
+        pointer-tag aimed at any target. Results are then bucketed by target
+        id based on which pointer-tag(s) matched.
+        """
+        if not target_ids:
+            return {}
+        pointers = [
+            f"{prefix}:{tid}"
+            for prefix in ENGAGEMENT_POINTER_PREFIXES
+            for tid in target_ids
+        ]
+        sql = """
+            SELECT d.id, d.timestamp, d.modality, d.content, d.source, d.tags,
+                   d.media_hash, d.expires_at
+            FROM deltas d
+            WHERE d.tags && $1
+              AND (d.expires_at IS NULL OR d.expires_at > NOW())
+            ORDER BY d.timestamp DESC
+            LIMIT $2
+        """
+        rows = await self.pool.fetch(sql, pointers, ENGAGEMENT_FETCH_CAP)
+
+        targets = set(target_ids)
+        cloud: dict[str, list[dict]] = {tid: [] for tid in target_ids}
+        for r in rows:
+            row_tags = list(r["tags"]) if r["tags"] else []
+            d = {
+                "id": r["id"],
+                "timestamp": _format_ts(r["timestamp"]),
+                "modality": r["modality"],
+                "content": r["content"],
+                "source": r["source"],
+                "tags": row_tags,
+                "media_hash": r["media_hash"] or None,
+                "expires_at": _format_ts(r["expires_at"]) if r["expires_at"] else None,
+            }
+            for tag in row_tags:
+                if ":" not in tag:
+                    continue
+                prefix, _, value = tag.partition(":")
+                if prefix in ENGAGEMENT_POINTER_PREFIXES and value in targets:
+                    cloud[value].append(d)
+        return cloud
+
     async def search(
         self,
         origin: str | None = None,
@@ -318,6 +423,7 @@ class QueryEngine:
         subset_id: str | None = None,
         limit: int = 50,
         weights: DimensionWeights | None = None,
+        include_engagement_cloud: bool = False,
     ) -> SearchResult:
         r = radii or weights or DimensionWeights()
         r_t = r.temporal
@@ -408,6 +514,19 @@ class QueryEngine:
 
         scored.sort(key=lambda s: s.distance)
         total_relevant = len(scored)
+
+        # 4b. Engagement cloud augmentation — attach cloud members and fold
+        # valence into rank. Only on opt-in; shallow recall stays raw and fast.
+        if include_engagement_cloud and scored:
+            top_ids = [s.delta.id for s in scored[:ENGAGEMENT_TOPK_CAP]]
+            cloud_by_id = await self._fetch_engagement_cloud(top_ids)
+            for s in scored[:ENGAGEMENT_TOPK_CAP]:
+                cloud_rows = cloud_by_id.get(s.delta.id, [])
+                if not cloud_rows:
+                    continue
+                s.engagement_cloud = [DeltaSlim(**row) for row in cloud_rows]
+                s.distance = round(s.distance * _valence_modifier(cloud_rows), 4)
+            scored.sort(key=lambda s: s.distance)
 
         # 5. Create subset from results if requested
         result_subset_id = None
