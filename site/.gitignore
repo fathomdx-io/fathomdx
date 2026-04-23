@@ -22,3 +22,10 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# Ralph loop tracking (per-working-copy, not for source control)
+ralph-prd.md
+ralph-progress.md
+ralph-findings.json
+ralph-proposals/
+.wrangler

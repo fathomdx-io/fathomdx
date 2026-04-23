@@ -12,18 +12,6 @@
   border-bottom: 1px solid var(--rule-soft);
 }
 
-.topbar-float {
-  position: absolute;
-  top: 0;
-  left: 0;
-  right: 0;
-  z-index: 11;
-  background: transparent;
-  backdrop-filter: none;
-  -webkit-backdrop-filter: none;
-  border-bottom: none;
-}
-
 .topbar a { color: inherit; text-decoration: none; }
 
 .brand {

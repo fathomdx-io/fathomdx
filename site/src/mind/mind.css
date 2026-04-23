@@ -347,13 +347,6 @@ html, body {
   transition: color 140ms ease;
 }
 .cta-invite-close:hover { color: var(--ink); }
-.cta-invite-kicker {
-  margin: 0 0 10px;
-  font-size: var(--text-sm);
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
-  color: var(--signal);
-}
 .cta-invite-copy {
   margin: 0 0 16px;
   font-family: var(--serif);
