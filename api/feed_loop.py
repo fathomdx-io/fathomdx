@@ -533,10 +533,10 @@ _MARKDOWN_LINK_RE = re.compile(r'(?<!!)\[([^\]]+)\]\((https?://[^\s)]+)\)')
 def _extract_external_url(content: str) -> str | None:
     """First http(s) markdown image URL in the content, if any.
 
-    Preferred over media_hash for body_image because <img> tags can't pass
-    the Authorization header that /v1/media/{hash} currently requires —
-    pre-existing auth issue on the media route. External URLs render
-    natively in the browser without auth.
+    Offered as a fallback when a candidate has no media_hash. In-lake
+    hashes are preferred — they're stable (external URLs can be signed/
+    expiring, like atlasobscura imgproxy) and the UI renders them via
+    /v1/media/{hash}?token=... which <img> tags can pass directly.
     """
     if not content:
         return None
@@ -566,21 +566,21 @@ def _format_candidates(pool: list[dict]) -> str:
         did = (d.get("id") or "")[:12]
         media_hash = d.get("media_hash") or ""
         content = (d.get("content") or "").strip().split("\n", 1)[0][:140]
-        # Surface BOTH external URLs and media_hashes when present, with
-        # external URLs preferred (the model is told this in the directive).
-        # External URLs work directly in <img> tags; in-lake hashes currently
-        # don't render because the /v1/media route requires auth that <img>
-        # can't pass. Until that's fixed, lean on URLs.
+        # Surface BOTH media_hashes and external URLs when present, with
+        # hashes preferred (the model is told this in the directive). Hashes
+        # are stable — external URLs are often imgproxy-signed and expire
+        # between RSS poll and render. The UI reaches /v1/media/{hash} with
+        # a token query param, so <img> tags render hashes just fine.
         ext_url = _extract_external_url(d.get("content") or "")
         source_link = _extract_source_link(d.get("content") or "")
         # URLs are NOT truncated — the model needs the full string to copy
         # exactly. A truncated URL is worse than no URL: the model assumes
         # what it sees is complete and ships a broken image / dead link.
         marks = []
-        if ext_url:
-            marks.append(f"🖼[url={ext_url}]")
         if media_hash:
             marks.append(f"📷[hash={media_hash}]")
+        if ext_url:
+            marks.append(f"🖼[url={ext_url}]")
         if source_link:
             marks.append(f"🔗[link={source_link}]")
         mark = " ".join(marks) if marks else "  "
@@ -632,18 +632,22 @@ async def _fire_line(contact_slug: str, line: dict, crystal: dict) -> None:
         f"{candidates_block}\n\n"
         f"Pick the strongest candidate (or two related ones — see BUNDLING) and "
         f"write the card. Image preference, in order:\n"
-        f"  1. PREFER 🖼[url=…] — external URLs render directly in <img> tags. Copy the "
-        f"URL exactly into body_image.\n"
-        f"  2. Use 📷[hash=…] only if no URL is available — copy the hash EXACTLY (16 "
-        f"hex chars, no truncation, no paraphrasing).\n"
+        f"  1. PREFER 📷[hash=…] — copy the hash EXACTLY into body_image (16 hex "
+        f"chars, no truncation, no paraphrasing). Hashes are in-lake, stable, and "
+        f"always render.\n"
+        f"  2. Fall back to 🖼[url=…] only when no hash is available — copy the URL "
+        f"exactly. External URLs can be signed/expiring (imgproxy, CDNs) and may "
+        f"404 by render time, so they're second choice.\n"
         f"For links: 🔗[link=…] — copy that URL into the `link` field exactly. If you "
         f"bundled multiple candidates, the strongest goes in `link` and the rest in "
         f"`links`. Cards without a link feel orphaned; always include one when any "
         f"candidate has it.\n"
-        f"If you make up a hash or URL, the validation pass drops it and the card ships "
-        f"image-less or link-less. If the candidates don't fit, you can still call the "
-        f"search tools — but candidates are the cheap path and usually contain what "
-        f"you need.\n\n"
+        f"If you invent a hash, the validator drops it. If you invent a URL — including "
+        f"placeholder services like picsum.photos — the validator drops that too: a "
+        f"body_image URL must appear verbatim in one of the candidates above. Don't "
+        f"paraphrase, don't swap a seed, don't reach for a generic stock image. If the "
+        f"candidates don't fit, you can still call the search tools — but candidates are "
+        f"the cheap path and usually contain what you need.\n\n"
         + _CARD_OUTPUT_INSTRUCTIONS
     )
 
@@ -713,24 +717,50 @@ def _candidate_hashes(pool: list[dict] | None) -> set[str]:
     return out
 
 
-def _validate_body_image(value: str, valid_hashes: set[str]) -> str:
-    """Keep value if it's a real URL or a known media_hash; else drop."""
+def _candidate_image_urls(pool: list[dict] | None) -> set[str]:
+    """Image URLs the model was actually shown in the candidates block.
+
+    Extracts every markdown `![...](url)` from candidate content — those
+    are the URLs the 🖼[url=…] marks in the directive point at. Anything
+    else the model emits as body_image is either fabricated (picsum seeds,
+    invented CDN paths) or a confused pick (an article URL that would load
+    HTML, not an image). The validator rejects anything outside this set.
+    """
+    out: set[str] = set()
+    for d in pool or []:
+        for m in _MARKDOWN_IMG_RE.finditer(d.get("content") or ""):
+            out.add(m.group(1))
+    return out
+
+
+def _validate_body_image(
+    value: str,
+    valid_hashes: set[str],
+    valid_urls: set[str],
+) -> str:
+    """Keep value if it's a known media_hash or a URL seen in candidates; else drop."""
     v = (value or "").strip()
     if not v:
         return ""
     if v.startswith("http://") or v.startswith("https://"):
-        return v
+        # URL must appear verbatim in one of the candidate deltas — blocks
+        # picsum.photos and other LLM-invented placeholders.
+        return v if v in valid_urls else ""
     if v in valid_hashes:
         return v
     # Looks like a hash but isn't in the candidate pool — hallucination.
     return ""
 
 
-def _validate_media_list(values: list[str], valid_hashes: set[str]) -> list[str]:
+def _validate_media_list(
+    values: list[str],
+    valid_hashes: set[str],
+    valid_urls: set[str],
+) -> list[str]:
     """Same validation, applied across the media[] array."""
     out: list[str] = []
     for v in values or []:
-        kept = _validate_body_image(str(v), valid_hashes)
+        kept = _validate_body_image(str(v), valid_hashes, valid_urls)
         if kept:
             out.append(kept)
     return out
@@ -821,12 +851,13 @@ async def _produce_card(
         return
 
     valid_hashes = _candidate_hashes(candidates)
+    valid_urls = _candidate_image_urls(candidates)
     raw_body_image = str(payload.get("body_image", "") or "")
-    body_image = _validate_body_image(raw_body_image, valid_hashes)
+    body_image = _validate_body_image(raw_body_image, valid_hashes, valid_urls)
     if raw_body_image and not body_image:
         print(f"feed_loop: line {line_id} dropped hallucinated body_image={raw_body_image!r}", flush=True)
     raw_media = [str(m) for m in (payload.get("media") or []) if m]
-    media = _validate_media_list(raw_media, valid_hashes)
+    media = _validate_media_list(raw_media, valid_hashes, valid_urls)
     if len(raw_media) != len(media):
         print(f"feed_loop: line {line_id} dropped {len(raw_media) - len(media)} hallucinated media entr(ies)", flush=True)
 
