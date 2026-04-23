@@ -185,11 +185,16 @@ def _summarize_outcome(contact_slug: str, had_crystal: bool, had_lines: bool) ->
         }
     # At least one real failure — warn state.
     reasons = []
-    if timeouts: reasons.append(f"{timeouts} timed out")
-    if format_fail: reasons.append(f"{format_fail} format-failed")
-    if missing: reasons.append(f"{missing} missing title/body")
-    if fresh: reasons.append(f"{fresh} already-fresh")
-    if skipped: reasons.append(f"{skipped} model-pass")
+    if timeouts:
+        reasons.append(f"{timeouts} timed out")
+    if format_fail:
+        reasons.append(f"{format_fail} format-failed")
+    if missing:
+        reasons.append(f"{missing} missing title/body")
+    if fresh:
+        reasons.append(f"{fresh} already-fresh")
+    if skipped:
+        reasons.append(f"{skipped} model-pass")
     return {
         "summary": "no_cards",
         "detail": (
