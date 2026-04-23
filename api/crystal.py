@@ -56,9 +56,7 @@ def matches_regen(delta: dict) -> bool:
     tags = delta.get("tags") or []
     if REGEN_TAG in tags:
         return True
-    if LEGACY_TAG in tags and (delta.get("source") or "") in LEGACY_REGEN_SOURCES:
-        return True
-    return False
+    return LEGACY_TAG in tags and (delta.get("source") or "") in LEGACY_REGEN_SOURCES
 
 
 async def _fetch_latest_uncached() -> dict | None:

@@ -241,7 +241,7 @@ async def synthesize_mood(session_slug: str | None = None) -> dict | None:
     }, ensure_ascii=False)
 
     state = parsed["state"]
-    delta_tags = MOOD_TAGS + [f"feeling:{state}"]
+    delta_tags = [*MOOD_TAGS, f"feeling:{state}"]
 
     written = None
     try:

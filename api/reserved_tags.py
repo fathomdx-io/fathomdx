@@ -209,9 +209,8 @@ async def evaluate(
         if gate == GATE_SESSION_MEMBER_OR_ADMIN:
             if is_admin:
                 continue
-            if caller_slug and session_slug:
-                if await is_session_member(caller_slug, session_slug):
-                    continue
+            if caller_slug and session_slug and await is_session_member(caller_slug, session_slug):
+                continue
             return GateResult(False, tag=tag, gate=gate, hint=hint_for(tag))
 
         # Unknown gate — fail closed.
