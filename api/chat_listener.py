@@ -91,7 +91,7 @@ class ChatListener:
         if self._task:
             try:
                 await asyncio.wait_for(self._task, timeout=5.0)
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 self._task.cancel()
         print("chat-listener: stopped", flush=True)
 
@@ -103,7 +103,7 @@ class ChatListener:
                 log.exception("chat-listener: tick error: %s", e)
             try:
                 await asyncio.wait_for(self._stop.wait(), timeout=POLL_INTERVAL_SECONDS)
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 pass
 
     async def _tick(self) -> None:

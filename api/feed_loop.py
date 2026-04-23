@@ -423,7 +423,7 @@ async def _cold_start_fire(contact_slug: str) -> None:
             _produce_card(contact_slug, line=None, crystal=None, directive=directive),
             timeout=settings.feed_loop_budget_seconds,
         )
-    except asyncio.TimeoutError:
+    except TimeoutError:
         log.info("feed_loop: cold-start fire timed out (contact=%s)", contact_slug)
     finally:
         _llm_active_exit(contact_slug)
@@ -664,7 +664,7 @@ async def _fire_line(contact_slug: str, line: dict, crystal: dict) -> None:
             ),
             timeout=settings.feed_loop_budget_seconds,
         )
-    except asyncio.TimeoutError:
+    except TimeoutError:
         print(f"feed_loop[{contact_slug}]: line {line_id} timed out", flush=True)
         _tally_inc(contact_slug, "lines_timed_out")
     finally:

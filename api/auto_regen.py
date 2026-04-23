@@ -169,7 +169,7 @@ async def _loop() -> None:
                 _stop_event.wait(),
                 timeout=settings.crystal_drift_poll_seconds,
             )
-        except asyncio.TimeoutError:
+        except TimeoutError:
             pass
     log.info("auto-regen loop stopped")
 
@@ -194,7 +194,7 @@ async def stop() -> None:
     if _task is not None:
         try:
             await asyncio.wait_for(_task, timeout=5.0)
-        except asyncio.TimeoutError:
+        except TimeoutError:
             _task.cancel()
         except Exception:
             pass
