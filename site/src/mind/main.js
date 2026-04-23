@@ -568,9 +568,21 @@ function replay() {
   eyeMesh.instanceMatrix.needsUpdate = true;
   nextTriFlight = 0;
   nextEyeFlight = 0;
-  playbackStart = performance.now() / 1000;
+  const now = performance.now() / 1000;
+  playbackStart = now;
+  // Restart the narrated tour with the snowfall — otherwise Replay shows
+  // sediment falling with no captions, which isn't what the button implies.
+  tourStart = now;
+  tourActive = true;
+  lastCaption = null;
   activeFlashes.length = 0;
   pendingFlashes.length = 0;
+  // Reset the CTA gate so it can surface again at the end of this replay.
+  if (ctaInviteEl) {
+    ctaInviteEl.hidden = true;
+    document.body.classList.remove('cta-visible');
+  }
+  ctaShown = false;
   scheduleNextFlash(0, 1.2, 2.4);
 }
 
@@ -588,7 +600,10 @@ function initControls() {
     const touchCtrls = document.getElementById('touch-controls');
     const touchMode = touchCtrls && !touchCtrls.hidden;
     if (!touchMode) resumeEl.hidden = false;
-    if (ctaInviteEl && !ctaDismissed) {
+    // Only surface the post-tour CTA if the narration has actually played
+    // out. Escaping five seconds in shouldn't fire the conversion card.
+    const tourElapsed = performance.now() / 1000 - tourStart;
+    if (ctaInviteEl && !ctaDismissed && tourElapsed >= CTA_SHOW_AT) {
       ctaInviteEl.hidden = false;
       ctaShown = true;
       document.body.classList.add('cta-visible');
@@ -604,7 +619,10 @@ function initControls() {
     if (e.code === 'Escape' && document.pointerLockElement) {
       controls.unlock();
     }
-    if (e.code === 'Enter' && entered) {
+    // Enter is a post-tour convert shortcut, not a mid-walk one. Only honor
+    // it once the CTA card is actually up — otherwise it's a footgun for
+    // anyone who taps Enter while exploring.
+    if (e.code === 'Enter' && entered && ctaShown && !ctaDismissed) {
       window.location.href = '/landing.html';
     }
   });
