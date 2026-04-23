@@ -15,9 +15,10 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import logging
-from datetime import UTC, datetime
+from datetime import datetime
 
 from . import crystal, crystal_anchor, delta_client, drift
+from ._time import now as _now
 from .settings import settings
 
 log = logging.getLogger(__name__)
@@ -26,10 +27,6 @@ _task: asyncio.Task | None = None
 _stop_event: asyncio.Event | None = None
 _last_fired_at: datetime | None = None
 _in_flight = False
-
-
-def _now() -> datetime:
-    return datetime.now(UTC)
 
 
 async def _within_cooldown() -> bool:

@@ -20,9 +20,9 @@ import json
 import math
 import os
 import tempfile
-from datetime import UTC, datetime
 from pathlib import Path
 
+from ._time import now_iso as _now_iso
 from .settings import settings
 
 _lock = asyncio.Lock()
@@ -31,10 +31,6 @@ _lock = asyncio.Lock()
 def _path() -> Path:
     base = Path(settings.mood_state_path).parent
     return base / "crystal-anchor.json"
-
-
-def _now_iso() -> str:
-    return datetime.now(UTC).isoformat()
 
 
 def _atomic_write(data: dict) -> None:

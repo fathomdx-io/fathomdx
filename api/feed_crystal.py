@@ -35,10 +35,12 @@ import os
 import re
 import tempfile
 import time
-from datetime import UTC, datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 
 from . import delta_client
+from ._time import now as _now
+from ._time import now_iso as _now_iso
 from .prompt import FEED_CRYSTAL_DIRECTIVE
 from .providers import llm
 from .settings import settings
@@ -63,14 +65,6 @@ _CACHE_TTL_SECONDS = 5.0
 _cache: dict[str, dict | None] = {}
 _cache_at: dict[str, float] = {}
 _cache_lock = asyncio.Lock()
-
-
-def _now() -> datetime:
-    return datetime.now(UTC)
-
-
-def _now_iso() -> str:
-    return _now().isoformat()
 
 
 def _strip_fences(text: str) -> str:
@@ -239,8 +233,7 @@ async def _fetch_lake_topic_summary(window_hours: int = 72) -> str:
     a chance to engage with them. Including a recency snapshot lets the
     crystal propose lines that the loop can actually fulfill.
     """
-    from datetime import datetime, timedelta
-    cutoff = (datetime.now(UTC) - timedelta(hours=window_hours)).isoformat()
+    cutoff = (_now() - timedelta(hours=window_hours)).isoformat()
     try:
         all_recent = await delta_client.query(time_start=cutoff, limit=300)
     except Exception:
