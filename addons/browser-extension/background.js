@@ -10,7 +10,7 @@ import {
   isBlocked,
   loadSettings,
   setRuntime,
-  shortTitleFrom
+  shortTitleFrom,
 } from "./lib/config.js";
 import { dataUrlToBlob, uploadScreenshot } from "./lib/capture.js";
 
@@ -25,20 +25,20 @@ const ICONS = {
     16: "icons/icon-off-16.png",
     32: "icons/icon-off-32.png",
     48: "icons/icon-off-48.png",
-    128: "icons/icon-off-128.png"
+    128: "icons/icon-off-128.png",
   },
   on: {
     16: "icons/icon-on-16.png",
     32: "icons/icon-on-32.png",
     48: "icons/icon-on-48.png",
-    128: "icons/icon-on-128.png"
+    128: "icons/icon-on-128.png",
   },
   capture: {
     16: "icons/icon-capture-16.png",
     32: "icons/icon-capture-32.png",
     48: "icons/icon-capture-48.png",
-    128: "icons/icon-capture-128.png"
-  }
+    128: "icons/icon-capture-128.png",
+  },
 };
 
 const lastCaptureAt = new Map(); // tabId -> timestamp ms
@@ -118,7 +118,7 @@ async function captureTab(tab, reason) {
   let dataUrl;
   try {
     dataUrl = await chrome.tabs.captureVisibleTab(tab.windowId, {
-      format: "png"
+      format: "png",
     });
   } catch (err) {
     console.warn("[follow-me] captureVisibleTab failed:", err);
@@ -137,7 +137,7 @@ async function captureTab(tab, reason) {
       title: tab.title,
       reason,
       ttlSeconds: settings.ttlSeconds,
-      expires: settings.expires !== false
+      expires: settings.expires !== false,
     });
   } catch (err) {
     console.warn("[follow-me] upload failed:", err);
@@ -157,9 +157,9 @@ async function captureTab(tab, reason) {
       title: shortTitleFrom(tab.url, tab.title),
       reason,
       at: new Date().toISOString(),
-      expiresAt
+      expiresAt,
     },
-    ...(runtime.recents || [])
+    ...(runtime.recents || []),
   ].slice(0, MAX_RECENTS);
   await setRuntime({ recents });
 

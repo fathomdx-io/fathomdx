@@ -16,7 +16,7 @@ export async function uploadScreenshot({
   title,
   reason,
   ttlSeconds,
-  expires
+  expires,
 }) {
   const host = hostnameOf(url);
   const now = new Date();
@@ -26,7 +26,7 @@ export async function uploadScreenshot({
     title: title || "",
     reason,
     tabId,
-    capturedAt: now.toISOString()
+    capturedAt: now.toISOString(),
   });
 
   const tags = [
@@ -35,7 +35,7 @@ export async function uploadScreenshot({
     "screenshot",
     `reason:${reason}`,
     `tab:${tabId}`,
-    `host:${host}`
+    `host:${host}`,
   ].join(",");
 
   const form = new FormData();
@@ -55,7 +55,7 @@ export async function uploadScreenshot({
   const resp = await fetch(endpoint, {
     method: "POST",
     headers,
-    body: form
+    body: form,
   });
 
   if (!resp.ok) {

@@ -24,8 +24,8 @@ export const DEFAULTS = {
     "bankofamerica.com",
     "chase.com",
     "wellsfargo.com",
-    "capitalone.com"
-  ]
+    "capitalone.com",
+  ],
 };
 
 const SYNC_KEYS = [
@@ -35,7 +35,7 @@ const SYNC_KEYS = [
   "expires",
   "scrollDebounceMs",
   "scrollThresholdPct",
-  "blocklist"
+  "blocklist",
 ];
 
 export async function loadSettings() {
@@ -63,7 +63,7 @@ export async function getRuntime() {
   }
   return {
     enabled: enabled ?? false,
-    recents: stored.recents ?? []
+    recents: stored.recents ?? [],
   };
 }
 

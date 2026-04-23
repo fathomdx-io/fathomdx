@@ -1,9 +1,4 @@
-import {
-  getRuntime,
-  hostnameOf,
-  loadSettings,
-  saveSettings
-} from "./lib/config.js";
+import { getRuntime, hostnameOf, loadSettings, saveSettings } from "./lib/config.js";
 
 const $ = (sel) => document.querySelector(sel);
 
@@ -130,7 +125,7 @@ async function onStartStop() {
   const runtime = await getRuntime();
   await chrome.runtime.sendMessage({
     type: "runtime.setEnabled",
-    enabled: !runtime.enabled
+    enabled: !runtime.enabled,
   });
   render();
 }

@@ -31,7 +31,7 @@ function readForm() {
       10,
       Math.min(100, parseInt($("#scroll-threshold").value, 10) || DEFAULTS.scrollThresholdPct)
     ),
-    blocklist
+    blocklist,
   };
 }
 

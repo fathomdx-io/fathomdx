@@ -125,7 +125,11 @@ function patchClaudeMcp(url, key) {
   const claudeJson = join(HOME, ".claude.json");
   let config = {};
   if (existsSync(claudeJson)) {
-    try { config = JSON.parse(readFileSync(claudeJson, "utf8")); } catch { config = {}; }
+    try {
+      config = JSON.parse(readFileSync(claudeJson, "utf8"));
+    } catch {
+      config = {};
+    }
   }
   if (!config.mcpServers) config.mcpServers = {};
   config.mcpServers.fathom = mcpBlock(url, key);
@@ -137,13 +141,17 @@ function patchClaudeHooks(settingsPath, url, key) {
   // Hooks → ~/.claude/settings.json
   let settings = {};
   if (existsSync(settingsPath)) {
-    try { settings = JSON.parse(readFileSync(settingsPath, "utf8")); } catch { settings = {}; }
+    try {
+      settings = JSON.parse(readFileSync(settingsPath, "utf8"));
+    } catch {
+      settings = {};
+    }
   }
 
   // Hooks only — MCP is in ~/.claude.json now
   if (!settings.hooks) settings.hooks = {};
 
-  for (const [name, def] of Object.entries(HOOKS)) {
+  for (const [_name, def] of Object.entries(HOOKS)) {
     const entry = hookEntry(def, url, key);
     const events = Array.isArray(def.event) ? def.event : [def.event];
 
@@ -151,9 +159,7 @@ function patchClaudeHooks(settingsPath, url, key) {
       if (!settings.hooks[event]) settings.hooks[event] = [];
 
       // Find or create the hooks array entry
-      let eventEntry = settings.hooks[event].find(
-        (e) => e.hooks && Array.isArray(e.hooks)
-      );
+      let eventEntry = settings.hooks[event].find((e) => e.hooks && Array.isArray(e.hooks));
       if (!eventEntry) {
         eventEntry = { hooks: [] };
         settings.hooks[event].push(eventEntry);
@@ -235,13 +241,18 @@ async function main() {
     console.error("  ✓ Delta capture: on");
     console.error("  ✓ Recall search: on");
     console.error("\n  Restart Claude Code to activate.\n");
-
   } else if (host === "desktop") {
     // Detect config path
     const platform = process.platform;
     let configPath;
     if (platform === "darwin") {
-      configPath = join(HOME, "Library", "Application Support", "Claude", "claude_desktop_config.json");
+      configPath = join(
+        HOME,
+        "Library",
+        "Application Support",
+        "Claude",
+        "claude_desktop_config.json"
+      );
     } else if (platform === "win32") {
       configPath = join(process.env.APPDATA || HOME, "Claude", "claude_desktop_config.json");
     } else {
@@ -251,7 +262,6 @@ async function main() {
     patchDesktopSettings(configPath, url, key);
     console.error(`  ✓ MCP config written to ${configPath}`);
     console.error("\n  Restart Claude Desktop / Cursor to activate.\n");
-
   } else {
     // Print config
     console.error("\n  Add this to your MCP configuration:\n");

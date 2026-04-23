@@ -6,6 +6,12 @@
     "fathom": "index.js"
   },
   "type": "module",
-  "keywords": ["fathom", "memory", "delta-lake", "cli", "claude"],
+  "keywords": [
+    "fathom",
+    "memory",
+    "delta-lake",
+    "cli",
+    "claude"
+  ],
   "license": "MIT"
 }
