@@ -1,6 +1,8 @@
 import './site-header.css';
 
-const BRAND_SVG = `
+// Brand mark — three stacked Fathom triangles. Exported so the shared
+// footer can render the same mark without re-declaring the 1.7 KB of SVG.
+export const BRAND_SVG = `
 <svg
   class="brand-mark"
   xmlns="http://www.w3.org/2000/svg"
