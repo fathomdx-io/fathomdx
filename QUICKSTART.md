@@ -13,15 +13,12 @@ Self-host Fathom on a single Linux machine. About five minutes from clone to run
 ```bash
 git clone https://github.com/myrakrusemark/consumer-fathom.git
 cd consumer-fathom
-cp .env.example .env
-
-# Point LAKE_DIR at your user's home (compose doesn't expand ~ inside .env).
-sed -i "s|^LAKE_DIR=.*|LAKE_DIR=$HOME/.fathom/fathom|" .env
-mkdir -p "$HOME/.fathom/fathom"/{deltas,backups,source-runner,api}
-cp addons/scripts/lake-dir-README.md "$HOME/.fathom/fathom/README.md"
+./addons/scripts/preflight.sh
 ```
 
-Open `.env` and set `LLM_API_KEY` (the key for your LLM provider — Gemini, OpenAI, etc). If you want a provider other than Gemini, change `LLM_PROVIDER` too (`openai` or `ollama`).
+Preflight creates `.env` from the example, points `LAKE_DIR` at `~/.fathom/fathom` (or wherever you tell it), creates the lake's subdirectories, and tells you exactly what's still missing. It's idempotent — re-run it any time something feels off.
+
+If preflight says `LLM_API_KEY is blank`, open `.env` and paste in your key, then re-run preflight. If you want a provider other than Gemini, change `LLM_PROVIDER` to `openai` or `ollama` first.
 
 ## Run
 
@@ -127,4 +124,4 @@ Each command's blast radius is explicit. Running only the first is safe — it's
 
 **Podman on SELinux systems.** If bind mounts fail with permission errors, add `:z` to each volume mount in `docker-compose.yml`, or run `chcon -Rt container_file_t ~/.fathom/`.
 
-**Rootless podman: bind-mount target missing.** If `docker compose up -d` fails with `no such file or directory` for `~/.fathom/fathom/...`, create the dirs first: `mkdir -p ~/.fathom/fathom/{deltas,backups,source-runner,api}`. Rootless podman is stricter than docker about auto-creating bind-mount targets.
+**Rootless podman: bind-mount target missing.** If `docker compose up -d` fails with `no such file or directory` for `~/.fathom/fathom/...`, you skipped preflight. Run `./addons/scripts/preflight.sh` and it'll create them. Rootless podman is stricter than docker about auto-creating bind-mount targets.
