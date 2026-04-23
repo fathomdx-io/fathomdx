@@ -108,6 +108,14 @@ html, body {
   max-width: 58ch;
   margin: 0 0 32px;
 }
+/* Two-track controls copy. Default: desktop keyboard hints. Touch devices
+   (pointer: coarse) swap in a drag-and-gamepad-button explainer instead,
+   since WASD and Mouse aren't what a phone-holder is looking at. */
+#intro .sub-touch { display: none; }
+@media (hover: none) and (pointer: coarse) {
+  #intro .sub-desktop { display: none; }
+  #intro .sub-touch   { display: block; }
+}
 
 #intro .sub .mono {
   display: inline-block;
