@@ -359,10 +359,16 @@ async def _do_run(contact_slug: str, reason: str, run_facts: dict) -> None:
         f"feed_loop[{contact_slug}]: crystal id={crystal.get('id')}, {len(lines)} directive line(s)",
         flush=True,
     )
+    # Batch-prefetch "newest card per directive line" in ONE lake query
+    # instead of N (was a classic N+1: one _has_fresh_card query per
+    # line per visit). For 10 directive lines, that's 10 round-trips
+    # saved. The map is {directive_line_id: latest_iso_timestamp}.
+    freshness_map = await _latest_card_by_line(contact_slug)
+
     _set_status(contact_slug, lines_total=len(lines), lines_done=0)
     for i, line in enumerate(lines):
         try:
-            await _fire_line(contact_slug, line, crystal)
+            await _fire_line(contact_slug, line, crystal, freshness_map)
         except Exception as e:
             print(
                 f"feed_loop[{contact_slug}]: line {line.get('id')} failed: {type(e).__name__}: {e}",
@@ -608,15 +614,28 @@ def _format_candidates(pool: list[dict]) -> str:
     return "\n".join(lines)
 
 
-async def _fire_line(contact_slug: str, line: dict, crystal: dict) -> None:
-    """One directive line → one feed card (subject to freshness check)."""
+async def _fire_line(
+    contact_slug: str, line: dict, crystal: dict, freshness_map: dict[str, str] | None = None,
+) -> None:
+    """One directive line → one feed card (subject to freshness check).
+
+    `freshness_map` (optional) is the batch-prefetched {line_id: latest_ts}
+    from `_latest_card_by_line`. When supplied, the freshness check skips
+    a per-line lake query. Callers that don't pass it (e.g. cold-start
+    single-fire) fall through to the per-line lookup, which is still
+    correct — just slower.
+    """
     line_id = (line.get("id") or "").strip() or "unnamed"
     topic = (line.get("topic") or "").strip()
     freshness_h = float(line.get("freshness_hours") or 12)
 
     # Freshness check — skip if this contact already has a card for this
     # line that's newer than the freshness window.
-    if await _has_fresh_card(contact_slug, line_id, freshness_h):
+    if freshness_map is not None:
+        is_fresh = _is_fresh_from_map(freshness_map, line_id, freshness_h)
+    else:
+        is_fresh = await _has_fresh_card(contact_slug, line_id, freshness_h)
+    if is_fresh:
         print(
             f"feed_loop[{contact_slug}]: line {line_id} skipped (fresh card exists, window={freshness_h}h)",
             flush=True,
@@ -933,7 +952,11 @@ async def _produce_card(
 async def _has_fresh_card(
     contact_slug: str, line_id: str, freshness_hours: float
 ) -> bool:
-    """True if this contact already has a card for this line newer than the window."""
+    """True if this contact already has a card for this line newer than the window.
+
+    Per-line fallback. Preferred path is _latest_card_by_line + the map-
+    based _is_fresh_from_map — one query per run instead of per line.
+    """
     try:
         results = await delta_client.query(
             tags_include=[CARD_TAG, f"directive-line:{line_id}", _contact_tag(contact_slug)],
@@ -950,3 +973,51 @@ async def _has_fresh_card(
         return False
     age = _now() - dt
     return age < timedelta(hours=freshness_hours)
+
+
+async def _latest_card_by_line(contact_slug: str) -> dict[str, str]:
+    """Batch-prefetch the latest card timestamp per directive line.
+
+    Single lake query for all cards this contact has, grouped in Python
+    by `directive-line:<id>` tag. Returns {line_id: newest_iso_ts}.
+    Empty dict on error, which makes every line "stale" — safe default,
+    slows down to "regenerate everything this run" rather than missing a
+    real freshness skip.
+
+    Limit 200 is comfortably more than any realistic crystal × recent
+    fires product; if a contact has more than 200 outstanding cards, the
+    oldest ones won't be in the map, which just means they get
+    regenerated — no staleness bug, just a wasted regen.
+    """
+    try:
+        cards = await delta_client.query(
+            tags_include=[CARD_TAG, _contact_tag(contact_slug)],
+            limit=200,
+        )
+    except Exception:
+        return {}
+    latest: dict[str, str] = {}
+    for c in cards:
+        ts = c.get("timestamp") or ""
+        for t in c.get("tags") or []:
+            if isinstance(t, str) and t.startswith("directive-line:"):
+                line_id = t[len("directive-line:"):]
+                prev = latest.get(line_id)
+                if prev is None or ts > prev:
+                    latest[line_id] = ts
+                break
+    return latest
+
+
+def _is_fresh_from_map(
+    freshness_map: dict[str, str], line_id: str, freshness_hours: float
+) -> bool:
+    """Shared is-fresh predicate for the map-based path."""
+    ts = freshness_map.get(line_id)
+    if not ts:
+        return False
+    try:
+        dt = datetime.fromisoformat(ts.replace("Z", "+00:00"))
+    except Exception:
+        return False
+    return (_now() - dt) < timedelta(hours=freshness_hours)
