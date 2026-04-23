@@ -69,14 +69,6 @@ class ChatRequest(BaseModel):
     image_uploaded: bool = False  # Skip user message persist — image upload already wrote it
 
 
-class SessionCreate(BaseModel):
-    title: str = "New session"
-
-
-class SessionUpdate(BaseModel):
-    title: str
-
-
 class FeedEngagementRequest(BaseModel):
     kind: str  # "more" | "less" | "chat"
     card_id: str
@@ -182,10 +174,12 @@ app.add_middleware(auth.TokenAuthMiddleware)
 # ── Routers (one file per resource cluster under api/routes/) ───
 from .routes import agents as _agents_routes  # noqa: E402
 from .routes import routines as _routines_routes  # noqa: E402
+from .routes import sessions as _sessions_routes  # noqa: E402
 from .routes import sources as _sources_routes  # noqa: E402
 
 app.include_router(_agents_routes.router)
 app.include_router(_routines_routes.router)
+app.include_router(_sessions_routes.router)
 app.include_router(_sources_routes.router)
 
 
@@ -794,80 +788,6 @@ async def health():
         "llm_configured": not missing,
         "llm_missing": missing,
     }
-
-
-# ── Session endpoints ───────────────────────────
-
-
-@app.post("/v1/sessions")
-async def create_session(req: SessionCreate):
-    return await db.create_session(req.title)
-
-
-@app.get("/v1/sessions")
-async def list_sessions(request: Request, limit: int = 50):
-    # Members see only sessions they participated in. Admins see every
-    # session so they can support other contacts. Auth gate upstream
-    # ensures request.state.contact is always populated when auth is
-    # enforced; first-run installs fall through to the default admin.
-    slug = auth.current_contact_slug(request)
-    contact = getattr(request.state, "contact", None) or {}
-    filter_slug = None if contact.get("role") == "admin" else slug
-    sessions = await db.list_sessions(limit, contact_slug=filter_slug)
-    # Group by recency for the sidebar
-    now = datetime.now(UTC)
-    groups: dict[str, list] = {"today": [], "yesterday": [], "last_7_days": [], "older": []}
-    for s in sessions:
-        raw = s["updated_at"]
-        try:
-            parsed = raw if hasattr(raw, "date") else datetime.fromisoformat(str(raw).replace("Z", "+00:00"))
-            delta_days = (now.date() - parsed.date()).days
-        except (ValueError, TypeError):
-            delta_days = 999
-        if delta_days == 0:
-            groups["today"].append(s)
-        elif delta_days == 1:
-            groups["yesterday"].append(s)
-        elif delta_days <= 7:
-            groups["last_7_days"].append(s)
-        else:
-            groups["older"].append(s)
-    # Serialize datetimes
-    for group in groups.values():
-        for s in group:
-            for k in ("created_at", "updated_at"):
-                if hasattr(s.get(k), "isoformat"):
-                    s[k] = s[k].isoformat()
-    return {"groups": groups}
-
-
-@app.get("/v1/sessions/{session_id}")
-async def get_session(session_id: str):
-    session = await db.get_session(session_id)
-    if not session:
-        return {"error": "not found"}, 404
-    messages = await db.get_messages(session_id)
-    for k in ("created_at", "updated_at"):
-        if hasattr(session.get(k), "isoformat"):
-            session[k] = session[k].isoformat()
-    return {"session": session, "messages": messages}
-
-
-@app.patch("/v1/sessions/{session_id}")
-async def update_session(session_id: str, req: SessionUpdate):
-    result = await db.update_session(session_id, req.title)
-    if not result:
-        return {"error": "not found"}, 404
-    for k in ("created_at", "updated_at"):
-        if hasattr(result.get(k), "isoformat"):
-            result[k] = result[k].isoformat()
-    return result
-
-
-@app.delete("/v1/sessions/{session_id}")
-async def delete_session(session_id: str):
-    deleted = await db.delete_session(session_id)
-    return {"deleted": deleted}
 
 
 # ── Feed endpoints ──────────────────────────────
