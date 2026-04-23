@@ -1,7 +1,11 @@
-fastapi>=0.115
-uvicorn>=0.34
-python-multipart>=0.0.20
-openai>=1.60
-httpx>=0.28
-pydantic>=2.10
-pydantic-settings>=2.7
+# Consumer API runtime dependencies. Upper bounds cap the major version
+# so a rebuild tomorrow can't silently pick up a breaking change — the
+# floors leave room for patch and minor updates. Bump these intentionally
+# when you upgrade.
+fastapi>=0.115,<1.0
+uvicorn>=0.34,<1.0
+python-multipart>=0.0.20,<0.1
+openai>=1.60,<3.0
+httpx>=0.28,<1.0
+pydantic>=2.10,<3.0
+pydantic-settings>=2.7,<3.0

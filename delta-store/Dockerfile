@@ -6,12 +6,14 @@ RUN apt-get update \
  && apt-get install -y --no-install-recommends postgresql-client-17 \
  && rm -rf /var/lib/apt/lists/*
 
-RUN pip install --no-cache-dir \
-    fastapi uvicorn pydantic \
-    asyncpg pgvector \
-    open-clip-torch Pillow python-multipart httpx numpy
-
 WORKDIR /app
+
+# Separate COPY for requirements.txt so code changes don't invalidate
+# the pip-install layer. Rebuilds after pure code edits complete in
+# seconds instead of re-downloading torch every time.
+COPY requirements.txt /app/requirements.txt
+RUN pip install --no-cache-dir -r /app/requirements.txt
+
 COPY deltas/ /app/deltas/
 
 EXPOSE 8000
