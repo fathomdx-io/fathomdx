@@ -18,7 +18,7 @@ import json
 import secrets
 import string
 import time
-from datetime import datetime, timezone, UTC
+from datetime import datetime, UTC
 from pathlib import Path
 
 from fastapi import HTTPException, Request

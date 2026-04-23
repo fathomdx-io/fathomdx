@@ -20,7 +20,7 @@ import asyncio
 import json
 import os
 import tempfile
-from datetime import datetime, timezone, UTC
+from datetime import datetime, UTC
 from pathlib import Path
 
 from . import delta_client

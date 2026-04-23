@@ -143,7 +143,7 @@ def redeem_pair_code(code: str, host: str = "") -> dict:
     # scopes. auth.create_token uses the settings path, which is the same
     # file; importing through auth ensures the format matches.
     from .auth import TOKEN_PREFIX, TOKEN_RAND_LEN, ALPHABET as TOKEN_ALPHABET
-    from datetime import datetime, timezone
+    from datetime import datetime
 
     token_raw = TOKEN_PREFIX + "".join(secrets.choice(TOKEN_ALPHABET) for _ in range(TOKEN_RAND_LEN))
     token_hash = _hash(token_raw)

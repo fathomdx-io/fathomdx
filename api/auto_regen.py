@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from datetime import datetime, timezone, UTC
+from datetime import datetime, UTC
 
 from . import crystal, crystal_anchor, delta_client, drift
 from .settings import settings

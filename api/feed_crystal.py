@@ -34,7 +34,7 @@ import os
 import re
 import tempfile
 import time
-from datetime import datetime, timezone, UTC
+from datetime import datetime, UTC
 from pathlib import Path
 
 from . import delta_client
@@ -238,7 +238,7 @@ async def _fetch_lake_topic_summary(window_hours: int = 72) -> str:
     a chance to engage with them. Including a recency snapshot lets the
     crystal propose lines that the loop can actually fulfill.
     """
-    from datetime import datetime, timedelta, timezone
+    from datetime import datetime, timedelta
     cutoff = (datetime.now(UTC) - timedelta(hours=window_hours)).isoformat()
     try:
         all_recent = await delta_client.query(time_start=cutoff, limit=300)

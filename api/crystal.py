@@ -25,7 +25,7 @@ from __future__ import annotations
 
 import asyncio
 import time
-from datetime import datetime, timezone, UTC
+from datetime import datetime, UTC
 
 from . import delta_client
 

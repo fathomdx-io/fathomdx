@@ -10,7 +10,7 @@ from __future__ import annotations
 import json
 import logging
 import re
-from datetime import datetime, timezone, UTC
+from datetime import datetime, UTC
 
 from . import delta_client, pressure, search as search_module
 from .prompt import MOOD_DIRECTIVE

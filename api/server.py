@@ -7,7 +7,7 @@ import json
 import logging
 import re
 from contextlib import asynccontextmanager
-from datetime import datetime, timedelta, timezone, UTC
+from datetime import datetime, timedelta, UTC
 from pathlib import Path
 from typing import AsyncGenerator
 
@@ -814,7 +814,7 @@ async def feed_engagement_history(
     limit: int = 500,
 ):
     """Engagement marks for the ECG bottom rule. Returns time + sign per delta."""
-    from datetime import datetime, timedelta, timezone
+    from datetime import datetime, timedelta
     slug = _current_contact_slug(request)
     cutoff = (datetime.now(UTC) - timedelta(seconds=since_seconds)).isoformat()
     try:
