@@ -1,11 +1,11 @@
 {
   "version": 1,
   "summary": {
-    "total_lines_removed": 4510,
-    "total_lines_added": 3160,
-    "total_bugs_fixed": 14,
-    "total_tests_added": 0,
-    "iterations_completed": 4,
+    "total_lines_removed": 4557,
+    "total_lines_added": 3390,
+    "total_bugs_fixed": 16,
+    "total_tests_added": 7,
+    "iterations_completed": 5,
     "repos_cleaned": []
   },
   "baseline": {
@@ -22,9 +22,9 @@
     "ruff_errors": 0,
     "ruff_autofixable": 0,
     "ruff_unformatted_files": 46,
-    "pytest_count": 1,
+    "pytest_count": 8,
     "api_server_py_loc": 690,
-    "_note": "Zero ruff errors for the first time. Format pass still pending (46 files). server.py grew 2 lines from the local _bgtasks import in lifespan — still well under the 800 ceiling."
+    "_note": "Zero ruff errors. pytest 1 -> 8 after Quality Scaffold added retry + session-lock tests. Format pass still pending (46 files). PRD §Completion wants pytest >= 30 and ruff format clean — two of six targets left."
   },
   "findings": [
     {
@@ -86,6 +86,19 @@
         "7745ef3", "1a64d65", "186104b", "1ad3111",
         "ed005b1", "5c53539", "84df2d1"
       ]
+    },
+    {
+      "date": "2026-04-23",
+      "perspective": "Quality Scaffold",
+      "repo": "fathomdx",
+      "description": "Added _request_with_retry to api/delta_client.py with 3-attempt jittered exponential backoff on transient 502/503/504 and httpx Transport/Timeout errors. Applied to every idempotent read (~19 functions). Writes NOT retried because delta-store has no idempotency keys. Bounded ChatListener._session_locks with LRU eviction at 256 entries. 7 new unit tests (retry contract + session-lock cap).",
+      "type": "reliability",
+      "files_changed": 4,
+      "lines_added": 233,
+      "lines_removed": 47,
+      "bugs_fixed": 2,
+      "tests_added": 7,
+      "commits": ["b848a5c", "1b561f5"]
     }
   ],
   "consolidation_targets": {
