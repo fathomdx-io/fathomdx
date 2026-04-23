@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
     <meta name="theme-color" content="#0d1f26" />
 
-    <title>Download Fathom — run your own mind in 5 minutes</title>
+    <title>Download Fathom · run your own mind in 5 minutes</title>
     <meta
       name="description"
       content="Self-host Fathom on your own machine. One docker compose command. Your mind, your keys, your data."
@@ -118,11 +118,11 @@ mkdir -p "$HOME/.fathom/fathom"/{deltas,backups,source-runner,api}</code></pre>
                 </li>
                 <li>
                   <code>http://localhost:4246</code>
-                  <span>Delta-store — the lake's HTTP API.</span>
+                  <span>Delta-store. The lake's HTTP API.</span>
                 </li>
                 <li>
                   <code>http://localhost:4260</code>
-                  <span>Source-runner — polls external sources.</span>
+                  <span>Source-runner. Polls external sources.</span>
                 </li>
               </ul>
             </div>
@@ -136,8 +136,8 @@ mkdir -p "$HOME/.fathom/fathom"/{deltas,backups,source-runner,api}</code></pre>
                 <a href="http://localhost:8201" target="_blank" rel="noreferrer">
                   <code>localhost:8201</code></a>
                 in a browser. That's Fathom's dashboard. From there, pair a
-                local agent, connect sources, wire up MCP, and mint API keys
-                — the dashboard walks you through each step and hands you the
+                local agent, connect sources, wire up MCP, and mint API keys.
+                The dashboard walks you through each step and hands you the
                 commands when something has to happen on your host.
               </p>
             </div>
@@ -171,14 +171,14 @@ curl http://localhost:8201/v1/stats <span class="c">&#35; starts at zero</span><
             <span class="loc-label mono">Postgres</span>
             <p>
               A named container volume, <code>fathom-pg</code>. Managed by
-              docker. Can't live on Dropbox — postgres corrupts syncing
-              files.
+              docker. Can't live on Dropbox, because postgres corrupts
+              syncing files.
             </p>
           </div>
           <div class="loc">
             <span class="loc-label mono">Everything else</span>
             <p>
-              <code>~/.fathom/fathom/</code> by default — images, backups,
+              <code>~/.fathom/fathom/</code> by default: images, backups,
               drift history, mood state, API tokens. Set <code>LAKE_DIR=</code>
               in <code>.env</code> to move it, even to an external drive.
             </p>
