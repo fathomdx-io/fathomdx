@@ -5,18 +5,19 @@
 
 ## Next
 
-**Perspective:** Dependency Audit
+**Perspective:** Cross-Repo Coherence
 **Repo:** fathomdx
-**Why next:** Performance is DONE. Three real wins landed: parallel
-`_gather_pool` (saves ~1-2s per feed card), batch-prefetch killed
-N+1 in feed-card freshness check (saves ~1s per 10-line crystal
-run), and parallel system-prompt fan-out in `fathom_think` (saves
-500-2500ms per chat turn). 6 new tests.
+**Why next:** Dependency Audit is DONE. Two CVEs found and fixed
+(Pillow CVE-2026-25990 + CVE-2026-40192 via floor bump to 12.2.0,
+pytest CVE-2025-71176 via dev-extras floor to 9.0.3). All three
+services now have proper `requirements.txt` with <major+1 caps;
+delta-store and source-runner were fixed via moving deps out of
+their Dockerfiles so pip-audit can see them.
 
-Dependency Audit is next per PRD priority #8 — the PRD flagged
-requirements.txt having no pins and package.json being bare. Check
-for security advisories (`pip-audit`, `npm audit`) and prune
-unused deps.
+Cross-Repo Coherence (#9) is next. Check that api ↔ addons contracts
+match: does `addons/cli` call `/v1/search` with the shape `api`
+actually expects? Do response envelopes line up? MCP-node against
+/v1/tools? Compare implementations, not just docs.
 
 **Pending cleanup** from the server.py split: `/v1/chat/completions`
 + `fathom_think` + `_resolve_tools` (~250 lines) still in server.py,
@@ -37,7 +38,7 @@ Single repo (`fathomdx`) so the "matrix" is a column. `-` = not started,
 | 5 | Test Creation                    | DONE     |
 | 6 | Security Review                  | DONE     |
 | 7 | Performance                      | DONE     |
-| 8 | Dependency Audit                 | -        |
+| 8 | Dependency Audit                 | DONE     |
 | 9 | Cross-Repo Coherence             | -        |
 | 10| API Consistency                  | -        |
 | 11| Docker & DevOps                  | -        |
@@ -107,6 +108,46 @@ Format:
 - Key findings or decisions
 - Commits: <sha> <sha>
 ```
+
+---
+
+### 2026-04-23 — Dependency Audit / fathomdx
+
+Two commits, two CVEs found and fixed, three services now scannable
+by pip-audit / dependabot for the first time.
+
+**Fixes**
+
+- `4b44055` — pinned upper bounds on every runtime dep, moved
+  delta-store + source-runner deps out of their Dockerfiles into
+  proper `requirements.txt` files, added pip-install layer
+  separation so a code edit doesn't re-download torch.
+  Pillow floor bumped to 12.2.0 for **CVE-2026-25990** + 
+  **CVE-2026-40192** (both delta-store).
+- `bcd6850` — pinned dev-extras upper bounds. pytest floor bumped
+  to 9.0.3 for **CVE-2025-71176**.
+
+**Audit summary**
+- pip-audit on all three requirements.txt files: clean after the
+  Pillow bump.
+- npm audit on `addons/agent` and `addons/mcp-node` (the two with
+  deps): zero vulnerabilities.
+- No unused deps found — every package declared is actually
+  imported.
+
+**What changed structurally**
+- `delta-store/Dockerfile` + `source-runner/Dockerfile` had their
+  deps inlined into `RUN pip install ... fastapi uvicorn ...`.
+  pip-audit and dependabot can't see those. Moved into
+  `{delta-store,source-runner}/requirements.txt`; Dockerfile now
+  `COPY requirements.txt` + `pip install -r`. Also added layer
+  separation (requirements COPY before code COPY) so code-only
+  rebuilds are cheap.
+
+**Open for a future iteration**
+- Consider adding `pip-audit` + `npm audit` as non-blocking steps
+  in `.github/workflows/ci.yml` for early CVE detection. Not this
+  iteration — extensibility, not an existing bug.
 
 ---
 
