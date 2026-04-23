@@ -86,7 +86,7 @@ async def create_source(req: CreateSourceRequest):
         )
         return {"id": sc.id, "created": True}
     except ValueError as e:
-        raise HTTPException(400, str(e))
+        raise HTTPException(400, str(e)) from e
 
 
 @app.get("/api/sources/{source_id}")
@@ -113,10 +113,10 @@ async def update_source(source_id: str, req: UpdateSourceRequest):
     try:
         _runner.update_source(source_id, updates)
         return {"updated": True}
-    except KeyError:
-        raise HTTPException(404, f"Source not found: {source_id}")
+    except KeyError as e:
+        raise HTTPException(404, f"Source not found: {source_id}") from e
     except ValueError as e:
-        raise HTTPException(400, str(e))
+        raise HTTPException(400, str(e)) from e
 
 
 @app.post("/api/sources/{source_id}/pause")
@@ -142,8 +142,8 @@ async def poll_source(source_id: str):
     try:
         await _runner.manual_poll(source_id)
         return {"triggered": True}
-    except KeyError:
-        raise HTTPException(404, f"Source not found: {source_id}")
+    except KeyError as e:
+        raise HTTPException(404, f"Source not found: {source_id}") from e
 
 
 @app.delete("/api/sources/{source_id}")
