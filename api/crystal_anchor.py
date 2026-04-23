@@ -15,6 +15,7 @@ a time — overwritten on each accepted regen.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import json
 import math
 import os
@@ -45,10 +46,8 @@ def _atomic_write(data: dict) -> None:
             json.dump(data, f)
         os.replace(tmp, p)
     except Exception:
-        try:
+        with contextlib.suppress(FileNotFoundError):
             os.unlink(tmp)
-        except FileNotFoundError:
-            pass
         raise
 
 

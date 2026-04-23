@@ -15,6 +15,7 @@ Sidecar state lives at  $DATA_DIR/vault-watch/{path_slug}/:
 
 from __future__ import annotations
 
+import contextlib
 import hashlib
 import json
 import logging
@@ -499,10 +500,8 @@ class VaultProducer(SourceProducer):
     def _delete_last_content(self, state_dir: Path, relpath: str) -> None:
         path = self._last_content_path(state_dir, relpath)
         if path.exists():
-            try:
+            with contextlib.suppress(OSError):
                 path.unlink()
-            except OSError:
-                pass
 
 
 # ── Module-level helpers ─────────────────────────────────────────────────

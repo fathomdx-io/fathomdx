@@ -13,6 +13,7 @@ setting FATHOM_crystal_auto_regen=false.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import logging
 from datetime import UTC, datetime
 
@@ -164,13 +165,11 @@ async def _loop() -> None:
             await _check_once()
         except Exception:
             log.exception("auto-regen poll error")
-        try:
+        with contextlib.suppress(TimeoutError):
             await asyncio.wait_for(
                 _stop_event.wait(),
                 timeout=settings.crystal_drift_poll_seconds,
             )
-        except TimeoutError:
-            pass
     log.info("auto-regen loop stopped")
 
 

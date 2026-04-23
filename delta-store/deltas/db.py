@@ -6,6 +6,7 @@ new connection so embedding columns round-trip as Python lists.
 
 from __future__ import annotations
 
+import contextlib
 import os
 
 import asyncpg
@@ -115,10 +116,8 @@ async def init_pool(dsn: str | None = None) -> asyncpg.Pool:
 
         # Create HNSW indexes (swallow "already exists")
         for _name, ddl in HNSW_INDEXES:
-            try:
+            with contextlib.suppress(asyncpg.DuplicateObjectError, asyncpg.DuplicateTableError):
                 await conn.execute(ddl)
-            except (asyncpg.DuplicateObjectError, asyncpg.DuplicateTableError):
-                pass
 
         # Schema version tracking
         await conn.execute(

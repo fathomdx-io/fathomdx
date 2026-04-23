@@ -17,6 +17,7 @@ a derived view, sibling to /v1/usage.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import json
 import os
 import tempfile
@@ -100,10 +101,8 @@ def _save_raw(state: dict) -> None:
             json.dump(state, f, indent=2)
         os.replace(tmp, p)
     except Exception:
-        try:
+        with contextlib.suppress(FileNotFoundError):
             os.unlink(tmp)
-        except FileNotFoundError:
-            pass
         raise
 
 

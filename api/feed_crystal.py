@@ -27,6 +27,7 @@ It does NOT own:
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import json
 import logging
 import math
@@ -544,10 +545,8 @@ def _atomic_write(p: Path, data: dict) -> None:
             json.dump(data, f)
         os.replace(tmp, p)
     except Exception:
-        try:
+        with contextlib.suppress(FileNotFoundError):
             os.unlink(tmp)
-        except FileNotFoundError:
-            pass
         raise
 
 
