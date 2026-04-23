@@ -5,19 +5,19 @@
 
 ## Next
 
-**Perspective:** Error Boundary Audit
+**Perspective:** Utility Consolidation
 **Repo:** fathomdx
-**Why next:** Docker & DevOps is DONE. Added healthchecks to all four
-compose services + proper `depends_on: condition: service_healthy`
-gating, plus a `.dockerignore` so `COPY api/ /app/api/` stops hauling
-in __pycache__ / .pytest_cache / tests on every rebuild. Both changes
-additive — running lake untouched.
+**Why next:** Error Boundary Audit is DONE. One real correctness fix
+landed — `auto_regen._within_cooldown` now fails safe on unparseable
+crystal `created_at` (matches the 2026-04-19 runaway-regen pattern).
+Added logging to two silent best-effort sites.
 
-Error Boundary Audit (#13) is next: map every try/except, every
-.catch(), every Exception handler in the codebase. Are errors
-swallowed? Logged? Surfaced to users? The Bug Hunt iteration found
-RUF006 dangling tasks; this one goes after silent-failure patterns
-that ruff can't see.
+Utility Consolidation (#14) is next — the PRD flagged `cosine_distance`
+(crystal_anchor vs feed_crystal, near-duplicate), tag-parsing
+(multiple `for t in tags: if t.startswith("..."):` inline loops),
+delta-write boilerplate. The `_now()` consolidation already happened
+in Senior Dev Audit (api/_time.py); this pass is about the remaining
+utilities.
 
 **Pending cleanup** from the server.py split: `/v1/chat/completions`
 + `fathom_think` + `_resolve_tools` (~250 lines) still in server.py,
@@ -43,7 +43,7 @@ Single repo (`fathomdx`) so the "matrix" is a column. `-` = not started,
 | 10| API Consistency                  | DONE     |
 | 11| Docker & DevOps                  | DONE     |
 | 12| Accessibility                    | N/A      |
-| 13| Error Boundary Audit             | -        |
+| 13| Error Boundary Audit             | DONE     |
 | 14| Utility Consolidation            | -        |
 | 15| New Perspectives                 | -        |
 | 16| Feed Experience                  | N/A      |
@@ -108,6 +108,51 @@ Format:
 - Key findings or decisions
 - Commits: <sha> <sha>
 ```
+
+---
+
+### 2026-04-23 — Error Boundary Audit / fathomdx
+
+Two commits. One real correctness fix (runaway-regen pattern), one
+pure observability add. pytest 81 → 85.
+
+**The real bug**
+
+`auto_regen._within_cooldown` fell through to "not in cooldown" on
+an unparseable crystal `created_at`, because the parse was wrapped
+in `except Exception: pass`. Given the module's own comments flag
+the 2026-04-19 runaway-regen incident, this is exactly the wrong
+fail-safe: a corrupt crystal wakes the next tick → fires a regen
+→ writes ANOTHER delta with a possibly-still-bad timestamp → loop.
+
+Fix (`03c90f3`): mirror the lake-unreachable branch above. Log the
+bad timestamp, `return True` ("treat as within cooldown"). Worst
+case a legitimate regen is delayed one poll. Best case: a corrupt
+crystal doesn't amplify.
+
+Four regression tests: both fail-safe branches (unparseable +
+lake-unreachable) and both happy paths (recent + stale timestamps).
+
+**Observability adds (no behaviour change)**
+
+`223e3f6` — added `log.exception` / `log.warning` to two sites that
+silently swallowed:
+- `api/server.py refresh_crystal`: the post-regen facet hook push.
+  A silent failure used to leave resonance filters mysteriously
+  un-updated.
+- `source-runner/sources/vault.py _load_image_state`: corrupt
+  `images.json` used to reset to empty with no explanation, making
+  every image re-upload next poll. Matches the warning the sibling
+  `_load_files_state` already emits.
+
+**Audited and left**
+- Most `except Exception: return None|[]|False` sites in search.py,
+  contacts.py, recall.py, usage.py are graceful-degradation read
+  paths where "empty" is the correct user-visible behaviour for a
+  transient lake failure. Several already log via `log.exception`.
+  Not worth churning the rest.
+- `api/auto_regen.py stop()` swallows cleanup-path exceptions —
+  correct on shutdown, not worth logging.
 
 ---
 
