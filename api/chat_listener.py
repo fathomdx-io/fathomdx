@@ -21,6 +21,7 @@ import logging
 from datetime import UTC, datetime, timedelta
 
 from . import db, delta_client
+from ._bgtasks import spawn as _spawn_task
 
 # The uvicorn default config doesn't raise app loggers above WARNING, so
 # INFO lines from this module would be swallowed. We want the operational
@@ -199,8 +200,9 @@ class ChatListener:
         def on_tool_event(kind: str, name: str, data: dict) -> None:
             if kind != "result":
                 return
-            asyncio.create_task(
-                write_chat_event(slug, name, data, contact_slug=addressee_slug)
+            _spawn_task(
+                write_chat_event(slug, name, data, contact_slug=addressee_slug),
+                name=f"chat-event/{name}",
             )
 
         history_msgs = await db.get_messages(slug)
