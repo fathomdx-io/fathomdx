@@ -1,11 +1,11 @@
 {
   "version": 1,
   "summary": {
-    "total_lines_removed": 0,
-    "total_lines_added": 0,
+    "total_lines_removed": 182,
+    "total_lines_added": 102,
     "total_bugs_fixed": 0,
     "total_tests_added": 0,
-    "iterations_completed": 0,
+    "iterations_completed": 1,
     "repos_cleaned": []
   },
   "baseline": {
@@ -14,8 +14,38 @@
     "ruff_autofixable": 70,
     "ruff_unformatted_files": 36,
     "pytest_count": 1,
-    "api_server_py_loc": 1500
+    "api_server_py_loc": 2492,
+    "_note": "PRD said 1500+; actual wc -l at iteration start was 2492"
   },
-  "findings": [],
-  "consolidation_targets": {}
+  "current": {
+    "date": "2026-04-23",
+    "ruff_errors": 51,
+    "ruff_autofixable": 0,
+    "ruff_unformatted_files": 34,
+    "pytest_count": 1,
+    "api_server_py_loc": 2417
+  },
+  "findings": [
+    {
+      "date": "2026-04-23",
+      "perspective": "Dead Code & Cleanup",
+      "repo": "fathomdx",
+      "description": "Ruff autofixes (F401, UP017, I001, UP041, RUF100, F541, UP035, RUF022) + 5 dead helper functions (_md5, _format_scored_row, _now in crystal, _stream_response, _msg_dicts). Ruff errors 121->51.",
+      "type": "cleanup",
+      "files_changed": 25,
+      "lines_added": 102,
+      "lines_removed": 182,
+      "commits": [
+        "cd66f9a", "30c957a", "359f8b6", "cf8ca01", "8aa31fb",
+        "49ec30c", "a273fab", "c372e86",
+        "9b2c113", "7d9ac49", "954992d", "4cb7d9a", "08835b8"
+      ]
+    }
+  ],
+  "consolidation_targets": {
+    "_now_helper": {
+      "note": "Module-local _now() returning datetime.now(UTC) is duplicated across 7+ files (api/pairing, api/mood, api/feed_loop, api/drift, api/auto_regen, api/pressure, api/feed_crystal, delta-store/deltas/retrievals). Candidate for shared utility module.",
+      "perspective": "Utility Consolidation (#14)"
+    }
+  }
 }
