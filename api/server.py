@@ -117,7 +117,8 @@ async def lifespan(_app: FastAPI):
                 await _asyncio.sleep(2 ** attempt)
 
     if resolved_admin:
-        _asyncio.create_task(_backfill_once(resolved_admin))
+        from ._bgtasks import spawn as _spawn_task
+        _spawn_task(_backfill_once(resolved_admin), name="lifespan/contact-backfill")
 
     auto_regen.start()
     chat_listener.listener.start()
