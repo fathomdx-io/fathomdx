@@ -1,0 +1,21 @@
+{
+  "version": 1,
+  "summary": {
+    "total_lines_removed": 0,
+    "total_lines_added": 0,
+    "total_bugs_fixed": 0,
+    "total_tests_added": 0,
+    "iterations_completed": 0,
+    "repos_cleaned": []
+  },
+  "baseline": {
+    "date": "2026-04-23",
+    "ruff_errors": 121,
+    "ruff_autofixable": 70,
+    "ruff_unformatted_files": 36,
+    "pytest_count": 1,
+    "api_server_py_loc": 1500
+  },
+  "findings": [],
+  "consolidation_targets": {}
+}
