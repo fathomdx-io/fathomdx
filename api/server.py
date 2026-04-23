@@ -6,7 +6,6 @@ import base64
 import json
 import logging
 import re
-from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -324,63 +323,6 @@ async def _resolve_tools(
     choice = resp.choices[0]
     messages.append({"role": "assistant", "content": choice.message.content or ""})
     return messages
-
-
-async def _stream_response(
-    messages: list[dict],
-    model: str,
-    tool_events: list[dict],
-    session_id: str | None = None,
-    **kwargs,
-) -> AsyncGenerator[str, None]:
-    """Stream tool events + final LLM text response as SSE.
-
-    Format:
-      event: tool_result
-      data: {"name": "remember", "count": 14}
-
-      data: {"choices": [{"delta": {"content": "token..."}}]}
-      ...
-      data: [DONE]
-    """
-    # Phase 1: emit tool events collected during resolution
-    for evt in tool_events:
-        yield f"event: tool_result\ndata: {json.dumps(evt)}\n\n"
-
-    # Phase 2: stream final text from the last assistant message.
-    # The last message in `messages` is the assistant's text response
-    # from _resolve_tools. We stream it token-by-token by re-calling
-    # the LLM — or if the text is already there, stream it directly.
-    last = messages[-1] if messages else {}
-    if last.get("role") == "assistant" and last.get("content"):
-        # Already have the full text from the non-streaming tool loop.
-        # Emit it as a single chunk in OpenAI streaming format.
-        chunk = {
-            "choices": [{
-                "index": 0,
-                "delta": {"content": last["content"]},
-                "finish_reason": None,
-            }],
-        }
-        yield f"data: {json.dumps(chunk)}\n\n"
-        done_chunk = {
-            "choices": [{"index": 0, "delta": {}, "finish_reason": "stop"}],
-        }
-        yield f"data: {json.dumps(done_chunk)}\n\n"
-    else:
-        # Fallback: re-call the LLM with streaming (no tools)
-        stream = await llm.chat.completions.create(
-            model=model,
-            messages=messages,
-            stream=True,
-            **kwargs,
-        )
-        async for chunk in stream:
-            yield f"data: {chunk.model_dump_json()}\n\n"
-
-    meta = {"session_id": session_id} if session_id else {}
-    yield f"event: meta\ndata: {json.dumps(meta)}\n\n"
-    yield "data: [DONE]\n\n"
 
 
 # ── Core loop ──────────────────────────────────
