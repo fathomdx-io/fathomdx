@@ -185,7 +185,12 @@ def _sediment_source_ids(deltas_by_step: dict[str, list[dict]]) -> list[str]:
 def _sediment_prompt_body(
     query: str, deltas_by_step: dict[str, list[dict]]
 ) -> str:
-    """Compact rendering of the retrieved set for the synthesis LLM call."""
+    """Compact rendering of the retrieved set for the synthesis LLM call.
+
+    Any engagement cloud attached to a source is rendered as indented notes
+    so the synthesizer can see when a memory has been refuted or affirmed
+    — and avoid re-deriving a take the mind has already rejected.
+    """
     lines: list[str] = [f'Query: "{query}"', "", "Memories that surfaced:"]
     used = 0
     for deltas in deltas_by_step.values():
@@ -200,6 +205,10 @@ def _sediment_prompt_body(
                 lines.append("  … (truncated)")
                 return "\n".join(lines)
             lines.append(line)
+            cloud_note = _render_cloud(d.get("engagement_cloud") or [])
+            if cloud_note:
+                used += len(cloud_note)
+                lines.append(cloud_note.lstrip("\n"))
     return "\n".join(lines)
 
 
@@ -271,6 +280,54 @@ def _parents_of(step: dict) -> list[str]:
 # ── Rendering ───────────────────────────────────
 
 
+_CLOUD_LABEL_BY_PREFIX = {
+    "refutes": "refuted",
+    "affirms": "affirmed",
+    "from": "cited by sediment",
+    "reply-to": "replied to",
+}
+_CLOUD_LABEL_BY_ENGAGEMENT = {
+    "engagement:less": "disliked",
+    "engagement:more": "liked",
+    "engagement:chat": "chat reaction",
+}
+_CLOUD_RENDER_CAP = 5
+_CLOUD_EXCERPT_CHARS = 80
+
+
+def _cloud_label(member: dict) -> str | None:
+    """Pick a single human label for an engagement-cloud member."""
+    tags = member.get("tags") or []
+    for t in tags:
+        prefix = t.split(":", 1)[0]
+        if prefix in _CLOUD_LABEL_BY_PREFIX:
+            return _CLOUD_LABEL_BY_PREFIX[prefix]
+        if t in _CLOUD_LABEL_BY_ENGAGEMENT:
+            return _CLOUD_LABEL_BY_ENGAGEMENT[t]
+    if any(t.startswith("engages:") for t in tags):
+        return "engaged"
+    return None
+
+
+def _render_cloud(cloud: list[dict]) -> str:
+    if not cloud:
+        return ""
+    lines: list[str] = []
+    for member in cloud[:_CLOUD_RENDER_CAP]:
+        label = _cloud_label(member)
+        if not label:
+            continue
+        excerpt = (member.get("content") or "").strip().replace("\n", " ")
+        excerpt = excerpt[:_CLOUD_EXCERPT_CHARS]
+        if excerpt:
+            lines.append(f"  — {label}: {excerpt}")
+        else:
+            lines.append(f"  — {label}")
+    if not lines:
+        return ""
+    return "\n" + "\n".join(lines)
+
+
 def _delta_line(d: dict) -> str:
     src = d.get("source", "unknown")
     ts = (d.get("timestamp") or "")[:16]
@@ -279,7 +336,8 @@ def _delta_line(d: dict) -> str:
         f"\n[Image attached: media_hash={d['media_hash']}]" if d.get("media_hash") else ""
     )
     content = (d.get("content") or "")[:_MAX_CONTENT_CHARS]
-    return f"[{src} · {ts} · {tags}]{media}\n{content}"
+    cloud_note = _render_cloud(d.get("engagement_cloud") or [])
+    return f"[{src} · {ts} · {tags}]{media}\n{content}{cloud_note}"
 
 
 def _render_tree(tree: list[dict], deltas_by_step: dict[str, list[dict]]) -> str:
@@ -464,6 +522,8 @@ async def _deep(
         )
         deltas_by_step[sid] = cleaned
 
+    await _attach_engagement_clouds(deltas_by_step, seen_ids)
+
     thinking_prose, thinking_id = await _synthesize_thinking(text, deltas_by_step)
 
     return {
@@ -476,6 +536,30 @@ async def _deep(
         "thinking_prose": thinking_prose,
         "thinking_id": thinking_id,
     }
+
+
+async def _attach_engagement_clouds(
+    deltas_by_step: dict[str, list[dict]],
+    delta_ids: set[str],
+) -> None:
+    """Batched cloud lookup for every surfaced delta; mutates the dicts in place.
+
+    Fails soft — a cloud fetch error still lets recall return its trail.
+    """
+    if not delta_ids:
+        return
+    try:
+        cloud_by_id = await delta_client.engagement_cloud(sorted(delta_ids))
+    except Exception:
+        log.exception("search: engagement cloud fetch failed")
+        return
+    if not cloud_by_id:
+        return
+    for deltas in deltas_by_step.values():
+        for d in deltas:
+            did = d.get("id")
+            if did and cloud_by_id.get(did):
+                d["engagement_cloud"] = cloud_by_id[did]
 
 
 def _empty_result(plan: dict | None = None) -> dict:

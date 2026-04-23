@@ -98,6 +98,19 @@ async def plan(steps: list[dict]) -> dict:
     return r.json()
 
 
+# ── Engagement cloud ────────────────────────────
+
+async def engagement_cloud(delta_ids: list[str]) -> dict:
+    """Batched lookup: for each delta id, return deltas pointing at it via any
+    engagement pointer-tag. Returns {"<id>": [DeltaSlim, ...], ...}."""
+    if not delta_ids:
+        return {}
+    c = await _get()
+    r = await c.post("/engagement-cloud", json={"delta_ids": delta_ids})
+    r.raise_for_status()
+    return r.json()
+
+
 # ── Single delta ────────────────────────────────
 
 async def get_delta(delta_id: str) -> dict:

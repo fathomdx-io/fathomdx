@@ -543,6 +543,22 @@ async def search(req: SearchRequest):
     return result
 
 
+class EngagementCloudRequest(_BaseModel):
+    delta_ids: list[str]
+
+
+@app.post("/engagement-cloud")
+async def engagement_cloud(req: EngagementCloudRequest):
+    """Batched lookup: for each delta id, return deltas pointing at it via any
+    engagement pointer-tag (`engages:`, `refutes:`, `affirms:`, `reply-to:`,
+    `from:`). Response shape: {"<id>": [DeltaSlim, ...], ...}.
+    """
+    if not req.delta_ids:
+        return {}
+    cloud = await query_engine._fetch_engagement_cloud(req.delta_ids)
+    return cloud
+
+
 @app.post("/search/image", response_model=SearchResult)
 async def search_by_image(
     file: UploadFile = File(...),  # noqa: B008
