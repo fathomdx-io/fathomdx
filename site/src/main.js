@@ -1,7 +1,12 @@
 import './style.css';
 import { mountSiteHeader } from './components/site-header.js';
+import { mountSiteFooter } from './components/site-footer.js';
 
 mountSiteHeader();
+mountSiteFooter([
+  { href: '/landing.html', label: 'Set up with Fathom' },
+  { href: 'https://hifathom.com', label: "Fathom's Blog" },
+]);
 
 document.querySelectorAll('a[href^="#"]').forEach((a) => {
   a.addEventListener('click', (e) => {
