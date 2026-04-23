@@ -465,8 +465,17 @@ async def proxy_query_deltas(
 ):
     c = await delta_client._get()
     params: dict = {"limit": limit}
+    # tags_include needs to reach delta-store as a list so its `@>` tag
+    # filter matches one-tag-at-a-time. Historically the proxy forwarded
+    # the raw comma-separated string, which delta-store accepted as a
+    # single-element list ["foo,bar"] and then tried to match against a
+    # delta tag literally named "foo,bar" — never matched, always empty.
+    # Both the CLI (`fathom recall --tags a,b`) and MCP's recall tool
+    # hit this bug. Split here, send repeated `?tags_include=a&tags_include=b`.
     if tags_include:
-        params["tags_include"] = tags_include
+        parts = [t.strip() for t in tags_include.split(",") if t.strip()]
+        if parts:
+            params["tags_include"] = parts
     if source:
         params["source"] = source
     if time_start:
