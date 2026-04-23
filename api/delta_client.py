@@ -1,11 +1,27 @@
 """Async HTTP client for the delta store API."""
 from __future__ import annotations
 
+import asyncio
+import logging
+import random
+
 import httpx
 
 from .settings import settings
 
+log = logging.getLogger(__name__)
+
 _client: httpx.AsyncClient | None = None
+
+# Retry tuning for idempotent reads — transient 5xx and network hiccups
+# between api and delta-store in a compose stack are not uncommon during
+# delta-store restarts or postgres recovery pauses. Three attempts with
+# jittered exponential backoff cover the usual case without turning a
+# real outage into a hang. Writes DO NOT retry: delta-store has no
+# idempotency keys and retrying a POST can create duplicate deltas.
+_RETRY_ATTEMPTS = 3
+_RETRY_BASE_DELAY = 0.2  # seconds
+_RETRY_STATUS_CODES = frozenset({502, 503, 504})
 
 
 async def _get() -> httpx.AsyncClient:
@@ -29,6 +45,44 @@ async def close():
         _client = None
 
 
+async def _request_with_retry(
+    method: str,
+    url: str,
+    *,
+    attempts: int = _RETRY_ATTEMPTS,
+    **kwargs,
+) -> httpx.Response:
+    """Issue a request, retrying on transient network / 5xx failures.
+
+    Only safe for idempotent requests — see module docstring on retries.
+    Returns the Response on success; raises the last error on exhaustion.
+    """
+    c = await _get()
+    last_exc: Exception | None = None
+    for attempt in range(attempts):
+        try:
+            r = await c.request(method, url, **kwargs)
+        except (httpx.TimeoutException, httpx.TransportError) as e:
+            last_exc = e
+        else:
+            if r.status_code not in _RETRY_STATUS_CODES:
+                return r
+            last_exc = httpx.HTTPStatusError(
+                f"server responded {r.status_code}", request=r.request, response=r
+            )
+        if attempt + 1 < attempts:
+            # Jittered exponential backoff — the jitter avoids a
+            # stampeding-herd of retries all landing at the same tick.
+            delay = _RETRY_BASE_DELAY * (2 ** attempt) * (0.5 + random.random())
+            log.warning(
+                "delta-store %s %s failed (%s), retrying in %.2fs (attempt %d/%d)",
+                method, url, last_exc, delay, attempt + 1, attempts,
+            )
+            await asyncio.sleep(delay)
+    assert last_exc is not None
+    raise last_exc
+
+
 # ── Search ──────────────────────────────────────
 
 async def search(
@@ -38,7 +92,6 @@ async def search(
     tags_include: list[str] | None = None,
     include_engagement_cloud: bool = False,
 ) -> dict:
-    c = await _get()
     body: dict = {"origin": query, "limit": min(limit, 50)}
     if radii:
         body["radii"] = radii
@@ -46,7 +99,7 @@ async def search(
         body["tags_include"] = tags_include
     if include_engagement_cloud:
         body["include_engagement_cloud"] = True
-    r = await c.post("/search", json=body)
+    r = await _request_with_retry("POST", "/search", json=body)
     r.raise_for_status()
     return r.json()
 
@@ -76,7 +129,6 @@ async def query(
     source: str | None = None,
     time_start: str | None = None,
 ) -> list:
-    c = await _get()
     params: dict = {"limit": limit}
     if tags_include:
         params["tags_include"] = tags_include
@@ -84,7 +136,7 @@ async def query(
         params["source"] = source
     if time_start:
         params["time_start"] = time_start
-    r = await c.get("/deltas", params=params)
+    r = await _request_with_retry("GET", "/deltas", params=params)
     r.raise_for_status()
     return r.json()
 
@@ -92,8 +144,7 @@ async def query(
 # ── Plan (compositional query) ──────────────────
 
 async def plan(steps: list[dict]) -> dict:
-    c = await _get()
-    r = await c.post("/plan", json={"steps": steps})
+    r = await _request_with_retry("POST", "/plan", json={"steps": steps})
     r.raise_for_status()
     return r.json()
 
@@ -105,8 +156,7 @@ async def engagement_cloud(delta_ids: list[str]) -> dict:
     engagement pointer-tag. Returns {"<id>": [DeltaSlim, ...], ...}."""
     if not delta_ids:
         return {}
-    c = await _get()
-    r = await c.post("/engagement-cloud", json={"delta_ids": delta_ids})
+    r = await _request_with_retry("POST", "/engagement-cloud", json={"delta_ids": delta_ids})
     r.raise_for_status()
     return r.json()
 
@@ -114,8 +164,7 @@ async def engagement_cloud(delta_ids: list[str]) -> dict:
 # ── Single delta ────────────────────────────────
 
 async def get_delta(delta_id: str) -> dict:
-    c = await _get()
-    r = await c.get(f"/deltas/{delta_id}")
+    r = await _request_with_retry("GET", f"/deltas/{delta_id}")
     r.raise_for_status()
     return r.json()
 
@@ -123,24 +172,21 @@ async def get_delta(delta_id: str) -> dict:
 # ── Meta ────────────────────────────────────────
 
 async def tags() -> dict:
-    c = await _get()
-    r = await c.get("/tags")
+    r = await _request_with_retry("GET", "/tags")
     r.raise_for_status()
     return r.json()
 
 
 async def stats() -> dict:
-    c = await _get()
-    r = await c.get("/stats")
+    r = await _request_with_retry("GET", "/stats")
     r.raise_for_status()
     return r.json()
 
 
 async def retrievals_history(since_seconds: int, buckets: int = 60) -> list[dict]:
     """Fetch bucketed delta-retrieval timeline from the lake."""
-    c = await _get()
-    r = await c.get(
-        "/stats/retrievals/history",
+    r = await _request_with_retry(
+        "GET", "/stats/retrievals/history",
         params={"since_seconds": since_seconds, "buckets": buckets},
     )
     r.raise_for_status()
@@ -149,9 +195,8 @@ async def retrievals_history(since_seconds: int, buckets: int = 60) -> list[dict
 
 async def usage_history(since_seconds: int, buckets: int = 60) -> list[dict]:
     """Fetch bucketed delta-write timeline from the lake (SQL-bucketed, no row cap)."""
-    c = await _get()
-    r = await c.get(
-        "/stats/usage/history",
+    r = await _request_with_retry(
+        "GET", "/stats/usage/history",
         params={"since_seconds": since_seconds, "buckets": buckets},
     )
     r.raise_for_status()
@@ -168,9 +213,8 @@ async def pressure_history(
     half_life_seconds: int,
 ) -> list[dict]:
     """Fetch bucketed weighted-decay pressure curve (SQL-computed, no row cap)."""
-    c = await _get()
-    r = await c.post(
-        "/stats/pressure/history",
+    r = await _request_with_retry(
+        "POST", "/stats/pressure/history",
         json={
             "since_seconds": since_seconds,
             "buckets": buckets,
@@ -194,9 +238,8 @@ async def pressure_volume(
     half_life_seconds: int,
 ) -> float:
     """Single weighted-decay pressure value since cutoff (or window)."""
-    c = await _get()
-    r = await c.post(
-        "/stats/pressure/volume",
+    r = await _request_with_retry(
+        "POST", "/stats/pressure/volume",
         json={
             "cutoff_ts": cutoff_ts,
             "window_seconds": window_seconds,
@@ -236,8 +279,7 @@ async def upload_media(
 
 async def recent_deltas_timestamps(limit: int = 5000) -> list[str]:
     """Fetch timestamps of recent deltas for the usage chart."""
-    c = await _get()
-    r = await c.get("/deltas", params={"limit": limit})
+    r = await _request_with_retry("GET", "/deltas", params={"limit": limit})
     r.raise_for_status()
     return [d.get("timestamp", "")[:10] for d in r.json() if d.get("timestamp")]
 
@@ -247,14 +289,13 @@ async def feed_stories(
     offset: int = 0,
     contact_slug: str | None = None,
 ) -> dict:
-    c = await _get()
     params: dict = {"limit": limit, "offset": offset}
     # delta-store's /feed/stories accepts an optional `layer` tag filter
     # to narrow by a second tag. Repurpose it as the contact scope so each
     # dashboard only sees its own contact's cards.
     if contact_slug:
         params["layer"] = f"contact:{contact_slug}"
-    r = await c.get("/feed/stories", params=params)
+    r = await _request_with_retry("GET", "/feed/stories", params=params)
     r.raise_for_status()
     return r.json()
 
@@ -271,9 +312,8 @@ async def drift(text: str, since: str | None = None) -> dict:
     api.server.refresh_crystal) means the LLM produced an artifact that
     doesn't reflect current mental state.
     """
-    c = await _get()
     body = {"text": text, "since": since or ""}
-    r = await c.post("/drift", json=body, timeout=20)
+    r = await _request_with_retry("POST", "/drift", json=body, timeout=20)
     r.raise_for_status()
     return r.json()
 
@@ -283,9 +323,8 @@ async def drift(text: str, since: str | None = None) -> dict:
 async def get_contact_row(slug: str, include_disabled: bool = False) -> dict | None:
     """Fetch the thin registry row. The full contact dict lives in the
     profile delta; consumer-api's contacts module merges the two."""
-    c = await _get()
     params = {"include_disabled": "true"} if include_disabled else {}
-    r = await c.get(f"/contacts/{slug}", params=params)
+    r = await _request_with_retry("GET", f"/contacts/{slug}", params=params)
     if r.status_code == 404:
         return None
     r.raise_for_status()
@@ -293,8 +332,7 @@ async def get_contact_row(slug: str, include_disabled: bool = False) -> dict | N
 
 
 async def list_contact_rows(include_disabled: bool = False) -> list[dict]:
-    c = await _get()
-    r = await c.get("/contacts")
+    r = await _request_with_retry("GET", "/contacts")
     r.raise_for_status()
     rows = r.json()
     if include_disabled:
@@ -324,8 +362,7 @@ async def reenable_contact_row(slug: str) -> dict:
 
 
 async def list_handles(slug: str) -> list[dict]:
-    c = await _get()
-    r = await c.get(f"/contacts/{slug}/handles")
+    r = await _request_with_retry("GET", f"/contacts/{slug}/handles")
     r.raise_for_status()
     return r.json()
 
@@ -351,9 +388,8 @@ async def remove_handle(slug: str, channel: str, identifier: str) -> None:
 
 
 async def resolve_handle(channel: str, identifier: str) -> str | None:
-    c = await _get()
-    r = await c.get(
-        "/handles/resolve",
+    r = await _request_with_retry(
+        "GET", "/handles/resolve",
         params={"channel": channel, "identifier": identifier},
     )
     r.raise_for_status()
@@ -382,10 +418,9 @@ async def centroid(tags_include: list[str] | None = None) -> dict:
     `tags_include` scopes the centroid to a tagged subset (used by the
     feed-orient crystal to anchor on `feed-engagement` deltas).
     """
-    c = await _get()
     params = {}
     if tags_include:
         params["tags_include"] = ",".join(tags_include)
-    r = await c.get("/centroid", params=params, timeout=20)
+    r = await _request_with_retry("GET", "/centroid", params=params, timeout=20)
     r.raise_for_status()
     return r.json()
