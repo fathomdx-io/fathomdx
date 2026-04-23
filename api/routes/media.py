@@ -11,6 +11,7 @@ from fastapi.responses import Response
 from pydantic import BaseModel
 
 from .. import db, delta_client
+from .._tags import has_any_tag_with_prefix
 
 router = APIRouter()
 
@@ -62,7 +63,7 @@ async def upload_media(
 
     contact = getattr(request.state, "contact", None)
     contact_slug = (contact or {}).get("slug")
-    if contact_slug and not any(t.startswith("contact:") for t in tag_list):
+    if contact_slug and not has_any_tag_with_prefix(tag_list, "contact:"):
         tag_list.append(f"contact:{contact_slug}")
 
     return await delta_client.upload_media(

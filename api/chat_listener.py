@@ -23,6 +23,7 @@ from datetime import UTC, datetime, timedelta
 
 from . import db, delta_client
 from ._bgtasks import spawn as _spawn_task
+from ._tags import tag_suffix
 
 # The uvicorn default config doesn't raise app loggers above WARNING, so
 # INFO lines from this module would be swallowed. We want the operational
@@ -290,17 +291,11 @@ class ChatListener:
 
 
 def _chat_slug(tags: list[str]) -> str | None:
-    for t in tags:
-        if t.startswith("chat:"):
-            return t[len("chat:"):]
-    return None
+    return tag_suffix(tags, "chat:")
 
 
 def _contact_slug(tags: list[str]) -> str | None:
-    for t in tags:
-        if isinstance(t, str) and t.startswith("contact:"):
-            return t[len("contact:"):]
-    return None
+    return tag_suffix(tags, "contact:")
 
 
 async def write_chat_event(

@@ -9,6 +9,7 @@ import httpx
 
 from . import delta_client
 from . import routines as routines_mod
+from ._tags import tag_suffix
 from .chat_listener import write_chat_event
 from .settings import settings
 
@@ -757,7 +758,7 @@ async def _agent_alive() -> tuple[bool, list[dict]]:
     seen_hosts = set()
     for d in deltas:
         tags = d.get("tags") or []
-        host = next((t.split(":", 1)[1] for t in tags if t.startswith("host:")), "unknown")
+        host = tag_suffix(tags, "host:") or "unknown"
         if host in seen_hosts:
             continue
         seen_hosts.add(host)
@@ -799,7 +800,7 @@ async def _known_workspaces() -> list[str]:
     seen: set[str] = set()
     for d in specs:
         tags = d.get("tags") or []
-        ws = next((t.split(":", 1)[1] for t in tags if t.startswith("workspace:")), "")
+        ws = tag_suffix(tags, "workspace:")
         if ws:
             seen.add(ws)
     return sorted(seen)

@@ -21,6 +21,7 @@ import time
 from datetime import UTC, datetime
 
 from . import delta_client
+from ._tags import tag_suffix
 
 _SPEC_KEYS_ORDER = [
     "id",
@@ -166,18 +167,15 @@ def preview_fires(schedule: str, count: int = 5) -> list[str]:
 
 
 def _routine_id_from_tags(tags: list[str]) -> str | None:
-    return next((t.split(":", 1)[1] for t in tags if t.startswith("routine-id:")), None)
+    return tag_suffix(tags, "routine-id:")
 
 
 def _fire_delta_id_from_tags(tags: list[str]) -> str | None:
-    return next((t.split(":", 1)[1] for t in tags if t.startswith("fire-delta:")), None)
+    return tag_suffix(tags, "fire-delta:")
 
 
 def _workspace_from_tags(tags: list[str], fallback: str = "") -> str:
-    return next(
-        (t.split(":", 1)[1] for t in tags if t.startswith("workspace:")),
-        fallback,
-    )
+    return tag_suffix(tags, "workspace:") or fallback
 
 
 def _ts_to_epoch(ts: str | None) -> int:

@@ -27,6 +27,7 @@ import logging
 from datetime import UTC, datetime, timedelta
 
 from . import delta_client
+from ._tags import tag_suffix
 
 log = logging.getLogger(__name__)
 
@@ -351,11 +352,7 @@ async def list_proposals(limit: int = 50) -> list[dict]:
                 parsed = {}
         except json.JSONDecodeError:
             parsed = {}
-        proposer = None
-        for t in tags:
-            if isinstance(t, str) and t.startswith("contact:"):
-                proposer = t.split(":", 1)[1]
-                break
+        proposer = tag_suffix(tags, "contact:")
         out.append({
             "id": d.get("id"),
             "created_at": d.get("timestamp"),

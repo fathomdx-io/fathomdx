@@ -13,6 +13,7 @@ import asyncio
 from dataclasses import dataclass
 
 from . import delta_client
+from ._tags import tag_suffix
 
 # ── Gate identifiers ──────────────────────────────
 
@@ -173,18 +174,10 @@ async def evaluate(
     # always the caller's own slug on a self-write. For admin-written
     # deltas addressed to others (internal paths), this gate doesn't
     # apply because internals bypass evaluate() entirely.
-    tag_contact = None
-    for t in tags:
-        if isinstance(t, str) and t.startswith("contact:"):
-            tag_contact = t[len("contact:"):]
-            break
+    tag_contact = tag_suffix(tags, "contact:")
 
     # Chat session referenced in the tag set, for session_member_or_admin.
-    session_slug = None
-    for t in tags:
-        if isinstance(t, str) and t.startswith("chat:"):
-            session_slug = t[len("chat:"):]
-            break
+    session_slug = tag_suffix(tags, "chat:")
 
     for tag in tags:
         gate = resolve(tag)

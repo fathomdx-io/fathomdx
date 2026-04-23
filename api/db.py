@@ -4,6 +4,7 @@ from __future__ import annotations
 from datetime import UTC, datetime, timedelta
 
 from . import delta_client
+from ._tags import tag_suffix
 from .slug import generate_slug
 
 # Match loop-api conventions exactly
@@ -24,10 +25,7 @@ LAKE_SESSION_LIST_LIMIT = 1000
 
 def _extract_chat_slug(tags: list[str]) -> str | None:
     """Return the chat:<slug> slug from a tag list."""
-    for tag in tags:
-        if tag.startswith("chat:"):
-            return tag[5:]
-    return None
+    return tag_suffix(tags, "chat:")
 
 
 async def create_session(title: str = "New session") -> dict:
