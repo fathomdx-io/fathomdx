@@ -144,6 +144,7 @@ app.add_middleware(
 app.add_middleware(auth.TokenAuthMiddleware)
 
 # ── Routers (one file per resource cluster under api/routes/) ───
+from .routes import agent_instructions as _agent_instructions_routes  # noqa: E402
 from .routes import agents as _agents_routes  # noqa: E402
 from .routes import auth as _auth_routes  # noqa: E402
 from .routes import contacts as _contacts_routes  # noqa: E402
@@ -155,6 +156,7 @@ from .routes import sessions as _sessions_routes  # noqa: E402
 from .routes import sources as _sources_routes  # noqa: E402
 from .routes import vitals as _vitals_routes  # noqa: E402
 
+app.include_router(_agent_instructions_routes.router)
 app.include_router(_agents_routes.router)
 app.include_router(_auth_routes.router)
 app.include_router(_contacts_routes.router)

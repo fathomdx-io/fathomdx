@@ -1,14 +1,23 @@
 #!/usr/bin/env bash
 # Fathom crystal hook — runs on SessionStart, injects:
-#   1. Identity crystal (who am I) — from /v1/crystal, with /v1/search fallback.
-#   2. Birds-eye situational awareness (what's happening right now) —
+#   1. Agent voice / tool guide (canonical block from /v1/agent-instructions)
+#      so a fresh claude knows the lake exists, what tools to call, and how
+#      to speak from memory. Source of truth lives on the API; updates ship
+#      without re-publishing this script.
+#   2. Identity crystal (who am I) — from /v1/crystal, with /v1/search fallback.
+#   3. Birds-eye situational awareness (what's happening right now) —
 #      aggregated from the last N minutes of deltas: source counts,
 #      active claude-code sessions, top tags. Lets a fresh claude boot
 #      knowing its siblings exist.
 #
+# If the API is unreachable (no /health), we inject a clear "API down,
+# your mcp__fathom__* tools will fail" warning instead — never a baked
+# fallback that pretends the lake is available.
+#
 # Env:
 #   FATHOM_API_URL       — consumer API (default: http://localhost:8201)
 #   FATHOM_API_KEY       — bearer token from Settings → API Keys
+#   FATHOM_SURFACE       — instructions surface key (default: claude-code)
 #   BIRDSEYE_WINDOW_MIN  — birds-eye lookback window (default: 30)
 #   BIRDSEYE_LIMIT       — max deltas pulled for aggregation (default: 500)
 #
@@ -18,6 +27,7 @@ set -euo pipefail
 
 FATHOM_API_URL="${FATHOM_API_URL:-http://localhost:8201}"
 FATHOM_API_KEY="${FATHOM_API_KEY:-}"
+FATHOM_SURFACE="${FATHOM_SURFACE:-claude-code}"
 WINDOW_MIN="${BIRDSEYE_WINDOW_MIN:-30}"
 BIRDSEYE_LIMIT="${BIRDSEYE_LIMIT:-500}"
 
@@ -25,7 +35,7 @@ INPUT=$(cat)
 EVENT=$(echo "$INPUT" | python3 -c "import sys,json; print(json.load(sys.stdin).get('hook_event_name',''))")
 [ "$EVENT" != "SessionStart" ] && exit 0
 
-export FATHOM_API_URL FATHOM_API_KEY WINDOW_MIN BIRDSEYE_LIMIT
+export FATHOM_API_URL FATHOM_API_KEY FATHOM_SURFACE WINDOW_MIN BIRDSEYE_LIMIT
 
 python3 <<'PYEOF'
 import datetime, json, os, sys, urllib.parse, urllib.request
@@ -33,6 +43,7 @@ from collections import Counter
 
 API_URL = os.environ['FATHOM_API_URL'].rstrip('/')
 API_KEY = os.environ.get('FATHOM_API_KEY', '')
+SURFACE = os.environ.get('FATHOM_SURFACE', 'claude-code')
 WINDOW_MIN = int(os.environ.get('WINDOW_MIN', '30'))
 LIMIT = int(os.environ.get('BIRDSEYE_LIMIT', '500'))
 
@@ -46,6 +57,40 @@ def _fetch(url, *, data=None, method='GET', timeout=5):
     return json.loads(urllib.request.urlopen(req, timeout=timeout).read())
 
 
+def api_is_up():
+    try:
+        urllib.request.urlopen(f'{API_URL}/health', timeout=2)
+        return True
+    except Exception:
+        return False
+
+
+def api_unreachable_block():
+    return (
+        f"--- ⚠ Fathom API unreachable at {API_URL} ---\n\n"
+        f"The fathom MCP server can't be reached. Your `mcp__fathom__*` tools "
+        f"(remember, recall, write, engage, mind_stats, propose_contact) will "
+        f"fail until the API is back up. The identity crystal, birds-eye "
+        f"situational awareness, and tool guide that normally appear here "
+        f"are all unavailable for the same reason.\n\n"
+        f"To check: `curl {API_URL}/health` should return 200. If it doesn't, "
+        f"the consumer-fathom api container probably needs to start "
+        f"(`podman compose up -d api` from the fathomdx repo)."
+    )
+
+
+def instructions_block():
+    qs = urllib.parse.urlencode({'surface': SURFACE})
+    try:
+        data = _fetch(f'{API_URL}/v1/agent-instructions?{qs}', timeout=3)
+        text = data.get('text', '')
+        if text:
+            return text
+    except Exception:
+        pass
+    return None
+
+
 def crystal_block():
     # Primary: dedicated crystal endpoint.
     try:
@@ -56,7 +101,8 @@ def crystal_block():
             return f'Identity crystal (crystallized {created}):\n\n{text}'
     except Exception:
         pass
-    # Fallback: search the lake.
+    # Fallback: search the lake (crystal endpoint missing or empty, but
+    # the lake itself may still have an older crystal sitting in it).
     try:
         body = json.dumps({
             'text': 'identity crystal who am I',
@@ -101,11 +147,6 @@ def birdseye_block():
         f"--- What's happening right now (last {WINDOW_MIN} min · "
         f"{len(deltas)} delta{'s' if len(deltas) != 1 else ''}) ---",
         "",
-        "Other sessions, agents, and sources are writing into the same lake. "
-        "Use `recall` (with source/tag/time filters) to drill in when it matters; "
-        "send a message to another claude session by writing a delta tagged "
-        "`for-session:<id>` (it'll surface in their next recall).",
-        "",
     ]
     src_str = ', '.join(f'{s} ({c})' for s, c in sources.most_common(8))
     lines.append(f"sources: {src_str}")
@@ -119,13 +160,24 @@ def birdseye_block():
     return '\n'.join(lines)
 
 
+# Single health check up front. If API is down, all three blocks would
+# fail anyway — surface that explicitly so the agent knows its tools are
+# offline rather than silently producing an empty SessionStart context.
+if not api_is_up():
+    print(json.dumps({
+        'hookSpecificOutput': {
+            'hookEventName': 'SessionStart',
+            'systemMessage': 'Fathom API unreachable — MCP tools offline',
+            'additionalContext': api_unreachable_block(),
+        }
+    }))
+    sys.exit(0)
+
 parts = []
-c = crystal_block()
-if c:
-    parts.append(c)
-b = birdseye_block()
-if b:
-    parts.append(b)
+for fn in (instructions_block, crystal_block, birdseye_block):
+    block = fn()
+    if block:
+        parts.append(block)
 
 if not parts:
     sys.exit(0)
