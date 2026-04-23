@@ -1,0 +1,46 @@
+# Pre-commit hooks for fathomdx. Run `pre-commit install` once to activate.
+# Site/ is excluded — it's ralphed on its own.
+
+exclude: "^(site/|ui/|assets/|addons/.*/local-ui/|addons/browser-extension/dist/)"
+
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+      - id: trailing-whitespace
+        exclude: "\\.md$"  # markdown uses trailing whitespace for line breaks
+      - id: end-of-file-fixer
+      - id: check-yaml
+      - id: check-toml
+      - id: check-json
+        exclude: "addons/browser-extension/manifest.json$"  # may contain comments
+      - id: check-merge-conflict
+      - id: check-added-large-files
+        args: ["--maxkb=500"]
+      - id: mixed-line-ending
+        args: ["--fix=lf"]
+
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.8.4
+    hooks:
+      - id: ruff
+        args: [--fix]
+      - id: ruff-format
+
+  - repo: local
+    hooks:
+      - id: eslint
+        name: eslint (addons)
+        entry: npx --no-install eslint
+        language: system
+        files: "^addons/.*\\.(js|mjs|cjs)$"
+        exclude: "^addons/(.*/node_modules/|.*/local-ui/|browser-extension/dist/)"
+        pass_filenames: true
+
+      - id: prettier
+        name: prettier (addons)
+        entry: npx --no-install prettier --write
+        language: system
+        files: "^addons/.*\\.(js|mjs|cjs|json|md)$"
+        exclude: "^addons/(.*/node_modules/|.*/local-ui/|browser-extension/dist/|.*/package-lock\\.json)$"
+        pass_filenames: true

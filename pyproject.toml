@@ -1,0 +1,83 @@
+[project]
+name = "fathomdx"
+version = "0.0.0"
+description = "Fathom self-host stack: consumer API, delta store, source runner."
+requires-python = ">=3.12"
+
+# Runtime deps live in per-component requirements.txt files (api/, delta-store/,
+# source-runner/) — Docker images install from those. This pyproject exists for
+# tooling config (ruff, pytest) and dev-time extras only.
+
+[project.optional-dependencies]
+dev = [
+  "ruff>=0.8",
+  "pytest>=8",
+  "pytest-asyncio>=0.24",
+  "httpx>=0.28",
+  "pytest-httpx>=0.34",
+]
+
+# ── ruff ────────────────────────────────────────────────────────────────────
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+extend-exclude = [
+  "site",
+  "addons",
+  "ui",
+  "assets",
+  "docs",
+  "**/__pycache__",
+  "**/.venv",
+  "**/node_modules",
+]
+
+[tool.ruff.lint]
+# Starter ruleset — expand once the codebase is clean on these.
+select = [
+  "E",    # pycodestyle errors
+  "W",    # pycodestyle warnings
+  "F",    # pyflakes (unused imports, undefined names)
+  "I",    # isort
+  "B",    # bugbear (common bugs)
+  "UP",   # pyupgrade (modern syntax)
+  "SIM",  # flake8-simplify
+  "RUF",  # ruff-specific
+]
+ignore = [
+  "E501",   # line too long — formatter handles wrapping; long strings/URLs are ok
+  "B008",   # function call in default arg — FastAPI Depends() pattern
+  "SIM108", # ternary vs if/else — readability judgment call
+]
+
+[tool.ruff.lint.per-file-ignores]
+"**/tests/**" = ["B", "SIM"]   # tests get latitude
+"**/conftest.py" = ["F401"]    # fixtures look unused but aren't
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+
+# ── pytest ──────────────────────────────────────────────────────────────────
+
+[tool.pytest.ini_options]
+minversion = "8.0"
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
+pythonpath = ["."]
+testpaths = [
+  "api/tests",
+  "delta-store/tests",
+  "source-runner/tests",
+]
+python_files = ["test_*.py", "*_test.py"]
+addopts = [
+  "-ra",              # short summary of non-passes
+  "--strict-markers",
+  "--strict-config",
+]
+filterwarnings = [
+  "error",
+  "ignore::DeprecationWarning:pydantic.*",
+]

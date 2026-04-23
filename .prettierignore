@@ -1,0 +1,9 @@
+node_modules/
+site/
+ui/
+assets/
+addons/*/node_modules/
+addons/browser-extension/dist/
+addons/*/local-ui/
+*.min.js
+*.min.css
