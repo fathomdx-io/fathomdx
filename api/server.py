@@ -84,6 +84,20 @@ class FeedEngagementRequest(BaseModel):
     chat_session: str | None = None
 
 
+class EngagementRequest(BaseModel):
+    """Generic engagement on any delta — sediment, memory, whatever.
+
+    `kind` is the relationship type: `refutes`, `affirms`, or `reply-to`.
+    The tag written is `<kind>:<target_id>`; content is the caller's prose.
+    Use /v1/feed/engagement for the feed-specific +/− shape; use this one
+    for repair of bad sediment and for lake-wide engagement signals.
+    """
+
+    target_id: str
+    kind: str  # "refutes" | "affirms" | "reply-to"
+    reason: str = ""
+
+
 # ── App ─────────────────────────────────────────
 
 
@@ -989,6 +1003,48 @@ async def write_feed_engagement(req: FeedEngagementRequest, request: Request):
         content=json.dumps(payload, ensure_ascii=False),
         tags=tags,
         source="consumer-api",
+    )
+    return {"status": "ok", "id": written.get("id")}
+
+
+_ENGAGEMENT_KINDS = ("refutes", "affirms", "reply-to")
+
+
+@app.post("/v1/engagement")
+async def write_engagement(req: EngagementRequest, request: Request):
+    """First-class repair / affirmation channel on any delta in the lake.
+
+    Writes a small delta whose tags include a single engagement pointer
+    (`refutes:<id>`, `affirms:<id>`, or `reply-to:<id>`) plus the caller's
+    contact. Content is free-text reasoning. Retrieval folds these into
+    the engagement cloud on the target — refutations lower its surfacing,
+    affirmations raise it.
+
+    This is the safety net for reflexive sediment auto-writeback: a bad
+    synthesis gets a `refutes:` delta pointing at it with the reasoning,
+    and the next recall ranks it lower and shows the refutation inline.
+    """
+    kind = (req.kind or "").lower()
+    if kind not in _ENGAGEMENT_KINDS:
+        raise HTTPException(
+            400, f"unknown engagement kind: {kind!r} (want one of {_ENGAGEMENT_KINDS})"
+        )
+    target_id = (req.target_id or "").strip()
+    if not target_id:
+        raise HTTPException(400, "target_id required")
+
+    contact = getattr(request.state, "contact", None)
+    contact_slug = (contact or {}).get("slug")
+
+    tags = [f"{kind}:{target_id}"]
+    if contact_slug:
+        tags.append(f"contact:{contact_slug}")
+
+    content = (req.reason or "").strip()
+    written = await delta_client.write(
+        content=content,
+        tags=tags,
+        source="fathom-engagement",
     )
     return {"status": "ok", "id": written.get("id")}
 
