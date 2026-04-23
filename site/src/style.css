@@ -238,8 +238,9 @@ main {
   -webkit-mask-image: radial-gradient(ellipse at center, rgba(0,0,0,1) 55%, rgba(0,0,0,0) 100%);
 }
 /* Dark scrim over the left half so the hero text stays legible while the
-   video keeps its presence on the right. */
-.hero::after {
+   video keeps its presence on the right. Scoped to heroes that actually
+   have a video bg — otherwise it just dims text on pages like landing. */
+.hero:has(.hero-bg-video)::after {
   content: '';
   position: absolute;
   top: 0;
@@ -328,6 +329,188 @@ main {
   flex-wrap: wrap;
   gap: 12px;
   margin-bottom: 56px;
+}
+
+/* ── Landing hero (two-column with product screen) ──── */
+
+.landing-hero-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 48px;
+  align-items: center;
+  perspective: 1600px;
+}
+.landing-hero-copy { max-width: 540px; }
+.landing-hero-screen {
+  justify-self: center;
+  margin: 0;
+  text-align: center;
+  transform-style: preserve-3d;
+}
+.landing-hero-screen img {
+  display: block;
+  max-width: 300px;
+  width: 100%;
+  height: auto;
+  border-radius: 28px;
+  border: 1px solid var(--rule);
+  box-shadow:
+    0 1px 2px rgba(0, 0, 0, 0.35),
+    0 24px 48px -12px rgba(0, 0, 0, 0.55),
+    0 60px 100px -30px rgba(0, 0, 0, 0.5);
+  transform: rotateY(-8deg) rotateX(4deg);
+  animation: levitate-phone 7s ease-in-out infinite;
+  transition: transform 400ms ease;
+}
+.landing-hero-screen:hover img {
+  transform: rotateY(-3deg) rotateX(1deg) translateY(-4px);
+  animation-play-state: paused;
+}
+
+@keyframes levitate-phone {
+  0%, 100% { transform: rotateY(-8deg) rotateX(4deg) translateY(0); }
+  50%      { transform: rotateY(-8deg) rotateX(4deg) translateY(-10px); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .landing-hero-screen img { animation: none; }
+}
+.landing-hero-screen figcaption {
+  margin-top: 14px;
+  font-family: var(--mono);
+  font-size: var(--text-xs);
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+}
+
+@media (min-width: 900px) {
+  .landing-hero-grid {
+    grid-template-columns: 1.1fr 1fr;
+    gap: 72px;
+  }
+  .landing-hero-screen { justify-self: end; }
+}
+
+/* Screenshot figure (inline product shot in a section) */
+.screen-figure {
+  margin: 32px auto 0;
+  max-width: 620px;
+  text-align: center;
+}
+.screen-figure img {
+  width: 100%;
+  height: auto;
+  display: block;
+  border-radius: 18px;
+  border: 1px solid var(--rule);
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.45);
+}
+.screen-figure-wide {
+  max-width: 820px;
+}
+
+/* Two-column section — copy left, screenshot right. */
+.section-split {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 48px;
+  align-items: center;
+  /* Parent perspective gives child transforms real depth. */
+  perspective: 1600px;
+}
+.section-split .split-copy { max-width: 520px; }
+.section-split .split-screen {
+  margin: 0;
+  position: relative;
+  transform-style: preserve-3d;
+}
+.section-split .split-screen img {
+  position: relative;
+  z-index: 1;
+  width: 100%;
+  height: auto;
+  display: block;
+  border-radius: 18px;
+  border: 1px solid var(--rule);
+  /* Layered shadows do all the float work — tight contact shadow up top,
+     medium ambient, then a deep soft cast far below for the "hovering" feel. */
+  box-shadow:
+    0 1px 2px rgba(0, 0, 0, 0.35),
+    0 24px 48px -12px rgba(0, 0, 0, 0.55),
+    0 60px 100px -30px rgba(0, 0, 0, 0.5);
+  /* Slight perspective tilt. */
+  transform: rotateY(-10deg) rotateX(4deg);
+  animation: levitate 7s ease-in-out infinite;
+  transition: transform 400ms ease;
+}
+.section-split .split-screen:hover img {
+  transform: rotateY(-2deg) rotateX(1deg) translateY(-4px);
+  animation-play-state: paused;
+}
+
+@keyframes levitate {
+  0%, 100% { transform: rotateY(-10deg) rotateX(4deg) translateY(0); }
+  50%      { transform: rotateY(-10deg) rotateX(4deg) translateY(-10px); }
+}
+
+@media (min-width: 900px) {
+  .section-split {
+    grid-template-columns: 1fr 1fr;
+    gap: 64px;
+  }
+}
+@media (max-width: 899px) {
+  /* Screenshots shrink so they don't dominate the stacked layout. */
+  .section-split .split-screen,
+  .section-split .about-figure {
+    max-width: 75%;
+    justify-self: center;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .section-split .split-screen img { animation: none; }
+}
+
+/* ── Internal page head ────────────────────────────── */
+/* Smaller, quieter title block for documentation/utility pages. Keeps the
+   serif + accent-em register of the hero but drops the billboard scale,
+   stamp, and split subtitle. */
+
+.page-head {
+  padding-top: 48px;
+  padding-bottom: 28px;
+  border-bottom: 1px solid var(--rule-soft);
+  margin-bottom: 48px;
+  max-width: 780px;
+}
+.page-head-eyebrow {
+  display: inline-block;
+  font-family: var(--mono);
+  font-size: var(--text-xs);
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--accent);
+  margin-bottom: 14px;
+}
+.page-head h1 {
+  font-family: var(--serif);
+  font-weight: 400;
+  font-size: clamp(32px, 4.5vw, 44px);
+  line-height: 1.08;
+  letter-spacing: -0.01em;
+  color: var(--ink);
+  margin: 0 0 12px;
+}
+.page-head h1 em {
+  font-style: italic;
+  color: var(--accent);
+}
+.page-head-lede {
+  font-size: var(--text-md);
+  line-height: 1.55;
+  color: var(--ink-soft);
+  max-width: 62ch;
+  margin: 0;
 }
 
 .network-comic {

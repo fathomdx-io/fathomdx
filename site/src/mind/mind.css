@@ -218,6 +218,98 @@ html, body {
   pointer-events: none;
 }
 
+/* ── Touch controls ─────────────────────────────────── */
+
+#touch-bar {
+  position: fixed;
+  left: 18px;
+  bottom: 18px;
+  z-index: 6;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  align-items: flex-start;
+  pointer-events: none;
+}
+#tc-toggle {
+  pointer-events: auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  padding: 0;
+  border-radius: 10px;
+  background: rgba(13, 31, 38, 0.65);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+  border: 1px solid var(--rule-soft);
+  color: var(--ink-soft);
+  cursor: pointer;
+  transition: color 140ms ease, border-color 140ms ease, background 140ms ease;
+}
+#tc-toggle svg {
+  width: 22px;
+  height: 22px;
+  display: block;
+}
+#tc-toggle:hover {
+  color: var(--ink);
+  border-color: var(--ink-faint);
+}
+#tc-toggle.active {
+  color: var(--accent);
+  border-color: var(--accent);
+}
+
+#touch-controls {
+  pointer-events: auto;
+  display: flex;
+  align-items: flex-end;
+  gap: 18px;
+  user-select: none;
+  -webkit-user-select: none;
+  touch-action: none;
+}
+.tc-dpad {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+}
+.tc-dpad-row {
+  display: flex;
+  gap: 6px;
+}
+.tc-verticals {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+#touch-controls button {
+  width: 52px;
+  height: 52px;
+  background: rgba(13, 31, 38, 0.62);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+  border: 1px solid var(--rule-soft);
+  border-radius: 12px;
+  color: var(--ink-soft);
+  font-size: 22px;
+  font-family: var(--sans);
+  cursor: pointer;
+  transition: color 100ms ease, border-color 100ms ease, background 100ms ease, transform 100ms ease;
+  touch-action: none;
+  -webkit-tap-highlight-color: transparent;
+}
+#touch-controls button.pressed,
+#touch-controls button:active {
+  color: var(--accent);
+  border-color: var(--accent);
+  background: rgba(13, 31, 38, 0.82);
+  transform: scale(0.94);
+}
+
 /* ── CTA invite — post-tour conversion card ─────────── */
 
 #cta-invite {
@@ -414,6 +506,13 @@ html, body {
 }
 .caption.visible {
   opacity: 1;
+}
+/* When the post-tour CTA card is showing, lift captions above it so the
+   card doesn't eat the narration. Bottom-right card is ~130px tall +
+   24px offset + 24px breathing room ≈ 180px. */
+body.cta-visible .caption {
+  bottom: 200px;
+  transition: bottom 320ms ease;
 }
 .caption em {
   font-style: italic;

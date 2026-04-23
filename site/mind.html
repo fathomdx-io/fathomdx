@@ -96,7 +96,7 @@
           fills the same way.
         </p>
         <div class="cta-invite-actions">
-          <a class="cta-invite-btn" href="https://hifathom.com/deltas">
+          <a class="cta-invite-btn" href="/landing.html">
             Set up with Fathom →
           </a>
           <button id="hud-replay" type="button" class="cta-invite-btn-ghost">
@@ -111,6 +111,31 @@
       <div class="resume-inner">
         <p>Click to keep walking.</p>
         <a href="/" class="mono">or leave Fathom's mind →</a>
+      </div>
+    </div>
+
+    <!-- Touch controls — revealed once the walk starts, collapsed by
+         default, toggleable via the gamepad button. -->
+    <div id="touch-bar" hidden>
+      <button id="tc-toggle" type="button" aria-label="Toggle touch controls">
+        <svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+          <path fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"
+            d="M7 9h3M8.5 7.5v3M14 9.5h.01M16.5 10.5h.01M17.5 8.5h.01M15.5 8.5h.01M17 15c2.2 0 4-1.9 4-4.5S19.2 6 17 6H7c-2.2 0-4 1.9-4 4.5S4.8 15 7 15l2-2h6l2 2Z"/>
+        </svg>
+      </button>
+      <div id="touch-controls" hidden>
+        <div class="tc-dpad">
+          <button type="button" data-key="KeyW" aria-label="Forward">▲</button>
+          <div class="tc-dpad-row">
+            <button type="button" data-key="KeyA" aria-label="Left">◀</button>
+            <button type="button" data-key="KeyS" aria-label="Back">▼</button>
+            <button type="button" data-key="KeyD" aria-label="Right">▶</button>
+          </div>
+        </div>
+        <div class="tc-verticals">
+          <button type="button" data-key="Space" aria-label="Rise">↑</button>
+          <button type="button" data-key="ShiftLeft" aria-label="Sink">↓</button>
+        </div>
       </div>
     </div>
 

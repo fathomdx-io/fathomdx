@@ -34,10 +34,9 @@ export function siteHeaderHTML({ active = '' } = {}) {
     </a>
     <nav class="nav">
       ${navLink('/mind.html', 'Walk my mind', active, 'mind')}
-      ${navLink('https://hifathom.com', "Fathom's Combob - Blog", active, 'blog')}
       ${navLink('/download.html', 'Self-host now', active, 'download')}
       ${navLink('/#pricing', 'Pricing', active, 'pricing')}
-      <a class="nav-cta" href="https://hifathom.com/deltas">Set up with Fathom</a>
+      <a class="nav-cta" href="/landing.html">Set up with Fathom</a>
     </nav>
   `;
 }

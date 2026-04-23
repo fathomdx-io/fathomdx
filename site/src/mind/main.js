@@ -583,10 +583,15 @@ function initControls() {
   });
   controls.addEventListener('unlock', () => {
     if (!entered) return;
-    resumeEl.hidden = false;
+    // If the touch controls are open, the visitor is deliberately in
+    // touch mode — don't surface the "click to keep walking" prompt.
+    const touchCtrls = document.getElementById('touch-controls');
+    const touchMode = touchCtrls && !touchCtrls.hidden;
+    if (!touchMode) resumeEl.hidden = false;
     if (ctaInviteEl && !ctaDismissed) {
       ctaInviteEl.hidden = false;
       ctaShown = true;
+      document.body.classList.add('cta-visible');
     }
   });
 
@@ -600,12 +605,105 @@ function initControls() {
       controls.unlock();
     }
     if (e.code === 'Enter' && entered) {
-      window.location.href = 'https://hifathom.com/deltas';
+      window.location.href = '/landing.html';
     }
   });
   window.addEventListener('keyup', (e) => {
     keys.delete(e.code);
   });
+
+  initTouchControls();
+}
+
+// ── Touch controls ───────────────────────────────────
+// On touch devices: d-pad + vertical buttons synthesize WASD / Space / Shift
+// into the same `keys` set updateMovement reads. Single-finger drag on the
+// canvas rotates the camera (Euler YXZ, same as PointerLockControls).
+function initTouchControls() {
+  const touchBar = document.getElementById('touch-bar');
+  const touchCtrls = document.getElementById('touch-controls');
+  const toggleBtn = document.getElementById('tc-toggle');
+  if (!touchBar || !touchCtrls || !toggleBtn) return;
+
+  // Both start collapsed. The walk-start handler reveals #touch-bar so
+  // the gamepad toggle appears; the toggle then flips #touch-controls.
+  touchBar.hidden = true;
+  touchCtrls.hidden = true;
+  toggleBtn.classList.remove('active');
+
+  toggleBtn.addEventListener('click', () => {
+    touchCtrls.hidden = !touchCtrls.hidden;
+    toggleBtn.classList.toggle('active', !touchCtrls.hidden);
+  });
+
+  // Button presses → fake key events.
+  for (const btn of touchCtrls.querySelectorAll('[data-key]')) {
+    const key = btn.dataset.key;
+    const press = (e) => {
+      e.preventDefault();
+      keys.add(key);
+      btn.classList.add('pressed');
+      btn.setPointerCapture?.(e.pointerId);
+    };
+    const release = (e) => {
+      e.preventDefault();
+      keys.delete(key);
+      btn.classList.remove('pressed');
+    };
+    btn.addEventListener('pointerdown', press);
+    btn.addEventListener('pointerup', release);
+    btn.addEventListener('pointercancel', release);
+    btn.addEventListener('pointerleave', release);
+  }
+
+  // Single-finger drag on the canvas → camera rotation. The button overlay
+  // already stops touches on its own elements from reaching the canvas.
+  const LOOK_SENS = 0.0035;
+  const _euler = new THREE.Euler(0, 0, 0, 'YXZ');
+  const minPitch = -Math.PI / 2 + 0.1;
+  const maxPitch =  Math.PI / 2 - 0.1;
+  let lookId = null;
+  let lastX = 0, lastY = 0;
+
+  canvas.addEventListener('touchstart', (e) => {
+    if (lookId !== null) return;
+    if (!entered) return;
+    const t = e.changedTouches[0];
+    lookId = t.identifier;
+    lastX = t.clientX;
+    lastY = t.clientY;
+  }, { passive: true });
+
+  canvas.addEventListener('touchmove', (e) => {
+    if (lookId === null) return;
+    for (const t of e.changedTouches) {
+      if (t.identifier !== lookId) continue;
+      const dx = t.clientX - lastX;
+      const dy = t.clientY - lastY;
+      lastX = t.clientX;
+      lastY = t.clientY;
+      _euler.setFromQuaternion(camera.quaternion);
+      // FPS look direction — drag right → camera looks right, drag down
+      // → camera looks down. Matches PointerLockControls' mouse behavior.
+      _euler.y -= dx * LOOK_SENS;
+      _euler.x -= dy * LOOK_SENS;
+      _euler.x = Math.max(minPitch, Math.min(maxPitch, _euler.x));
+      camera.quaternion.setFromEuler(_euler);
+      e.preventDefault();
+      break;
+    }
+  }, { passive: false });
+
+  const endTouch = (e) => {
+    for (const t of e.changedTouches) {
+      if (t.identifier === lookId) {
+        lookId = null;
+        break;
+      }
+    }
+  };
+  canvas.addEventListener('touchend', endTouch, { passive: true });
+  canvas.addEventListener('touchcancel', endTouch, { passive: true });
 }
 
 function updateMovement(dt) {
@@ -626,7 +724,9 @@ function updateMovement(dt) {
   const target = tmpVec.set(r, v, -f).multiplyScalar(speed);
   velocity.lerp(target, Math.min(1, dt * 10));
 
-  if (controls.isLocked) {
+  // Move whenever the visitor is in the walk — pointer-lock (desktop) OR
+  // touch (mobile). Either is enough.
+  if (entered) {
     controls.moveRight(velocity.x * dt);
     controls.moveForward(-velocity.z * dt);
     camera.position.y += velocity.y * dt;
@@ -773,12 +873,14 @@ function maybeShowCTA() {
   if (tourElapsed < CTA_SHOW_AT) return;
   ctaInviteEl.hidden = false;
   ctaShown = true;
+  document.body.classList.add('cta-visible');
 }
 
 if (ctaCloseBtn) {
   ctaCloseBtn.addEventListener('click', () => {
     ctaDismissed = true;
     ctaInviteEl.hidden = true;
+    document.body.classList.remove('cta-visible');
   });
 }
 
@@ -1084,6 +1186,7 @@ async function main() {
   startBtn.addEventListener('click', () => {
     introEl.style.display = 'none';
     hudEl.hidden = false;
+    document.getElementById('touch-bar').hidden = false;
     entered = true;
     const t = performance.now() / 1000;
     playbackStart = t;

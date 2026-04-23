@@ -13,6 +13,7 @@ export default defineConfig({
         mind: resolve(import.meta.dirname, 'mind.html'),
         download: resolve(import.meta.dirname, 'download.html'),
         contact: resolve(import.meta.dirname, 'contact.html'),
+        landing: resolve(import.meta.dirname, 'landing.html'),
       },
     },
   },

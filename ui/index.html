@@ -7266,11 +7266,29 @@ GET  /v1/usage               Usage stats`,
         <div class="tail"><span>${_esc(tail)}</span>${linkHtml}<span class="action">Explore →</span>${engagementHtml}</div>
       </div>`;
 
+      // Fallback cascade: if the primary image errors (expired signed URL,
+      // CORS block, hotlink reject), try other image refs on the story
+      // before giving up and hiding the hero. Dedup against the primary.
+      const fallbacks = [];
+      const seen = new Set([imgSrc]);
+      const _push = (ref) => {
+        const src = _resolveMediaSrc(ref);
+        if (src && !seen.has(src)) { seen.add(src); fallbacks.push(src); }
+      };
+      if (Array.isArray(s.media)) s.media.forEach(_push);
+      if (s.media_hash) _push(s.media_hash);
+      const fbAttr = fallbacks.length
+        ? ` data-img-fallbacks="${_esc(JSON.stringify(fallbacks))}"`
+        : '';
+
       if (imgSrc && layout === 'thumb') {
+        // Thumb uses a CSS background-image — it can't fire img error
+        // events, so no fallback cascade is possible here. If the URL
+        // 404s, we just see an empty tile. Rare enough to leave as-is.
         card.classList.add('card-horiz');
         card.innerHTML = `<a href="${imgSrc}" class="glightbox thumb" data-gallery="feed" style="background-image: url('${imgSrc}')"></a>${bodyHtml}${mediaHtml}`;
       } else if (imgSrc) {
-        card.innerHTML = `<a href="${imgSrc}" class="glightbox card-img-hero" data-gallery="feed"><img src="${imgSrc}" alt="" style="width:100%;height:100%;object-fit:cover;" loading="lazy" /></a>${bodyHtml}${mediaHtml}`;
+        card.innerHTML = `<a href="${imgSrc}" class="glightbox card-img-hero" data-gallery="feed"><img src="${imgSrc}" alt="" style="width:100%;height:100%;object-fit:cover;" loading="lazy"${fbAttr} /></a>${bodyHtml}${mediaHtml}`;
       } else {
         card.innerHTML = `${bodyHtml}${mediaHtml}`;
       }
@@ -7573,17 +7591,26 @@ GET  /v1/usage               Usage stats`,
     _startFeedLivePoll();
     api('/v1/feed/visit', { method: 'POST' }).catch(() => {});
 
-    // ── Image handling: 404 hide + lightbox ────
-    // Hide any image that fails to load (broken URL, 403, etc.)
+    // ── Image handling: fallback cascade + hide + lightbox ────
+    // On img load failure (expired signed URL, CORS, hotlink reject), try
+    // the next ref from data-img-fallbacks before giving up. Falls through
+    // to display:none on the hero when no fallback remains, so broken
+    // imagery doesn't leave an empty rectangle.
     document.addEventListener('error', (e) => {
-      if (e.target.tagName === 'IMG') {
-        const el = e.target;
-        // If it's a hero background, hide the hero div
-        const hero = el.closest('.card-img-hero');
-        if (hero) { hero.style.display = 'none'; return; }
-        // Otherwise hide the image itself
-        el.style.display = 'none';
+      if (e.target.tagName !== 'IMG') return;
+      const el = e.target;
+      const hero = el.closest('.card-img-hero');
+      let fallbacks = [];
+      try { fallbacks = JSON.parse(el.dataset.imgFallbacks || '[]'); } catch {}
+      if (fallbacks.length) {
+        const next = fallbacks.shift();
+        el.dataset.imgFallbacks = JSON.stringify(fallbacks);
+        if (hero) hero.href = next;
+        el.src = next;
+        return;
       }
+      if (hero) { hero.style.display = 'none'; return; }
+      el.style.display = 'none';
     }, true);
 
     // ── Background image capture ────────────────
