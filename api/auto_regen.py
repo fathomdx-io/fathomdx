@@ -18,6 +18,7 @@ import logging
 from datetime import datetime
 
 from . import crystal, crystal_anchor, delta_client, drift
+from ._bgtasks import spawn as _spawn_task
 from ._time import now as _now
 from .settings import settings
 
@@ -125,7 +126,7 @@ async def _check_once() -> dict:
     if snap.get("no_crystal"):
         decision = "cooldown" if await _within_cooldown() else "firing-bootstrap"
         if decision == "firing-bootstrap":
-            asyncio.create_task(_trigger_regen())
+            _spawn_task(_trigger_regen(), name="auto-regen/bootstrap")
         return {**snap, "auto_regen": decision, "score": 0.0}
 
     # Crystal exists but anchor file is missing — self-heal by snapshotting
@@ -145,7 +146,7 @@ async def _check_once() -> dict:
             decision = "cooldown"
         else:
             decision = "firing"
-            asyncio.create_task(_trigger_regen())
+            _spawn_task(_trigger_regen(), name="auto-regen/drift")
     return {**snap, "auto_regen": decision, "score": score}
 
 
