@@ -36,8 +36,6 @@ from . import (
 from . import contacts as contacts_mod
 from . import routines as routines_mod
 from . import usage as usage_module
-
-log = logging.getLogger(__name__)
 from .prompt import (
     CRYSTAL_DIRECTIVE,
     CRYSTAL_REGEN_SYSTEM,
@@ -48,6 +46,8 @@ from .providers import llm
 from .search import search as nl_search
 from .settings import settings
 from .tools import IMAGE_RESULT_PREFIX, TOOLS, execute, heartbeat_age_seconds, heartbeat_is_fresh
+
+log = logging.getLogger(__name__)
 
 # ── Request / response models ───────────────────
 
