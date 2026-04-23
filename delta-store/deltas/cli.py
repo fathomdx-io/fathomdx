@@ -204,19 +204,6 @@ def _format_delta_row(d: dict) -> str:
     return f"  {did}  {ts}  [{tags}]  {content}{img}"
 
 
-def _format_scored_row(s: dict) -> str:
-    """Format a scored delta as a compact one-line string."""
-    d = s.get("delta", s)
-    dist = s.get("distance", "")
-    did = d.get("id", "?")[:10]
-    ts = d.get("timestamp", "")[:16]
-    tags = ", ".join(d.get("tags", []))
-    content = d.get("content", "").replace("\n", " ")[:80]
-    dist_str = f"{dist:.3f}" if isinstance(dist, (int, float)) else str(dist)
-    img = f"  img:{d['media_hash']}" if d.get("media_hash") else ""
-    return f"  {did}  {ts}  d={dist_str}  [{tags}]  {content}{img}"
-
-
 # ── Commands ────────────────────────────────────────────────────────────────
 
 
