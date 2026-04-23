@@ -213,23 +213,6 @@ def _current_contact_slug(request: Request) -> str:
     return (contact or {}).get("slug") or ""
 
 
-def _msg_dicts(messages: list[Message]) -> list[dict]:
-    """Convert pydantic models to plain dicts for the openai SDK."""
-    out = []
-    for m in messages:
-        d: dict = {"role": m.role}
-        if m.content is not None:
-            d["content"] = m.content
-        if m.tool_calls is not None:
-            d["tool_calls"] = m.tool_calls
-        if m.tool_call_id is not None:
-            d["tool_call_id"] = m.tool_call_id
-        if m.name is not None:
-            d["name"] = m.name
-        out.append(d)
-    return out
-
-
 async def _resolve_tools(
     messages: list[dict],
     model: str,
