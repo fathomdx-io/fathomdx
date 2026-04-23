@@ -30,6 +30,12 @@ EVENT_LIMIT: int = 5000
 _PATH = Path(os.environ.get("RETRIEVALS_PATH", "/data/retrievals-history.json"))
 _lock = asyncio.Lock()
 
+# Strong references for fire-and-forget record() tasks. Without this,
+# the event loop only holds a weak reference and the task can be
+# garbage-collected mid-flight under Python 3.12+, silently dropping
+# the retrieval-count event before it gets written.
+_background_tasks: set[asyncio.Task] = set()
+
 
 def _now() -> datetime:
     return datetime.now(UTC)
@@ -95,7 +101,9 @@ def fire_and_forget(n: int) -> None:
         loop = asyncio.get_running_loop()
     except RuntimeError:
         return
-    loop.create_task(record(n))
+    task = loop.create_task(record(n))
+    _background_tasks.add(task)
+    task.add_done_callback(_background_tasks.discard)
 
 
 async def history(since_seconds: int, buckets: int = 60) -> list[dict]:
