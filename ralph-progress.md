@@ -5,19 +5,20 @@
 
 ## Next
 
-**Perspective:** Cross-Repo Coherence
+**Perspective:** API Consistency
 **Repo:** fathomdx
-**Why next:** Dependency Audit is DONE. Two CVEs found and fixed
-(Pillow CVE-2026-25990 + CVE-2026-40192 via floor bump to 12.2.0,
-pytest CVE-2025-71176 via dev-extras floor to 9.0.3). All three
-services now have proper `requirements.txt` with <major+1 caps;
-delta-store and source-runner were fixed via moving deps out of
-their Dockerfiles so pip-audit can see them.
+**Why next:** Cross-Repo Coherence is DONE. Found and fixed one
+user-visible bug: the /v1/deltas GET proxy was forwarding
+`tags_include=a,b` as a single string to delta-store, which expected
+repeated `?tags_include=a&tags_include=b`. Both `fathom recall
+--tags a,b` and the MCP `recall` tool were silently returning empty
+on every multi-tag query. Three regression tests now lock the
+contract. Every other addon↔api interface checked out.
 
-Cross-Repo Coherence (#9) is next. Check that api ↔ addons contracts
-match: does `addons/cli` call `/v1/search` with the shape `api`
-actually expects? Do response envelopes line up? MCP-node against
-/v1/tools? Compare implementations, not just docs.
+API Consistency (#10) is next. Endpoint naming conventions, response
+envelope shapes, error-response formats. Fathom's /v1 surface has
+some mix of `{tree, total_count, as_prompt}`, bare lists, and
+`{results: [...]}` envelopes — worth naming a convention.
 
 **Pending cleanup** from the server.py split: `/v1/chat/completions`
 + `fathom_think` + `_resolve_tools` (~250 lines) still in server.py,
@@ -39,7 +40,7 @@ Single repo (`fathomdx`) so the "matrix" is a column. `-` = not started,
 | 6 | Security Review                  | DONE     |
 | 7 | Performance                      | DONE     |
 | 8 | Dependency Audit                 | DONE     |
-| 9 | Cross-Repo Coherence             | -        |
+| 9 | Cross-Repo Coherence             | DONE     |
 | 10| API Consistency                  | -        |
 | 11| Docker & DevOps                  | -        |
 | 12| Accessibility                    | N/A      |
@@ -108,6 +109,48 @@ Format:
 - Key findings or decisions
 - Commits: <sha> <sha>
 ```
+
+---
+
+### 2026-04-23 — Cross-Repo Coherence / fathomdx
+
+One real bug found and fixed, plus three regression tests locking
+the contract.
+
+**The bug**: `/v1/deltas` GET proxy forwarded `tags_include` as a raw
+string. Delta-store's handler types it as `list[str]`, so a CSV
+string arrived as a one-element list `["foo,bar"]` and the `@>` tag
+filter tried to match a delta literally tagged `"foo,bar"` — nothing
+ever did. Both `fathom recall --tags a,b` (CLI) and the MCP `recall`
+tool (which comma-joins arrays internally) silently returned empty
+on every multi-tag query.
+
+**The fix**: `1004101` — split on comma + strip + drop empties +
+forward as list. httpx serializes the list as repeated
+`?tags_include=a&tags_include=b`. Three tests:
+- CSV → two repeated params
+- single tag → one param
+- whitespace-only input → no tag param at all (otherwise delta-store
+  filters to deltas tagged `""` — also no match)
+
+**Audited contracts that were already correct**
+- `/v1/search` POST (`{text, depth, limit}` ↔ search_endpoint) — matches.
+- `/v1/deltas` POST (`{content, tags, source, image_b64?}` ↔
+  proxy_write_delta) — matches, returns `{id, media_hash?, deduped?}`.
+- `/v1/tools` GET (`{tools: [...]}` ↔ list_tools) — matches, mcp-node's
+  dynamic tool loader works against the same LAKE_TOOLS schema.
+- `/v1/crystal` GET (`{text, created_at, id, source}` ↔ get_crystal) —
+  matches, mcp-node reads text + created_at.
+- `/v1/stats` GET (`{total, embedded, pending, percent}` ↔ proxy_stats
+  → delta-store.stats) — matches, both mcp-node and connect read
+  total + embedded.
+- `/v1/plan` POST (`{steps}` ↔ proxy_plan → delta-store.plan) — matches.
+- `/v1/pair/redeem` POST (`{code, host}` → `{token, scopes, host,
+  token_id, contact_slug}`) — agent uses all four return fields.
+- `/v1/media/<hash>` GET — binary response, content-type preserved
+  through proxy.
+
+pytest: 74 → 77.
 
 ---
 
