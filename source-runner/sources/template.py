@@ -16,11 +16,10 @@ Usage:
 from __future__ import annotations
 
 import logging
-from typing import Any
 
 import httpx
 
-from .base import ProducedDelta, RawItem, SourceProducer, convert_html
+from .base import ProducedDelta, RawItem, SourceProducer
 
 log = logging.getLogger("source.template")
 

@@ -14,7 +14,7 @@ from typing import AsyncGenerator
 import httpx
 from fastapi import Depends, FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, StreamingResponse
+from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
@@ -24,10 +24,8 @@ log = logging.getLogger(__name__)
 from .prompt import (
     CRYSTAL_DIRECTIVE,
     CRYSTAL_REGEN_SYSTEM,
-    FEED_DIRECTIVE,
     ORIENT_PROMPT,
     build_system_prompt,
-    load_feed_directive,
 )
 from .providers import llm
 from .search import search as nl_search

@@ -23,7 +23,7 @@ import string
 import time
 from pathlib import Path
 
-from .auth import ALL_SCOPES, _hash, _load as _load_tokens, _save as _save_tokens
+from .auth import _hash, _load as _load_tokens, _save as _save_tokens
 from .settings import settings
 
 ALPHABET = string.ascii_lowercase + string.digits
