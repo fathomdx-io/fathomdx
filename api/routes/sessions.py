@@ -7,7 +7,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
 
 from .. import auth, db
@@ -69,7 +69,7 @@ async def list_sessions(request: Request, limit: int = 50):
 async def get_session(session_id: str):
     session = await db.get_session(session_id)
     if not session:
-        return {"error": "not found"}, 404
+        raise HTTPException(status_code=404, detail="session not found")
     messages = await db.get_messages(session_id)
     for k in ("created_at", "updated_at"):
         if hasattr(session.get(k), "isoformat"):
@@ -81,7 +81,7 @@ async def get_session(session_id: str):
 async def update_session(session_id: str, req: SessionUpdate):
     result = await db.update_session(session_id, req.title)
     if not result:
-        return {"error": "not found"}, 404
+        raise HTTPException(status_code=404, detail="session not found")
     for k in ("created_at", "updated_at"):
         if hasattr(result.get(k), "isoformat"):
             result[k] = result[k].isoformat()
