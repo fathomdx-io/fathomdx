@@ -5,28 +5,25 @@
 
 ## Next
 
-**Perspective:** Bug Hunt
+**Perspective:** Quality Scaffold
 **Repo:** fathomdx
-**Why next:** Senior Dev Audit is DONE. The 8 remaining ruff errors
-are all RUF006 (asyncio-dangling-task) — each one is a potential
-silent failure where an `asyncio.create_task(...)` return value is
-discarded and the task can be GC'd mid-flight. Those are bugs, not
-style, so they belong in Bug Hunt. Read each site line-by-line before
-the mechanical "store a reference" fix — some call sites may actually
-want `asyncio.ensure_future` + a task-set, or fire-and-forget is
-correct (and the right fix is a `# noqa: RUF006` with a why).
+**Why next:** Bug Hunt / RUF006 is DONE — all 8 dangling-task sites
+fixed, zero ruff errors overall. Chat-listener race audit turned up
+no real races (the max_ts logic looked suspect but delta-store is the
+single clock source, so no skew to exploit). Next perspective in the
+PRD priority list is Quality Scaffold: error handling gaps, missing
+validation, edge cases around delta_client retries, what happens when
+things fail.
 
-Also open: look for race conditions in `chat_listener` (the PRD called
-this out at priority #3) and check the feed-loop's cooldown logic for
-off-by-ones.
+**Minor open item**: `chat_listener._session_locks` is an unbounded
+dict — one Lock per session slug ever seen, never pruned. Real but
+tiny memory leak over long uptimes. Could fold into Quality Scaffold
+or Performance.
 
-**Pending cleanup** from the server.py split (this iteration partial,
-not Bug Hunt): `/v1/chat/completions` + `fathom_think` +
-`_resolve_tools` (~250 lines) still live in server.py, along with the
-`/v1/crystal/*` cluster and its generate/validate helpers. Pull those
-into `api/routes/chat.py` and `api/routes/crystal.py` in a cleanup
-pass before/after Bug Hunt — fathom_think is imported by
-chat_listener and feed_loop, so moving it updates those lazy-imports.
+**Pending cleanup** from the server.py split: `/v1/chat/completions`
++ `fathom_think` + `_resolve_tools` (~250 lines) still in server.py,
+along with `/v1/crystal/*` cluster. Mechanical extraction, not
+architectural. Fold in whenever.
 
 ## Coverage matrix
 
@@ -37,7 +34,7 @@ Single repo (`fathomdx`) so the "matrix" is a column. `-` = not started,
 |---|----------------------------------|----------|
 | 1 | Dead Code & Cleanup              | DONE     |
 | 2 | Senior Dev Audit                 | DONE     |
-| 3 | Bug Hunt                         | -        |
+| 3 | Bug Hunt                         | DONE     |
 | 4 | Quality Scaffold                 | -        |
 | 5 | Test Creation                    | -        |
 | 6 | Security Review                  | -        |
@@ -112,6 +109,61 @@ Format:
 - Key findings or decisions
 - Commits: <sha> <sha>
 ```
+
+---
+
+### 2026-04-23 — Bug Hunt / fathomdx
+
+Seven commits on `ralph`. All 8 RUF006 asyncio-dangling-task sites
+fixed + a new shared `api/_bgtasks.py` helper. Ruff now clean (0
+errors). Tests green throughout.
+
+**The RUF006 class of bug in one sentence**: under Python 3.12+ the
+event loop only holds a weak reference to tasks created via
+`asyncio.create_task`, so a fire-and-forget caller that discards the
+return value can see its coroutine silently GC'd mid-flight, AND any
+exception the task raised goes unlogged because nothing ever awaits
+it. Two failure modes in one idiom.
+
+**New helper**: `api/_bgtasks.py:spawn(coro, *, name=...)` — adds the
+task to a module-level set, drops it in a done_callback, AND logs any
+exception on completion. Commit `7745ef3` introduced it. Accidentally
+bundled with some unstaged hook.sh edits Myra had in her working
+tree; Myra explicitly OK'd the bundle for this cleanup-pass iteration.
+
+**Commits (one fix per site/cluster)**
+- `7745ef3` — add `api/_bgtasks.py` helper
+- `1a64d65` — `api/auto_regen.py`: bootstrap + drift regen fires
+- `186104b` — `api/chat_listener.py`: on_tool_event write_chat_event
+- `1ad3111` — `api/feed_loop.py`: force_fire (/v1/feed/refresh)
+- `ed005b1` — `api/server.py`: lifespan contact-backfill
+- `5c53539` — `delta-store/deltas/retrievals.py`: fire_and_forget record
+- `84df2d1` — `source-runner/` (server + source_runner): startup run + manual_poll
+
+**Chat-listener race-condition audit findings** (PRD flagged #3)
+- `_last_seen` / `max_ts` logic: initially suspected a bug where a
+  future-timestamped delta could advance `last_seen` past real-now
+  messages. On closer reading, delta-store is the single clock source
+  for all deltas, so there's no skew to exploit. Not a bug.
+- `_session_locks`: a dict that accumulates one `asyncio.Lock` per
+  session slug, never pruned. Over a long-running process with many
+  chat sessions this leaks memory (tiny — ~100B per session). Real
+  but low-priority; moved to the Next section above as a scaffold/
+  perf item rather than a bug.
+- The listener filter correctly skips Fathom's own writes via the
+  `participant:fathom` tag (not the source, which is `fathom-chat`
+  for both user and Fathom deltas). Ran the logic against each of
+  `db.add_message`'s code paths — no double-response loop.
+
+**Feed-loop off-by-ones / cooldown audit**
+- `mark_visit` + `force_fire` + `_run_once` triple-checks the
+  per-contact lock. Not a TOCTOU: none of `_lock_for(...)`,
+  `lock.locked()`, or the `_pending_visits.get` path yields, so no
+  other coroutine can run in between. Safe under asyncio's
+  single-threaded execution.
+
+**Ruff status**: 0 errors. Format: 46 files still unformatted (out
+of scope for Bug Hunt; track for future mechanical pass).
 
 ---
 

@@ -1,11 +1,11 @@
 {
   "version": 1,
   "summary": {
-    "total_lines_removed": 4500,
-    "total_lines_added": 3100,
-    "total_bugs_fixed": 6,
+    "total_lines_removed": 4510,
+    "total_lines_added": 3160,
+    "total_bugs_fixed": 14,
     "total_tests_added": 0,
-    "iterations_completed": 3,
+    "iterations_completed": 4,
     "repos_cleaned": []
   },
   "baseline": {
@@ -19,12 +19,12 @@
   },
   "current": {
     "date": "2026-04-23",
-    "ruff_errors": 8,
+    "ruff_errors": 0,
     "ruff_autofixable": 0,
-    "ruff_unformatted_files": 34,
+    "ruff_unformatted_files": 46,
     "pytest_count": 1,
-    "api_server_py_loc": 688,
-    "_note": "api/server.py now under the 800-line ceiling. Routers live in api/routes/. Remaining 8 errors are all RUF006 asyncio-dangling-task; saved for Bug Hunt."
+    "api_server_py_loc": 690,
+    "_note": "Zero ruff errors for the first time. Format pass still pending (46 files). server.py grew 2 lines from the local _bgtasks import in lifespan — still well under the 800 ceiling."
   },
   "findings": [
     {
@@ -70,6 +70,21 @@
         "2a9733b", "ebc1043", "37d12b2", "6774f45", "6457b61",
         "0ee88c9", "08148c4", "535bf33", "352a59c", "d043046",
         "68b3727", "1b490a3"
+      ]
+    },
+    {
+      "date": "2026-04-23",
+      "perspective": "Bug Hunt",
+      "repo": "fathomdx",
+      "description": "Fixed all 8 RUF006 asyncio-dangling-task sites. New api/_bgtasks.spawn helper adds strong task refs + logs exceptions (both failure modes the RUF006 idiom leaks). One commit per site/cluster. Chat-listener race audit + feed_loop off-by-one audit: no real bugs found beyond a minor unbounded _session_locks dict (tracked under Quality Scaffold or Performance).",
+      "type": "bug_fix",
+      "files_changed": 7,
+      "lines_added": 60,
+      "lines_removed": 10,
+      "bugs_fixed": 8,
+      "commits": [
+        "7745ef3", "1a64d65", "186104b", "1ad3111",
+        "ed005b1", "5c53539", "84df2d1"
       ]
     }
   ],
