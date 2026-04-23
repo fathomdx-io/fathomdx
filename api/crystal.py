@@ -25,7 +25,7 @@ from __future__ import annotations
 
 import asyncio
 import time
-from datetime import datetime, timezone
+from datetime import datetime, timezone, UTC
 
 from . import delta_client
 
@@ -53,7 +53,7 @@ _cache_lock = asyncio.Lock()
 
 
 def _now() -> datetime:
-    return datetime.now(timezone.utc)
+    return datetime.now(UTC)
 
 
 def matches_regen(delta: dict) -> bool:

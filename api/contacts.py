@@ -24,7 +24,7 @@ from __future__ import annotations
 
 import json
 import logging
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta, timezone, UTC
 
 from . import delta_client
 
@@ -281,7 +281,7 @@ PROPOSAL_RESOLVED_TTL_SECONDS = 90 * 24 * 3600
 
 
 def _expires_in(seconds: int) -> str:
-    return (datetime.now(timezone.utc) + timedelta(seconds=seconds)).isoformat()
+    return (datetime.now(UTC) + timedelta(seconds=seconds)).isoformat()
 
 
 async def propose(

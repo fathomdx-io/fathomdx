@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from datetime import datetime, timezone
+from datetime import datetime, timezone, UTC
 
 from . import crystal, crystal_anchor, delta_client, drift
 from .settings import settings
@@ -28,7 +28,7 @@ _in_flight = False
 
 
 def _now() -> datetime:
-    return datetime.now(timezone.utc)
+    return datetime.now(UTC)
 
 
 async def _within_cooldown() -> bool:

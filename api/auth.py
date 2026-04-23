@@ -18,7 +18,7 @@ import json
 import secrets
 import string
 import time
-from datetime import datetime, timezone
+from datetime import datetime, timezone, UTC
 from pathlib import Path
 
 from fastapi import HTTPException, Request
@@ -169,7 +169,7 @@ def create_token(
     """Create a new token bound to a contact. Raw token only visible here."""
     raw = TOKEN_PREFIX + "".join(secrets.choice(ALPHABET) for _ in range(TOKEN_RAND_LEN))
     token_hash = _hash(raw)
-    now = datetime.now(timezone.utc).isoformat()
+    now = datetime.now(UTC).isoformat()
 
     # Validate and default scopes
     granted = scopes if scopes is not None else DEFAULT_SCOPES
@@ -239,7 +239,7 @@ def validate(raw: str) -> dict | None:
     tokens = _load()
     for t in tokens:
         if t["hash"] == token_hash:
-            t["last_used_at"] = datetime.now(timezone.utc).isoformat()
+            t["last_used_at"] = datetime.now(UTC).isoformat()
             _save(tokens)
             return {k: v for k, v in t.items() if k != "hash"}
     return None

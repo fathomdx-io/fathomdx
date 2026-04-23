@@ -26,7 +26,7 @@ import json
 import logging
 import re
 import time
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta, timezone, UTC
 from typing import Any
 
 from . import delta_client, feed_crystal
@@ -224,7 +224,7 @@ def _lock_for(contact_slug: str) -> asyncio.Lock:
 
 
 def _now() -> datetime:
-    return datetime.now(timezone.utc)
+    return datetime.now(UTC)
 
 
 def current_status(contact_slug: str) -> dict:

@@ -25,6 +25,7 @@ from pathlib import Path
 
 from .auth import _hash, _load as _load_tokens, _save as _save_tokens
 from .settings import settings
+from datetime import UTC
 
 ALPHABET = string.ascii_lowercase + string.digits
 PAIR_PREFIX = "pair_"
@@ -146,7 +147,7 @@ def redeem_pair_code(code: str, host: str = "") -> dict:
 
     token_raw = TOKEN_PREFIX + "".join(secrets.choice(TOKEN_ALPHABET) for _ in range(TOKEN_RAND_LEN))
     token_hash = _hash(token_raw)
-    nowiso = datetime.now(timezone.utc).isoformat()
+    nowiso = datetime.now(UTC).isoformat()
     record = {
         "id": token_hash[:12],
         "name": f"agent:{host}" if host else "agent:paired",

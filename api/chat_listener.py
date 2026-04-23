@@ -17,7 +17,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta, timezone, UTC
 
 from . import db, delta_client
 
@@ -71,7 +71,7 @@ class ChatListener:
         # Start from "now" so a restart doesn't fire on historical deltas.
         # Future work: persist to disk so a crash mid-response doesn't
         # drop the trigger — for now, losing a turn on crash is acceptable.
-        self._last_seen = datetime.now(timezone.utc).isoformat()
+        self._last_seen = datetime.now(UTC).isoformat()
         self._task: asyncio.Task | None = None
         self._stop = asyncio.Event()
         # Per-session locks so concurrent deltas in the same session are
@@ -300,7 +300,7 @@ async def write_chat_event(
     """
     ttl = ttl_seconds if ttl_seconds is not None else EVENT_TTL_SECONDS
     expires_at = (
-        datetime.now(timezone.utc) + timedelta(seconds=ttl)
+        datetime.now(UTC) + timedelta(seconds=ttl)
     ).isoformat()
     tags = [
         "fathom-chat",

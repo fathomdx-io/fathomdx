@@ -7,7 +7,7 @@ import json
 import logging
 import re
 from contextlib import asynccontextmanager
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta, timezone, UTC
 from pathlib import Path
 from typing import AsyncGenerator
 
@@ -816,7 +816,7 @@ async def feed_engagement_history(
     """Engagement marks for the ECG bottom rule. Returns time + sign per delta."""
     from datetime import datetime, timedelta, timezone
     slug = _current_contact_slug(request)
-    cutoff = (datetime.now(timezone.utc) - timedelta(seconds=since_seconds)).isoformat()
+    cutoff = (datetime.now(UTC) - timedelta(seconds=since_seconds)).isoformat()
     try:
         deltas = await delta_client.query(
             tags_include=["feed-engagement", f"contact:{slug}"],
@@ -890,7 +890,7 @@ async def list_sessions(request: Request, limit: int = 50):
     filter_slug = None if contact.get("role") == "admin" else slug
     sessions = await db.list_sessions(limit, contact_slug=filter_slug)
     # Group by recency for the sidebar
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     groups: dict[str, list] = {"today": [], "yesterday": [], "last_7_days": [], "older": []}
     for s in sessions:
         raw = s["updated_at"]
@@ -1137,7 +1137,7 @@ async def usage():
     timestamps = await delta_client.recent_deltas_timestamps(limit=5000)
     day_counts = Counter(timestamps)
     # Build sorted daily series (last 14 days)
-    today = datetime.now(timezone.utc).date()
+    today = datetime.now(UTC).date()
     days = []
     for i in range(13, -1, -1):
         d = today - timedelta(days=i)
@@ -1249,7 +1249,7 @@ async def source_detail(source_id: str):
     if delta_source == source_type:
         delta_source = f"{source_type}/{source_id}"
 
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     t_24h = (now - timedelta(hours=24)).strftime("%Y-%m-%dT%H:%M:%S.000Z")
     t_7d = (now - timedelta(days=7)).strftime("%Y-%m-%dT%H:%M:%S.000Z")
 
@@ -1372,7 +1372,7 @@ async def agents_latest_version():
     if checked and (now - checked) < _LATEST_AGENT_TTL_SECONDS and _LATEST_AGENT_CACHE.get("version"):
         return {
             "latest": _LATEST_AGENT_CACHE["version"],
-            "checked_at": datetime.fromtimestamp(checked, timezone.utc).isoformat(),
+            "checked_at": datetime.fromtimestamp(checked, UTC).isoformat(),
             "cached": True,
         }
     try:
@@ -1384,14 +1384,14 @@ async def agents_latest_version():
         _LATEST_AGENT_CACHE.update({"version": version, "checked_at": now, "error": None})
         return {
             "latest": version,
-            "checked_at": datetime.fromtimestamp(now, timezone.utc).isoformat(),
+            "checked_at": datetime.fromtimestamp(now, UTC).isoformat(),
             "cached": False,
         }
     except Exception as e:
         _LATEST_AGENT_CACHE.update({"checked_at": now, "error": str(e)})
         return {
             "latest": _LATEST_AGENT_CACHE.get("version"),  # last-known may still be useful
-            "checked_at": datetime.fromtimestamp(now, timezone.utc).isoformat(),
+            "checked_at": datetime.fromtimestamp(now, UTC).isoformat(),
             "error": "registry_unreachable",
         }
 
