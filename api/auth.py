@@ -110,6 +110,10 @@ PUBLIC_PATHS = frozenset(
         # "does an admin exist yet?" probe used by the UI boot path.
         "/v1/auth/bootstrap-status",
         "/v1/auth/bootstrap",
+        # Agent voice / tool-guide block served to client surfaces
+        # (claude-code SessionStart hook, dashboard chat, future surfaces).
+        # Public so a fresh agent can fetch it before it has a token.
+        "/v1/agent-instructions",
     }
 )
 
