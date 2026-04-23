@@ -38,7 +38,7 @@ import time
 from datetime import datetime, timedelta
 from pathlib import Path
 
-from . import delta_client
+from . import crystal_anchor, delta_client
 from ._time import now as _now
 from ._time import now_iso as _now_iso
 from .prompt import FEED_CRYSTAL_DIRECTIVE
@@ -584,23 +584,6 @@ def load_anchor(contact_slug: str) -> dict | None:
     return data
 
 
-def _cosine_distance(a: list[float], b: list[float]) -> float:
-    """1 - cos(a, b) for two vectors."""
-    if not a or not b or len(a) != len(b):
-        return 0.0
-    import math
-    dot = 0.0
-    na = 0.0
-    nb = 0.0
-    for x, y in zip(a, b, strict=True):
-        dot += x * y
-        na += x * x
-        nb += y * y
-    if na <= 0 or nb <= 0:
-        return 0.0
-    return float(1.0 - dot / (math.sqrt(na) * math.sqrt(nb)))
-
-
 async def sample_drift(contact_slug: str) -> dict:
     """Sample current engagement-centroid drift against the anchor.
 
@@ -618,7 +601,7 @@ async def sample_drift(contact_slug: str) -> dict:
             if not vec:
                 snapshot = {"drift": 0.0, "total_deltas": total, "empty_subset": True}
             else:
-                d = _cosine_distance(anchor["centroid"], vec)
+                d = crystal_anchor.cosine_distance(anchor["centroid"], vec)
                 snapshot = {"drift": round(d, 4), "total_deltas": total}
         except Exception:
             log.exception("feed_crystal: drift sample failed")
