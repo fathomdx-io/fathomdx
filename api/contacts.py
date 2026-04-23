@@ -505,7 +505,7 @@ async def disable(slug: str, actor_slug: str | None) -> bool:
         "contact",
         f"contact:{slug}",
         "contact-deleted",
-        f"profile-event:disabled",
+        "profile-event:disabled",
     ]
     if actor_slug and actor_slug != slug:
         tags.append(f"actor:{actor_slug}")
