@@ -14,7 +14,6 @@ from pathlib import Path
 from typing import Any
 
 import httpx
-
 from sources.base import ProducedDelta, SourceProducer
 
 log = logging.getLogger("source_runner")

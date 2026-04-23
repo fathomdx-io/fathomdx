@@ -18,7 +18,7 @@ See docs/routine-spec.md for the canonical field reference.
 from __future__ import annotations
 
 import time
-from datetime import datetime, UTC
+from datetime import UTC, datetime
 
 from . import delta_client
 

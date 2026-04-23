@@ -34,7 +34,7 @@ import os
 import re
 import tempfile
 import time
-from datetime import datetime, UTC
+from datetime import UTC, datetime
 from pathlib import Path
 
 from . import delta_client

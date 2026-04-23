@@ -7,7 +7,7 @@ import json
 import logging
 import re
 from contextlib import asynccontextmanager
-from datetime import datetime, timedelta, UTC
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import AsyncGenerator
 
@@ -18,7 +18,25 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
-from . import auth, auto_regen, contacts as contacts_mod, crystal, crystal_anchor, db, delta_client, drift, feed_crystal, feed_loop, mood, pairing, pressure, recall, reserved_tags, routines as routines_mod, usage as usage_module
+from . import (
+    auth,
+    auto_regen,
+    crystal,
+    crystal_anchor,
+    db,
+    delta_client,
+    drift,
+    feed_crystal,
+    feed_loop,
+    mood,
+    pairing,
+    pressure,
+    recall,
+    reserved_tags,
+)
+from . import contacts as contacts_mod
+from . import routines as routines_mod
+from . import usage as usage_module
 
 log = logging.getLogger(__name__)
 from .prompt import (
@@ -102,13 +120,14 @@ class EngagementRequest(BaseModel):
 
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
-    from . import chat_listener
     # Resolve the first-admin slug up front so the legacy-token migration
     # and any contact-tag backfill have a target. On a fresh install with
     # no admin yet, this returns None and both operations become no-ops
     # until bootstrap runs. Retries because delta-store may still be
     # booting when api starts.
     import asyncio as _asyncio
+
+    from . import chat_listener
     resolved_admin: str | None = None
     for attempt in range(6):
         try:

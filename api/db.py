@@ -1,7 +1,7 @@
 """Lake-backed sessions (matching loop-api pattern)."""
 from __future__ import annotations
 
-from datetime import datetime, timedelta, UTC
+from datetime import UTC, datetime, timedelta
 
 from . import delta_client
 from .slug import generate_slug

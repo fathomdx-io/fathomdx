@@ -24,10 +24,9 @@ from __future__ import annotations
 
 import json
 import logging
-from datetime import datetime, timedelta, UTC
+from datetime import UTC, datetime, timedelta
 
 from . import delta_client
-
 
 log = logging.getLogger(__name__)
 

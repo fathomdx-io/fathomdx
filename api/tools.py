@@ -3,11 +3,12 @@ from __future__ import annotations
 
 import base64
 import json
-from datetime import datetime, timedelta, UTC
+from datetime import UTC, datetime, timedelta
 
 import httpx
 
-from . import delta_client, routines as routines_mod
+from . import delta_client
+from . import routines as routines_mod
 from .chat_listener import write_chat_event
 from .settings import settings
 

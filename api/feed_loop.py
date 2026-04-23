@@ -26,7 +26,7 @@ import json
 import logging
 import re
 import time
-from datetime import datetime, timedelta, UTC
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from . import delta_client, feed_crystal

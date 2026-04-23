@@ -645,8 +645,9 @@ async def _compute_lake_centroid(tags_include: list[str] | None = None):
     the feed-orient crystal to anchor on engagement-tagged deltas only.
     Same semantics as store.query's tags_include (AND across tags).
     """
-    import numpy as np
     from datetime import UTC, datetime
+
+    import numpy as np
 
     if tags_include:
         all_deltas = await store.query(tags_include=tags_include, limit=5000)

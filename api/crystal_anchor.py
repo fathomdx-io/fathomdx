@@ -19,7 +19,7 @@ import json
 import math
 import os
 import tempfile
-from datetime import datetime, UTC
+from datetime import UTC, datetime
 from pathlib import Path
 
 from .settings import settings
