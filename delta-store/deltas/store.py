@@ -7,7 +7,6 @@ happens in SQL via pgvector.
 
 from __future__ import annotations
 
-import hashlib
 import uuid
 from collections.abc import AsyncIterator
 from datetime import UTC, datetime
@@ -18,10 +17,6 @@ import numpy as np
 
 def new_id() -> str:
     return uuid.uuid4().hex[:12]
-
-
-def _md5(text: str) -> str:
-    return hashlib.md5(text.encode()).hexdigest()
 
 
 def now_iso() -> str:
