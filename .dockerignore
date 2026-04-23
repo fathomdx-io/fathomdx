@@ -1,0 +1,61 @@
+# Keep COPY layers lean. Everything listed here is either runtime
+# junk (caches, pyc), test-infra (pytest_cache, ruff_cache), source
+# control state, or development tooling (node_modules, venvs) that
+# would bloat the image without contributing anything at runtime.
+
+# Python caches
+**/__pycache__
+**/*.pyc
+**/*.pyo
+**/.pytest_cache
+**/.ruff_cache
+**/.mypy_cache
+**/.coverage
+**/.tox
+
+# Virtualenvs
+**/.venv
+**/venv
+
+# Node — the api + delta-store + source-runner images don't use node at all.
+**/node_modules
+**/npm-debug.log
+**/yarn-error.log
+
+# Tests — pytest fixtures + test data shouldn't ship with the runtime image.
+**/tests
+**/test_*.py
+**/*_test.py
+
+# Git / editor state
+.git
+.github
+.gitignore
+.gitattributes
+.vscode
+.idea
+**/*.swp
+
+# Ralph loop files — docs for the engineering loop, not runtime.
+ralph-prd.md
+ralph-progress.md
+ralph-findings.json
+RALPH.md
+PROGRESS.md
+
+# Docs + example configs
+docs
+**/README.md
+**/*.example
+**/*.sync-conflict*
+
+# UI build artifacts / intermediate vite output
+ui/.vite
+ui/dist
+
+# Top-level site that moved out (just in case a stale checkout still has it)
+site
+
+# OS noise
+.DS_Store
+Thumbs.db
