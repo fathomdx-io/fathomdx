@@ -7,7 +7,7 @@
  * - Other: prints config to copy
  */
 
-import { readFileSync, writeFileSync, mkdirSync, existsSync, copyFileSync } from "fs";
+import { readFileSync, writeFileSync, mkdirSync, existsSync, copyFileSync, chmodSync } from "fs";
 import { homedir } from "os";
 import { join } from "path";
 import { createInterface } from "readline";
@@ -106,27 +106,15 @@ function hookEntry(hookDef, url, key) {
   return entry;
 }
 
-function downloadHooks() {
-  // Hooks are bundled inline — no network fetch needed.
-  // We write them from the templates embedded at the bottom of this file.
+function installHooks() {
+  // Hooks ship inside the package at ./hooks/ (see package.json "files").
   mkdirSync(HOOK_DIR, { recursive: true });
 
-  for (const [name, def] of Object.entries(HOOKS)) {
+  for (const def of Object.values(HOOKS)) {
+    const src = new URL(`./hooks/${def.filename}`, import.meta.url);
     const dest = join(HOOK_DIR, def.filename);
-    // Check if source exists locally (dev mode) or write stub
-    const localSrc = new URL(`../hooks/${def.filename}`, import.meta.url);
-    try {
-      const src = new URL(`../hooks/${def.filename}`, import.meta.url);
-      copyFileSync(src, dest);
-    } catch {
-      // Not running from repo — write a fetch stub
-      const script = `#!/usr/bin/env bash
-# Fathom ${name} hook — installed by fathom-connect
-# Re-run npx fathom-connect to update
-exec curl -sfL "https://raw.githubusercontent.com/fathom-ai/fathom-connect/main/hooks/${def.filename}" | bash
-`;
-      writeFileSync(dest, script, { mode: 0o755 });
-    }
+    copyFileSync(src, dest);
+    chmodSync(dest, 0o755);
   }
 }
 
@@ -238,7 +226,7 @@ async function main() {
     console.error(`  ✓ MCP server written to ${mcpPath}`);
 
     // Hooks → ~/.claude/settings.json
-    downloadHooks();
+    installHooks();
     console.error(`  ✓ Hook scripts installed to ${HOOK_DIR}`);
     const settingsPath = join(HOME, ".claude", "settings.json");
     patchClaudeHooks(settingsPath, url, key);
