@@ -1,6 +1,7 @@
 """Fathom Consumer API — OpenAI-compat chat completions with delta lake tools."""
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import re
@@ -168,6 +169,13 @@ app.include_router(_vitals_routes.router)
 MAX_TOOL_ROUNDS = 10
 
 
+async def _none_coro() -> None:
+    """Placeholder coroutine for `asyncio.gather` slots that a caller
+    decided not to run (e.g. session-scoped reads when session_slug is
+    None). Returns None immediately; keeps positional unpacking clean."""
+    return None
+
+
 async def _resolve_tools(
     messages: list[dict],
     model: str,
@@ -309,40 +317,62 @@ async def fathom_think(
     if system_override is not None:
         system = system_override
     else:
-        crystal_text = await crystal.latest_text()
-        current_mood = await mood.maybe_synthesize_on_wake(session_slug=session_slug)
-        session_title: str | None = None
-        if session_slug:
-            sess = await db.get_session(session_slug)
-            if sess:
-                session_title = sess.get("title")
+        # Fan out every lake read the system prompt needs in parallel.
+        # Serially these added up to 600-3000 ms per turn; running them
+        # concurrently collapses that to ~max(individual latency). All
+        # six are independent of one another up until build_system_prompt
+        # stitches the results together.
         from .tools import _agent_alive
-        agent_connected, agents_info = await _agent_alive()
+
+        session_task = db.get_session(session_slug) if session_slug else None
+        addressee_task = (
+            delta_client.query(
+                tags_include=[f"chat:{session_slug}", "participant:user"],
+                limit=1,
+            )
+            if session_slug else None
+        )
+        crystal_text, current_mood, agent_info, contacts_result, session_row, addressee_row = (
+            await asyncio.gather(
+                crystal.latest_text(),
+                mood.maybe_synthesize_on_wake(session_slug=session_slug),
+                _agent_alive(),
+                contacts_mod.list_all(),
+                session_task if session_task is not None else _none_coro(),
+                addressee_task if addressee_task is not None else _none_coro(),
+                return_exceptions=True,
+            )
+        )
+
+        # Unpack with graceful degradation — any gather entry could be an
+        # exception or None placeholder.
+        if isinstance(crystal_text, BaseException):
+            crystal_text = ""
+        if isinstance(current_mood, BaseException):
+            current_mood = None
+        if isinstance(agent_info, BaseException):
+            agent_connected, agents_info = False, []
+        else:
+            agent_connected, agents_info = agent_info
         # Known contacts hydrate the "who is Fathom talking to + about"
         # context. Merged with session-addressee so the model can propose
         # new contacts instead of hallucinating slugs. list_all returns
         # a small set (typically <20); the query is 60s-cached elsewhere.
-        try:
-            known_contacts = await contacts_mod.list_all()
-        except Exception:
-            known_contacts = []
+        known_contacts = [] if isinstance(contacts_result, BaseException) else contacts_result
+
+        session_title: str | None = None
+        if session_row and not isinstance(session_row, BaseException):
+            session_title = session_row.get("title")
+
         current_contact_slug: str | None = None
-        if session_slug:
+        if addressee_row and not isinstance(addressee_row, BaseException):
             # The addressee of this chat session — whoever's contact: tag
             # appears on the user deltas in this thread. Read off the
             # most recent user delta via the session history.
-            try:
-                latest = await delta_client.query(
-                    tags_include=[f"chat:{session_slug}", "participant:user"],
-                    limit=1,
-                )
-                if latest:
-                    for t in latest[0].get("tags") or []:
-                        if isinstance(t, str) and t.startswith("contact:"):
-                            current_contact_slug = t.split(":", 1)[1]
-                            break
-            except Exception:
-                pass
+            for t in addressee_row[0].get("tags") or []:
+                if isinstance(t, str) and t.startswith("contact:"):
+                    current_contact_slug = t.split(":", 1)[1]
+                    break
         # Resolve the addressee's timezone so "Current time" in the prompt
         # matches the clock rendered in the UI opener stamp. known_contacts
         # is already fetched above, so no extra round-trip.

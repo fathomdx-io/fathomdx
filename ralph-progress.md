@@ -5,19 +5,18 @@
 
 ## Next
 
-**Perspective:** Performance
+**Perspective:** Dependency Audit
 **Repo:** fathomdx
-**Why next:** Security Review is DONE. Five real fixes landed
-including one high-severity arbitrary-file-read (image_path on
-/v1/deltas) and two credential-file permission hardening fixes
-(tokens.json, pair-codes.json now 0600 instead of 0644). Also
-replaced pg_dump's shell pipeline with exec-argv, and added
-tag-count + image-b64 size caps as defence-in-depth. 8 new tests.
+**Why next:** Performance is DONE. Three real wins landed: parallel
+`_gather_pool` (saves ~1-2s per feed card), batch-prefetch killed
+N+1 in feed-card freshness check (saves ~1s per 10-line crystal
+run), and parallel system-prompt fan-out in `fathom_think` (saves
+500-2500ms per chat turn). 6 new tests.
 
-Performance is the next PRD priority: feed loop allocations, N+1
-queries against the lake, caching opportunities. Also: chat_listener
-timestamp string comparisons are allocating strings per delta per
-tick — fine at current scale, maybe relevant at 1000× volume.
+Dependency Audit is next per PRD priority #8 — the PRD flagged
+requirements.txt having no pins and package.json being bare. Check
+for security advisories (`pip-audit`, `npm audit`) and prune
+unused deps.
 
 **Pending cleanup** from the server.py split: `/v1/chat/completions`
 + `fathom_think` + `_resolve_tools` (~250 lines) still in server.py,
@@ -37,7 +36,7 @@ Single repo (`fathomdx`) so the "matrix" is a column. `-` = not started,
 | 4 | Quality Scaffold                 | DONE     |
 | 5 | Test Creation                    | DONE     |
 | 6 | Security Review                  | DONE     |
-| 7 | Performance                      | -        |
+| 7 | Performance                      | DONE     |
 | 8 | Dependency Audit                 | -        |
 | 9 | Cross-Repo Coherence             | -        |
 | 10| API Consistency                  | -        |
@@ -108,6 +107,53 @@ Format:
 - Key findings or decisions
 - Commits: <sha> <sha>
 ```
+
+---
+
+### 2026-04-23 — Performance / fathomdx
+
+Three commits, 6 new tests, pytest 68 → 74. Every change removes
+wall-clock latency from a hot path without touching semantics.
+
+**Fixes (highest-impact first)**
+
+1. `cb35bc8` — `fathom_think` system-prompt fan-out. Every chat turn
+   sequentially awaited six lake reads (crystal, mood-maybe-synth,
+   session row, agent status, contacts list, chat addressee). Serial:
+   600-3000ms per turn. Now runs via `asyncio.gather` with
+   `return_exceptions=True`; worst-case ≈ max individual latency
+   (~500ms). Graceful degradation preserved — any single failed read
+   falls back to the old silent-default value instead of 500-ing the
+   whole turn.
+
+2. `550affe` — `_has_fresh_card` N+1 killed. The feed loop iterated
+   directive lines calling the freshness check per line, each one
+   hitting the lake. For a 10-line crystal that's 10 round-trips
+   before any real work. Replaced with a single prefetch
+   (`_latest_card_by_line`) at the top of `_run_once` — one lake
+   query, grouped in Python into a `{line_id: latest_ts}` map. New
+   `_is_fresh_from_map` predicate takes the map. Fallback path
+   (`_has_fresh_card`) kept for the cold-start single-fire caller.
+   Saves roughly (N-1) × 100ms per visit.
+
+3. `9ddc29c` — `_gather_pool` parallel reads. Card candidate pool
+   fans in topic-tag, rss digest, browser-extension, and semantic
+   search. Four sequential awaits became `asyncio.gather` with
+   `return_exceptions=True`. Per-card save: ~1-2s → ~500ms.
+
+**Audited + deferred**
+- `chat_listener._tick` iterates every delta string-comparing
+  timestamps. Fine at current scale; only interesting at 1000×
+  volume.
+- `_format_candidates` does per-delta regex + list building. Called
+  on each line, <50 candidates. Negligible vs. the LLM call it feeds.
+- `/v1/feed/engagement/history` scans deltas client-side. 500 rows
+  max, run on a read endpoint. Not a hot path.
+
+**Tests** — 6 new in `test_feed_loop_freshness.py` covering the
+map-based is-fresh predicate: missing line, recent/stale, Z-suffix
+timestamp, unparseable timestamp (safe-default: stale), exact-
+boundary strictly-less-than.
 
 ---
 

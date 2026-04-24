@@ -1,11 +1,11 @@
 {
   "version": 1,
   "summary": {
-    "total_lines_removed": 4573,
-    "total_lines_added": 4176,
+    "total_lines_removed": 4603,
+    "total_lines_added": 4398,
     "total_bugs_fixed": 21,
-    "total_tests_added": 67,
-    "iterations_completed": 7,
+    "total_tests_added": 73,
+    "iterations_completed": 8,
     "repos_cleaned": []
   },
   "baseline": {
@@ -22,9 +22,9 @@
     "ruff_errors": 0,
     "ruff_autofixable": 0,
     "ruff_unformatted_files": 46,
-    "pytest_count": 68,
+    "pytest_count": 74,
     "api_server_py_loc": 690,
-    "_note": "Zero ruff errors. pytest 60 -> 68 after Security Review added path-traversal + file-perms tests. One high-sev fix (arbitrary-file-read via image_path), two medium (0600 on credential files), two defence-in-depth (tag/b64 caps, pg_dump exec argv)."
+    "_note": "Performance iteration: parallelized fathom_think system-prompt fan-out (saves 500-2500ms per chat turn), killed N+1 in feed-card freshness check, parallelized _gather_pool card-candidate reads. pytest 68 -> 74."
   },
   "findings": [
     {
@@ -99,6 +99,18 @@
       "bugs_fixed": 2,
       "tests_added": 7,
       "commits": ["b848a5c", "1b561f5"]
+    },
+    {
+      "date": "2026-04-23",
+      "perspective": "Performance",
+      "repo": "fathomdx",
+      "description": "Three latency wins, all via parallelizing independent lake reads. (1) fathom_think system prompt: 6 sequential awaits -> asyncio.gather, saves 500-2500ms per chat turn. (2) Feed-loop _has_fresh_card N+1: per-line lake query replaced by one prefetch grouped in Python (_latest_card_by_line + _is_fresh_from_map). Saves ~(N-1)*100ms per visit. (3) _gather_pool candidate fan-in: 4 sequential -> parallel, saves ~1-2s per card. 6 unit tests for the freshness map predicate.",
+      "type": "performance",
+      "files_changed": 3,
+      "lines_added": 222,
+      "lines_removed": 30,
+      "tests_added": 6,
+      "commits": ["9ddc29c", "550affe", "cb35bc8"]
     },
     {
       "date": "2026-04-23",

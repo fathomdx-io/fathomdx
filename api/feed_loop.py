@@ -359,10 +359,16 @@ async def _do_run(contact_slug: str, reason: str, run_facts: dict) -> None:
         f"feed_loop[{contact_slug}]: crystal id={crystal.get('id')}, {len(lines)} directive line(s)",
         flush=True,
     )
+    # Batch-prefetch "newest card per directive line" in ONE lake query
+    # instead of N (was a classic N+1: one _has_fresh_card query per
+    # line per visit). For 10 directive lines, that's 10 round-trips
+    # saved. The map is {directive_line_id: latest_iso_timestamp}.
+    freshness_map = await _latest_card_by_line(contact_slug)
+
     _set_status(contact_slug, lines_total=len(lines), lines_done=0)
     for i, line in enumerate(lines):
         try:
-            await _fire_line(contact_slug, line, crystal)
+            await _fire_line(contact_slug, line, crystal, freshness_map)
         except Exception as e:
             print(
                 f"feed_loop[{contact_slug}]: line {line.get('id')} failed: {type(e).__name__}: {e}",
@@ -452,6 +458,36 @@ async def _fetch_line_candidates(line: dict, limit: int = 20) -> list[dict]:
     """
     topic = (line.get("topic") or "").strip()
     line_id = (line.get("id") or "").strip()
+
+    # Fire every lake read for this card's pool in parallel. They're
+    # independent — four sequential round-trips against delta-store
+    # add up to ~1-2s at typical compose-stack latency, vs. ~500ms when
+    # run concurrently. asyncio.gather + return_exceptions=True keeps
+    # one failed fetch from breaking the others, matching the per-try
+    # except-pass shape the old serial code had.
+    semantic_query = (
+        f"{topic} {line_id}".replace("-", " ").strip() if (topic or line_id) else ""
+    )
+    topic_task = (
+        delta_client.query(tags_include=[f"topic:{topic}"], limit=limit)
+        if topic else None
+    )
+    rss_task = delta_client.query(tags_include=["rss"], limit=1000)
+    ext_task = delta_client.query(tags_include=["browser-extension"], limit=15)
+    search_task = (
+        delta_client.search(query=semantic_query, limit=limit)
+        if semantic_query else None
+    )
+    tasks = [t for t in (topic_task, rss_task, ext_task, search_task) if t is not None]
+    results = await asyncio.gather(*tasks, return_exceptions=True)
+
+    # Pull the results back out in the same order we queued them.
+    ri = iter(results)
+    topic_res = next(ri) if topic_task is not None else None
+    rss_res = next(ri)
+    ext_res = next(ri)
+    search_res = next(ri) if search_task is not None else None
+
     seen: set[str] = set()
     pool: list[dict] = []
 
@@ -462,12 +498,9 @@ async def _fetch_line_candidates(line: dict, limit: int = 20) -> list[dict]:
             pool.append(d)
 
     # 1. Topic-tagged content
-    if topic:
-        try:
-            for d in await delta_client.query(tags_include=[f"topic:{topic}"], limit=limit):
-                _add(d)
-        except Exception:
-            pass
+    if isinstance(topic_res, list):
+        for d in topic_res:
+            _add(d)
 
     # 2. Visually-rich recent deltas (rss + browser-extension).
     # The rss source plugin creates two delta families per item: the rich
@@ -481,9 +514,8 @@ async def _fetch_line_candidates(line: dict, limit: int = 20) -> list[dict]:
     # write-time timestamps, while the rich digest deltas use the
     # article's pubDate (often yesterday or older). 1000 is enough to
     # reach a few days of digests on a modest-volume install.
-    try:
-        rss_results = await delta_client.query(tags_include=["rss"], limit=1000)
-        for d in rss_results:
+    if isinstance(rss_res, list):
+        for d in rss_res:
             tags = d.get("tags") or []
             content = d.get("content") or ""
             # Keep only digest deltas: distinguished by a `feed:<domain>` tag.
@@ -495,32 +527,23 @@ async def _fetch_line_candidates(line: dict, limit: int = 20) -> list[dict]:
             if not has_image:
                 continue
             _add(d)
-    except Exception:
-        pass
 
     # Browser-extension deltas (Reddit captures, etc.) don't have the
     # sidecar problem — keep the original simple shape.
-    try:
-        for d in await delta_client.query(tags_include=["browser-extension"], limit=15):
+    if isinstance(ext_res, list):
+        for d in ext_res:
             content = d.get("content") or ""
             has_image = bool(d.get("media_hash")) or "![" in content
             if has_image:
                 _add(d)
-    except Exception:
-        pass
 
     # 3. Semantic search on the topic + line keywords. Catches near-misses
     # (e.g. line "physics-breakthroughs" surfacing Quanta articles).
-    if topic or line_id:
-        query = f"{topic} {line_id}".replace("-", " ").strip()
-        try:
-            res = await delta_client.search(query=query, limit=limit)
-            results = res.get("results") if isinstance(res, dict) else None
-            if results:
-                for d in results:
-                    _add(d)
-        except Exception:
-            pass
+    if isinstance(search_res, dict):
+        search_results = search_res.get("results")
+        if search_results:
+            for d in search_results:
+                _add(d)
 
     pool.sort(key=lambda d: d.get("timestamp") or "", reverse=True)
     return pool[:limit]
@@ -591,15 +614,28 @@ def _format_candidates(pool: list[dict]) -> str:
     return "\n".join(lines)
 
 
-async def _fire_line(contact_slug: str, line: dict, crystal: dict) -> None:
-    """One directive line → one feed card (subject to freshness check)."""
+async def _fire_line(
+    contact_slug: str, line: dict, crystal: dict, freshness_map: dict[str, str] | None = None,
+) -> None:
+    """One directive line → one feed card (subject to freshness check).
+
+    `freshness_map` (optional) is the batch-prefetched {line_id: latest_ts}
+    from `_latest_card_by_line`. When supplied, the freshness check skips
+    a per-line lake query. Callers that don't pass it (e.g. cold-start
+    single-fire) fall through to the per-line lookup, which is still
+    correct — just slower.
+    """
     line_id = (line.get("id") or "").strip() or "unnamed"
     topic = (line.get("topic") or "").strip()
     freshness_h = float(line.get("freshness_hours") or 12)
 
     # Freshness check — skip if this contact already has a card for this
     # line that's newer than the freshness window.
-    if await _has_fresh_card(contact_slug, line_id, freshness_h):
+    if freshness_map is not None:
+        is_fresh = _is_fresh_from_map(freshness_map, line_id, freshness_h)
+    else:
+        is_fresh = await _has_fresh_card(contact_slug, line_id, freshness_h)
+    if is_fresh:
         print(
             f"feed_loop[{contact_slug}]: line {line_id} skipped (fresh card exists, window={freshness_h}h)",
             flush=True,
@@ -916,7 +952,11 @@ async def _produce_card(
 async def _has_fresh_card(
     contact_slug: str, line_id: str, freshness_hours: float
 ) -> bool:
-    """True if this contact already has a card for this line newer than the window."""
+    """True if this contact already has a card for this line newer than the window.
+
+    Per-line fallback. Preferred path is _latest_card_by_line + the map-
+    based _is_fresh_from_map — one query per run instead of per line.
+    """
     try:
         results = await delta_client.query(
             tags_include=[CARD_TAG, f"directive-line:{line_id}", _contact_tag(contact_slug)],
@@ -933,3 +973,51 @@ async def _has_fresh_card(
         return False
     age = _now() - dt
     return age < timedelta(hours=freshness_hours)
+
+
+async def _latest_card_by_line(contact_slug: str) -> dict[str, str]:
+    """Batch-prefetch the latest card timestamp per directive line.
+
+    Single lake query for all cards this contact has, grouped in Python
+    by `directive-line:<id>` tag. Returns {line_id: newest_iso_ts}.
+    Empty dict on error, which makes every line "stale" — safe default,
+    slows down to "regenerate everything this run" rather than missing a
+    real freshness skip.
+
+    Limit 200 is comfortably more than any realistic crystal × recent
+    fires product; if a contact has more than 200 outstanding cards, the
+    oldest ones won't be in the map, which just means they get
+    regenerated — no staleness bug, just a wasted regen.
+    """
+    try:
+        cards = await delta_client.query(
+            tags_include=[CARD_TAG, _contact_tag(contact_slug)],
+            limit=200,
+        )
+    except Exception:
+        return {}
+    latest: dict[str, str] = {}
+    for c in cards:
+        ts = c.get("timestamp") or ""
+        for t in c.get("tags") or []:
+            if isinstance(t, str) and t.startswith("directive-line:"):
+                line_id = t[len("directive-line:"):]
+                prev = latest.get(line_id)
+                if prev is None or ts > prev:
+                    latest[line_id] = ts
+                break
+    return latest
+
+
+def _is_fresh_from_map(
+    freshness_map: dict[str, str], line_id: str, freshness_hours: float
+) -> bool:
+    """Shared is-fresh predicate for the map-based path."""
+    ts = freshness_map.get(line_id)
+    if not ts:
+        return False
+    try:
+        dt = datetime.fromisoformat(ts.replace("Z", "+00:00"))
+    except Exception:
+        return False
+    return (_now() - dt) < timedelta(hours=freshness_hours)
