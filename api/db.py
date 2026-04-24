@@ -182,12 +182,19 @@ async def get_session(session_id: str) -> dict | None:
     title = session_id
     if name_results:
         title = name_results[0].get("content", session_id).strip() or session_id
-    return {
+    # Claude-code scopes sessions to the project directory — `claude --resume
+    # <id>` only succeeds when run from there. Surface the project path so
+    # the UI can compose a cd-and-resume command that actually works.
+    project = tag_suffix(d.get("tags") or [], "project:")
+    out: dict = {
         "id": session_id,
         "title": title,
         "created_at": d.get("timestamp", ""),
         "updated_at": d.get("timestamp", ""),
     }
+    if project:
+        out["project"] = project
+    return out
 
 
 async def update_session(session_id: str, title: str) -> dict | None:

@@ -6583,7 +6583,15 @@ GET  /v1/usage               Usage stats`,
       if (mode === 'resume') {
         composer.dataset.mode = 'resume';
         const sid = opts.sessionId || '';
-        composerTa.value = sid ? `claude --resume ${sid}` : '';
+        const project = opts.project || '';
+        // `claude --resume <id>` only works from the project dir where
+        // the session was created — so we cd there first when we know
+        // the project (we do, from the delta's `project:<path>` tag).
+        const quoted = project.replace(/"/g, '\\"');
+        const cmd = sid
+          ? (project ? `cd "${quoted}" && claude --resume ${sid}` : `claude --resume ${sid}`)
+          : '';
+        composerTa.value = cmd;
         composerTa.placeholder = '';
         composerTa.style.height = 'auto';
         composerSend.setAttribute('aria-label', 'Copy command');
@@ -6975,7 +6983,8 @@ GET  /v1/usage               Usage stats`,
       hideMainOpenChat();
       // Claude-code sessions can't be driven from the browser — flip the
       // composer into resume-command mode so the user can continue in
-      // their terminal. Consumer-api sessions stay in send mode.
+      // their terminal. Consumer-api sessions stay in send mode. The
+      // project path is filled in after the session fetch lands below.
       setComposerMode(isClaudeCode ? 'resume' : 'send', { sessionId });
 
       try {
@@ -6994,6 +7003,13 @@ GET  /v1/usage               Usage stats`,
         }
         stamp.textContent = data.session.title + (created ? ` · ${created}` : '');
         chatStream.appendChild(stamp);
+
+        // Now that the session payload has landed, if it came with a
+        // project path (claude-code only), rebuild the resume command
+        // with the cd prefix so it actually works when pasted.
+        if (isClaudeCode && data.session.project) {
+          setComposerMode('resume', { sessionId, project: data.session.project });
+        }
 
         for (const m of (data.messages || [])) {
           if (m.id) _renderedMessageIds.add(m.id);
