@@ -2,7 +2,7 @@
 #
 # Runs `addons/scripts/install.sh` against the working tree on a clean
 # ubuntu-latest runner — the same path a stranger using
-# `curl -fsSL https://fathomdx.io/install.sh | sh` would take. Asserts
+# `curl -fsSL https://fathomdx.io/install.sh | bash` would take. Asserts
 # the stack actually comes up. This is the layer that catches "the
 # installer broke" before a user does.
 #

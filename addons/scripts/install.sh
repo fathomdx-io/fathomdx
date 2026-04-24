@@ -2,10 +2,14 @@
 # install — one-shot Fathom installer.
 #
 # Usage:
-#   curl -fsSL https://fathomdx.io/install.sh | sh
+#   curl -fsSL https://fathomdx.io/install.sh | bash
 #
 # Or, equivalently:
-#   wget -qO- https://fathomdx.io/install.sh | sh
+#   wget -qO- https://fathomdx.io/install.sh | bash
+#
+# (Use `bash`, not `sh` — on Debian/Ubuntu `sh` is dash, which doesn't
+# support `pipefail` or `[[`. The guard below catches this and prints a
+# friendly message rather than the cryptic `Illegal option -o pipefail`.)
 #
 # Clones fathomdx into ~/fathom (or wherever you tell it), runs preflight,
 # and optionally starts the stack. Idempotent — re-running updates an
@@ -18,6 +22,21 @@
 #   NONINTERACTIVE=1   skip all prompts, accept all defaults
 #   FATHOM_AUTOSTART=1 in non-interactive mode, also start the stack
 #                      (interactive runs ask before starting)
+
+# POSIX-only prelude: if we're not in bash, print a clear hint and bail.
+# Everything BELOW this guard is allowed to use bash features.
+# Keep this block POSIX-compatible — no [[, no ${var:-default} chains, etc.
+if [ -z "${BASH_VERSION:-}" ]; then
+  printf '%s\n' \
+    'Fathom installer requires bash, not POSIX sh.' \
+    '' \
+    'On Debian/Ubuntu, /bin/sh is dash and does not support `pipefail`.' \
+    'Re-run the install with bash:' \
+    '' \
+    '    curl -fsSL https://fathomdx.io/install.sh | bash' \
+    '' >&2
+  exit 1
+fi
 
 set -euo pipefail
 
