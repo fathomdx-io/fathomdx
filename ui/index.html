@@ -6593,7 +6593,6 @@ GET  /v1/usage               Usage stats`,
           : '';
         composerTa.value = cmd;
         composerTa.placeholder = '';
-        composerTa.style.height = 'auto';
         composerSend.setAttribute('aria-label', 'Copy command');
         composerSend.removeAttribute('data-copied');
       } else {
@@ -6602,6 +6601,13 @@ GET  /v1/usage               Usage stats`,
         composerTa.placeholder = 'Ask Fathom…';
         composerSend.setAttribute('aria-label', 'Send');
         composerSend.removeAttribute('data-copied');
+      }
+      // Re-run the auto-grow pass so the textarea height reflects the
+      // programmatic value change (the `input` listener only fires on
+      // user typing, not on .value = assignments).
+      composerTa.style.height = 'auto';
+      if (composerTa.value) {
+        composerTa.style.height = Math.min(composerTa.scrollHeight, 160) + 'px';
       }
     }
     setComposerMode('send');
