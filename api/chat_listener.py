@@ -18,6 +18,7 @@ import asyncio
 import contextlib
 import json
 import logging
+from collections import OrderedDict
 from datetime import UTC, datetime, timedelta
 
 from . import db, delta_client
@@ -39,6 +40,12 @@ log = logging.getLogger(__name__)
 # How often the listener wakes up to check the lake. Short enough that
 # conversation feels live; long enough to avoid spinning on an empty lake.
 POLL_INTERVAL_SECONDS = 3
+
+# Cap on the per-session lock cache so a long-running process that has
+# seen many one-off sessions doesn't leak a Lock per session forever.
+# 256 is comfortably larger than any realistic concurrent-session
+# working set and still measures in kilobytes of memory.
+_SESSION_LOCK_CAP = 256
 
 # How long ephemeral chat-event deltas (tool uses, silent acks, image
 # views) stick around in the lake before the delta-store reaps them.
@@ -78,8 +85,13 @@ class ChatListener:
         self._stop = asyncio.Event()
         # Per-session locks so concurrent deltas in the same session are
         # processed serially — avoids overlapping inference for one chat.
-        # Separate sessions can still run concurrently.
-        self._session_locks: dict[str, asyncio.Lock] = {}
+        # Separate sessions can still run concurrently. The dict is bounded:
+        # locks for the `_SESSION_LOCK_CAP` most-recently-active sessions
+        # are kept, older ones are dropped. Any dropped session just gets
+        # a fresh lock on its next tick, which is safe because dropping
+        # only happens when the session hasn't been active — no concurrent
+        # ticks are in-flight for it to race with.
+        self._session_locks: OrderedDict[str, asyncio.Lock] = OrderedDict()
 
     def start(self) -> None:
         if self._task and not self._task.done():
@@ -157,10 +169,28 @@ class ChatListener:
             return_exceptions=True,
         )
 
+    def _lock_for_session(self, slug: str) -> asyncio.Lock:
+        """LRU-get-or-create a Lock for `slug`, bounded by _SESSION_LOCK_CAP.
+
+        Separate from _process_session so the eviction logic is unit-
+        testable without touching the network. Each call bumps the slug
+        to the end of the OrderedDict; when the dict exceeds the cap, the
+        least-recently-accessed entries are evicted.
+        """
+        lock = self._session_locks.get(slug)
+        if lock is None:
+            lock = asyncio.Lock()
+            self._session_locks[slug] = lock
+            while len(self._session_locks) > _SESSION_LOCK_CAP:
+                self._session_locks.popitem(last=False)
+        else:
+            self._session_locks.move_to_end(slug)
+        return lock
+
     async def _process_session(self, slug: str, new_deltas: list[dict]) -> None:
         # One lock per session so overlapping ticks don't race on the same
-        # conversation. The lock is cheap; we create them lazily.
-        lock = self._session_locks.setdefault(slug, asyncio.Lock())
+        # conversation.
+        lock = self._lock_for_session(slug)
         async with lock:
             try:
                 await self._take_turn(slug, new_deltas)

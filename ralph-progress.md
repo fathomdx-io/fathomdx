@@ -5,20 +5,20 @@
 
 ## Next
 
-**Perspective:** Quality Scaffold
+**Perspective:** Test Creation
 **Repo:** fathomdx
-**Why next:** Bug Hunt / RUF006 is DONE — all 8 dangling-task sites
-fixed, zero ruff errors overall. Chat-listener race audit turned up
-no real races (the max_ts logic looked suspect but delta-store is the
-single clock source, so no skew to exploit). Next perspective in the
-PRD priority list is Quality Scaffold: error handling gaps, missing
-validation, edge cases around delta_client retries, what happens when
-things fail.
+**Why next:** Quality Scaffold is DONE. Key win was adding
+`_request_with_retry` to `api/delta_client.py` so every idempotent
+read retries 502/503/504 and network hiccups 3x with jittered
+exponential backoff — a real compose-stack delta-store restart no
+longer translates to dashboard errors, just a 200-600 ms stutter.
+Added 7 tests along the way (retry contract + session-lock LRU),
+pytest went 1 → 8.
 
-**Minor open item**: `chat_listener._session_locks` is an unbounded
-dict — one Lock per session slug ever seen, never pruned. Real but
-tiny memory leak over long uptimes. Could fold into Quality Scaffold
-or Performance.
+Test Creation is the natural follow-up — the PRD flags auth, tag
+parsing, slug generation, and the mood-synthesis scoring paths as
+under-tested. Write unit tests for each, target ~30 tests total to
+hit the PRD §Completion goal.
 
 **Pending cleanup** from the server.py split: `/v1/chat/completions`
 + `fathom_think` + `_resolve_tools` (~250 lines) still in server.py,
@@ -35,7 +35,7 @@ Single repo (`fathomdx`) so the "matrix" is a column. `-` = not started,
 | 1 | Dead Code & Cleanup              | DONE     |
 | 2 | Senior Dev Audit                 | DONE     |
 | 3 | Bug Hunt                         | DONE     |
-| 4 | Quality Scaffold                 | -        |
+| 4 | Quality Scaffold                 | DONE     |
 | 5 | Test Creation                    | -        |
 | 6 | Security Review                  | -        |
 | 7 | Performance                      | -        |
@@ -109,6 +109,43 @@ Format:
 - Key findings or decisions
 - Commits: <sha> <sha>
 ```
+
+---
+
+### 2026-04-23 — Quality Scaffold / fathomdx
+
+Two commits on `ralph`. Key win: `api/delta_client.py` now retries
+idempotent reads with jittered exponential backoff, so a compose-
+stack delta-store restart no longer cascades to dashboard errors.
+pytest count 1 → 8. Ruff clean.
+
+**Commits**
+- `b848a5c` — `_request_with_retry` helper in `api/delta_client.py` +
+  4 unit tests covering the contract (success-after-transient, exhaust,
+  no-retry-on-4xx, timeout-retry). Applied to every idempotent read:
+  search, query, plan, engagement_cloud, get_delta, tags, stats,
+  retrievals_history, usage_history, pressure_history, pressure_volume,
+  recent_deltas_timestamps, feed_stories, drift, get_contact_row,
+  list_contact_rows, list_handles, resolve_handle, centroid. Writes
+  (POST /deltas, upload_media, handle CRUD, backfill) do NOT retry —
+  delta-store has no idempotency keys, so a retried POST can create
+  duplicate deltas. 3 attempts, 0.2s base doubling with 0.5-1.5×
+  jitter. Retries on httpx Transport/Timeout errors + 502/503/504.
+
+- `1b561f5` — bound `ChatListener._session_locks` with LRU eviction at
+  256 entries + 3 unit tests. Factored `_lock_for_session()` out so
+  the bookkeeping is testable without touching the network. Evicts
+  only inactive entries so no concurrent holder can race on a dropped
+  Lock.
+
+**Dep note**: `pytest-httpx` is in the `dev` extras already. Had to
+`pip install pytest-httpx` in the local venv — the CI workflow reads
+pyproject `dev` extras, so CI picks it up for free.
+
+**Still open for Performance/Scaffold**: some `except Exception` sites
+in search.py / contacts.py / usage.py could be tightened to specific
+exception types (json.JSONDecodeError, httpx.HTTPStatusError). Didn't
+touch this pass — low-priority, would add noise without clear wins.
 
 ---
 
