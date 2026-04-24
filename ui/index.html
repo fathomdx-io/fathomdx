@@ -1225,6 +1225,16 @@
       padding: 8px 12px; border-radius: 6px;
       display: flex; align-items: center; gap: 10px;
     }
+    .model-tier-select {
+      width: 100%; padding: 9px 12px;
+      font-family: var(--mono); font-size: 14px; color: var(--ink);
+      background: var(--bg-sunk, rgba(0,0,0,0.04));
+      border: 1px solid var(--border); border-radius: 6px;
+      cursor: pointer;
+    }
+    .model-tier-select:focus {
+      outline: none; border-color: var(--accent);
+    }
     .model-tier-rec {
       font-family: var(--sans, inherit); font-size: 11.5px;
       color: var(--accent); font-style: italic;
@@ -2992,13 +3002,14 @@
             <span class="meta">which LLM runs which task</span>
           </div>
           <p style="font-size: 14px; color: var(--ink-soft); line-height: 1.55; margin: 0 0 18px;">
-            Fathom's call-sites are grouped by difficulty. The hard tier handles the chat loop and crystal regeneration — tool use, structured output, voice. The medium tier handles search planning, mood, and feed crystal; a cheaper model is fine here. Change either by setting the listed env var in <code>.env</code> and restarting the api.
+            Fathom's call-sites are grouped by difficulty. The hard tier handles the chat loop and crystal regeneration — tool use, structured output, voice. The medium tier handles search planning, mood, and feed crystal; a cheaper model is fine here. Picks are live — changes take effect on the next turn. Add providers by setting their API key (e.g. <code>GEMINI_API_KEY</code>, <code>OPENAI_API_KEY</code>, <code>OLLAMA_BASE_URL</code>) in <code>.env</code> and restarting.
           </p>
-          <div id="modelsProvider" class="model-provider-row" style="margin-bottom: 18px;">
-            <div class="meta">Provider</div>
-            <div class="mono" id="modelsProviderValue">…</div>
+          <div id="modelsProviders" class="model-provider-row" style="margin-bottom: 18px;">
+            <div class="meta">Configured providers</div>
+            <div class="mono" id="modelsProvidersValue">…</div>
           </div>
           <div id="modelsTiers"></div>
+          <div id="modelsStatus" class="meta" style="margin-top: 10px; font-size: 12px;"></div>
         </section>
       </div><!-- /models panel -->
 
@@ -5236,17 +5247,24 @@
       if (which === 'models') loadModelsSettings();
     }
 
-    // ── Models settings (read-only in v1) ────────
-    // Pulls the tier-aware model config from /v1/settings/models and
-    // renders one card per tier. "(recommended)" appears when the
-    // current pick matches PROVIDER_DEFAULTS for the active provider.
-    // Editing happens in .env + restart for now; no live write path yet.
+    // ── Models settings (live-editable) ──────────
+    // Fetches the tier-aware config + every configured provider's model
+    // list, renders one dropdown per tier spanning all provider models,
+    // and writes picks back via PUT /v1/settings/models/{tier}. Each
+    // provider's own default is tagged "(recommended)" so the user has
+    // a sensible starting point per tier.
+    let _modelsByProvider = {};           // provider -> [{id}, ...]
+    let _modelsProviderDefaults = {};     // provider -> {hard, medium}
+
     async function loadModelsSettings() {
-      const providerEl = document.getElementById('modelsProviderValue');
+      const providersEl = document.getElementById('modelsProvidersValue');
       const tiersEl = document.getElementById('modelsTiers');
-      if (!providerEl || !tiersEl) return;
-      providerEl.textContent = '…';
+      const statusEl = document.getElementById('modelsStatus');
+      if (!providersEl || !tiersEl) return;
+      providersEl.textContent = '…';
       tiersEl.innerHTML = '';
+      if (statusEl) statusEl.textContent = '';
+
       let data;
       try {
         data = await api('/v1/settings/models');
@@ -5254,32 +5272,108 @@
         tiersEl.innerHTML = `<div class="meta" style="color: var(--danger);">Couldn't load: ${_esc(String(e))}</div>`;
         return;
       }
-      providerEl.textContent = data.provider || '(unset)';
-      tiersEl.innerHTML = (data.tiers || []).map(t => {
-        const current = t.current || '(unset)';
-        const recommended = t.recommended || '';
-        const isRec = recommended && current === recommended;
-        const recBadge = isRec
-          ? `<span class="model-tier-rec">(recommended)</span>`
-          : recommended
-            ? `<span class="model-tier-rec" style="color: var(--ink-faint); font-style: normal;">recommended: ${_esc(recommended)}</span>`
-            : '';
-        return `
-          <div class="model-tier">
-            <div class="model-tier-head">
-              <div class="model-tier-label">${_esc(t.label)}</div>
-            </div>
-            <div class="model-tier-uses">${_esc(t.uses)}</div>
-            <div class="model-tier-value">
-              <span>${_esc(current)}</span>
-              ${recBadge}
-            </div>
-            <div class="model-tier-hint">
-              Set with <code>${_esc(t.env_var)}=&lt;model&gt;</code> in <code>.env</code> and restart the api.
-            </div>
-          </div>
-        `;
+      const providers = data.providers || [];
+      _modelsProviderDefaults = data.provider_defaults || {};
+      providersEl.textContent = providers.length
+        ? providers.join(', ')
+        : '(none — add an API key in .env)';
+
+      // Fetch each provider's /v1/models in parallel. Failures
+      // per-provider just drop that provider's options from the
+      // dropdown, leaving a message beneath.
+      _modelsByProvider = {};
+      const fetchFailures = [];
+      await Promise.all(providers.map(async (p) => {
+        try {
+          const r = await api(`/v1/settings/providers/${encodeURIComponent(p)}/models`);
+          _modelsByProvider[p] = r.models || [];
+        } catch (e) {
+          _modelsByProvider[p] = [];
+          fetchFailures.push(`${p}: ${String(e)}`);
+        }
+      }));
+
+      tiersEl.innerHTML = (data.tiers || []).map(t => _renderTierRow(t, providers)).join('');
+      tiersEl.querySelectorAll('select[data-tier]').forEach(sel => {
+        sel.addEventListener('change', () => _saveTierPick(sel));
+      });
+
+      if (statusEl && fetchFailures.length) {
+        statusEl.style.color = 'var(--danger)';
+        statusEl.textContent = `Some providers wouldn't list models: ${fetchFailures.join(' · ')}`;
+      }
+    }
+
+    function _renderTierRow(tier, providers) {
+      const currentProvider = (tier.current && tier.current.provider) || '';
+      const currentModel = (tier.current && tier.current.model) || '';
+      const currentValue = currentProvider && currentModel
+        ? `${currentProvider}::${currentModel}`
+        : '';
+
+      // Build grouped options: one <optgroup> per provider. Mark the
+      // provider's own default for this tier as "(recommended)".
+      const optgroups = providers.map(p => {
+        const models = _modelsByProvider[p] || [];
+        const recModel = (_modelsProviderDefaults[p] || {})[tier.id] || '';
+        if (!models.length) {
+          return `<optgroup label="${_esc(p)} (no models returned)"></optgroup>`;
+        }
+        const opts = models.map(m => {
+          const value = `${p}::${m.id}`;
+          const isRec = m.id === recModel;
+          const label = isRec ? `${m.id}  (recommended)` : m.id;
+          return `<option value="${_esc(value)}" ${value === currentValue ? 'selected' : ''}>${_esc(label)}</option>`;
+        }).join('');
+        return `<optgroup label="${_esc(p)}">${opts}</optgroup>`;
       }).join('');
+
+      // If the current pick isn't in any provider's list (e.g. the
+      // model string is custom or the provider's list call failed),
+      // add a preserved option so the UI still shows what's active.
+      let preserved = '';
+      if (currentValue && !_modelInList(currentProvider, currentModel)) {
+        preserved = `<option value="${_esc(currentValue)}" selected>${_esc(currentProvider)} · ${_esc(currentModel)} (current)</option>`;
+      }
+
+      return `
+        <div class="model-tier">
+          <div class="model-tier-head">
+            <div class="model-tier-label">${_esc(tier.label)}</div>
+          </div>
+          <div class="model-tier-uses">${_esc(tier.uses)}</div>
+          <select class="model-tier-select" data-tier="${_esc(tier.id)}">
+            ${preserved}
+            ${optgroups}
+          </select>
+          <div class="model-tier-hint" data-hint="${_esc(tier.id)}"></div>
+        </div>
+      `;
+    }
+
+    function _modelInList(provider, modelId) {
+      return (_modelsByProvider[provider] || []).some(m => m.id === modelId);
+    }
+
+    async function _saveTierPick(sel) {
+      const tier = sel.dataset.tier;
+      const raw = sel.value || '';
+      const sep = raw.indexOf('::');
+      if (sep < 0) return;
+      const provider = raw.slice(0, sep);
+      const model = raw.slice(sep + 2);
+      const hint = document.querySelector(`[data-hint="${CSS.escape(tier)}"]`);
+      if (hint) { hint.textContent = 'Saving…'; hint.style.color = 'var(--ink-faint)'; }
+      try {
+        await api(`/v1/settings/models/${encodeURIComponent(tier)}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ provider, model }),
+        });
+        if (hint) { hint.textContent = `Saved · ${provider} · ${model}`; hint.style.color = 'var(--accent)'; }
+      } catch (e) {
+        if (hint) { hint.textContent = `Save failed: ${String(e)}`; hint.style.color = 'var(--danger)'; }
+      }
     }
 
     // ── Sign out (button lives in the Profile hero) ───

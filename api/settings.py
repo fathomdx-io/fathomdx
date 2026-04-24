@@ -36,9 +36,11 @@ PROVIDER_DEFAULTS: dict[str, dict[str, str]] = {
 
 
 class Settings(BaseSettings):
-    # LLM provider — these use the LLM_ prefix (not FATHOM_) to keep them
-    # distinct from Fathom's own bearer tokens (ftm_…), which the client
-    # tools (mcp, cli, hooks) read from FATHOM_API_KEY.
+    # Legacy single-provider config — still supported. If set, LLM_API_KEY
+    # populates the credentials for whichever provider LLM_PROVIDER names,
+    # so existing installs keep working without touching .env. Keep the
+    # LLM_ prefix (not FATHOM_) to stay distinct from Fathom's own bearer
+    # tokens (ftm_…), which the client tools read from FATHOM_API_KEY.
     provider: str = Field("gemini", validation_alias="LLM_PROVIDER")
     api_key: str = Field("", validation_alias="LLM_API_KEY")
     base_url: str = Field("", validation_alias="LLM_BASE_URL")  # overrides provider default
@@ -47,6 +49,14 @@ class Settings(BaseSettings):
     model: str = Field("", validation_alias="LLM_MODEL")
     model_hard: str = Field("", validation_alias="LLM_MODEL_HARD")
     model_medium: str = Field("", validation_alias="LLM_MODEL_MEDIUM")
+
+    # Per-provider credentials. Any subset may be set; a provider without
+    # credentials is hidden from the Models tab and can't be chosen for
+    # a tier. Ollama needs no key — presence of its base URL is the
+    # "configured" signal.
+    gemini_api_key: str = Field("", validation_alias="GEMINI_API_KEY")
+    openai_api_key: str = Field("", validation_alias="OPENAI_API_KEY")
+    ollama_base_url: str = Field("", validation_alias="OLLAMA_BASE_URL")
 
     # Delta store
     delta_store_url: str = "http://localhost:8100"
@@ -147,6 +157,47 @@ class Settings(BaseSettings):
     @property
     def resolved_model(self) -> str:
         return self.resolved_model_hard
+
+    def provider_credentials(self, provider: str) -> tuple[str, str]:
+        """(api_key, base_url) for a provider. Falls back to the legacy
+        single-provider fields when LLM_PROVIDER matches the requested
+        provider — that's the upgrade path for existing installs."""
+        defaults = PROVIDER_DEFAULTS.get(provider, {})
+        base_url = defaults.get("base_url", "")
+        api_key = ""
+        if provider == "gemini":
+            api_key = self.gemini_api_key
+        elif provider == "openai":
+            api_key = self.openai_api_key
+        elif provider == "ollama":
+            # Ollama doesn't need a key. The SDK still requires a non-
+            # empty string, so pass a placeholder.
+            api_key = "ollama"
+            if self.ollama_base_url:
+                base_url = self.ollama_base_url
+        # Legacy fallback: if LLM_PROVIDER names this provider and a
+        # per-provider key wasn't set, populate from LLM_API_KEY.
+        if not api_key and self.provider == provider and self.api_key:
+            api_key = self.api_key
+        # Legacy override for base_url too.
+        if self.provider == provider and self.base_url:
+            base_url = self.base_url
+        return api_key, base_url
+
+    def configured_providers(self) -> list[str]:
+        """Providers with enough credentials to make a request. Order
+        follows PROVIDER_DEFAULTS for stable UI listing."""
+        out: list[str] = []
+        for provider in PROVIDER_DEFAULTS:
+            api_key, base_url = self.provider_credentials(provider)
+            if provider == "ollama":
+                # Ollama is configured when a base URL is present.
+                if base_url:
+                    out.append(provider)
+            else:
+                if api_key:
+                    out.append(provider)
+        return out
 
 
 settings = Settings()

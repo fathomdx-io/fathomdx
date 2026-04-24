@@ -86,8 +86,11 @@ async def _generate_plan(
         prompt = f"Conversation so far:\n{conv_context}\n\nLatest message: {text}"
 
     try:
-        resp = await llm.chat.completions.create(
-            model=settings.resolved_model_medium,
+        from . import llm_config
+
+        medium_client, medium_model = await llm_config.resolve_tier("medium")
+        resp = await medium_client.chat.completions.create(
+            model=medium_model,
             messages=[
                 {"role": "system", "content": SEARCH_PLANNER_PROMPT},
                 {"role": "user", "content": prompt},
@@ -226,8 +229,11 @@ async def _synthesize_thinking(
 
     body = _sediment_prompt_body(query, deltas_by_step)
     try:
-        resp = await llm.chat.completions.create(
-            model=settings.resolved_model_medium,
+        from . import llm_config
+
+        medium_client, medium_model = await llm_config.resolve_tier("medium")
+        resp = await medium_client.chat.completions.create(
+            model=medium_model,
             messages=[
                 {"role": "system", "content": SEDIMENT_SYNTHESIS_PROMPT},
                 {"role": "user", "content": body},

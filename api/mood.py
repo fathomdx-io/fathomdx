@@ -214,8 +214,11 @@ async def synthesize_mood(session_slug: str | None = None) -> dict | None:
     user_message = "\n\n".join(user_payload_parts)
 
     try:
-        resp = await llm.chat.completions.create(
-            model=settings.resolved_model_medium,
+        from . import llm_config
+
+        medium_client, medium_model = await llm_config.resolve_tier("medium")
+        resp = await medium_client.chat.completions.create(
+            model=medium_model,
             messages=[
                 {"role": "system", "content": MOOD_DIRECTIVE},
                 {"role": "user", "content": user_message},

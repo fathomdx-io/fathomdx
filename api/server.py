@@ -188,6 +188,7 @@ async def _resolve_tools(
     on_tool_event: callable | None = None,
     max_rounds: int = MAX_TOOL_ROUNDS,
     session_id: str | None = None,
+    client=None,
     **kwargs,
 ) -> list[dict]:
     """Run the tool-calling loop until the LLM stops calling tools.
@@ -197,8 +198,9 @@ async def _resolve_tools(
     the updated messages list with the final text as the last entry.
     """
     tools = tools or TOOLS
+    active_client = client or llm
     for _ in range(max_rounds):
-        resp = await llm.chat.completions.create(
+        resp = await active_client.chat.completions.create(
             model=model,
             messages=messages,
             tools=tools,
@@ -279,7 +281,7 @@ async def _resolve_tools(
                 )
 
     # Exceeded max rounds — force a text-only final call so we always get a response
-    resp = await llm.chat.completions.create(model=model, messages=messages, **kwargs)
+    resp = await active_client.chat.completions.create(model=model, messages=messages, **kwargs)
     choice = resp.choices[0]
     messages.append({"role": "assistant", "content": choice.message.content or ""})
     return messages
@@ -319,11 +321,17 @@ async def fathom_think(
     Returns the full messages list with the final assistant response as the
     last entry.
     """
-    # Default to the hard-tier model — fathom_think is the chat loop +
-    # crystal regen path, both of which need tool-use + structured-output
+    # Default to the hard tier — fathom_think is the chat loop + crystal
+    # regen path, both of which need tool-use + structured-output
     # reliability. Callers that want a cheaper model for a specific task
-    # can pass `model=` explicitly.
-    model = model or settings.resolved_model_hard
+    # can pass `model=` explicitly, in which case we pair it with the
+    # hard tier's current client (single-provider kwargs for now).
+    from . import llm_config  # avoid circular import at module load
+
+    if model is None:
+        client, model = await llm_config.resolve_tier("hard")
+    else:
+        client, _ = await llm_config.resolve_tier("hard")
 
     # Resolve tool surface: replace, extend, or default
     resolved_tools = tools if tools is not None else TOOLS
@@ -470,6 +478,7 @@ async def fathom_think(
         on_tool_event=on_tool_event,
         max_rounds=max_rounds,
         session_id=session_slug,
+        client=client,
         **llm_kwargs,
     )
 
@@ -697,34 +706,92 @@ async def list_models():
 async def settings_models():
     """Tier-aware model config for the Settings → Models UI.
 
-    Returns the active provider, the current pick per tier, and the
-    recommended pick per tier (so the UI can mark a match as
-    "recommended"). Read-only in v1; editing lives in .env for now.
+    Returns the configured providers (those with credentials in .env),
+    the current pick per tier (resolved via llm_config), and each
+    provider's recommended pick per tier so the UI can mark matches
+    as "recommended". Cross-provider tier selection is supported —
+    each tier carries {provider, model}, not just a model string.
     """
+    from . import llm_config
     from .settings import PROVIDER_DEFAULTS
 
-    recs = PROVIDER_DEFAULTS.get(settings.provider, {})
-    return {
-        "provider": settings.provider,
-        "tiers": [
-            {
-                "id": "hard",
-                "label": "Main chat & heavy work",
-                "uses": "Chat loop, identity-crystal regeneration",
-                "current": settings.resolved_model_hard,
-                "recommended": recs.get("hard", ""),
-                "env_var": "LLM_MODEL_HARD",
-            },
-            {
-                "id": "medium",
-                "label": "Standard tasks",
-                "uses": "Search planning, mood synthesis, feed crystal",
-                "current": settings.resolved_model_medium,
-                "recommended": recs.get("medium", ""),
-                "env_var": "LLM_MODEL_MEDIUM",
-            },
-        ],
+    configured = settings.configured_providers()
+    provider_defaults = {
+        p: {tier: PROVIDER_DEFAULTS.get(p, {}).get(tier, "") for tier in llm_config.VALID_TIERS}
+        for p in configured
     }
+
+    tiers = []
+    for tier_id, label, uses in (
+        ("hard", "Main chat & heavy work", "Chat loop, identity-crystal regeneration"),
+        ("medium", "Standard tasks", "Search planning, mood synthesis, feed crystal"),
+    ):
+        config = await llm_config.get_tier_config(tier_id)
+        tiers.append({
+            "id": tier_id,
+            "label": label,
+            "uses": uses,
+            "current": {
+                "provider": config.get("provider", ""),
+                "model": config.get("model", ""),
+            },
+        })
+    return {
+        "providers": configured,
+        "provider_defaults": provider_defaults,
+        "tiers": tiers,
+    }
+
+
+class _TierPick(BaseModel):
+    provider: str
+    model: str
+
+
+@app.put("/v1/settings/models/{tier}")
+async def settings_models_put(tier: str, body: _TierPick):
+    """Persist a tier's (provider, model) pick as a lake config delta.
+
+    Takes effect on the next turn — the resolver caches for a few
+    seconds but set_tier_config invalidates the cache on write.
+    """
+    from . import llm_config
+
+    try:
+        written = await llm_config.set_tier_config(tier, body.provider, body.model)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    return {"ok": True, "tier": tier, "provider": body.provider, "model": body.model, "id": written.get("id")}
+
+
+@app.get("/v1/settings/providers/{provider}/models")
+async def settings_provider_models(provider: str):
+    """Proxy a provider's /v1/models so the UI can populate dropdowns.
+
+    All three providers Fathom speaks to (gemini, openai, ollama) expose
+    an OpenAI-compatible /v1/models list, so the query is uniform. Keys
+    never leave the server — the UI just gets the id list back.
+    """
+    from . import llm_config  # noqa: F401 — used via providers registry
+    from .providers import get_client
+
+    if provider not in settings.configured_providers():
+        raise HTTPException(status_code=404, detail=f"provider '{provider}' not configured")
+
+    try:
+        client = get_client(provider)
+        resp = await client.models.list()
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"provider {provider} models list failed: {e}")
+
+    # Normalize to [{"id": ...}, ...] — different providers decorate
+    # the response differently, but the id field is the one we want.
+    models = []
+    for m in getattr(resp, "data", []) or []:
+        mid = getattr(m, "id", None)
+        if mid:
+            models.append({"id": mid})
+    return {"provider": provider, "models": models}
 
 
 @app.get("/health")
