@@ -7259,8 +7259,26 @@ GET  /v1/usage               Usage stats`,
       const i = trimmed.lastIndexOf('/');
       return i >= 0 ? trimmed.slice(i + 1) : trimmed;
     }
+    // Short relative timestamp for session labels. Sidebar already
+    // groups by recency, so "9:41 AM" and "Apr 21" are enough to tell
+    // two sessions in the same project apart.
+    function _relativeStamp(iso) {
+      if (!iso) return '';
+      const d = new Date(iso);
+      if (isNaN(d.getTime())) return '';
+      const now = new Date();
+      const sameDay = d.toDateString() === now.toDateString();
+      const opts = { timeZone: _effectiveTimezone() || undefined };
+      if (sameDay) {
+        return d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit', ...opts });
+      }
+      return d.toLocaleDateString([], { month: 'short', day: 'numeric', ...opts });
+    }
+
     function displayTitle(s) {
       if (!s) return '';
+      // Explicit rename always wins — chat-name delta overrides any
+      // auto-derived label, even across surfaces.
       const named = s.title && s.title !== s.id;
       if (named) return s.title;
       const base = basenameOf(s.project);
@@ -7272,6 +7290,19 @@ GET  /v1/usage               Usage stats`,
       // enough to show; UUIDs we truncate for the sidebar.
       if (/^[0-9a-f]{8}-[0-9a-f]{4}/i.test(s.id)) return s.id.slice(0, 8) + '…';
       return s.id;
+    }
+
+    // Sidebar labels append a timestamp to auto-derived titles so
+    // multiple sessions in the same project/host don't collapse into
+    // identical entries. Renamed sessions skip the stamp — a chosen
+    // name is already distinctive, piling a timestamp on would read
+    // as noise.
+    function sidebarLabel(s) {
+      const base = displayTitle(s);
+      const renamed = s && s.title && s.title !== s.id;
+      if (renamed) return base;
+      const stamp = _relativeStamp(s && s.updated_at);
+      return stamp ? `${base} · ${stamp}` : base;
     }
 
     async function loadSessions() {
@@ -7300,7 +7331,7 @@ GET  /v1/usage               Usage stats`,
             btn.className = 'session-item';
             if (s.id === currentSessionId) btn.classList.add('active');
             const isCC = isClaudeCodeSession(s);
-            const label = displayTitle(s);
+            const label = sidebarLabel(s);
             if (isCC) {
               btn.dataset.source = 'claude-code';
               btn.innerHTML = `<span class="session-icon">${iconHtml('claude-code', 14)}</span><span class="session-title"></span>`;
