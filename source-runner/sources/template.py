@@ -28,17 +28,17 @@ class TemplateProducer(SourceProducer):
     # ── Metadata ─────────────────────────────────────────────────────
     # These show up in the dashboard and determine default behavior.
 
-    source_type = "template"              # unique ID, lowercase
-    display_name = "Template"             # shown in the UI
+    source_type = "template"  # unique ID, lowercase
+    display_name = "Template"  # shown in the UI
     description = "Description of what this source does"
     version = "0.1.0"
     author = "you"
 
-    auth_type = "none"                    # none | oauth2 | api_key | file
-    schedule_type = "poll"                # poll | watch | import
-    default_interval = "30m"              # 1m, 5m, 15m, 30m, 1h, 6h, daily
-    digestion = "raw"                     # raw = structure output in digest(), llm = opt-in LLM summary
-    default_expiry_days = 30              # None = keep forever
+    auth_type = "none"  # none | oauth2 | api_key | file
+    schedule_type = "poll"  # poll | watch | import
+    default_interval = "30m"  # 1m, 5m, 15m, 30m, 1h, 6h, daily
+    digestion = "raw"  # raw = structure output in digest(), llm = opt-in LLM summary
+    default_expiry_days = 30  # None = keep forever
     expiry_configurable = True
 
     # ── Required: poll() ─────────────────────────────────────────────
@@ -69,12 +69,12 @@ class TemplateProducer(SourceProducer):
                 for entry in data:
                     items.append(
                         RawItem(
-                            id=entry["id"],              # unique within this source
-                            content=entry["text"],        # raw content to digest
+                            id=entry["id"],  # unique within this source
+                            content=entry["text"],  # raw content to digest
                             timestamp=entry.get("date"),  # ISO 8601 or None
                             title=entry.get("title", ""),
                             url=entry.get("url"),
-                            image_urls=[],                # optional image URLs
+                            image_urls=[],  # optional image URLs
                         )
                     )
             except Exception:

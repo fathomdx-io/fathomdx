@@ -4,6 +4,7 @@ The helper is shared by api/drift.py and api/feed_crystal.py; a subtle
 bug in either branch would skew drift readings across the whole ECG
 widget and trigger spurious crystal regens. Pin the math.
 """
+
 from __future__ import annotations
 
 import math
@@ -61,6 +62,4 @@ def test_cosine_distance_zero_vector_returns_zero() -> None:
 def test_cosine_distance_known_angle() -> None:
     """45-degree angle between [1,0] and [1,1]: cos = 1/sqrt(2) ≈ 0.707,
     so distance ≈ 0.293."""
-    assert cosine_distance([1.0, 0.0], [1.0, 1.0]) == pytest.approx(
-        1.0 - 1.0 / math.sqrt(2)
-    )
+    assert cosine_distance([1.0, 0.0], [1.0, 1.0]) == pytest.approx(1.0 - 1.0 / math.sqrt(2))

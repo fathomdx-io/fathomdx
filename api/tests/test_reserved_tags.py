@@ -6,6 +6,7 @@ degrade to "allow" the security model of the API evaporates. Tests
 cover every gate branch plus the strip-and-re-stamp helper that keeps
 callers from addressing deltas to someone else.
 """
+
 from __future__ import annotations
 
 import pytest
@@ -22,6 +23,7 @@ from api.reserved_tags import (
 )
 
 # ── strip_contact_tags ────────────────────────────────────────────────
+
 
 def test_strip_contact_tags_drops_all_contact_tags() -> None:
     tags = ["chat:s", "contact:bob", "user", "contact:mallory"]
@@ -46,6 +48,7 @@ def test_strip_contact_tags_ignores_non_string_entries() -> None:
 
 
 # ── resolve ───────────────────────────────────────────────────────────
+
 
 def test_resolve_returns_none_for_plain_data_tags() -> None:
     assert resolve("chat:abc") is None
@@ -74,6 +77,7 @@ def test_resolve_is_robust_to_non_string_input() -> None:
 
 # ── hint_for ──────────────────────────────────────────────────────────
 
+
 def test_hint_for_returns_endpoint_pointer() -> None:
     hint = hint_for("crystal:identity")
     assert "/v1/crystal/refresh" in hint
@@ -85,6 +89,7 @@ def test_hint_for_unknown_tag_returns_empty_string() -> None:
 
 # ── evaluate ──────────────────────────────────────────────────────────
 
+
 @pytest.mark.asyncio
 async def test_evaluate_passes_plain_data_tags() -> None:
     result = await evaluate(["chat:s", "user"], {"slug": "bob", "role": "member"})
@@ -95,9 +100,7 @@ async def test_evaluate_passes_plain_data_tags() -> None:
 async def test_evaluate_rejects_internal_tag_even_for_admin() -> None:
     """GATE_INTERNAL means 'use the named endpoint' — admins don't get
     to bypass by dropping it on /v1/deltas."""
-    result = await evaluate(
-        ["crystal:identity"], {"slug": "admin", "role": "admin"}
-    )
+    result = await evaluate(["crystal:identity"], {"slug": "admin", "role": "admin"})
     assert result.ok is False
     assert result.tag == "crystal:identity"
     assert result.gate == GATE_INTERNAL
@@ -105,9 +108,7 @@ async def test_evaluate_rejects_internal_tag_even_for_admin() -> None:
 
 @pytest.mark.asyncio
 async def test_evaluate_admin_or_self_passes_for_admin() -> None:
-    result = await evaluate(
-        ["agent-heartbeat", "contact:bob"], {"slug": "admin", "role": "admin"}
-    )
+    result = await evaluate(["agent-heartbeat", "contact:bob"], {"slug": "admin", "role": "admin"})
     assert result.ok is True
 
 
@@ -115,9 +116,7 @@ async def test_evaluate_admin_or_self_passes_for_admin() -> None:
 async def test_evaluate_admin_or_self_passes_for_own_contact() -> None:
     """After strip-and-re-stamp in the endpoint, the tag's contact is the
     caller's slug. Self-write of your own heartbeat is allowed."""
-    result = await evaluate(
-        ["agent-heartbeat", "contact:bob"], {"slug": "bob", "role": "member"}
-    )
+    result = await evaluate(["agent-heartbeat", "contact:bob"], {"slug": "bob", "role": "member"})
     assert result.ok is True
 
 
@@ -125,9 +124,7 @@ async def test_evaluate_admin_or_self_passes_for_own_contact() -> None:
 async def test_evaluate_admin_or_self_rejects_foreign_contact() -> None:
     """If the tag's contact:X doesn't match the caller, reject.
     This shouldn't happen post-strip-and-re-stamp, but belt-and-suspenders."""
-    result = await evaluate(
-        ["agent-heartbeat", "contact:alice"], {"slug": "bob", "role": "member"}
-    )
+    result = await evaluate(["agent-heartbeat", "contact:alice"], {"slug": "bob", "role": "member"})
     assert result.ok is False
     assert result.gate == GATE_ADMIN_OR_SELF
 
@@ -153,6 +150,7 @@ async def test_evaluate_rejects_handle_prefix_tag() -> None:
 @pytest.mark.asyncio
 async def test_evaluate_session_member_admin_always_passes(monkeypatch) -> None:
     """Admin bypasses the session-member check."""
+
     # Patch is_session_member to fail loudly if it's consulted — admin
     # path should not consult it.
     async def _boom(*args, **kwargs):
@@ -165,13 +163,9 @@ async def test_evaluate_session_member_admin_always_passes(monkeypatch) -> None:
     # a synthetic injection.
     from api import reserved_tags
 
-    monkeypatch.setitem(
-        reserved_tags._EXACT, "synthetic-gate-tag", GATE_SESSION_MEMBER_OR_ADMIN
-    )
+    monkeypatch.setitem(reserved_tags._EXACT, "synthetic-gate-tag", GATE_SESSION_MEMBER_OR_ADMIN)
 
-    result = await evaluate(
-        ["synthetic-gate-tag", "chat:s"], {"slug": "admin", "role": "admin"}
-    )
+    result = await evaluate(["synthetic-gate-tag", "chat:s"], {"slug": "admin", "role": "admin"})
     assert result.ok is True
 
 

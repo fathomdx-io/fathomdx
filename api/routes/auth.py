@@ -8,6 +8,7 @@ Three clusters live here:
 All share api/auth.py (middleware, scopes) and api/pairing.py
 (pair-code storage + redemption).
 """
+
 from __future__ import annotations
 
 import logging
@@ -85,9 +86,7 @@ async def bootstrap(body: BootstrapBody):
             if v is not None:
                 initial_profile[key] = v
 
-    contact = await contacts_mod.create(
-        slug, initial_profile=initial_profile, actor_slug=None
-    )
+    contact = await contacts_mod.create(slug, initial_profile=initial_profile, actor_slug=None)
 
     if body.email:
         email = body.email.strip()
@@ -131,14 +130,17 @@ async def auth_me(request: Request):
     contact = getattr(request.state, "contact", None)
     token = getattr(request.state, "token", None)
     return {
-        "authenticated": (contact is not None) and (token is not None or not auth_mod.auth_required()),
+        "authenticated": (contact is not None)
+        and (token is not None or not auth_mod.auth_required()),
         "auth_required": auth_mod.auth_required(),
         "contact": contact,
         "token": {
             "id": (token or {}).get("id"),
             "name": (token or {}).get("name"),
             "scopes": (token or {}).get("scopes"),
-        } if token else None,
+        }
+        if token
+        else None,
     }
 
 

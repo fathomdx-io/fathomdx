@@ -5,6 +5,7 @@ These invariants are load-bearing: if the generator ever emits an empty
 adjective slot or a duplicated adjective, chat-session URLs turn into
 collisions that the lake can't disambiguate.
 """
+
 from __future__ import annotations
 
 import random
@@ -115,9 +116,7 @@ def test_generate_unique_slug_falls_back_with_suffix() -> None:
     response = MagicMock(status_code=200, **{"json.return_value": [{"id": "x"}]})
     client.get.return_value = response
 
-    slug = generate_unique_slug(
-        client, "http://lake", {}, max_attempts=3, rng=random.Random(1)
-    )
+    slug = generate_unique_slug(client, "http://lake", {}, max_attempts=3, rng=random.Random(1))
     # Grammar: adj-adj-animal-suffix = four hyphen parts
     assert slug.count("-") == 3
     parts = slug.split("-")

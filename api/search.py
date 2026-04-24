@@ -182,9 +182,7 @@ def _sediment_source_ids(deltas_by_step: dict[str, list[dict]]) -> list[str]:
     return ordered
 
 
-def _sediment_prompt_body(
-    query: str, deltas_by_step: dict[str, list[dict]]
-) -> str:
+def _sediment_prompt_body(query: str, deltas_by_step: dict[str, list[dict]]) -> str:
     """Compact rendering of the retrieved set for the synthesis LLM call.
 
     Any engagement cloud attached to a source is rendered as indented notes
@@ -332,9 +330,7 @@ def _delta_line(d: dict) -> str:
     src = d.get("source", "unknown")
     ts = (d.get("timestamp") or "")[:16]
     tags = ", ".join((d.get("tags") or [])[:4])
-    media = (
-        f"\n[Image attached: media_hash={d['media_hash']}]" if d.get("media_hash") else ""
-    )
+    media = f"\n[Image attached: media_hash={d['media_hash']}]" if d.get("media_hash") else ""
     content = (d.get("content") or "")[:_MAX_CONTENT_CHARS]
     cloud_note = _render_cloud(d.get("engagement_cloud") or [])
     return f"[{src} · {ts} · {tags}]{media}\n{content}{cloud_note}"
@@ -462,9 +458,7 @@ async def _deep(
     session_slug: str | None,
     limit: int,
 ) -> dict:
-    plan = await _generate_plan(
-        text, conv_context=conv_context, session_slug=session_slug
-    )
+    plan = await _generate_plan(text, conv_context=conv_context, session_slug=session_slug)
     if not plan:
         return _empty_result()
 
@@ -490,9 +484,7 @@ async def _deep(
         cleaned: list[dict] = []
         for d in raw_deltas:
             tags = d.get("tags") or []
-            if "assistant" in tags and (
-                "fathom-chat" in tags or d.get("source") == "fathom-chat"
-            ):
+            if "assistant" in tags and ("fathom-chat" in tags or d.get("source") == "fathom-chat"):
                 continue
             did = d.get("id")
             if did:
@@ -503,12 +495,8 @@ async def _deep(
             if d.get("media_hash"):
                 media_hashes.append(d["media_hash"])
 
-        relation = step.get("relation") or _DEFAULT_RELATION_BY_ACTION.get(
-            action, "surfaced"
-        )
-        query = (
-            val if action == "search" else val if isinstance(val, (str, list)) else None
-        )
+        relation = step.get("relation") or _DEFAULT_RELATION_BY_ACTION.get(action, "surfaced")
+        query = val if action == "search" else val if isinstance(val, (str, list)) else None
 
         tree.append(
             {

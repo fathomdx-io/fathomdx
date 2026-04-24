@@ -8,6 +8,7 @@ process can read) and the api would read it off disk, upload it into
 the lake, and return a delta id. These tests lock in the containment
 check that stops that cold.
 """
+
 from __future__ import annotations
 
 import pytest

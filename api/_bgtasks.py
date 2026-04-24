@@ -16,6 +16,7 @@ Usage:
 
     spawn(some_coro(), name="crystal-regen")
 """
+
 from __future__ import annotations
 
 import asyncio

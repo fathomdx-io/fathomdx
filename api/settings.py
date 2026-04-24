@@ -1,4 +1,5 @@
 """Configuration from environment variables."""
+
 from __future__ import annotations
 
 from pydantic import Field
@@ -26,8 +27,8 @@ class Settings(BaseSettings):
     # tools (mcp, cli, hooks) read from FATHOM_API_KEY.
     provider: str = Field("gemini", validation_alias="LLM_PROVIDER")
     api_key: str = Field("", validation_alias="LLM_API_KEY")
-    base_url: str = Field("", validation_alias="LLM_BASE_URL")   # overrides provider default
-    model: str = Field("", validation_alias="LLM_MODEL")         # overrides provider default
+    base_url: str = Field("", validation_alias="LLM_BASE_URL")  # overrides provider default
+    model: str = Field("", validation_alias="LLM_MODEL")  # overrides provider default
 
     # Delta store
     delta_store_url: str = "http://localhost:8100"
@@ -58,7 +59,7 @@ class Settings(BaseSettings):
     # of sustained activity unless a contrast-wake intervenes.
     mood_pressure_threshold: float = 25.0
     mood_decay_half_life_seconds: int = 14400  # 4 hours
-    mood_contrast_wake_seconds: int = 21600    # 6 hours
+    mood_contrast_wake_seconds: int = 21600  # 6 hours
 
     # Crystal auto-regeneration.
     # Auto-regen fires when (drift / threshold) >= red_ratio AND the last

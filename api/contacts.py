@@ -137,6 +137,7 @@ async def first_admin_slug() -> str | None:
     if _FIRST_ADMIN_RESOLVED:
         return _FIRST_ADMIN_SLUG
     import os
+
     env = os.environ.get("FATHOM_BOOTSTRAP_SLUG", "").strip()
     if env:
         _FIRST_ADMIN_SLUG = env
@@ -323,12 +324,8 @@ async def list_proposals(limit: int = 50) -> list[dict]:
     here on write).
     """
     try:
-        all_proposals = await delta_client.query(
-            tags_include=[PROPOSAL_TAG], limit=limit * 2
-        )
-        resolved = await delta_client.query(
-            tags_include=[PROPOSAL_RESOLVED_TAG], limit=limit * 2
-        )
+        all_proposals = await delta_client.query(tags_include=[PROPOSAL_TAG], limit=limit * 2)
+        resolved = await delta_client.query(tags_include=[PROPOSAL_RESOLVED_TAG], limit=limit * 2)
     except Exception:
         return []
     # Resolved proposals are tombstones that reference the original by
@@ -353,16 +350,18 @@ async def list_proposals(limit: int = 50) -> list[dict]:
         except json.JSONDecodeError:
             parsed = {}
         proposer = tag_suffix(tags, "contact:")
-        out.append({
-            "id": d.get("id"),
-            "created_at": d.get("timestamp"),
-            "expires_at": d.get("expires_at"),
-            "proposer": proposer,
-            "candidate_slug": parsed.get("candidate_slug"),
-            "display_name": parsed.get("display_name") or parsed.get("candidate_slug") or "?",
-            "rationale": parsed.get("rationale") or "",
-            "source_context": parsed.get("source_context") or {},
-        })
+        out.append(
+            {
+                "id": d.get("id"),
+                "created_at": d.get("timestamp"),
+                "expires_at": d.get("expires_at"),
+                "proposer": proposer,
+                "candidate_slug": parsed.get("candidate_slug"),
+                "display_name": parsed.get("display_name") or parsed.get("candidate_slug") or "?",
+                "rationale": parsed.get("rationale") or "",
+                "source_context": parsed.get("source_context") or {},
+            }
+        )
         if len(out) >= limit:
             break
     return out
@@ -456,24 +455,28 @@ async def accept_proposal(
         except Exception:
             log.warning(
                 "accept_proposal: handle %s:%s for %s already bound or failed",
-                channel, ident, slug,
+                channel,
+                ident,
+                slug,
             )
 
     note = f"Proposal {proposal_id} accepted as contact {slug}."
     if minted_handles:
-        note += " Seeded handles: " + ", ".join(
-            f"{h['channel']}:{h['identifier']}" for h in minted_handles
-        ) + "."
+        note += (
+            " Seeded handles: "
+            + ", ".join(f"{h['channel']}:{h['identifier']}" for h in minted_handles)
+            + "."
+        )
     await _write_proposal_resolution(proposal_id, "accepted", actor_slug, note=note)
 
     return {**created, "seeded_handles": minted_handles}
 
 
-async def reject_proposal(
-    proposal_id: str, actor_slug: str | None, note: str = ""
-) -> None:
+async def reject_proposal(proposal_id: str, actor_slug: str | None, note: str = "") -> None:
     await _write_proposal_resolution(
-        proposal_id, "rejected", actor_slug,
+        proposal_id,
+        "rejected",
+        actor_slug,
         note=note or f"Proposal {proposal_id} rejected.",
     )
 
@@ -486,14 +489,8 @@ async def disable(slug: str, actor_slug: str | None) -> bool:
     the registry must always have at least one active admin.
     """
     current = await _fetch_latest_profile(slug)
-    if (
-        current
-        and current.get("role") == "admin"
-        and await _count_other_active_admins(slug) == 0
-    ):
-        raise LastAdminError(
-            f"{slug} is the only admin. Promote someone else before disabling."
-        )
+    if current and current.get("role") == "admin" and await _count_other_active_admins(slug) == 0:
+        raise LastAdminError(f"{slug} is the only admin. Promote someone else before disabling.")
     try:
         await delta_client.disable_contact_row(slug)
     except Exception:

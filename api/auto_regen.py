@@ -51,7 +51,9 @@ async def _within_cooldown() -> bool:
     try:
         current = await crystal.latest()
     except Exception:
-        log.warning("auto-regen cooldown check: lake unreachable, failing safe (treating as within cooldown)")
+        log.warning(
+            "auto-regen cooldown check: lake unreachable, failing safe (treating as within cooldown)"
+        )
         return True
     if current and current.get("created_at"):
         try:
@@ -84,6 +86,7 @@ async def _trigger_regen() -> None:
     _in_flight = True
     try:
         from . import server  # lazy
+
         log.info("auto-regen firing — invoking refresh_crystal()")
         await server.refresh_crystal()
         _last_fired_at = _now()
@@ -145,7 +148,11 @@ async def _check_once() -> dict:
     # we only lost the measurement baseline.
     if snap.get("no_anchor"):
         healed = await _self_heal_anchor()
-        return {**snap, "auto_regen": "self-healed-anchor" if healed else "no-anchor-heal-failed", "score": 0.0}
+        return {
+            **snap,
+            "auto_regen": "self-healed-anchor" if healed else "no-anchor-heal-failed",
+            "score": 0.0,
+        }
 
     if threshold <= 0:
         return {**snap, "auto_regen": "disabled-no-threshold"}

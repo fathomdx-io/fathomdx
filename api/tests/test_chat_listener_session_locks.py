@@ -4,6 +4,7 @@ Before the bound, a long-running process accumulated one asyncio.Lock
 per session slug ever seen — tiny but unbounded. The LRU cap keeps the
 working set of active sessions while evicting stale ones.
 """
+
 from __future__ import annotations
 
 from api.chat_listener import _SESSION_LOCK_CAP, ChatListener

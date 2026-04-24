@@ -7,6 +7,7 @@ crystal caused the NEXT tick to fire another one. The fail-safe must
 be "treat as within cooldown" when we can't determine cooldown state
 from the timestamp.
 """
+
 from __future__ import annotations
 
 import pytest
@@ -27,6 +28,7 @@ def _reset_state(monkeypatch):
 @pytest.mark.asyncio
 async def test_within_cooldown_on_unparseable_created_at(monkeypatch) -> None:
     """The corrupt-timestamp branch must fail safe (return True)."""
+
     async def _bad(*_args, **_kwargs):
         return {"created_at": "not-a-timestamp"}
 
@@ -38,6 +40,7 @@ async def test_within_cooldown_on_unparseable_created_at(monkeypatch) -> None:
 async def test_within_cooldown_on_lake_unreachable(monkeypatch) -> None:
     """Separate fail-safe branch: crystal.latest raising must also map to
     within-cooldown = True (don't fire a regen against a dead lake)."""
+
     async def _raise(*_args, **_kwargs):
         raise RuntimeError("lake down")
 

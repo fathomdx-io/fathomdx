@@ -170,14 +170,16 @@ async def mood_history(limit: int = 200) -> list[dict]:
         state = parsed["state"]
         if state == "unset":
             state = _state_from_tags(d.get("tags") or [])
-        timeline.append({
-            "id": d.get("id"),
-            "state": state,
-            "headline": parsed["headline"],
-            "subtext": parsed["subtext"],
-            "carrier_wave": parsed["carrier_wave"],
-            "synthesized_at": d.get("timestamp"),
-        })
+        timeline.append(
+            {
+                "id": d.get("id"),
+                "state": state,
+                "headline": parsed["headline"],
+                "subtext": parsed["subtext"],
+                "carrier_wave": parsed["carrier_wave"],
+                "synthesized_at": d.get("timestamp"),
+            }
+        )
     timeline.sort(key=lambda e: e.get("synthesized_at") or "")
     return timeline
 
@@ -229,13 +231,16 @@ async def synthesize_mood(session_slug: str | None = None) -> dict | None:
 
     # Store the full structured payload as canonical JSON so all the
     # fields round-trip cleanly (headline, subtext, carrier_wave, threads).
-    delta_content = json.dumps({
-        "state": parsed["state"],
-        "headline": parsed["headline"],
-        "subtext": parsed["subtext"],
-        "carrier_wave": parsed["carrier_wave"],
-        "threads": parsed["threads"],
-    }, ensure_ascii=False)
+    delta_content = json.dumps(
+        {
+            "state": parsed["state"],
+            "headline": parsed["headline"],
+            "subtext": parsed["subtext"],
+            "carrier_wave": parsed["carrier_wave"],
+            "threads": parsed["threads"],
+        },
+        ensure_ascii=False,
+    )
 
     state = parsed["state"]
     delta_tags = [*MOOD_TAGS, f"feeling:{state}"]

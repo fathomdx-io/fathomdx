@@ -4,6 +4,7 @@ The scope matrix and token validation are the load-bearing pieces here.
 A broken `_required_scope` silently downgrades auth; a broken `validate`
 can let a wrong token pass or reject a right one.
 """
+
 from __future__ import annotations
 
 from unittest.mock import MagicMock
@@ -28,6 +29,7 @@ def _isolate_tokens_file(tmp_path, monkeypatch):
 
 
 # ── _required_scope ──────────────────────────────────────────────────
+
 
 def test_required_scope_maps_lake_read_endpoints() -> None:
     assert auth._required_scope("GET", "/v1/deltas") == "lake:read"
@@ -58,6 +60,7 @@ def test_required_scope_matches_by_prefix_not_exact() -> None:
 
 
 # ── create_token / validate / list / delete ─────────────────────────
+
 
 def test_create_token_returns_raw_token_and_record() -> None:
     result = auth.create_token(name="agent-prod", scopes=["lake:read"])
@@ -131,22 +134,25 @@ def test_delete_token_returns_false_for_unknown_id() -> None:
 
 # ── migrate_legacy_tokens ───────────────────────────────────────────
 
+
 def test_migrate_legacy_tokens_backfills_missing_contact_slug() -> None:
     """Legacy tokens minted before contact-awareness had no slug. The
     migration pins them to the first admin so every token has an owner."""
     # Synthesize a legacy record by hand (create_token always stamps slug).
-    auth._save([
-        {
-            "id": "legacy1",
-            "name": "old",
-            "hash": "x",
-            "prefix": "fth_old…",
-            "scopes": ["lake:read"],
-            "created_at": "2024-01-01",
-            "last_used_at": None,
-            # contact_slug missing
-        }
-    ])
+    auth._save(
+        [
+            {
+                "id": "legacy1",
+                "name": "old",
+                "hash": "x",
+                "prefix": "fth_old…",
+                "scopes": ["lake:read"],
+                "created_at": "2024-01-01",
+                "last_used_at": None,
+                # contact_slug missing
+            }
+        ]
+    )
     migrated = auth.migrate_legacy_tokens(default_slug="first-admin")
     assert migrated == 1
     assert auth._load()[0]["contact_slug"] == "first-admin"
@@ -168,6 +174,7 @@ def test_migrate_legacy_tokens_noop_when_no_default_slug() -> None:
 
 # ── current_contact_slug ───────────────────────────────────────────
 
+
 def test_current_contact_slug_reads_request_state() -> None:
     req = MagicMock()
     req.state.contact = {"slug": "bob", "role": "member"}
@@ -184,6 +191,7 @@ def test_current_contact_slug_returns_empty_when_state_missing() -> None:
     """Pre-auth-middleware or failed-auth request has no .state.contact
     at all. Must not crash — return empty string for the downstream
     filter-contact-scoped paths to degrade safely."""
+
     class _BareState:
         pass
 
@@ -194,6 +202,7 @@ def test_current_contact_slug_returns_empty_when_state_missing() -> None:
 
 
 # ── invalidate_contact_cache ───────────────────────────────────────
+
 
 def test_invalidate_contact_cache_drops_one_slug() -> None:
     auth._CONTACT_CACHE["bob"] = (0.0, {"slug": "bob"})

@@ -4,6 +4,7 @@ Upload/fetch images through the consumer API so the UI has one host.
 Also writes the companion "context" delta for browser captures, so an
 image in the lake is always accompanied by text explaining what it is.
 """
+
 from __future__ import annotations
 
 from fastapi import APIRouter, File, Form, HTTPException, Request, UploadFile

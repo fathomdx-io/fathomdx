@@ -1,4 +1,5 @@
 """Async HTTP client for the delta store API."""
+
 from __future__ import annotations
 
 import asyncio
@@ -73,10 +74,15 @@ async def _request_with_retry(
         if attempt + 1 < attempts:
             # Jittered exponential backoff — the jitter avoids a
             # stampeding-herd of retries all landing at the same tick.
-            delay = _RETRY_BASE_DELAY * (2 ** attempt) * (0.5 + random.random())
+            delay = _RETRY_BASE_DELAY * (2**attempt) * (0.5 + random.random())
             log.warning(
                 "delta-store %s %s failed (%s), retrying in %.2fs (attempt %d/%d)",
-                method, url, last_exc, delay, attempt + 1, attempts,
+                method,
+                url,
+                last_exc,
+                delay,
+                attempt + 1,
+                attempts,
             )
             await asyncio.sleep(delay)
     assert last_exc is not None
@@ -84,6 +90,7 @@ async def _request_with_retry(
 
 
 # ── Search ──────────────────────────────────────
+
 
 async def search(
     query: str,
@@ -106,6 +113,7 @@ async def search(
 
 # ── Write ───────────────────────────────────────
 
+
 async def write(
     content: str,
     tags: list[str] | None = None,
@@ -122,6 +130,7 @@ async def write(
 
 
 # ── Query (structured filter) ───────────────────
+
 
 async def query(
     limit: int = 50,
@@ -143,6 +152,7 @@ async def query(
 
 # ── Plan (compositional query) ──────────────────
 
+
 async def plan(steps: list[dict]) -> dict:
     r = await _request_with_retry("POST", "/plan", json={"steps": steps})
     r.raise_for_status()
@@ -150,6 +160,7 @@ async def plan(steps: list[dict]) -> dict:
 
 
 # ── Engagement cloud ────────────────────────────
+
 
 async def engagement_cloud(delta_ids: list[str]) -> dict:
     """Batched lookup: for each delta id, return deltas pointing at it via any
@@ -163,6 +174,7 @@ async def engagement_cloud(delta_ids: list[str]) -> dict:
 
 # ── Single delta ────────────────────────────────
 
+
 async def get_delta(delta_id: str) -> dict:
     r = await _request_with_retry("GET", f"/deltas/{delta_id}")
     r.raise_for_status()
@@ -170,6 +182,7 @@ async def get_delta(delta_id: str) -> dict:
 
 
 # ── Meta ────────────────────────────────────────
+
 
 async def tags() -> dict:
     r = await _request_with_retry("GET", "/tags")
@@ -186,7 +199,8 @@ async def stats() -> dict:
 async def retrievals_history(since_seconds: int, buckets: int = 60) -> list[dict]:
     """Fetch bucketed delta-retrieval timeline from the lake."""
     r = await _request_with_retry(
-        "GET", "/stats/retrievals/history",
+        "GET",
+        "/stats/retrievals/history",
         params={"since_seconds": since_seconds, "buckets": buckets},
     )
     r.raise_for_status()
@@ -196,7 +210,8 @@ async def retrievals_history(since_seconds: int, buckets: int = 60) -> list[dict
 async def usage_history(since_seconds: int, buckets: int = 60) -> list[dict]:
     """Fetch bucketed delta-write timeline from the lake (SQL-bucketed, no row cap)."""
     r = await _request_with_retry(
-        "GET", "/stats/usage/history",
+        "GET",
+        "/stats/usage/history",
         params={"since_seconds": since_seconds, "buckets": buckets},
     )
     r.raise_for_status()
@@ -214,7 +229,8 @@ async def pressure_history(
 ) -> list[dict]:
     """Fetch bucketed weighted-decay pressure curve (SQL-computed, no row cap)."""
     r = await _request_with_retry(
-        "POST", "/stats/pressure/history",
+        "POST",
+        "/stats/pressure/history",
         json={
             "since_seconds": since_seconds,
             "buckets": buckets,
@@ -239,7 +255,8 @@ async def pressure_volume(
 ) -> float:
     """Single weighted-decay pressure value since cutoff (or window)."""
     r = await _request_with_retry(
-        "POST", "/stats/pressure/volume",
+        "POST",
+        "/stats/pressure/volume",
         json={
             "cutoff_ts": cutoff_ts,
             "window_seconds": window_seconds,
@@ -263,6 +280,7 @@ async def upload_media(
 ) -> dict:
     """Upload an image to the delta store, returns {id, media_hash}."""
     import io
+
     c = await _get()
     files = {"file": (filename, io.BytesIO(file_bytes), "application/octet-stream")}
     data: dict = {
@@ -319,6 +337,7 @@ async def drift(text: str, since: str | None = None) -> dict:
 
 
 # ── Contacts registry (minimal: slug + created_at + disabled_at) ─────────
+
 
 async def get_contact_row(slug: str, include_disabled: bool = False) -> dict | None:
     """Fetch the thin registry row. The full contact dict lives in the
@@ -389,7 +408,8 @@ async def remove_handle(slug: str, channel: str, identifier: str) -> None:
 
 async def resolve_handle(channel: str, identifier: str) -> str | None:
     r = await _request_with_retry(
-        "GET", "/handles/resolve",
+        "GET",
+        "/handles/resolve",
         params={"channel": channel, "identifier": identifier},
     )
     r.raise_for_status()

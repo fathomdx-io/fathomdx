@@ -12,6 +12,7 @@ path carries the two central defenses on lake writes:
 /v1/engagement is the first-class repair / affirmation channel for
 reacting to an existing delta (refutes / affirms / reply-to).
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -61,9 +62,7 @@ def _resolve_allowed_image_path(image_path: str) -> Path:
         allowed_root = Path(prefix).resolve(strict=False)
         candidate = Path(image_path).resolve(strict=False)
     except (OSError, ValueError) as e:
-        raise HTTPException(
-            status_code=400, detail=f"image_path invalid: {e}"
-        ) from e
+        raise HTTPException(status_code=400, detail=f"image_path invalid: {e}") from e
     try:
         candidate.relative_to(allowed_root)
     except ValueError:
@@ -173,7 +172,8 @@ LAKE_TOOLS = [
             "properties": {
                 "content": {"type": "string", "description": "What to persist."},
                 "tags": {
-                    "type": "array", "items": {"type": "string"},
+                    "type": "array",
+                    "items": {"type": "string"},
                     "description": "Tags for filtering (e.g. ['meeting', 'decision']).",
                 },
                 "source": {"type": "string", "description": "Source label.", "default": "api"},
@@ -201,7 +201,8 @@ LAKE_TOOLS = [
             "type": "object",
             "properties": {
                 "tags": {
-                    "type": "array", "items": {"type": "string"},
+                    "type": "array",
+                    "items": {"type": "string"},
                     "description": "Memories must have ALL these tags.",
                 },
                 "source": {"type": "string", "description": "Filter by source."},
@@ -210,14 +211,18 @@ LAKE_TOOLS = [
             },
         },
         "endpoint": {"method": "GET", "path": "/v1/deltas"},
-        "request_map": {"tags": "tags_include", "limit": "limit", "source": "source", "time_start": "time_start"},
+        "request_map": {
+            "tags": "tags_include",
+            "limit": "limit",
+            "source": "source",
+            "time_start": "time_start",
+        },
         "scope": "lake:read",
     },
     {
         "name": "mind_stats",
         "description": (
-            "Check the state of your memory — total moments, coverage, top tags. "
-            "Quick self-check."
+            "Check the state of your memory — total moments, coverage, top tags. Quick self-check."
         ),
         "parameters": {"type": "object", "properties": {}},
         "endpoint": {"method": "GET", "path": "/v1/stats"},

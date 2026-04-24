@@ -24,13 +24,24 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-import re
 import time
 from datetime import datetime, timedelta
 from typing import Any
 
 from . import delta_client, feed_crystal
 from ._bgtasks import spawn as _spawn_task
+from ._feed_candidates import (
+    _fetch_line_candidates,
+    _format_candidates,
+)
+from ._feed_card_body import (
+    MAX_FORMAT_ATTEMPTS,
+    _candidate_hashes,
+    _candidate_image_urls,
+    _parse_card_payload,
+    _validate_body_image,
+    _validate_media_list,
+)
 from ._time import now as _now
 from .settings import settings
 
@@ -178,10 +189,7 @@ def _summarize_outcome(contact_slug: str, had_crystal: bool, had_lines: bool) ->
             parts.append(f"{skipped} model-pass{'es' if skipped != 1 else ''}")
         return {
             "summary": "all_fresh",
-            "detail": (
-                f"Nothing needed generating ({', '.join(parts)}) — the feed is "
-                "caught up."
-            ),
+            "detail": (f"Nothing needed generating ({', '.join(parts)}) — the feed is caught up."),
             "cards_written": 0,
             "at": at,
         }
@@ -199,9 +207,7 @@ def _summarize_outcome(contact_slug: str, had_crystal: bool, had_lines: bool) ->
         reasons.append(f"{skipped} model-pass")
     return {
         "summary": "no_cards",
-        "detail": (
-            f"Ran, but no cards were written ({', '.join(reasons) or 'unknown reason'})."
-        ),
+        "detail": (f"Ran, but no cards were written ({', '.join(reasons) or 'unknown reason'})."),
         "cards_written": 0,
         "at": at,
     }
@@ -261,9 +267,7 @@ async def mark_visit(contact_slug: str) -> dict:
     pending = _pending_visits.get(contact_slug)
     if pending and not pending.done():
         return {"scheduled": False, "reason": "already-pending"}
-    _pending_visits[contact_slug] = asyncio.create_task(
-        _run_once(contact_slug, reason="visit")
-    )
+    _pending_visits[contact_slug] = asyncio.create_task(_run_once(contact_slug, reason="visit"))
     return {"scheduled": True}
 
 
@@ -308,8 +312,12 @@ async def _run_once(contact_slug: str, reason: str = "unspecified") -> None:
         except Exception:
             log.exception("feed_loop: run failed (contact=%s)", contact_slug)
         finally:
-            outcome = _summarize_outcome(contact_slug, run_facts["had_crystal"], run_facts["had_lines"])
-            _set_status(contact_slug, generating=False, finished_at=_now().isoformat(), last_outcome=outcome)
+            outcome = _summarize_outcome(
+                contact_slug, run_facts["had_crystal"], run_facts["had_lines"]
+            )
+            _set_status(
+                contact_slug, generating=False, finished_at=_now().isoformat(), last_outcome=outcome
+            )
 
 
 async def _do_run(contact_slug: str, reason: str, run_facts: dict) -> None:
@@ -423,8 +431,7 @@ async def _cold_start_fire(contact_slug: str) -> None:
         "not given any signal about what they want in their feed. Pick ONE "
         "genuinely interesting thing happening in the world right now "
         "(curiosity-default), search the web or the lake for an authoritative "
-        "source, and produce a single feed card.\n\n"
-        + _CARD_OUTPUT_INSTRUCTIONS
+        "source, and produce a single feed card.\n\n" + _CARD_OUTPUT_INSTRUCTIONS
     )
     _llm_active_enter(contact_slug, label="First card — picking something curious")
     try:
@@ -438,184 +445,11 @@ async def _cold_start_fire(contact_slug: str) -> None:
         _llm_active_exit(contact_slug)
 
 
-async def _fetch_line_candidates(line: dict, limit: int = 20) -> list[dict]:
-    """Pre-fetch a candidate pool for a directive line.
-
-    The model's semantic-search-on-topic was missing relevant content
-    (e.g. searching "clever science humor" doesn't surface a Quanta
-    article titled "Wonder All Around Us"). Pulling candidates by tag
-    + recency + image-bearing tells the model "here are concrete deltas
-    that fit this slot — pick from them, don't go fishing."
-
-    Strategies, deduplicated and merged:
-      1. Engagement-anchored: deltas tagged `topic:<line_topic>` (the
-         crystal's own taxonomy, present once engagement has built up).
-      2. Visually-rich recents: rss + browser-extension deltas with
-         media_hash or inline markdown images.
-      3. Topic semantic search via the lake's /search endpoint.
-
-    Returns newest-first, capped at `limit`.
-    """
-    topic = (line.get("topic") or "").strip()
-    line_id = (line.get("id") or "").strip()
-
-    # Fire every lake read for this card's pool in parallel. They're
-    # independent — four sequential round-trips against delta-store
-    # add up to ~1-2s at typical compose-stack latency, vs. ~500ms when
-    # run concurrently. asyncio.gather + return_exceptions=True keeps
-    # one failed fetch from breaking the others, matching the per-try
-    # except-pass shape the old serial code had.
-    semantic_query = (
-        f"{topic} {line_id}".replace("-", " ").strip() if (topic or line_id) else ""
-    )
-    topic_task = (
-        delta_client.query(tags_include=[f"topic:{topic}"], limit=limit)
-        if topic else None
-    )
-    rss_task = delta_client.query(tags_include=["rss"], limit=1000)
-    ext_task = delta_client.query(tags_include=["browser-extension"], limit=15)
-    search_task = (
-        delta_client.search(query=semantic_query, limit=limit)
-        if semantic_query else None
-    )
-    tasks = [t for t in (topic_task, rss_task, ext_task, search_task) if t is not None]
-    results = await asyncio.gather(*tasks, return_exceptions=True)
-
-    # Pull the results back out in the same order we queued them.
-    ri = iter(results)
-    topic_res = next(ri) if topic_task is not None else None
-    rss_res = next(ri)
-    ext_res = next(ri)
-    search_res = next(ri) if search_task is not None else None
-
-    seen: set[str] = set()
-    pool: list[dict] = []
-
-    def _add(d: dict) -> None:
-        did = d.get("id")
-        if did and did not in seen:
-            seen.add(did)
-            pool.append(d)
-
-    # 1. Topic-tagged content
-    if isinstance(topic_res, list):
-        for d in topic_res:
-            _add(d)
-
-    # 2. Visually-rich recent deltas (rss + browser-extension).
-    # The rss source plugin creates two delta families per item: the rich
-    # digest delta (source like `rss/<source-id>`, content 1000+ chars with
-    # markdown image AND `[Source](url)` link) AND a thin upload-sidecar
-    # delta (source=`rss`, content="<title>" only, ≤100 chars). Both share
-    # the media_hash; both are tagged `rss`+`feed`. Only the digest carries
-    # `feed:<domain>` — that's our reliable filter.
-    # Limit is large because the sidecar uploads dominate recency — each
-    # poll cycle creates ~30 sidecars per source, all with fresh
-    # write-time timestamps, while the rich digest deltas use the
-    # article's pubDate (often yesterday or older). 1000 is enough to
-    # reach a few days of digests on a modest-volume install.
-    if isinstance(rss_res, list):
-        for d in rss_res:
-            tags = d.get("tags") or []
-            content = d.get("content") or ""
-            # Keep only digest deltas: distinguished by a `feed:<domain>` tag.
-            # The sidecar uploads only carry the bare `feed` tag.
-            has_feed_domain = any(isinstance(t, str) and t.startswith("feed:") for t in tags)
-            if not has_feed_domain:
-                continue
-            has_image = bool(d.get("media_hash")) or "![" in content
-            if not has_image:
-                continue
-            _add(d)
-
-    # Browser-extension deltas (Reddit captures, etc.) don't have the
-    # sidecar problem — keep the original simple shape.
-    if isinstance(ext_res, list):
-        for d in ext_res:
-            content = d.get("content") or ""
-            has_image = bool(d.get("media_hash")) or "![" in content
-            if has_image:
-                _add(d)
-
-    # 3. Semantic search on the topic + line keywords. Catches near-misses
-    # (e.g. line "physics-breakthroughs" surfacing Quanta articles).
-    if isinstance(search_res, dict):
-        search_results = search_res.get("results")
-        if search_results:
-            for d in search_results:
-                _add(d)
-
-    pool.sort(key=lambda d: d.get("timestamp") or "", reverse=True)
-    return pool[:limit]
-
-
-_MARKDOWN_IMG_RE = re.compile(r'!\[[^\]]*\]\((https?://[^\s)]+)\)')
-# Match a markdown link `[label](url)` that is NOT preceded by `!` (which
-# would make it an image). The negative lookbehind keeps image markdown
-# from getting double-counted in the link extractor.
-_MARKDOWN_LINK_RE = re.compile(r'(?<!!)\[([^\]]+)\]\((https?://[^\s)]+)\)')
-
-
-def _extract_external_url(content: str) -> str | None:
-    """First http(s) markdown image URL in the content, if any.
-
-    Offered as a fallback when a candidate has no media_hash. In-lake
-    hashes are preferred — they're stable (external URLs can be signed/
-    expiring, like atlasobscura imgproxy) and the UI renders them via
-    /v1/media/{hash}?token=... which <img> tags can pass directly.
-    """
-    if not content:
-        return None
-    m = _MARKDOWN_IMG_RE.search(content)
-    return m.group(1) if m else None
-
-
-def _extract_source_link(content: str) -> str | None:
-    """First markdown link in the content. The RSS source plugin appends
-    `[Source](url)` to every item, so this is usually the canonical article
-    URL. Other sources may use other labels — the link is the link.
-    """
-    if not content:
-        return None
-    m = _MARKDOWN_LINK_RE.search(content)
-    return m.group(2) if m else None
-
-
-def _format_candidates(pool: list[dict]) -> str:
-    """Compact candidate listing for the per-line directive."""
-    if not pool:
-        return "(no candidates pre-fetched — fall back to the search tools)"
-    lines = []
-    for d in pool[:20]:
-        ts = (d.get("timestamp") or "")[:16]
-        src = (d.get("source") or "?")[:24]
-        did = (d.get("id") or "")[:12]
-        media_hash = d.get("media_hash") or ""
-        content = (d.get("content") or "").strip().split("\n", 1)[0][:140]
-        # Surface BOTH media_hashes and external URLs when present, with
-        # hashes preferred (the model is told this in the directive). Hashes
-        # are stable — external URLs are often imgproxy-signed and expire
-        # between RSS poll and render. The UI reaches /v1/media/{hash} with
-        # a token query param, so <img> tags render hashes just fine.
-        ext_url = _extract_external_url(d.get("content") or "")
-        source_link = _extract_source_link(d.get("content") or "")
-        # URLs are NOT truncated — the model needs the full string to copy
-        # exactly. A truncated URL is worse than no URL: the model assumes
-        # what it sees is complete and ships a broken image / dead link.
-        marks = []
-        if media_hash:
-            marks.append(f"📷[hash={media_hash}]")
-        if ext_url:
-            marks.append(f"🖼[url={ext_url}]")
-        if source_link:
-            marks.append(f"🔗[link={source_link}]")
-        mark = " ".join(marks) if marks else "  "
-        lines.append(f"  {mark} [{ts}] {src:24s} ({did}) {content}")
-    return "\n".join(lines)
-
-
 async def _fire_line(
-    contact_slug: str, line: dict, crystal: dict, freshness_map: dict[str, str] | None = None,
+    contact_slug: str,
+    line: dict,
+    crystal: dict,
+    freshness_map: dict[str, str] | None = None,
 ) -> None:
     """One directive line → one feed card (subject to freshness check).
 
@@ -686,8 +520,7 @@ async def _fire_line(
         f"body_image URL must appear verbatim in one of the candidates above. Don't "
         f"paraphrase, don't swap a seed, don't reach for a generic stock image. If the "
         f"candidates don't fit, you can still call the search tools — but candidates are "
-        f"the cheap path and usually contain what you need.\n\n"
-        + _CARD_OUTPUT_INSTRUCTIONS
+        f"the cheap path and usually contain what you need.\n\n" + _CARD_OUTPUT_INSTRUCTIONS
     )
 
     label_topic = topic or line_id
@@ -710,101 +543,6 @@ async def _fire_line(
         _llm_active_exit(contact_slug)
 
 
-def _strip_fences(text: str) -> str:
-    import re
-    s = (text or "").strip()
-    if s.startswith("```"):
-        s = re.sub(r"^```(?:json)?\s*", "", s)
-        s = re.sub(r"\s*```$", "", s)
-    return s.strip()
-
-
-# How many parse attempts before we give up on a line. The first attempt
-# does the real work (search, write); retries are cheap re-format nudges.
-MAX_FORMAT_ATTEMPTS = 3
-
-
-def _parse_card_payload(text: str) -> dict | None:
-    """Try to parse a card payload out of the assistant's final message.
-
-    Returns the parsed dict on success, None if it isn't valid JSON.
-    Skip-payloads (`{"skip": true, ...}`) round-trip as-is so the caller
-    can distinguish "model deliberately skipped" from "model produced
-    garbage."
-    """
-    raw = _strip_fences(text or "")
-    if not raw:
-        return None
-    try:
-        payload = json.loads(raw)
-    except Exception:
-        return None
-    return payload if isinstance(payload, dict) else None
-
-
-def _candidate_hashes(pool: list[dict] | None) -> set[str]:
-    """Real media_hash values from the pre-fetched candidates.
-
-    Used to drop hallucinated hashes from the model's output — flash models
-    sometimes invent plausible-looking hex strings that aren't in the lake.
-    """
-    out: set[str] = set()
-    for d in pool or []:
-        h = (d.get("media_hash") or "").strip()
-        if h:
-            out.add(h)
-    return out
-
-
-def _candidate_image_urls(pool: list[dict] | None) -> set[str]:
-    """Image URLs the model was actually shown in the candidates block.
-
-    Extracts every markdown `![...](url)` from candidate content — those
-    are the URLs the 🖼[url=…] marks in the directive point at. Anything
-    else the model emits as body_image is either fabricated (picsum seeds,
-    invented CDN paths) or a confused pick (an article URL that would load
-    HTML, not an image). The validator rejects anything outside this set.
-    """
-    out: set[str] = set()
-    for d in pool or []:
-        for m in _MARKDOWN_IMG_RE.finditer(d.get("content") or ""):
-            out.add(m.group(1))
-    return out
-
-
-def _validate_body_image(
-    value: str,
-    valid_hashes: set[str],
-    valid_urls: set[str],
-) -> str:
-    """Keep value if it's a known media_hash or a URL seen in candidates; else drop."""
-    v = (value or "").strip()
-    if not v:
-        return ""
-    if v.startswith("http://") or v.startswith("https://"):
-        # URL must appear verbatim in one of the candidate deltas — blocks
-        # picsum.photos and other LLM-invented placeholders.
-        return v if v in valid_urls else ""
-    if v in valid_hashes:
-        return v
-    # Looks like a hash but isn't in the candidate pool — hallucination.
-    return ""
-
-
-def _validate_media_list(
-    values: list[str],
-    valid_hashes: set[str],
-    valid_urls: set[str],
-) -> list[str]:
-    """Same validation, applied across the media[] array."""
-    out: list[str] = []
-    for v in values or []:
-        kept = _validate_body_image(str(v), valid_hashes, valid_urls)
-        if kept:
-            out.append(kept)
-    return out
-
-
 async def _produce_card(
     contact_slug: str,
     line: dict | None,
@@ -823,6 +561,7 @@ async def _produce_card(
     media values — drops any hash the model invented that isn't in the lake.
     """
     from .server import fathom_think  # lazy — avoid circular import
+
     line_id = (line or {}).get("id") or "(cold-start)"
 
     user_message = "Produce the card for the slot described above."
@@ -864,7 +603,10 @@ async def _produce_card(
 
         candidate = _parse_card_payload(text)
         if candidate is None:
-            print(f"feed_loop: line {line_id} attempt {attempt} — non-JSON; will retry. excerpt: {text[:200]!r}", flush=True)
+            print(
+                f"feed_loop: line {line_id} attempt {attempt} — non-JSON; will retry. excerpt: {text[:200]!r}",
+                flush=True,
+            )
             last_failed_excerpt = text[:240].replace("\n", " ")
             continue
 
@@ -877,7 +619,10 @@ async def _produce_card(
         break
 
     if payload is None:
-        print(f"feed_loop: line {line_id} — gave up after {MAX_FORMAT_ATTEMPTS} attempts (lost cause)", flush=True)
+        print(
+            f"feed_loop: line {line_id} — gave up after {MAX_FORMAT_ATTEMPTS} attempts (lost cause)",
+            flush=True,
+        )
         _tally_inc(contact_slug, "lines_format_failed")
         return
     if payload.get("skip"):
@@ -885,7 +630,10 @@ async def _produce_card(
         _tally_inc(contact_slug, "lines_model_skipped")
         return
     if not payload.get("title") or not payload.get("body"):
-        print(f"feed_loop: line {line_id} — JSON valid but missing title/body; skipping. payload keys: {list(payload.keys())}", flush=True)
+        print(
+            f"feed_loop: line {line_id} — JSON valid but missing title/body; skipping. payload keys: {list(payload.keys())}",
+            flush=True,
+        )
         _tally_inc(contact_slug, "lines_missing_fields")
         return
 
@@ -894,11 +642,17 @@ async def _produce_card(
     raw_body_image = str(payload.get("body_image", "") or "")
     body_image = _validate_body_image(raw_body_image, valid_hashes, valid_urls)
     if raw_body_image and not body_image:
-        print(f"feed_loop: line {line_id} dropped hallucinated body_image={raw_body_image!r}", flush=True)
+        print(
+            f"feed_loop: line {line_id} dropped hallucinated body_image={raw_body_image!r}",
+            flush=True,
+        )
     raw_media = [str(m) for m in (payload.get("media") or []) if m]
     media = _validate_media_list(raw_media, valid_hashes, valid_urls)
     if len(raw_media) != len(media):
-        print(f"feed_loop: line {line_id} dropped {len(raw_media) - len(media)} hallucinated media entr(ies)", flush=True)
+        print(
+            f"feed_loop: line {line_id} dropped {len(raw_media) - len(media)} hallucinated media entr(ies)",
+            flush=True,
+        )
 
     # Links: only http(s) URLs. The model could in principle invent a URL,
     # but unlike media_hash we can't validate against a candidate set —
@@ -949,9 +703,7 @@ async def _produce_card(
         log.exception("feed_loop: card delta write failed")
 
 
-async def _has_fresh_card(
-    contact_slug: str, line_id: str, freshness_hours: float
-) -> bool:
+async def _has_fresh_card(contact_slug: str, line_id: str, freshness_hours: float) -> bool:
     """True if this contact already has a card for this line newer than the window.
 
     Per-line fallback. Preferred path is _latest_card_by_line + the map-
@@ -1001,7 +753,7 @@ async def _latest_card_by_line(contact_slug: str) -> dict[str, str]:
         ts = c.get("timestamp") or ""
         for t in c.get("tags") or []:
             if isinstance(t, str) and t.startswith("directive-line:"):
-                line_id = t[len("directive-line:"):]
+                line_id = t[len("directive-line:") :]
                 prev = latest.get(line_id)
                 if prev is None or ts > prev:
                     latest[line_id] = ts
@@ -1009,9 +761,7 @@ async def _latest_card_by_line(contact_slug: str) -> dict[str, str]:
     return latest
 
 
-def _is_fresh_from_map(
-    freshness_map: dict[str, str], line_id: str, freshness_hours: float
-) -> bool:
+def _is_fresh_from_map(freshness_map: dict[str, str], line_id: str, freshness_hours: float) -> bool:
     """Shared is-fresh predicate for the map-based path."""
     ts = freshness_map.get(line_id)
     if not ts:

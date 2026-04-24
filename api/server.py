@@ -1,4 +1,5 @@
 """Fathom Consumer API — OpenAI-compat chat completions with delta lake tools."""
+
 from __future__ import annotations
 
 import asyncio
@@ -72,6 +73,7 @@ async def lifespan(_app: FastAPI):
     import asyncio as _asyncio
 
     from . import chat_listener
+
     resolved_admin: str | None = None
     for attempt in range(6):
         try:
@@ -81,7 +83,7 @@ async def lifespan(_app: FastAPI):
             if attempt == 5:
                 log.exception("lifespan: first_admin_slug failed after retries")
             else:
-                await _asyncio.sleep(2 ** attempt)
+                await _asyncio.sleep(2**attempt)
     if resolved_admin:
         migrated = auth.migrate_legacy_tokens(default_slug=resolved_admin)
         if migrated:
@@ -115,10 +117,11 @@ async def lifespan(_app: FastAPI):
                 if attempt == 5:
                     log.exception("contact backfill failed after retries (non-fatal)")
                     return
-                await _asyncio.sleep(2 ** attempt)
+                await _asyncio.sleep(2**attempt)
 
     if resolved_admin:
         from ._bgtasks import spawn as _spawn_task
+
         _spawn_task(_backfill_once(resolved_admin), name="lifespan/contact-backfill")
 
     auto_regen.start()
@@ -240,29 +243,38 @@ async def _resolve_tools(
                         on_tool_event("result", fn.name, {})
 
             if is_image:
-                data_uri = result_str[len(IMAGE_RESULT_PREFIX):]
+                data_uri = result_str[len(IMAGE_RESULT_PREFIX) :]
                 media_hash = args.get("media_hash", "?")
                 # Gemini doesn't support image_url in tool results.
                 # Return text as tool result, then inject the image as a
                 # user message so it lands in a supported position.
-                messages.append({
-                    "role": "tool",
-                    "tool_call_id": tc.id,
-                    "content": f"Image loaded (media_hash: {media_hash}). See the image in the next message.",
-                })
-                messages.append({
-                    "role": "user",
-                    "content": [
-                        {"type": "text", "text": f"[System: here is the image from delta lake, media_hash={media_hash}]"},
-                        {"type": "image_url", "image_url": {"url": data_uri}},
-                    ],
-                })
+                messages.append(
+                    {
+                        "role": "tool",
+                        "tool_call_id": tc.id,
+                        "content": f"Image loaded (media_hash: {media_hash}). See the image in the next message.",
+                    }
+                )
+                messages.append(
+                    {
+                        "role": "user",
+                        "content": [
+                            {
+                                "type": "text",
+                                "text": f"[System: here is the image from delta lake, media_hash={media_hash}]",
+                            },
+                            {"type": "image_url", "image_url": {"url": data_uri}},
+                        ],
+                    }
+                )
             else:
-                messages.append({
-                    "role": "tool",
-                    "tool_call_id": tc.id,
-                    "content": result_str,
-                })
+                messages.append(
+                    {
+                        "role": "tool",
+                        "tool_call_id": tc.id,
+                        "content": result_str,
+                    }
+                )
 
     # Exceeded max rounds — force a text-only final call so we always get a response
     resp = await llm.chat.completions.create(model=model, messages=messages, **kwargs)
@@ -330,18 +342,24 @@ async def fathom_think(
                 tags_include=[f"chat:{session_slug}", "participant:user"],
                 limit=1,
             )
-            if session_slug else None
+            if session_slug
+            else None
         )
-        crystal_text, current_mood, agent_info, contacts_result, session_row, addressee_row = (
-            await asyncio.gather(
-                crystal.latest_text(),
-                mood.maybe_synthesize_on_wake(session_slug=session_slug),
-                _agent_alive(),
-                contacts_mod.list_all(),
-                session_task if session_task is not None else _none_coro(),
-                addressee_task if addressee_task is not None else _none_coro(),
-                return_exceptions=True,
-            )
+        (
+            crystal_text,
+            current_mood,
+            agent_info,
+            contacts_result,
+            session_row,
+            addressee_row,
+        ) = await asyncio.gather(
+            crystal.latest_text(),
+            mood.maybe_synthesize_on_wake(session_slug=session_slug),
+            _agent_alive(),
+            contacts_mod.list_all(),
+            session_task if session_task is not None else _none_coro(),
+            addressee_task if addressee_task is not None else _none_coro(),
+            return_exceptions=True,
         )
 
         # Unpack with graceful degradation — any gather entry could be an
@@ -413,7 +431,7 @@ async def fathom_think(
         if history:
             recent = [m for m in history if m.get("role") in ("user", "assistant")][-6:]
             conv_context = "\n".join(
-                f'{m["role"]}: {(m.get("content") or "")[:200]}' for m in recent
+                f"{m['role']}: {(m.get('content') or '')[:200]}" for m in recent
             )
 
         recalled = await nl_search(
@@ -440,8 +458,13 @@ async def fathom_think(
 
     # 4. Run the tool loop
     messages = await _resolve_tools(
-        messages, model, tools=resolved_tools, on_tool_event=on_tool_event,
-        max_rounds=max_rounds, session_id=session_slug, **llm_kwargs,
+        messages,
+        model,
+        tools=resolved_tools,
+        on_tool_event=on_tool_event,
+        max_rounds=max_rounds,
+        session_id=session_slug,
+        **llm_kwargs,
     )
 
     return messages
@@ -485,9 +508,7 @@ async def chat_completions(req: ChatRequest, request: Request):
         if m.role == "user" and m.content:
             content = m.content if isinstance(m.content, str) else json.dumps(m.content)
             if not req.image_uploaded:
-                await db.add_message(
-                    session_id, "user", content, contact_slug=contact_slug
-                )
+                await db.add_message(session_id, "user", content, contact_slug=contact_slug)
 
     # Return session_id so the UI can lock onto it for its poll cycle.
     # No streaming response — there's nothing to stream. The chat listener
@@ -656,11 +677,13 @@ async def refresh_crystal():
 async def list_models():
     return {
         "object": "list",
-        "data": [{
-            "id": settings.resolved_model,
-            "object": "model",
-            "owned_by": settings.provider,
-        }],
+        "data": [
+            {
+                "id": settings.resolved_model,
+                "object": "model",
+                "owned_by": settings.provider,
+            }
+        ],
     }
 
 
@@ -684,6 +707,7 @@ async def health():
 
 # ── Crystal facet parsing ───────────────────────
 
+
 def _split_facets(text: str) -> list[dict]:
     """Split crystal text on ## headers into facets."""
     facets = []
@@ -694,20 +718,24 @@ def _split_facets(text: str) -> list[dict]:
         m = re.match(r"^##\s+(.+)$", line)
         if m:
             if current_label and current_lines:
-                facets.append({
-                    "label": current_label,
-                    "text": "\n".join(current_lines).strip(),
-                })
+                facets.append(
+                    {
+                        "label": current_label,
+                        "text": "\n".join(current_lines).strip(),
+                    }
+                )
             current_label = m.group(1).strip()
             current_lines = []
         elif current_label is not None:
             current_lines.append(line)
 
     if current_label and current_lines:
-        facets.append({
-            "label": current_label,
-            "text": "\n".join(current_lines).strip(),
-        })
+        facets.append(
+            {
+                "label": current_label,
+                "text": "\n".join(current_lines).strip(),
+            }
+        )
 
     return facets
 

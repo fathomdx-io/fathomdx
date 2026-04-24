@@ -77,7 +77,13 @@ async def sample() -> dict:
         # Lake unreachable — do NOT return no_crystal (would spuriously
         # trigger a bootstrap-fire in auto_regen on a transient hiccup).
         entry_t = _iso(_now())
-        return {"drift": 0.0, "new_deltas": 0, "total_deltas": 0, "error": True, "sampled_at": entry_t}
+        return {
+            "drift": 0.0,
+            "new_deltas": 0,
+            "total_deltas": 0,
+            "error": True,
+            "sampled_at": entry_t,
+        }
     anchor = await crystal_anchor.load()
 
     if not current or not current.get("text"):
@@ -95,7 +101,12 @@ async def sample() -> dict:
             vec = c.get("centroid")
             total = int(c.get("total_deltas") or 0)
             if not vec:
-                snapshot = {"drift": 0.0, "new_deltas": 0, "total_deltas": total, "empty_lake": True}
+                snapshot = {
+                    "drift": 0.0,
+                    "new_deltas": 0,
+                    "total_deltas": total,
+                    "empty_lake": True,
+                }
             else:
                 d = crystal_anchor.cosine_distance(anchor["centroid"], vec)
                 snapshot = {

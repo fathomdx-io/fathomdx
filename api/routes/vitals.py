@@ -6,6 +6,7 @@ matching api/<module>.py reader. Write-side mood synthesis
 (`/v1/moods/synthesize`) also lives here since its request shape is
 trivial and it shares imports.
 """
+
 from __future__ import annotations
 
 from collections import Counter
@@ -33,11 +34,13 @@ async def get_latest_mood():
         "threshold": pressure_state["threshold"],
         "ratio": (
             pressure_state["volume"] / pressure_state["threshold"]
-            if pressure_state["threshold"] > 0 else 0.0
+            if pressure_state["threshold"] > 0
+            else 0.0
         ),
         "last_synthesis_at": (
             pressure_state["last_synthesis_at"].isoformat()
-            if pressure_state["last_synthesis_at"] else None
+            if pressure_state["last_synthesis_at"]
+            else None
         ),
         "time_since_synthesis_seconds": pressure_state["time_since_synthesis_seconds"],
     }

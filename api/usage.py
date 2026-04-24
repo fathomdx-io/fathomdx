@@ -25,8 +25,6 @@ async def history(since_seconds: int, buckets: int = 60) -> list[dict]:
     if since_seconds <= 0 or buckets <= 0:
         return []
     try:
-        return await delta_client.usage_history(
-            since_seconds=since_seconds, buckets=buckets
-        )
+        return await delta_client.usage_history(since_seconds=since_seconds, buckets=buckets)
     except Exception:
         return []

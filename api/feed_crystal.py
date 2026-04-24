@@ -98,7 +98,12 @@ def _to_crystal(delta: dict) -> dict:
     try:
         parsed = json.loads(_strip_fences(raw))
         if not isinstance(parsed, dict):
-            parsed = {"narrative": str(parsed), "directive_lines": [], "topic_weights": {}, "skip_rules": []}
+            parsed = {
+                "narrative": str(parsed),
+                "directive_lines": [],
+                "topic_weights": {},
+                "skip_rules": [],
+            }
     except Exception:
         parsed = {"narrative": raw, "directive_lines": [], "topic_weights": {}, "skip_rules": []}
     confidence = _confidence_from_tags(delta.get("tags") or [])
@@ -185,11 +190,13 @@ async def list_events(contact_slug: str, limit: int = 50) -> list[dict]:
         return []
     events = []
     for d in results:
-        events.append({
-            "id": d.get("id"),
-            "timestamp": d.get("timestamp"),
-            "confidence": _confidence_from_tags(d.get("tags") or []),
-        })
+        events.append(
+            {
+                "id": d.get("id"),
+                "timestamp": d.get("timestamp"),
+                "confidence": _confidence_from_tags(d.get("tags") or []),
+            }
+        )
     events.sort(key=lambda e: e.get("timestamp") or "")
     return events[-limit:]
 
@@ -257,8 +264,8 @@ async def _fetch_lake_topic_summary(window_hours: int = 72) -> str:
     for src, b in sorted(by_source.items(), key=lambda kv: -kv[1]["count"]):
         if b["count"] < 2:
             continue  # skip noise
-        img_part = f", {b['with_image']} with images" if b['with_image'] else ""
-        sample = " · ".join(b['samples'])
+        img_part = f", {b['with_image']} with images" if b["with_image"] else ""
+        sample = " · ".join(b["samples"])
         lines.append(f"  {src}: {b['count']} deltas{img_part}  e.g.: {sample}")
     return "\n".join(lines) if lines else "(lake is quiet)"
 
@@ -361,19 +368,27 @@ async def synthesize(contact_slug: str) -> dict | None:
     lake_survey = await _fetch_lake_topic_summary(window_hours=72)
 
     parts: list[str] = []
-    parts.append(f"=== Recent feed-engagement deltas (since {cutoff or 'beginning'}) ===\n{_format_engagements(engagements)}")
+    parts.append(
+        f"=== Recent feed-engagement deltas (since {cutoff or 'beginning'}) ===\n{_format_engagements(engagements)}"
+    )
     parts.append(f"=== Chat-from-card user messages ===\n{chats}")
     parts.append(f"=== Recent feed cards already shown ===\n{_format_recent_cards(cards)}")
-    parts.append(f"=== What's actually in the lake right now (last 72h, by source) ===\n{lake_survey}")
+    parts.append(
+        f"=== What's actually in the lake right now (last 72h, by source) ===\n{lake_survey}"
+    )
     if prior:
         parts.append(
             "=== Previous crystal (for continuity) ===\n"
-            + json.dumps({
-                "narrative": prior.get("narrative"),
-                "directive_lines": prior.get("directive_lines"),
-                "topic_weights": prior.get("topic_weights"),
-                "skip_rules": prior.get("skip_rules"),
-            }, ensure_ascii=False, indent=2)
+            + json.dumps(
+                {
+                    "narrative": prior.get("narrative"),
+                    "directive_lines": prior.get("directive_lines"),
+                    "topic_weights": prior.get("topic_weights"),
+                    "skip_rules": prior.get("skip_rules"),
+                },
+                ensure_ascii=False,
+                indent=2,
+            )
         )
     else:
         parts.append("=== Previous crystal ===\n(none — this is the first regeneration)")
@@ -410,9 +425,7 @@ async def synthesize(contact_slug: str) -> dict | None:
     # Compute confidence of the prior crystal NOW (before we overwrite it),
     # tagged on the fresh crystal we're about to write so the ECG can show
     # how the previous regen actually performed.
-    prior_confidence = (
-        await score_confidence(contact_slug, prior, engagements) if prior else None
-    )
+    prior_confidence = await score_confidence(contact_slug, prior, engagements) if prior else None
 
     written = await _write_crystal(contact_slug, payload, confidence=prior_confidence)
 
@@ -487,9 +500,7 @@ async def score_confidence(
         return None
     weights = crystal.get("topic_weights") or {}
     if engagements is None:
-        engagements = await _fetch_engagements_since(
-            contact_slug, crystal.get("created_at")
-        )
+        engagements = await _fetch_engagements_since(contact_slug, crystal.get("created_at"))
     hits = 0.0
     misses = 0.0
     for d in engagements:
@@ -517,17 +528,11 @@ async def score_confidence(
 
 
 def _anchor_path(contact_slug: str) -> Path:
-    return (
-        Path(settings.mood_state_path).parent
-        / f"feed-crystal-anchor.{contact_slug}.json"
-    )
+    return Path(settings.mood_state_path).parent / f"feed-crystal-anchor.{contact_slug}.json"
 
 
 def _drift_history_path(contact_slug: str) -> Path:
-    return (
-        Path(settings.mood_state_path).parent
-        / f"feed-drift-history.{contact_slug}.json"
-    )
+    return Path(settings.mood_state_path).parent / f"feed-drift-history.{contact_slug}.json"
 
 
 def _atomic_write(p: Path, data: dict) -> None:
@@ -545,9 +550,7 @@ def _atomic_write(p: Path, data: dict) -> None:
 
 async def _engagement_centroid(contact_slug: str) -> dict:
     """Fetch the centroid over this contact's feed-engagement deltas only."""
-    return await delta_client.centroid(
-        tags_include=[ENGAGEMENT_TAG, _contact_tag(contact_slug)]
-    )
+    return await delta_client.centroid(tags_include=[ENGAGEMENT_TAG, _contact_tag(contact_slug)])
 
 
 async def _snapshot_anchor(contact_slug: str, crystal_id: str | None) -> None:
@@ -671,7 +674,10 @@ async def should_regen(contact_slug: str) -> tuple[bool, str]:
             contact_slug, None, limit=settings.feed_min_signal_engagements + 1
         )
         if len(engagements) < settings.feed_min_signal_engagements:
-            return False, f"bootstrap:not-enough-signal({len(engagements)}/{settings.feed_min_signal_engagements})"
+            return (
+                False,
+                f"bootstrap:not-enough-signal({len(engagements)}/{settings.feed_min_signal_engagements})",
+            )
         return True, f"bootstrap:enough-signal({len(engagements)})"
 
     # Cooldown — don't regen too often even if signals say so.
@@ -693,7 +699,10 @@ async def should_regen(contact_slug: str) -> tuple[bool, str]:
         contact_slug, created_at, limit=settings.feed_min_signal_engagements + 1
     )
     if len(new_engagements) < settings.feed_min_signal_engagements:
-        return False, f"not-enough-new-signal({len(new_engagements)}/{settings.feed_min_signal_engagements})"
+        return (
+            False,
+            f"not-enough-new-signal({len(new_engagements)}/{settings.feed_min_signal_engagements})",
+        )
 
     # Drift — the lake of engagement has shifted away from the anchor.
     drift_snapshot = await sample_drift(contact_slug)

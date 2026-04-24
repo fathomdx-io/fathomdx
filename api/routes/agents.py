@@ -7,6 +7,7 @@ goes quiet so the dashboard can render a "disconnected" card; whether
 the agent is currently connected is computed from the heartbeat's
 timestamp (see HEARTBEAT_STALE_SECONDS in tools.py).
 """
+
 from __future__ import annotations
 
 import json
@@ -34,7 +35,11 @@ async def agents_latest_version():
     """Return the newest published fathom-agent version from the npm registry."""
     now = _time.time()
     checked = _LATEST_AGENT_CACHE.get("checked_at")
-    if checked and (now - checked) < _LATEST_AGENT_TTL_SECONDS and _LATEST_AGENT_CACHE.get("version"):
+    if (
+        checked
+        and (now - checked) < _LATEST_AGENT_TTL_SECONDS
+        and _LATEST_AGENT_CACHE.get("version")
+    ):
         return {
             "latest": _LATEST_AGENT_CACHE["version"],
             "checked_at": datetime.fromtimestamp(checked, UTC).isoformat(),

@@ -144,9 +144,7 @@ def build_system_prompt(
             tz = UTC
     now = datetime.now(tz)
     tz_label = user_timezone if tz is not UTC else "UTC"
-    parts.append(
-        f"\nCurrent time: {now.strftime('%A, %B %d, %Y at %I:%M %p')} {tz_label}."
-    )
+    parts.append(f"\nCurrent time: {now.strftime('%A, %B %d, %Y at %I:%M %p')} {tz_label}.")
 
     if user_name:
         parts.append(f"User: {user_name}.")
@@ -163,8 +161,8 @@ def build_system_prompt(
                 "until the session has a name. Don't mention the naming in "
                 "your reply.\n"
                 "If the user explicitly asks to name or rename the "
-                "conversation (\"name this X\", \"rename to X\", \"call "
-                "this X\"), call rename_session with their requested string "
+                'conversation ("name this X", "rename to X", "call '
+                'this X"), call rename_session with their requested string '
                 "verbatim — even if it's silly or meta. Don't refuse, don't "
                 "say \"I can't rename\", don't say it's up to the chat app. "
                 "rename_session is the tool for this.\n"
@@ -172,7 +170,7 @@ def build_system_prompt(
             )
         else:
             parts.append(
-                f"Session title: \"{session_title}\". If the user asks to "
+                f'Session title: "{session_title}". If the user asks to '
                 "rename, or the topic has genuinely drifted into a different "
                 "conversation, call rename_session. Don't rename for minor "
                 "tangents. Never tell the user you can't rename — rename_session "
@@ -182,9 +180,7 @@ def build_system_prompt(
     if mood_carrier_wave:
         mood_block = mood_carrier_wave.strip()
         if mood_threads:
-            mood_block += "\n\nThreads on my mind:\n" + "\n".join(
-                f"- {t}" for t in mood_threads
-            )
+            mood_block += "\n\nThreads on my mind:\n" + "\n".join(f"- {t}" for t in mood_threads)
         parts.append(
             "\n--- Mood Layer ---\n"
             f"{mood_block}\n\n"
@@ -243,9 +239,7 @@ def build_system_prompt(
             you = "  (current interlocutor)" if slug == current_contact_slug else ""
             lines.append(f"  • {name} (slug: {slug}){tail_str}{you}")
         parts.append(
-            "\n--- Known people ---\n"
-            + "\n".join(lines)
-            + "\n\n"
+            "\n--- Known people ---\n" + "\n".join(lines) + "\n\n"
             "Resolve mentions of real people to these slugs wherever you can. "
             "If someone shows up in conversation who clearly refers to a real "
             "person NOT on this list — partner, coworker, frequent "

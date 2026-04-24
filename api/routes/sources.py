@@ -4,6 +4,7 @@ Thin passthrough to the source-runner container so the browser can
 manage external sources (RSS, Mastodon, vault, etc.) without talking
 to a second host. Admin-gated except for the read endpoints.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -143,13 +144,15 @@ async def source_detail(source_id: str):
     # Slim down recent deltas for the response
     deltas = []
     for d in recent[:20]:
-        deltas.append({
-            "id": d.get("id"),
-            "content": d.get("content") or "",
-            "timestamp": d.get("timestamp"),
-            "tags": d.get("tags", []),
-            "media_hash": d.get("media_hash"),
-        })
+        deltas.append(
+            {
+                "id": d.get("id"),
+                "content": d.get("content") or "",
+                "timestamp": d.get("timestamp"),
+                "tags": d.get("tags", []),
+                "media_hash": d.get("media_hash"),
+            }
+        )
 
     return {
         "source": source,

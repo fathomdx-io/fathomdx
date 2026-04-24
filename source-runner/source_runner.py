@@ -133,7 +133,9 @@ class SourceRunner:
             data = json.loads(self._sources_path.read_text())
             self._sources = {}
             for raw in data:
-                sc = SourceConfig(**{k: v for k, v in raw.items() if k in SourceConfig.__dataclass_fields__})
+                sc = SourceConfig(
+                    **{k: v for k, v in raw.items() if k in SourceConfig.__dataclass_fields__}
+                )
                 self._sources[sc.id] = sc
         except Exception:
             log.warning("Failed to load sources from %s", self._sources_path, exc_info=True)
@@ -150,7 +152,9 @@ class SourceRunner:
             return SourceState()
         try:
             raw = json.loads(path.read_text())
-            return SourceState(**{k: v for k, v in raw.items() if k in SourceState.__dataclass_fields__})
+            return SourceState(
+                **{k: v for k, v in raw.items() if k in SourceState.__dataclass_fields__}
+            )
         except Exception:
             return SourceState()
 
@@ -443,7 +447,10 @@ class SourceRunner:
             "expiryDays": sc.expiry_days,
             "errorMessage": sc.error_message or None,
             "auth": {"type": producer.auth_type},
-            "schedule": {"type": producer.schedule_type, "default_interval": producer.default_interval},
+            "schedule": {
+                "type": producer.schedule_type,
+                "default_interval": producer.default_interval,
+            },
             "digestion": producer.digestion,
             "tags": producer.default_tags(sc.config),
             "expiry": {
@@ -470,7 +477,10 @@ class SourceRunner:
             "expiryDays": producer.default_expiry_days,
             "errorMessage": None,
             "auth": {"type": producer.auth_type},
-            "schedule": {"type": producer.schedule_type, "default_interval": producer.default_interval},
+            "schedule": {
+                "type": producer.schedule_type,
+                "default_interval": producer.default_interval,
+            },
             "digestion": producer.digestion,
             "tags": producer.default_tags({}),
             "expiry": {

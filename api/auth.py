@@ -11,6 +11,7 @@ resolves that slug to the contact record from delta-store and stamps it on
 `request.state.contact`, so every downstream handler can tag writes and
 gate admin-only routes without re-resolving.
 """
+
 from __future__ import annotations
 
 import contextlib
@@ -87,35 +88,39 @@ ROUTE_SCOPES: list[tuple[str, str, str]] = [
 ]
 
 # Endpoints that don't require auth
-PUBLIC_PATHS = frozenset({
-    "/",
-    "/health",
-    "/docs",
-    "/openapi.json",
-    "/redoc",
-    "/v1/models",
-    "/v1/tools",
-    "/v1/scopes",
-    # Pair-code redemption is the agent's path to its first token, so it
-    # can't require one. Mint (POST /v1/pair) is NOT public — that still
-    # requires tokens:manage.
-    "/v1/pair/redeem",
-    # npm registry lookup; just public metadata. Dashboard calls this
-    # before the user has a token.
-    "/v1/agents/latest-version",
-    # First-run bootstrap flow. Both endpoints are public; the POST is
-    # one-shot (409 after an admin exists) and the GET is a simple
-    # "does an admin exist yet?" probe used by the UI boot path.
-    "/v1/auth/bootstrap-status",
-    "/v1/auth/bootstrap",
-})
+PUBLIC_PATHS = frozenset(
+    {
+        "/",
+        "/health",
+        "/docs",
+        "/openapi.json",
+        "/redoc",
+        "/v1/models",
+        "/v1/tools",
+        "/v1/scopes",
+        # Pair-code redemption is the agent's path to its first token, so it
+        # can't require one. Mint (POST /v1/pair) is NOT public — that still
+        # requires tokens:manage.
+        "/v1/pair/redeem",
+        # npm registry lookup; just public metadata. Dashboard calls this
+        # before the user has a token.
+        "/v1/agents/latest-version",
+        # First-run bootstrap flow. Both endpoints are public; the POST is
+        # one-shot (409 after an admin exists) and the GET is a simple
+        # "does an admin exist yet?" probe used by the UI boot path.
+        "/v1/auth/bootstrap-status",
+        "/v1/auth/bootstrap",
+    }
+)
 
 # Paths that do NOT require auth but still get middleware-stamped contact
 # when a valid token is present — used by the login UI to probe current
 # identity without tripping a 401 before the user has entered a key.
-AUTH_OPTIONAL_PATHS = frozenset({
-    "/v1/auth/me",
-})
+AUTH_OPTIONAL_PATHS = frozenset(
+    {
+        "/v1/auth/me",
+    }
+)
 
 PUBLIC_PREFIXES = (
     "/docs",
@@ -224,10 +229,7 @@ def migrate_legacy_tokens(default_slug: str = "") -> int:
 
 def list_tokens() -> list[dict]:
     """List all tokens (without hashes)."""
-    return [
-        {k: v for k, v in t.items() if k != "hash"}
-        for t in _load()
-    ]
+    return [{k: v for k, v in t.items() if k != "hash"} for t in _load()]
 
 
 def delete_token(token_id: str) -> bool:
@@ -359,6 +361,7 @@ class TokenAuthMiddleware(BaseHTTPMiddleware):
         if not auth_required():
             request.state.token = None
             from . import contacts as contacts_mod
+
             slug = await contacts_mod.first_admin_slug()
             request.state.contact = await resolve_contact(slug) if slug else None
             return await call_next(request)
@@ -413,7 +416,5 @@ class TokenAuthMiddleware(BaseHTTPMiddleware):
                 )
 
         request.state.token = token_info
-        request.state.contact = await resolve_contact(
-            token_info.get("contact_slug", "")
-        )
+        request.state.contact = await resolve_contact(token_info.get("contact_slug", ""))
         return await call_next(request)
