@@ -1,7 +1,9 @@
-# Fathom lake — `~/.fathom/fathom/`
+# Fathom lake — `~/.fathom/mind/`
 
-This is where your instance's memory lives on disk. One instance per subdirectory
-of `~/.fathom/` (named by `COMPOSE_PROJECT_NAME`, default `fathom`).
+This is where your instance's memory lives on disk. The default single-user
+install lives here; a second instance lives wherever you set `LAKE_DIR` to in
+its `.env` (typical convention: `~/.fathom/mind-dev`, `~/.fathom/mind-staging`,
+etc.).
 
 ## What's here
 
@@ -51,5 +53,5 @@ is ever corrupt.
 ```bash
 cd path/to/consumer-fathom
 docker compose down -v          # stop containers + drop the named pg volume
-rm -rf ~/.fathom/fathom/        # drop everything you see here
+rm -rf ~/.fathom/mind/          # drop everything you see here
 ```

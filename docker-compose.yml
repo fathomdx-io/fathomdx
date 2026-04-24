@@ -16,9 +16,9 @@
 #   open http://localhost:8201
 #
 # ── State layout ─────────────────────────────────────────────────────────────
-# Everything lake-related lives at ${LAKE_DIR} (defaults to
-# ~/.fathom/${COMPOSE_PROJECT_NAME}) — outside this repo, so `git clone` into
-# a new directory or `rm -rf` this checkout does NOT touch your memory:
+# Everything lake-related lives at ${LAKE_DIR} (default: ~/.fathom/mind) —
+# outside this repo, so `git clone` into a new directory or `rm -rf` this
+# checkout does NOT touch your memory:
 #
 #   ${LAKE_DIR}/deltas/         delta-store media + state
 #   ${LAKE_DIR}/backups/        pg_dump snapshots

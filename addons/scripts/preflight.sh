@@ -79,11 +79,14 @@ check_env_file() {
 }
 
 check_lake_dir() {
-  step "Checking LAKE_DIR"
+  step "Lake location"
 
-  local instance="$(get_env COMPOSE_PROJECT_NAME)"
-  instance="${instance:-fathom}"
-  local default="${HOME}/.fathom/${instance}"
+  # Default is intentionally NOT derived from COMPOSE_PROJECT_NAME — that var
+  # scopes container/volume names; the lake path is decoupled so the canonical
+  # single-instance install gets a clean ~/.fathom/mind layout instead of the
+  # awkward ~/.fathom/fathom doubling. Multi-instance users set LAKE_DIR
+  # explicitly (e.g. ~/.fathom/mind-dev) alongside their COMPOSE_PROJECT_NAME.
+  local default="${HOME}/.fathom/mind"
 
   local lake="$(get_env LAKE_DIR)"
   local needs_fix=0 reason=""
@@ -91,19 +94,21 @@ check_lake_dir() {
   if [[ -z "${lake}" ]]; then
     needs_fix=1; reason="not set"
   elif [[ "${lake}" == *CHANGE-ME* ]]; then
-    needs_fix=1; reason="still has the CHANGE-ME placeholder"
+    needs_fix=1; reason="placeholder value"
   elif [[ "${lake:0:1}" != "/" ]]; then
     needs_fix=1; reason="must be an absolute path (got '${lake}')"
   fi
 
   if [[ ${needs_fix} -eq 1 ]]; then
-    warn "LAKE_DIR ${reason}"
     if [[ -t 0 ]]; then
-      printf "    Where should this instance's lake live? [%s] " "${default}"
+      # Interactive: just ask. The "why" is internal noise on first-run.
+      printf "    Where should your lake live? [%s] " "${default}"
       read -r answer
       lake="${answer:-${default}}"
     else
-      info "Non-interactive shell — using default: ${default}"
+      # Non-interactive (CI, scripted): log the reason so the trail explains
+      # what was assumed and why.
+      info "LAKE_DIR ${reason} — defaulting to ${default}"
       lake="${default}"
     fi
     # Expand a leading ~ if the user typed one
@@ -112,7 +117,7 @@ check_lake_dir() {
       die "LAKE_DIR must be an absolute path. Got: ${lake}"
     fi
     set_env LAKE_DIR "${lake}"
-    ok "Set LAKE_DIR=${lake} in .env"
+    ok "Set LAKE_DIR=${lake}"
   else
     ok "LAKE_DIR=${lake}"
   fi

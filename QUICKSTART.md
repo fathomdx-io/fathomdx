@@ -94,7 +94,7 @@ docker compose up -d
 Your lake lives in **two** places on disk:
 
 - **Postgres data** — in a named container volume called `fathom-pg` (or `<COMPOSE_PROJECT_NAME>-pg` if you set a different instance name). Managed by docker/podman; inspect with `docker volume ls`. Can't live on Dropbox — postgres corrupts syncing files.
-- **Everything else** — `~/.fathom/fathom/` by default (images, backups, drift history, mood state, API tokens). Set `LAKE_DIR=` in `.env` to move it, e.g. to an external drive.
+- **Everything else** — `~/.fathom/mind/` by default (images, backups, drift history, mood state, API tokens). Set `LAKE_DIR=` in `.env` to move it, e.g. to an external drive.
 
 Neither path is inside this checkout. Cloning into a new directory, renaming this folder, or `rm -rf`-ing the repo doesn't touch your memory.
 
@@ -103,19 +103,22 @@ Neither path is inside this checkout. Cloning into a new directory, renaming thi
 ```bash
 git clone https://github.com/fathomdx-io/fathomdx.git fathom-dev
 cd fathom-dev
-cp .env.example .env
-# edit .env: set COMPOSE_PROJECT_NAME=fathom-dev (and change host port mappings)
+./addons/scripts/preflight.sh
+# then edit .env:
+#   COMPOSE_PROJECT_NAME=fathom-dev      (re-scopes containers + postgres volume)
+#   LAKE_DIR=/home/you/.fathom/mind-dev  (separate lake state)
+#   …and remap host ports so they don't collide with the first instance
 docker compose up -d
 ```
 
-`COMPOSE_PROJECT_NAME` re-scopes container names, the postgres volume (`fathom-dev-pg`), and the lake dir (`~/.fathom/fathom-dev/`) from one variable.
+Two variables for two concerns: `COMPOSE_PROJECT_NAME` re-scopes container names and the postgres volume (`fathom-dev-pg`); `LAKE_DIR` decides where the lake state lives on disk. Set both to keep instances cleanly separated.
 
 ## Teardown
 
 ```bash
 docker compose down                   # stop containers, lake + state preserved
 docker compose down -v                # also drops the postgres volume (destroys lake DB)
-rm -rf ~/.fathom/fathom/              # also drops images, backups, state (full wipe)
+rm -rf ~/.fathom/mind/              # also drops images, backups, state (full wipe)
 ```
 
 Each command's blast radius is explicit. Running only the first is safe — it's what you want between upgrades. The second two are deliberately destructive and named separately.
@@ -130,4 +133,4 @@ Each command's blast radius is explicit. Running only the first is safe — it's
 
 **Podman on SELinux systems.** If bind mounts fail with permission errors, add `:z` to each volume mount in `docker-compose.yml`, or run `chcon -Rt container_file_t ~/.fathom/`.
 
-**Rootless podman: bind-mount target missing.** If `docker compose up -d` fails with `no such file or directory` for `~/.fathom/fathom/...`, you skipped preflight. Run `./addons/scripts/preflight.sh` and it'll create them. Rootless podman is stricter than docker about auto-creating bind-mount targets.
+**Rootless podman: bind-mount target missing.** If `docker compose up -d` fails with `no such file or directory` for `~/.fathom/mind/...`, you skipped preflight. Run `./addons/scripts/preflight.sh` and it'll create them. Rootless podman is stricter than docker about auto-creating bind-mount targets.
