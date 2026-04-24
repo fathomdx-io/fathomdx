@@ -32,6 +32,12 @@ print(f'export PROMPT={shlex.quote(d.get(\"prompt\", \"\"))}')
 print(f'export ASSISTANT={shlex.quote(d.get(\"last_assistant_message\", \"\"))}')
 ")"
 
+# Hostname for the machine the session is running on — lets the
+# dashboard show sessions as `fedora · fathomdx` instead of raw UUIDs,
+# and makes fleets with multiple agents distinguishable. Short form
+# preferred (hostname -s); fall back to full hostname, then `unknown`.
+export HOST=$(hostname -s 2>/dev/null || hostname 2>/dev/null || echo unknown)
+
 AUTH_HEADER=""
 [ -n "$FATHOM_API_KEY" ] && AUTH_HEADER="Authorization: Bearer ${FATHOM_API_KEY}"
 
@@ -55,7 +61,7 @@ if [ "$EVENT" = "UserPromptSubmit" ]; then
                 ${AUTH_HEADER:+-H "${AUTH_HEADER}"} \
                 -F "file=@${img}" \
                 -F "content=${PROMPT:-(pasted image)}" \
-                -F "tags=image,chat,claude-code,session:${SESSION_ID},project:${CWD}" \
+                -F "tags=image,chat,claude-code,session:${SESSION_ID},host:${HOST},project:${CWD}" \
                 -F "source=claude-code" \
                 -o /dev/null 2>/dev/null &
 
@@ -90,6 +96,7 @@ api_key = os.environ.get('FATHOM_API_KEY', '')
 role = os.environ['ROLE']
 session_id = os.environ['SESSION_ID']
 cwd = os.environ['CWD']
+host = os.environ.get('HOST', 'unknown')
 
 def split(text, limit):
     if len(text) <= limit:
@@ -103,7 +110,7 @@ def split(text, limit):
     return split(text[:limit], limit) + split(text[limit:], limit)
 
 chunks = split(content, max_chars)
-tags = [role, 'chat', 'claude-code', f'session:{session_id}', f'project:{cwd}']
+tags = [role, 'chat', 'claude-code', f'session:{session_id}', f'host:{host}', f'project:{cwd}']
 
 for chunk in chunks:
     if not chunk.strip():

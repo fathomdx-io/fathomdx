@@ -7264,7 +7264,10 @@ GET  /v1/usage               Usage stats`,
       const named = s.title && s.title !== s.id;
       if (named) return s.title;
       const base = basenameOf(s.project);
+      const host = s.host || '';
+      if (host && base) return `${host} · ${base}`;
       if (base) return base;
+      if (host) return host;
       // Unrenamed consumer-api session slug (word-hyphen-word) is short
       // enough to show; UUIDs we truncate for the sidebar.
       if (/^[0-9a-f]{8}-[0-9a-f]{4}/i.test(s.id)) return s.id.slice(0, 8) + '…';

@@ -114,6 +114,7 @@ async def list_sessions(limit: int = 50, contact_slug: str | None = None) -> lis
                 "_preview_ts": "",
                 "_sources": set(),
                 "project": None,
+                "host": None,
             },
         )
         b["delta_count"] += 1
@@ -125,13 +126,18 @@ async def list_sessions(limit: int = 50, contact_slug: str | None = None) -> lis
         if ts and ts > (b["updated_at"] or ""):
             b["updated_at"] = ts
 
-        # First project tag wins — claude-code sessions stay in one
-        # cwd for their lifetime, so any turn delta's project is
-        # representative. Consumer-api sessions won't carry this tag.
+        # First project/host tag wins — claude-code sessions stay on
+        # one machine in one cwd for their lifetime, so any turn
+        # delta's tags are representative. Consumer-api sessions won't
+        # carry either tag.
         if b["project"] is None:
             p = tag_suffix(tags, "project:")
             if p:
                 b["project"] = p
+        if b["host"] is None:
+            h = tag_suffix(tags, "host:")
+            if h:
+                b["host"] = h
 
         content = d.get("content") or ""
 
@@ -160,6 +166,8 @@ async def list_sessions(limit: int = 50, contact_slug: str | None = None) -> lis
         }
         if b.get("project"):
             entry["project"] = b["project"]
+        if b.get("host"):
+            entry["host"] = b["host"]
         sessions.append(entry)
     sessions.sort(key=lambda s: s.get("updated_at") or "", reverse=True)
     return sessions[:limit]
@@ -194,8 +202,11 @@ async def get_session(session_id: str) -> dict | None:
         title = name_results[0].get("content", session_id).strip() or session_id
     # Claude-code scopes sessions to the project directory — `claude --resume
     # <id>` only succeeds when run from there. Surface the project path so
-    # the UI can compose a cd-and-resume command that actually works.
-    project = tag_suffix(d.get("tags") or [], "project:")
+    # the UI can compose a cd-and-resume command that actually works. Host
+    # lets the dashboard show `fedora · fathomdx` for multi-machine fleets.
+    tags = d.get("tags") or []
+    project = tag_suffix(tags, "project:")
+    host = tag_suffix(tags, "host:")
     out: dict = {
         "id": session_id,
         "title": title,
@@ -204,6 +215,8 @@ async def get_session(session_id: str) -> dict | None:
     }
     if project:
         out["project"] = project
+    if host:
+        out["host"] = host
     return out
 
 
