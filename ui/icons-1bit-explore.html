@@ -1,0 +1,649 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Provider icons — monotone</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+  <style>
+    :root {
+      --bg: #0d1f26;
+      --bg-deep: #081519;
+      --surface: #142a33;
+      --surface-2: #1c3a45;
+      --ink: #f0e9d9;
+      --ink-soft: #9fb0b5;
+      --ink-faint: #5a6d74;
+      --rule: #1e3a47;
+      --rule-soft: #17303a;
+      --accent: #e8a24e;
+      --accent-bright: #f2b665;
+      --accent-soft: rgba(232, 162, 78, 0.14);
+      --signal: #5ce1c6;
+      --serif: "Instrument Serif", Georgia, serif;
+      --sans: "Inter", system-ui, sans-serif;
+      --mono: "JetBrains Mono", ui-monospace, monospace;
+    }
+    * { box-sizing: border-box; }
+    html, body { margin: 0; padding: 0; background: var(--bg); color: var(--ink); font-family: var(--sans); -webkit-font-smoothing: antialiased; }
+    body {
+      min-height: 100dvh;
+      background:
+        radial-gradient(ellipse at 20% -10%, rgba(92, 225, 198, 0.05), transparent 55%),
+        radial-gradient(ellipse at 80% 110%, rgba(232, 162, 78, 0.04), transparent 50%),
+        var(--bg);
+    }
+    header {
+      padding: 36px 40px 16px;
+      border-bottom: 1px solid var(--rule-soft);
+    }
+    h1 { font-family: var(--serif); font-weight: 400; font-size: 30px; margin: 0 0 6px; letter-spacing: 0.01em; }
+    h1 em { color: var(--accent); font-style: italic; }
+    .lede { color: var(--ink-soft); font-size: 14px; max-width: 660px; line-height: 1.55; margin: 0; }
+    .lede code { font-family: var(--mono); font-size: 12.5px; color: var(--accent-bright); background: var(--accent-soft); padding: 1px 5px; border-radius: 4px; }
+
+    .controls {
+      display: flex; flex-wrap: wrap; gap: 18px 28px; align-items: center;
+      padding: 18px 40px; border-bottom: 1px solid var(--rule-soft);
+      background: rgba(0,0,0,0.12);
+      position: sticky; top: 0; z-index: 10;
+      backdrop-filter: blur(8px);
+    }
+    .ctrl { display: inline-flex; align-items: center; gap: 10px; }
+    .ctrl label {
+      font-family: var(--mono); font-size: 11px; color: var(--ink-faint);
+      text-transform: uppercase; letter-spacing: 0.1em;
+    }
+    .group { display: inline-flex; gap: 0; border: 1px solid var(--rule); border-radius: 10px; overflow: hidden; }
+    .group button {
+      background: var(--surface); border: 0; border-right: 1px solid var(--rule);
+      color: var(--ink); padding: 7px 11px; font-family: var(--mono); font-size: 12px;
+      cursor: pointer; transition: background 120ms, color 120ms;
+    }
+    .group button:last-child { border-right: 0; }
+    .group button:hover { color: var(--accent-bright); }
+    .group button.active { background: var(--accent-soft); color: var(--accent-bright); }
+
+    input[type="range"] { width: 140px; accent-color: var(--accent); }
+    input[type="color"] {
+      width: 28px; height: 28px; border: 1px solid var(--rule); border-radius: 6px;
+      background: var(--surface); padding: 2px; cursor: pointer;
+    }
+    .val { font-family: var(--mono); font-size: 12px; color: var(--ink-soft); min-width: 36px; }
+    .toggle {
+      display: inline-flex; align-items: center; gap: 6px; cursor: pointer;
+      font-family: var(--mono); font-size: 12px; color: var(--ink-soft);
+      border: 1px solid var(--rule); padding: 6px 10px; border-radius: 8px;
+      background: var(--surface);
+    }
+    .toggle input { accent-color: var(--accent); }
+
+    main { padding: 24px 40px 80px; }
+
+    .grid {
+      display: grid;
+      grid-template-columns: 200px repeat(7, 1fr);
+      gap: 1px;
+      background: var(--rule-soft);
+      border: 1px solid var(--rule-soft);
+      border-radius: 14px;
+      overflow: hidden;
+    }
+    .cell {
+      background: var(--surface);
+      padding: 14px;
+      min-height: 120px;
+      display: flex; flex-direction: column; align-items: center; justify-content: center;
+      gap: 8px;
+    }
+    .head {
+      background: var(--bg-deep);
+      min-height: 44px;
+      padding: 12px 14px;
+      font-family: var(--mono); font-size: 11px; color: var(--ink-faint);
+      text-transform: uppercase; letter-spacing: 0.1em;
+    }
+    .row-label {
+      align-items: flex-start; justify-content: center; gap: 4px;
+    }
+    .row-label .name { font-family: var(--serif); font-size: 18px; color: var(--ink); }
+    .row-label .slug { font-family: var(--mono); font-size: 10.5px; color: var(--ink-faint); letter-spacing: 0.05em; }
+    .row-label .src-preview {
+      margin-top: 6px;
+      width: 64px; height: 64px;
+      display: flex; align-items: center; justify-content: center;
+      background: var(--bg-deep); border-radius: 8px;
+    }
+    .row-label .src-preview svg { width: 52px; height: 52px; }
+
+    canvas { display: block; }
+    .cell > svg.preview { display: block; }
+    .cell { color: var(--ink); }
+
+    .source-viewer {
+      margin-top: 36px;
+      display: flex; flex-direction: column; gap: 14px;
+    }
+    .source-viewer .src-block {
+      background: var(--surface); border: 1px solid var(--rule); border-radius: 12px;
+      padding: 16px 18px;
+    }
+    .source-viewer .src-head {
+      display: flex; align-items: center; justify-content: space-between;
+      margin-bottom: 10px; gap: 12px;
+    }
+    .source-viewer .src-head h4 {
+      font-family: var(--serif); font-weight: 400; font-size: 18px; margin: 0;
+    }
+    .source-viewer .src-head .slug {
+      font-family: var(--mono); font-size: 11px; color: var(--ink-faint); margin-left: 8px;
+    }
+    .source-viewer button.copy {
+      font-family: var(--mono); font-size: 11px; color: var(--accent-bright);
+      background: var(--accent-soft); border: 1px solid var(--accent); padding: 5px 10px;
+      border-radius: 8px; cursor: pointer;
+    }
+    .source-viewer button.copy:hover { background: var(--accent); color: var(--bg); }
+    .source-viewer pre {
+      margin: 0; padding: 12px 14px;
+      background: var(--bg-deep); border: 1px solid var(--rule-soft); border-radius: 8px;
+      font-family: var(--mono); font-size: 11.5px; color: var(--ink-soft);
+      line-height: 1.55; overflow-x: auto; white-space: pre-wrap; word-break: break-all;
+    }
+
+    /* "Real surfaces" preview — show icons in the UI contexts we actually care about */
+    .surfaces {
+      margin-top: 36px;
+      display: grid; grid-template-columns: 1fr 1fr; gap: 20px;
+    }
+    .surface-card {
+      background: var(--surface); border: 1px solid var(--rule);
+      border-radius: 12px; padding: 22px 24px;
+    }
+    .surface-card h3 {
+      font-family: var(--serif); font-weight: 400; font-size: 20px; margin: 0 0 6px;
+    }
+    .surface-card .hint {
+      font-family: var(--mono); font-size: 11px; color: var(--ink-faint);
+      text-transform: uppercase; letter-spacing: 0.1em; margin-bottom: 16px;
+    }
+    .chip-list { display: flex; flex-direction: column; gap: 6px; }
+    .chip {
+      display: inline-flex; align-items: center; gap: 8px;
+      background: var(--bg-deep); border: 1px solid var(--rule-soft);
+      border-radius: 8px; padding: 6px 10px;
+      font-family: var(--mono); font-size: 12px; color: var(--ink-soft);
+      width: fit-content;
+    }
+    .chip canvas { flex: 0 0 auto; }
+
+    .host-list { display: flex; flex-direction: column; gap: 10px; }
+    .host-row {
+      display: flex; align-items: center; gap: 12px;
+      padding: 10px 12px; background: var(--bg-deep);
+      border: 1px solid var(--rule-soft); border-radius: 10px;
+    }
+    .host-row .meta { display: flex; flex-direction: column; gap: 2px; }
+    .host-row .hostname { font-family: var(--sans); font-size: 14px; color: var(--ink); }
+    .host-row .sub { font-family: var(--mono); font-size: 11px; color: var(--ink-faint); }
+
+    .notes {
+      margin-top: 36px;
+      padding: 20px 24px;
+      background: var(--surface);
+      border: 1px solid var(--rule);
+      border-radius: 12px;
+      max-width: 820px;
+      line-height: 1.6;
+      color: var(--ink-soft);
+      font-size: 14px;
+    }
+    .notes h3 { font-family: var(--serif); font-weight: 400; font-size: 20px; margin: 0 0 8px; color: var(--ink); }
+    .notes ul { padding-left: 20px; margin: 8px 0 0; }
+    .notes code { font-family: var(--mono); font-size: 12.5px; color: var(--accent-bright); background: var(--accent-soft); padding: 1px 5px; border-radius: 4px; }
+
+    template { display: none; }
+  </style>
+</head>
+<body>
+
+<header>
+  <h1>Provider icons — <em>monotone</em></h1>
+  <p class="lede">
+    Five SVGs flattened to a single ink color, anti-aliasing preserved. Each row
+    shows the same icon at seven target sizes — the grid is a quick "does this
+    read at <code>12px</code>?" check before we commit them to the chat chip
+    rail and dashboard host cards.
+  </p>
+</header>
+
+<div class="controls">
+  <div class="ctrl">
+    <label>theme</label>
+    <div class="group" id="theme-group">
+      <button data-theme="dark" class="active">dark</button>
+      <button data-theme="light">light</button>
+    </div>
+  </div>
+
+  <div class="ctrl">
+    <label>ink</label>
+    <input type="color" id="fg" value="#f0e9d9" />
+  </div>
+
+  <div class="ctrl">
+    <label>accent ink</label>
+    <input type="color" id="accent-color" value="#ffffff" />
+  </div>
+
+  <div class="ctrl">
+    <label>paper</label>
+    <input type="color" id="bg" value="#142a33" />
+  </div>
+
+  <div class="ctrl">
+    <label>body</label>
+    <input type="range" id="body-opacity" min="0" max="100" value="100" />
+    <span class="val" id="body-opacity-val">1.00</span>
+  </div>
+
+  <div class="ctrl">
+    <label>accent</label>
+    <input type="range" id="accent-opacity" min="0" max="100" value="100" />
+    <span class="val" id="accent-opacity-val">1.00</span>
+  </div>
+
+  <label class="toggle">
+    <input type="checkbox" id="trim" checked />
+    trim padding
+  </label>
+
+  <label class="toggle">
+    <input type="checkbox" id="show-paper" />
+    show paper
+  </label>
+</div>
+
+<main>
+  <div class="grid" id="grid">
+    <div class="cell head">source</div>
+    <div class="cell head">12</div>
+    <div class="cell head">14</div>
+    <div class="cell head">16</div>
+    <div class="cell head">20</div>
+    <div class="cell head">24</div>
+    <div class="cell head">32</div>
+    <div class="cell head">48</div>
+  </div>
+
+  <div class="surfaces">
+    <div class="surface-card">
+      <h3>Chat — claude-code session chips</h3>
+      <div class="hint">16 px, next to <code>session:</code></div>
+      <div class="chip-list" id="chip-list"></div>
+    </div>
+    <div class="surface-card">
+      <h3>Dashboard — host cards</h3>
+      <div class="hint">14 px, next to hostname</div>
+      <div class="host-list" id="host-list"></div>
+    </div>
+  </div>
+
+  <div id="source-viewer" class="source-viewer"></div>
+
+  <div class="notes">
+    <h3>Where these land</h3>
+    <ul>
+      <li><strong>Claude Code mark</strong> — next to each <code>session:</code> chip in chat, and anywhere the dashboard lists claude-code sessions. Rendered at 14–16 px.</li>
+      <li><strong>OS badges</strong> — dashboard host cards (Linux / macOS / Windows), and wherever a site surface attributes a delta to a host. 12–14 px inline; 20–24 px on detail cards.</li>
+    </ul>
+    <p>The SVG in each "source" block above is the deliverable. Flat icons (Claude Code, macOS, Windows) use <code>currentColor</code> on the root — tint them by setting <code>color:</code> on a parent. Tux uses two tones: body paths carry <code>currentColor</code> (body opacity), accent paths (belly, feet, eye-whites) carry a hardcoded accent color (default white) — so its eye-whites stay white no matter what surface they're on. Check in under <code>ui/icons/&lt;slug&gt;.svg</code>.</p>
+  </div>
+</main>
+
+<!-- =========================================================== -->
+<!-- SVG sources (inline, so the page works from file://)        -->
+<!-- =========================================================== -->
+
+<template id="svg-claude-code"><svg height="1em" style="flex:none;line-height:1" viewBox="0 0 24 24" width="1em" xmlns="http://www.w3.org/2000/svg"><path clip-rule="evenodd" d="M20.998 10.949H24v3.102h-3v3.028h-1.487V20H18v-2.921h-1.487V20H15v-2.921H9V20H7.488v-2.921H6V20H4.487v-2.921H3V14.05H0V10.95h3V5h17.998v5.949zM6 10.949h1.488V8.102H6v2.847zm10.51 0H18V8.102h-1.49v2.847z" fill="#000" fill-rule="evenodd"></path></svg></template>
+
+<template id="svg-apple"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 263.67 323.91"><path fill="#000" d="M507.44,332.45a73.38,73.38,0,0,0-35.06,61.72,71.41,71.41,0,0,0,43.46,65.5,170.62,170.62,0,0,1-22.25,46c-13.85,19.94-28.34,39.89-50.38,39.89s-27.71-12.81-53.11-12.81c-24.77,0-33.59,13.23-53.74,13.23S302.13,527.48,286,504.81a198.88,198.88,0,0,1-33.8-107.27c0-63,40.94-96.36,81.24-96.36,21.41,0,39.26,14.06,52.69,14.06,12.81,0,32.75-14.91,57.1-14.91A76.38,76.38,0,0,1,507.44,332.45Zm-75.78-58.78a72.39,72.39,0,0,0,17.21-45.12,31.21,31.21,0,0,0-.63-6.5,72.54,72.54,0,0,0-47.65,24.56,70.39,70.39,0,0,0-17.84,43.87,28.84,28.84,0,0,0,.63,5.88,24.19,24.19,0,0,0,4.41.42A62.88,62.88,0,0,0,431.65,273.68Z" transform="translate(-252.16 -222.05)"/></svg></template>
+
+<template id="svg-windows"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 420.23 421.77"><g fill="#0078d6"><path d="M192.42,33.87C267.84,21.55,344.81,10.78,420.23,0v200.11c-75.43,0-152.39,1.54-227.82,1.54V33.87Z"/><path d="M0,60.03c56.95-9.24,113.91-16.93,172.4-23.09v164.71c-58.49,0-115.45,1.54-172.4,1.54V60.03Z"/><path d="M0,220.12c56.95,0,113.91,1.54,172.4,0v166.25c-58.49-7.7-115.45-15.39-172.4-23.09v-143.16Z"/><path d="M192.42,221.66h227.82v200.11c-75.43-12.31-152.39-21.55-227.82-32.33v-167.79Z"/></g></svg></template>
+
+<template id="svg-linux-color"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 112 136"><path d="M107.7752,106.8013 C107.7732,106.8003 107.7722,106.7983 107.7722,106.7963 C106.8142,105.7153 106.3582,103.7113 105.8672,101.5763 C105.3782,99.4423 104.8302,97.1413 103.0782,95.6503 C103.0752,95.6463 103.0702,95.6443 103.0672,95.6403 C102.7202,95.3373 102.3632,95.0823 102.0052,94.8683 C101.6452,94.6553 101.2812,94.4823 100.9162,94.3443 C103.3512,87.1233 102.3972,79.9313 99.9382,73.4343 C96.9222,65.4583 91.6552,58.5093 87.6332,53.7563 C83.1302,48.0763 78.7272,42.6853 78.8142,34.7213 C78.9482,22.5683 80.1502,0.0303 58.7632,0.0003 C57.8942,-0.0007 56.9862,0.0353 56.0412,0.1113 C32.1412,2.0343 38.4812,27.2853 38.1262,35.7393 C37.6882,41.9233 36.4352,46.7963 32.1822,52.8403 C27.1872,58.7803 20.1512,68.3963 16.8202,78.4073 C15.2482,83.1303 14.5002,87.9453 15.1902,92.5033 C14.9742,92.6973 14.7692,92.9013 14.5712,93.1093 C13.1052,94.6763 12.0212,96.5733 10.8142,97.8503 C9.6852,98.9773 8.0792,99.4043 6.3112,100.0373 C4.5442,100.6713 2.6042,101.6063 1.4272,103.8653 C1.4272,103.8653 1.4272,103.8673 1.4252,103.8673 C1.4232,103.8703 1.4222,103.8753 1.4192,103.8783 C0.8652,104.9123 0.6852,106.0283 0.6852,107.1593 C0.6852,108.2063 0.8392,109.2663 0.9962,110.2873 C1.3212,112.4113 1.6512,114.4203 1.2132,115.7813 C-0.1838,119.6053 -0.3648,122.2483 0.6202,124.1673 C1.6082,126.0903 3.6362,126.9373 5.9292,127.4173 C10.5152,128.3733 16.7262,128.1363 21.6192,130.7313 L22.0412,129.9373 L21.6242,130.7323 C26.8642,133.4723 32.1762,134.4453 36.4132,133.4773 C39.4872,132.7763 41.9812,130.9463 43.2622,128.1303 C46.5772,128.1143 50.2142,126.7103 56.0412,126.3893 C59.9942,126.0713 64.9322,127.7943 70.6122,127.4783 C70.7602,128.0943 70.9752,128.6873 71.2692,129.2503 C71.2722,129.2553 71.2752,129.2613 71.2782,129.2663 C73.4802,133.6693 77.5702,135.6833 81.9312,135.3393 C86.2962,134.9953 90.9372,132.4213 94.6912,127.9573 L94.0022,127.3793 L94.6952,127.9503 C98.2722,123.6133 104.2072,121.8163 108.1452,119.4423 C110.1122,118.2553 111.7082,116.7693 111.8332,114.6103 C111.9552,112.4533 110.6882,110.0353 107.7752,106.8013" fill="#202020"/><path d="M110.0365,114.5076 C109.9605,115.8396 108.9965,116.8296 107.2145,117.9026 C103.6545,120.0496 97.3435,121.9186 93.3145,126.7996 C89.8135,130.9646 85.5465,133.2516 81.7885,133.5486 C78.0315,133.8446 74.7895,132.2856 72.8765,128.4496 L72.8735,128.4416 L72.8695,128.4316 C71.6825,126.1746 72.1765,122.6156 73.1755,118.8606 C74.1745,115.1056 75.6105,111.2486 75.8025,108.1156 L75.8025,108.1066 C76.0045,104.0916 76.2305,100.5846 76.9045,97.8786 C77.5795,95.1716 78.6415,93.3406 80.5235,92.3106 C80.6115,92.2636 80.6985,92.2176 80.7855,92.1746 C80.9975,95.6516 82.7205,99.1996 85.7625,99.9656 C89.0925,100.8436 93.8915,97.9866 95.9185,95.6566 C96.3235,95.6406 96.7185,95.6196 97.1015,95.6106 C98.8805,95.5676 100.3695,95.6706 101.8945,97.0026 L101.8995,97.0066 L101.9045,97.0106 C103.0755,98.0026 103.6325,99.8776 104.1155,101.9766 C104.5985,104.0776 104.9825,106.3636 106.4325,107.9946 L106.4335,107.9956 L106.4345,107.9996 C109.2195,111.0876 110.1145,113.1746 110.0365,114.5076" fill="#FFCD00"/><path d="M42.3724,124.3523 L42.3714,124.3613 L42.3714,124.3733 C42.0494,128.5923 39.6694,130.8903 36.0144,131.7253 C32.3624,132.5603 27.4084,131.7283 22.4624,129.1423 C22.4604,129.1423 22.4594,129.1403 22.4574,129.1403 C16.9844,126.2413 10.4744,126.5303 6.2974,125.6573 C4.2094,125.2213 2.8454,124.5653 2.2204,123.3473 C1.5964,122.1273 1.5814,120.0013 2.9104,116.3763 L2.9164,116.3603 L2.9214,116.3443 C3.5794,114.3163 3.0924,112.0973 2.7734,110.0143 C2.4544,107.9333 2.2984,106.0373 3.0094,104.7183 L3.0164,104.7053 C3.9264,102.9503 5.2624,102.3223 6.9184,101.7293 C8.5774,101.1343 10.5424,100.6673 12.0934,99.1113 L12.1034,99.1023 L12.1114,99.0953 C13.5454,97.5813 14.6234,95.6833 15.8844,94.3373 C16.9484,93.2003 18.0134,92.4473 19.6184,92.4363 C19.6374,92.4383 19.6544,92.4383 19.6734,92.4363 C19.9544,92.4383 20.2524,92.4623 20.5684,92.5113 C22.6994,92.8333 24.5564,94.3223 26.3464,96.7493 L31.5134,106.1663 L31.5154,106.1713 L31.5184,106.1743 C32.8924,109.0453 35.7964,112.2033 38.2564,115.4243 C40.7174,118.6443 42.6204,121.8773 42.3724,124.3523" fill="#FFCD00"/><path d="M68.141,36.5649 C67.726,35.7519 66.878,34.9789 65.436,34.3869 L65.433,34.3859 L65.428,34.3839 C62.428,33.0989 61.126,33.0079 59.452,31.9189 C56.726,30.1669 54.474,29.5529 52.602,29.5609 C51.622,29.5639 50.746,29.7379 49.962,30.0089 C47.682,30.7939 46.168,32.4299 45.22,33.3279 L45.218,33.3299 C45.218,33.3309 45.217,33.3309 45.217,33.3329 C45.03,33.5099 44.79,33.6709 44.209,34.0969 C43.624,34.5239 42.746,35.1679 41.484,36.1149 C40.362,36.9559 39.997,38.0519 40.386,39.3349 C40.772,40.6179 42.01,42.0979 44.273,43.3779 L44.276,43.3809 L44.281,43.3829 C45.685,44.2079 46.645,45.3209 47.746,46.2059 C48.297,46.6479 48.876,47.0429 49.574,47.3409 C50.271,47.6389 51.086,47.8409 52.105,47.9009 C54.497,48.0399 56.259,47.3219 57.813,46.4319 C59.371,45.5429 60.69,44.4559 62.204,43.9649 L62.207,43.9629 L62.21,43.9619 C65.313,42.9929 67.526,41.0409 68.218,39.1859 C68.565,38.2579 68.555,37.3779 68.141,36.5649" fill="#FFCD00"/><path d="M60.2689,41.1448 C57.8009,42.4318 54.9169,43.9918 51.8499,43.9918 C48.7829,43.9918 46.3609,42.5748 44.6189,41.1938 C43.7469,40.5038 43.0399,39.8178 42.5069,39.3188 C41.5819,38.5888 41.6919,37.5638 42.0719,37.5938 C42.7099,37.6738 42.8059,38.5128 43.2069,38.8878 C43.7499,39.3958 44.4309,40.0538 45.2539,40.7078 C46.9019,42.0128 49.0989,43.2828 51.8499,43.2828 C54.5959,43.2828 57.8009,41.6708 59.7579,40.5738 C60.8659,39.9518 62.2769,38.8368 63.4279,37.9918 C64.3089,37.3458 64.2769,36.5668 65.0039,36.6518 C65.7309,36.7368 65.1929,37.5138 64.1749,38.4028 C63.1559,39.2908 61.5629,40.4698 60.2689,41.1448" fill="#202020"/><path d="M98.0663,93.8179 C97.7233,93.8049 97.3863,93.8069 97.0573,93.8149 C97.0273,93.8159 96.9983,93.8159 96.9663,93.8159 C97.8143,91.1399 95.9393,89.1649 90.9423,86.9049 C85.7613,84.6269 81.6323,84.8519 80.9353,89.4759 C80.8913,89.7179 80.8553,89.9649 80.8283,90.2149 C80.4403,90.3509 80.0513,90.5209 79.6603,90.7339 C77.2283,92.0659 75.8993,94.4809 75.1603,97.4449 C74.4233,100.4049 74.2103,103.9829 74.0083,108.0059 L74.0083,108.0089 C73.8833,110.0309 73.0503,112.7669 72.2083,115.6649 C63.7203,121.7199 51.9413,124.3429 41.9383,117.5159 C41.2613,116.4439 40.4833,115.3819 39.6833,114.3339 C39.1723,113.6649 38.6463,113.0009 38.1263,112.3439 C39.1513,112.3459 40.0243,112.1769 40.7303,111.8579 C41.6073,111.4589 42.2223,110.8209 42.5283,110.0009 C43.1383,108.3609 42.5253,106.0469 40.5733,103.4039 C38.6213,100.7619 35.3153,97.7809 30.4573,94.8009 L30.4573,94.7999 C26.8873,92.5789 24.8933,89.8579 23.9583,86.9039 C23.0233,83.9479 23.1533,80.7519 23.8753,77.5979 C25.2573,71.5419 28.8083,65.6519 31.0743,61.9559 C31.6833,61.5079 31.2923,62.7899 28.7793,67.4549 C26.5293,71.7189 22.3203,81.5599 28.0823,89.2429 C28.2363,83.7759 29.5423,78.2009 31.7343,72.9849 C34.9263,65.7489 41.6043,53.1979 42.1343,43.1949 C42.4093,43.3939 43.3483,44.0279 43.7663,44.2669 C43.7673,44.2679 43.7673,44.2679 43.7693,44.2679 C44.9943,44.9889 45.9143,46.0439 47.1053,47.0019 C48.3003,47.9609 49.7913,48.7899 52.0453,48.9209 C52.2613,48.9329 52.4733,48.9399 52.6793,48.9399 C55.0033,48.9399 56.8143,48.1819 58.3233,47.3189 C59.9633,46.3809 61.2733,45.3429 62.5153,44.9389 C62.5163,44.9369 62.5183,44.9369 62.5193,44.9369 C65.1443,44.1169 67.2293,42.6649 68.4153,40.9729 C70.4543,49.0089 75.1953,60.6169 78.2433,66.2809 C79.8633,69.2849 83.0863,75.6709 84.4783,83.3639 C85.3603,83.3369 86.3333,83.4649 87.3723,83.7319 C91.0133,74.2929 84.2853,64.1279 81.2083,61.2969 C79.9663,60.0909 79.9063,59.5509 80.5233,59.5759 C83.8593,62.5289 88.2423,68.4639 89.8363,75.1649 C90.5633,78.2209 90.7183,81.4339 89.9393,84.6049 C90.3183,84.7619 90.7073,84.9339 91.1003,85.1209 C96.9443,87.9659 99.1043,90.4409 98.0663,93.8179" fill="#FFFFFF"/><path d="M68.4154,27.3074 C68.4284,28.8994 68.1534,30.2554 67.5494,31.6394 C67.2054,32.4284 66.8094,33.0914 66.3334,33.6654 C66.1724,33.5884 66.0054,33.5144 65.8324,33.4434 C65.2304,33.1864 64.6994,32.9744 64.2224,32.7944 C63.7454,32.6144 63.3734,32.4924 62.9904,32.3594 C63.2684,32.0234 63.8154,31.6274 64.0194,31.1304 C64.3284,30.3804 64.4794,29.6484 64.5084,28.7754 C64.5084,28.7404 64.5194,28.7104 64.5194,28.6694 C64.5374,27.8334 64.4264,27.1184 64.1824,26.3864 C63.9264,25.6174 63.6014,25.0654 63.1304,24.6054 C62.6594,24.1464 62.1884,23.9384 61.6234,23.9194 C61.5964,23.9174 61.5714,23.9174 61.5444,23.9174 C61.0144,23.9194 60.5534,24.1024 60.0774,24.5004 C59.5764,24.9184 59.2054,25.4534 58.8964,26.1984 C58.5884,26.9434 58.4374,27.6814 58.4074,28.5594 C58.4024,28.5934 58.4024,28.6234 58.4024,28.6584 C58.3914,29.1414 58.4234,29.5834 58.4974,30.0124 C57.4114,29.4714 56.0224,29.0764 55.0624,28.8474 C55.0074,28.4324 54.9764,28.0054 54.9664,27.5564 L54.9664,27.4354 C54.9494,25.8474 55.2094,24.4854 55.8204,23.1034 C56.4314,21.7194 57.1864,20.7244 58.2504,19.9154 C59.3154,19.1074 60.3624,18.7364 61.6014,18.7234 L61.6594,18.7234 C62.8714,18.7234 63.9084,19.0804 64.9734,19.8524 C66.0544,20.6384 66.8344,21.6194 67.4624,22.9924 C68.0784,24.3314 68.3744,25.6394 68.4044,27.1904 C68.4044,27.2314 68.4044,27.2664 68.4154,27.3074" fill="#FFFFFF"/><path d="M50.096,28.8935 C49.937,28.9395 49.782,28.9875 49.629,29.0405 C48.761,29.3405 48.072,29.6705 47.406,30.1115 C47.471,29.6505 47.48,29.1835 47.429,28.6605 C47.425,28.6325 47.425,28.6085 47.425,28.5805 C47.355,27.8875 47.208,27.3065 46.964,26.7195 C46.703,26.1095 46.411,25.6785 46.028,25.3465 C45.681,25.0465 45.352,24.9075 44.99,24.9115 C44.953,24.9115 44.915,24.9125 44.878,24.9155 C44.471,24.9505 44.133,25.1495 43.812,25.5395 C43.493,25.9275 43.284,26.4105 43.132,27.0515 C42.981,27.6905 42.941,28.3185 43.004,29.0395 C43.004,29.0685 43.011,29.0915 43.011,29.1205 C43.08,29.8195 43.221,30.4005 43.47,30.9875 C43.725,31.5915 44.022,32.0225 44.406,32.3535 C44.471,32.4095 44.534,32.4595 44.596,32.5035 C44.199,32.8115 43.932,33.0295 43.603,33.2695 C43.393,33.4225 43.144,33.6055 42.854,33.8205 C42.221,33.2265 41.727,32.4825 41.295,31.4985 C40.783,30.3375 40.51,29.1745 40.428,27.8015 L40.428,27.7905 C40.352,26.4175 40.487,25.2365 40.864,24.0155 C41.242,22.7935 41.747,21.9105 42.481,21.1845 C43.214,20.4565 43.952,20.0905 44.843,20.0445 C44.912,20.0415 44.98,20.0395 45.048,20.0395 C45.854,20.0415 46.574,20.3095 47.319,20.9045 C48.126,21.5505 48.737,22.3755 49.249,23.5385 C49.762,24.7015 50.034,25.8645 50.11,27.2375 L50.11,27.2485 C50.147,27.8245 50.142,28.3675 50.096,28.8935" fill="#FFFFFF"/><path d="M54.1454,32.1775 C54.2474,32.5055 54.7754,32.4505 55.0804,32.6085 C55.3484,32.7465 55.5634,33.0485 55.8644,33.0565 C56.1514,33.0655 56.5994,32.9575 56.6364,32.6725 C56.6864,32.2955 56.1364,32.0565 55.7824,31.9185 C55.3274,31.7415 54.7434,31.6515 54.3164,31.8885 C54.2184,31.9435 54.1114,32.0705 54.1454,32.1775" fill="#202020"/><path d="M51.0262,32.1775 C50.9242,32.5055 50.3962,32.4505 50.0902,32.6085 C49.8232,32.7465 49.6082,33.0485 49.3062,33.0565 C49.0192,33.0655 48.5722,32.9575 48.5352,32.6725 C48.4852,32.2955 49.0352,32.0565 49.3892,31.9185 C49.8442,31.7415 50.4272,31.6515 50.8552,31.8885 C50.9522,31.9435 51.0592,32.0705 51.0262,32.1775" fill="#202020"/></svg></template>
+
+<template id="svg-linux-mono"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" fill="#000"><path d="M14.923 8.08c-.025.072-.141.061-.207.082-.059.031-.107.085-.175.085-.062 0-.162-.025-.17-.085-.012-.082.11-.166.187-.166.05-.024.108-.037.169-.037.056 0 .109.011.157.032l-.003-.001c.022.009.038.03.038.055 0 .003 0 .005-.001.008v.025h.004zM15.611 8.08v-.027c-.008-.025.016-.052.036-.062.046-.02.1-.032.157-.032.061 0 .119.014.17.038l-.002-.001c.079 0 .2.084.187.169-.007.061-.106.082-.169.082-.069 0-.115-.054-.176-.085-.065-.023-.182-.01-.204-.081zM16.963 10.058c-.532.337-1.161.574-1.835.666l-.024.003c-.606-.035-1.157-.248-1.607-.588l.007.005c-.192-.167-.35-.335-.466-.419-.205-.167-.18-.416-.092-.416.136.02.161.167.249.25.12.082.269.25.45.416.397.328.899.541 1.45.583l.009.001c.654-.057 1.249-.267 1.763-.592l-.016.01c.244-.169.556-.417.81-.584.195-.17.186-.334.349-.334.16.02.043.167-.184.415-.246.188-.527.381-.818.56l-.044.025zM8.017 21.397h.012c.069 0 .137.007.203.019l-.007-.001c.544.14.992.478 1.273.931l.005.009 1.137 2.079.004.004c.457.773.948 1.442 1.497 2.059l-.011-.013c.49.52.82 1.196.909 1.946l.002.016v.008c-.012.817-.613 1.491-1.396 1.616l-.009.001c-.2.031-.432.048-.667.048-.857 0-1.659-.233-2.347-.64l.021.012c-1.053-.441-2.275-.714-3.555-.752l-.015 0c-.372-.025-.696-.215-.901-.496l-.002-.003c-.054-.174-.085-.374-.085-.582 0-.35.088-.679.244-.966l-.005.011v-.005l.003-.004c.041-.188.065-.405.065-.627 0-.274-.036-.539-.104-.791l.005.021c-.041-.15-.065-.323-.065-.502 0-.242.043-.473.123-.687l-.004.014c.2-.417.495-.5.862-.666.438-.133.819-.334 1.151-.593l-.008.006h.002v-.003c.32-.335.556-.751.835-1.047.195-.249.492-.41.827-.42l.002 0zM21.531 21.336c-.001.017-.001.038-.001.059 0 .743.449 1.381 1.091 1.658l.012.005c.048.003.104.005.16.005.831 0 1.575-.371 2.075-.957l.003-.004.264-.012c.053-.008.114-.012.176-.012.341 0 .652.132.883.348l-.001-.001.004.004c.249.301.422.673.487 1.082l.002.013c.055.505.238.96.517 1.34l-.005-.008c.416.356.705.85.793 1.411l.002.013.004-.009v.022l-.004-.015c-.019.327-.231.495-.622.744-1.184.497-2.201 1.158-3.077 1.968l.007-.006c-.608.792-1.501 1.339-2.523 1.486l-.021.002c-.074.01-.16.016-.247.016-.768 0-1.428-.464-1.716-1.126l-.005-.012-.006-.004c-.093-.286-.146-.615-.146-.956 0-.416.079-.813.224-1.178l-.008.022c.234-.668.435-1.466.568-2.288l.011-.083c.016-.812.104-1.593.258-2.35l-.014.083c.085-.518.381-.954.794-1.225l.007-.004.056-.027zM18.8 10.142c.6 2.147 1.339 4.002 2.247 5.757l-.079-.167c.613 1.09 1.09 2.355 1.363 3.695l.014.084c.009 0 .02 0 .031 0 .217 0 .427.029.627.084l-.017-.004c.11-.395.173-.848.173-1.316 0-1.426-.587-2.716-1.533-3.639l-.001-.001c-.275-.25-.29-.419-.154-.419.971.91 1.689 2.078 2.045 3.394l.012.051c.089.329.14.707.14 1.097 0 .351-.041.693-.119 1.02l.006-.03c.074.038.16.067.251.083l.006.001c1.29.667 1.766 1.172 1.537 1.921v-.054c-.075-.004-.15 0-.225 0h-.02c.189-.584-.227-1.031-1.331-1.53-1.143-.5-2.057-.42-2.212.581-.011.049-.019.106-.022.165l0 .003c-.073.03-.16.058-.25.078l-.011.002c-.508.336-.87.859-.989 1.469l-.002.014c-.148.695-.241 1.5-.256 2.323l0 .012v.004c-.091.637-.23 1.207-.418 1.753l.02-.066c-.983.804-2.251 1.29-3.634 1.29-1.13 0-2.184-.325-3.073-.887l.024.014c-.146-.253-.313-.472-.503-.667l.001.001c-.097-.16-.211-.297-.342-.415l-.002-.001c.207 0 .407-.031.596-.088l-.015.004c.18-.085.318-.232.391-.412l.002-.005c.018-.093.029-.199.029-.308 0-.445-.175-.848-.461-1.146l.001.001c-.619-.761-1.359-1.395-2.196-1.88l-.038-.02c-.671-.388-1.179-.995-1.43-1.722l-.007-.022c-.093-.318-.147-.684-.147-1.062 0-.353.047-.695.134-1.021l-.006.027c.377-1.314.921-2.461 1.62-3.496l-.028.043c.134-.081.046.169-.51 1.217-.474.713-.757 1.59-.757 2.533 0 .84.224 1.627.616 2.306l-.012-.022c.052-1.309.345-2.537.834-3.659l-.025.065c1.055-1.902 1.854-4.111 2.275-6.452l.02-.131c.06.045.271.169.361.252.272.166.475.416.737.581.267.26.633.42 1.035.42.021 0 .042 0 .063-.001l-.003 0c.049.004.094.008.137.008.459-.009.887-.132 1.259-.342l-.013.007c.362-.167.65-.417.925-.5h.006c.535-.145.983-.454 1.3-.869l.004-.006zM15.301 7.465c.003 0 .006 0 .009 0 .569 0 1.094.187 1.517.503l-.007-.005c.378.234.814.433 1.275.574l.04.01h.004c.246.11.449.281.594.494l.003.005v-.164c.046.092.074.201.074.316 0 .098-.02.191-.055.276l.002-.005c-.288.507-.755.884-1.313 1.048l-.016.004v.002c-.335.169-.626.416-.968.581-.35.21-.771.334-1.222.334-.015 0-.03 0-.045 0l.002 0c-.022.001-.048.002-.074.002-.174 0-.342-.031-.496-.089l.01.003c-.159-.087-.29-.169-.417-.257l.014.01c-.227-.199-.477-.39-.739-.565l-.026-.016v-.006h-.006c-.375-.199-.67-.504-.852-.876l-.005-.012c-.027-.067-.042-.145-.042-.226 0-.218.112-.41.281-.522l.002-.001c.28-.169.475-.339.604-.42.13-.092.179-.127.22-.164h.002v-.004c.268-.339.623-.599 1.032-.746l.016-.005c.174-.05.374-.079.581-.081h.001zM13.589 5.333h.045c.188.004.361.067.501.17l-.002-.002c.179.159.325.352.425.57l.004.011c.113.245.183.53.191.83l0 .003v.005c.004.046.006.099.006.152 0 .063-.003.126-.009.188l.001-.008v.1c-.037.009-.07.022-.104.03-.191.079-.352.163-.505.258l.014-.008c.008-.055.012-.118.012-.182 0-.053-.003-.106-.009-.158l.001.006v-.019c-.018-.154-.054-.295-.107-.428l.004.011c-.041-.132-.113-.244-.207-.333l0 0c-.055-.05-.128-.081-.209-.081-.007 0-.014 0-.021.001l.001 0h-.026c-.103.011-.189.075-.232.163l-.001.002c-.077.093-.13.208-.15.334l0 .004c-.023.086-.035.185-.035.287 0 .044.002.088.007.131l0-.005v.019c.016.154.052.296.104.428l-.004-.011c.042.132.113.245.207.335l0 0c.012.012.026.022.042.03l.001 0c-.083.053-.155.109-.221.171l.001-.001c-.045.04-.1.07-.161.084l-.003.001c-.123-.147-.237-.312-.335-.486l-.008-.016c-.113-.245-.183-.529-.194-.83l0-.004c-.004-.048-.006-.104-.006-.161 0-.241.039-.473.11-.69l-.004.016c.074-.258.195-.481.356-.671l-.002.003c.127-.15.313-.245.522-.25h.001zM17.291 5.259h.016c.001 0 .002 0 .004 0 .275 0 .527.093.729.249l-.003-.002c.229.177.413.4.542.655l.005.011c.121.266.196.575.207.901l0 .004c0-.025.007-.05.007-.075v.131l-.005-.026-.005-.03c-.003.32-.071.622-.193.897l.006-.014c-.062.163-.152.303-.266.419l0 0c-.03-.018-.067-.035-.104-.05l-.006-.002c-.135-.042-.253-.099-.36-.169l.005.003c-.077-.032-.169-.06-.264-.081l-.011-.002c.081-.076.156-.157.225-.243l.004-.005c.063-.148.102-.319.11-.499l0-.003v-.025c0-.008 0-.016 0-.025 0-.17-.028-.333-.08-.485l.003.011c-.063-.159-.14-.296-.232-.421l.004.005c-.087-.088-.202-.148-.331-.165l-.003 0h-.02c-.001 0-.003 0-.004 0-.132 0-.25.065-.322.164l-.001.001c-.116.113-.204.253-.254.41l-.002.007c-.063.147-.104.318-.112.496l0 .003v.024c.002.12.011.236.027.349l-.002-.015c-.241-.084-.547-.169-.759-.252-.012-.073-.02-.159-.022-.247l0-.003v-.025c-.001-.02-.001-.043-.001-.066 0-.324.069-.631.194-.908l-.006.014c.106-.279.293-.508.532-.663l.005-.003c.204-.156.462-.25.742-.25h0zM16.63 1.004c-.194 0-.394.01-.6.026-5.281.416-3.88 6.007-3.961 7.87-.05 1.426-.534 2.729-1.325 3.792l.013-.018c-1.407 1.602-2.555 3.474-3.351 5.523l-.043.127c-.258.685-.408 1.476-.408 2.302 0 .285.018.566.052.841l-.003-.033c-.056.046-.103.102-.136.166l-.001.003c-.325.335-.562.75-.829 1.048-.283.217-.615.388-.975.494l-.021.005c-.464.139-.842.442-1.075.841l-.005.009c-.104.212-.165.461-.165.725 0 .01 0 .019 0 .029l0-.001c.002.238.026.469.073.693l-.004-.023c.056.219.088.471.088.73 0 .17-.014.337-.041.5l.002-.018c-.167.313-.264.685-.264 1.08 0 .278.048.544.137.791l-.005-.016c.273.388.686.662 1.164.749l.011.002c1.274.107 2.451.373 3.561.78l-.094-.03c.698.415 1.539.66 2.436.66.294 0 .582-.026.862-.077l-.029.004c.667-.151 1.211-.586 1.504-1.169l.006-.013c.734-.004 1.537-.336 2.824-.417.873-.072 1.967.334 3.22.25.037.159.086.298.148.429l-.006-.013.004.004c.384.804 1.19 1.35 2.124 1.35.081 0 .161-.004.24-.012l-.01.001c1.151-.17 2.139-.768 2.813-1.623l.007-.009c.843-.768 1.827-1.401 2.905-1.853l.067-.025c.432-.191.742-.585.81-1.059l.001-.007c-.059-.694-.392-1.299-.888-1.716l-.004-.003v-.121l-.004-.004c-.214-.33-.364-.722-.421-1.142l-.002-.015c-.053-.513-.278-.966-.615-1.307l0 0h-.004c-.074-.067-.154-.084-.235-.169-.066-.047-.148-.076-.237-.08l-.001 0c.195-.602.308-1.294.308-2.013 0-.94-.193-1.835-.541-2.647l.017.044c-.704-1.672-1.619-3.111-2.732-4.369l.014.017c-1.105-1.082-1.828-2.551-1.948-4.187l-.001-.021c.033-2.689.295-7.664-4.429-7.671z"/></svg></template>
+
+<script>
+(() => {
+  const SOURCES = [
+    { slug: 'claude-code', name: 'Claude Code',   tpl: 'svg-claude-code', bodyScale: 1 },
+    { slug: 'apple',       name: 'macOS / Apple', tpl: 'svg-apple',       bodyScale: 1 },
+    { slug: 'windows',     name: 'Windows',       tpl: 'svg-windows',     bodyScale: 1 },
+    { slug: 'linux',       name: 'Tux',           tpl: 'svg-linux-color', bodyScale: 0.3, classify: true },
+  ];
+
+  const SIZES = [12, 14, 16, 20, 24, 32, 48];
+  const SVG_NS = 'http://www.w3.org/2000/svg';
+
+  const state = {
+    fg: '#f0e9d9',
+    accentColor: '#ffffff',
+    bg: '#142a33',
+    body: 1.0,
+    accent: 1.0,
+    trim: true,
+    showPaper: false,
+  };
+
+  let maskCounter = 0;
+
+  function svgElementFromTemplate(id) {
+    const tpl = document.getElementById(id);
+    return tpl.content.firstElementChild.cloneNode(true);
+  }
+
+  function stripFills(el) {
+    if (el.removeAttribute) {
+      el.removeAttribute('fill');
+      el.removeAttribute('stroke');
+      el.removeAttribute('style');
+    }
+    for (const c of (el.children || [])) stripFills(c);
+  }
+
+  function hexLuminance(hex) {
+    if (!hex || hex === 'none' || hex === 'transparent' || hex === 'currentColor') return null;
+    let h = hex.trim().replace('#', '');
+    if (h.length === 3) h = h.split('').map(c => c + c).join('');
+    if (h.length !== 6) return 128;
+    const r = parseInt(h.slice(0, 2), 16);
+    const g = parseInt(h.slice(2, 4), 16);
+    const b = parseInt(h.slice(4, 6), 16);
+    return 0.299 * r + 0.587 * g + 0.114 * b;
+  }
+
+  function classifyFills(el, bodyOp, accentOp, accentColor) {
+    if (el.getAttribute) {
+      const f = el.getAttribute('fill');
+      const lum = hexLuminance(f);
+      if (lum !== null) {
+        if (lum < 100) {
+          el.setAttribute('fill', 'currentColor');
+          if (bodyOp !== 1) el.setAttribute('fill-opacity', bodyOp);
+        } else {
+          el.setAttribute('fill', accentColor);
+          if (accentOp !== 1) el.setAttribute('fill-opacity', accentOp);
+        }
+      }
+      el.removeAttribute('style');
+    }
+    for (const c of (el.children || [])) classifyFills(c, bodyOp, accentOp, accentColor);
+  }
+
+  function parseViewBox(vb) {
+    if (!vb) return null;
+    const p = vb.split(/[\s,]+/).filter(Boolean).map(Number);
+    if (p.length !== 4 || p.some(Number.isNaN)) return null;
+    return { x: p[0], y: p[1], w: p[2], h: p[3] };
+  }
+
+  // Compute a tight viewBox by inserting the SVG into a hidden staging div
+  // and calling getBBox. Padded slightly so AA edges aren't clipped.
+  function getTightViewBox(sourceEl) {
+    const staging = document.createElement('div');
+    staging.style.cssText = 'position:absolute;left:-99999px;top:0;width:500px;height:500px;';
+    document.body.appendChild(staging);
+    const clone = sourceEl.cloneNode(true);
+    clone.setAttribute('width', 500);
+    clone.setAttribute('height', 500);
+    staging.appendChild(clone);
+    let bbox = null;
+    try { bbox = clone.getBBox(); } catch { bbox = null; }
+    staging.remove();
+    if (!bbox || bbox.width === 0 || bbox.height === 0) return null;
+    const pad = Math.max(bbox.width, bbox.height) * 0.01;
+    return { x: bbox.x - pad, y: bbox.y - pad, w: bbox.width + pad * 2, h: bbox.height + pad * 2 };
+  }
+
+  // Produce a canonical, UI-ready SVG element.
+  //
+  // Flat source (claude-code, apple, windows):
+  //   <svg viewBox=... fill="currentColor" fill-opacity=body> ...paths... </svg>
+  //
+  // Hollow source (tux): body at body*bodyScale opacity, plus a masked rect
+  // that fills enclosed counter-shapes at accent opacity. The mask renders
+  // the path under fill-rule=evenodd (entire silhouette including holes)
+  // and subtracts the same path under fill-rule=nonzero (the body only) —
+  // leaving the counter-shapes visible.
+  //
+  // opts.withSize / opts.withColor are added for preview usage only; the
+  // canonical (checked-in) SVG omits them so CSS can size and tint.
+  function buildCleanSvg(src, opts) {
+    const svg = document.createElementNS(SVG_NS, 'svg');
+    svg.setAttribute('xmlns', SVG_NS);
+
+    const origVb = parseViewBox(src.el.getAttribute('viewBox'));
+    const vb = (opts.trim && src.tightVb) ? src.tightVb : origVb;
+    if (vb) svg.setAttribute('viewBox', `${round(vb.x)} ${round(vb.y)} ${round(vb.w)} ${round(vb.h)}`);
+
+    if (opts.withSize != null) {
+      svg.setAttribute('width', opts.withSize);
+      svg.setAttribute('height', opts.withSize);
+    }
+    if (opts.withColor) {
+      svg.style.color = opts.withColor;
+      svg.style.display = 'block';
+    }
+
+    const bodyOpacity = +(opts.body * (src.bodyScale ?? 1)).toFixed(3);
+    const accentOpacity = +opts.accent.toFixed(3);
+
+    if (src.classify) {
+      // Walk the tree; classify each filled node by its fill's luminance.
+      // Dark fills become body (currentColor at body opacity). Everything
+      // else becomes accent.
+      //
+      // Preview uses the literal accent color so the page can show it.
+      // Canonical SVG uses `var(--icon-accent, #fff)` so consumers can
+      // theme-swap via the design-tokens variable.
+      const cloned = src.el.cloneNode(true);
+      const accentFill = opts.canonical
+        ? `var(--icon-accent, ${opts.accentColor || '#fff'})`
+        : (opts.accentColor || '#fff');
+      classifyFills(cloned, bodyOpacity, accentOpacity, accentFill);
+      cloned.removeAttribute?.('fill');
+      while (cloned.firstChild) svg.appendChild(cloned.firstChild);
+    } else {
+      // Clone the source, strip all color attrs, move children onto the new svg
+      const cloned = src.el.cloneNode(true);
+      stripFills(cloned);
+      while (cloned.firstChild) svg.appendChild(cloned.firstChild);
+      svg.setAttribute('fill', 'currentColor');
+      if (bodyOpacity !== 1) svg.setAttribute('fill-opacity', bodyOpacity);
+    }
+
+    return svg;
+  }
+
+  function round(n) { return Math.round(n * 100) / 100; }
+
+  function serializePretty(svgEl) {
+    const s = new XMLSerializer().serializeToString(svgEl);
+    return s.replace(/></g, '>\n<');
+  }
+
+  const svgs = SOURCES.map(s => {
+    const el = svgElementFromTemplate(s.tpl);
+    return { ...s, el, tightVb: getTightViewBox(el) };
+  });
+
+  function placeSvg(parent, svg) {
+    while (parent.firstChild) parent.removeChild(parent.firstChild);
+    parent.appendChild(svg);
+  }
+
+  // Build grid rows. Each row: source preview + one empty cell per size
+  // (populated in render()).
+  const grid = document.getElementById('grid');
+  const rowRefs = svgs.map(src => {
+    const labelCell = document.createElement('div');
+    labelCell.className = 'cell row-label';
+    const name = document.createElement('div'); name.className = 'name'; name.textContent = src.name;
+    const slug = document.createElement('div'); slug.className = 'slug'; slug.textContent = src.slug;
+    const preview = document.createElement('div'); preview.className = 'src-preview';
+    preview.appendChild(svgElementFromTemplate(src.tpl));
+    labelCell.append(name, slug, preview);
+    grid.appendChild(labelCell);
+
+    const cells = {};
+    for (const size of SIZES) {
+      const cell = document.createElement('div');
+      cell.className = 'cell';
+      grid.appendChild(cell);
+      cells[size] = cell;
+    }
+    return { src, cells };
+  });
+
+  // Surface mockups
+  const chipList = document.getElementById('chip-list');
+  const hostList = document.getElementById('host-list');
+
+  const chipDefs = [
+    { slug: 'claude-code', label: 'session:9125804f · debug auth flow' },
+    { slug: 'claude-code', label: 'session:b5bb93c0 · icon exploration' },
+    { slug: 'claude-code', label: 'session:21320720 · dashboard refactor' },
+  ];
+  const chipSlots = [];
+  for (const c of chipDefs) {
+    const chip = document.createElement('div');
+    chip.className = 'chip';
+    const iconSlot = document.createElement('span');
+    iconSlot.style.cssText = 'display:inline-flex;align-items:center;';
+    const txt = document.createElement('span'); txt.textContent = c.label;
+    chip.append(iconSlot, txt);
+    chipList.appendChild(chip);
+    chipSlots.push({ iconSlot, slug: c.slug });
+  }
+
+  const hostDefs = [
+    { slug: 'linux',       name: 'nixos',        sub: '6 plugins · 3h ago' },
+    { slug: 'apple',       name: 'myra-mbp',     sub: 'offline · 2d ago' },
+    { slug: 'windows',     name: 'studio-pc',    sub: '2 plugins · 12m ago' },
+  ];
+  const hostSlots = [];
+  for (const h of hostDefs) {
+    const row = document.createElement('div');
+    row.className = 'host-row';
+    const iconSlot = document.createElement('span');
+    iconSlot.style.cssText = 'display:inline-flex;align-items:center;';
+    const meta = document.createElement('div'); meta.className = 'meta';
+    const name = document.createElement('div'); name.className = 'hostname'; name.textContent = h.name;
+    const sub = document.createElement('div'); sub.className = 'sub'; sub.textContent = h.sub;
+    meta.append(name, sub);
+    row.append(iconSlot, meta);
+    hostList.appendChild(row);
+    hostSlots.push({ iconSlot, slug: h.slug });
+  }
+
+  // Source viewer: one block per source with the canonical SVG markup
+  const sourceViewer = document.getElementById('source-viewer');
+  const viewerBlocks = svgs.map(src => {
+    const block = document.createElement('div');
+    block.className = 'src-block';
+    const head = document.createElement('div');
+    head.className = 'src-head';
+    const h4 = document.createElement('h4');
+    h4.innerHTML = `${src.name} <span class="slug">${src.slug}.svg</span>`;
+    const copyBtn = document.createElement('button');
+    copyBtn.className = 'copy';
+    copyBtn.textContent = 'copy';
+    const pre = document.createElement('pre');
+    copyBtn.addEventListener('click', async () => {
+      try { await navigator.clipboard.writeText(pre.textContent || ''); }
+      catch {
+        // fallback for file:// contexts
+        const ta = document.createElement('textarea');
+        ta.value = pre.textContent || '';
+        document.body.appendChild(ta); ta.select();
+        try { document.execCommand('copy'); } finally { ta.remove(); }
+      }
+      copyBtn.textContent = 'copied';
+      setTimeout(() => copyBtn.textContent = 'copy', 900);
+    });
+    head.append(h4, copyBtn);
+    block.append(head, pre);
+    sourceViewer.appendChild(block);
+    return { src, pre };
+  });
+
+  function render() {
+    const baseOpts = { body: state.body, accent: state.accent, accentColor: state.accentColor, trim: state.trim };
+    const previewOpts = { ...baseOpts, withColor: state.fg };
+
+    for (const row of rowRefs) {
+      for (const size of SIZES) {
+        placeSvg(row.cells[size], buildCleanSvg(row.src, { ...previewOpts, withSize: size }));
+      }
+    }
+    for (const { iconSlot, slug } of chipSlots) {
+      const src = svgs.find(s => s.slug === slug); if (!src) continue;
+      placeSvg(iconSlot, buildCleanSvg(src, { ...previewOpts, withSize: 16 }));
+    }
+    for (const { iconSlot, slug } of hostSlots) {
+      const src = svgs.find(s => s.slug === slug); if (!src) continue;
+      placeSvg(iconSlot, buildCleanSvg(src, { ...previewOpts, withSize: 14 }));
+    }
+    for (const { src, pre } of viewerBlocks) {
+      pre.textContent = serializePretty(buildCleanSvg(src, { ...baseOpts, canonical: true }));
+    }
+
+    document.querySelectorAll('.cell').forEach(c => {
+      if (c.classList.contains('head') || c.classList.contains('row-label')) return;
+      c.style.background = state.showPaper ? state.bg : '';
+    });
+  }
+
+  // Controls
+  // Theme presets — match tokens.css values exactly
+  const THEMES = {
+    dark:  { fg: '#f0e9d9', accentColor: '#ffffff', bg: '#142a33' },
+    light: { fg: '#0d1f26', accentColor: '#c26a1f', bg: '#ffffff' },
+  };
+  document.getElementById('theme-group').addEventListener('click', e => {
+    const b = e.target.closest('button'); if (!b) return;
+    document.querySelectorAll('#theme-group button').forEach(x => x.classList.remove('active'));
+    b.classList.add('active');
+    const t = THEMES[b.dataset.theme];
+    state.fg = t.fg; state.accentColor = t.accentColor; state.bg = t.bg;
+    document.getElementById('fg').value = t.fg;
+    document.getElementById('accent-color').value = t.accentColor;
+    document.getElementById('bg').value = t.bg;
+    // also flip show-paper so you actually see the light bg
+    state.showPaper = b.dataset.theme === 'light';
+    document.getElementById('show-paper').checked = state.showPaper;
+    render();
+  });
+
+  document.getElementById('fg').addEventListener('input', e => { state.fg = e.target.value; render(); });
+  document.getElementById('accent-color').addEventListener('input', e => { state.accentColor = e.target.value; render(); });
+  document.getElementById('bg').addEventListener('input', e => { state.bg = e.target.value; render(); });
+  const bEl = document.getElementById('body-opacity');
+  const bVal = document.getElementById('body-opacity-val');
+  bEl.addEventListener('input', () => { state.body = parseInt(bEl.value) / 100; bVal.textContent = state.body.toFixed(2); render(); });
+  const aEl = document.getElementById('accent-opacity');
+  const aVal = document.getElementById('accent-opacity-val');
+  aEl.addEventListener('input', () => { state.accent = parseInt(aEl.value) / 100; aVal.textContent = state.accent.toFixed(2); render(); });
+  document.getElementById('trim').addEventListener('change', e => { state.trim = e.target.checked; render(); });
+  document.getElementById('show-paper').addEventListener('change', e => { state.showPaper = e.target.checked; render(); });
+
+  render();
+})();
+</script>
+
+</body>
+</html>
