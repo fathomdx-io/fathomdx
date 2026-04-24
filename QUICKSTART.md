@@ -11,14 +11,20 @@ Self-host Fathom on a single Linux machine. About five minutes from clone to run
 ## Install
 
 ```bash
+curl -fsSL https://fathomdx.io/install.sh | sh
+```
+
+This clones into `~/fathom` (override with `FATHOM_DIR=…`), runs preflight to set up `.env` and the lake's directories, then offers to start the stack. Inspect the script first at [`addons/scripts/install.sh`](addons/scripts/install.sh) if piping curl into sh isn't your style.
+
+If you'd rather drive each step yourself:
+
+```bash
 git clone https://github.com/myrakrusemark/consumer-fathom.git
 cd consumer-fathom
 ./addons/scripts/preflight.sh
 ```
 
-Preflight creates `.env` from the example, points `LAKE_DIR` at `~/.fathom/fathom` (or wherever you tell it), creates the lake's subdirectories, and tells you exactly what's still missing. It's idempotent — re-run it any time something feels off.
-
-If preflight says `LLM_API_KEY is blank`, open `.env` and paste in your key, then re-run preflight. If you want a provider other than Gemini, change `LLM_PROVIDER` to `openai` or `ollama` first.
+Preflight is idempotent — re-run it any time something feels off. If it says `LLM_API_KEY is blank`, open `.env` and paste in your key (Gemini, OpenAI, or set `LLM_PROVIDER=ollama` for a local Ollama install), then re-run.
 
 ## Run
 
