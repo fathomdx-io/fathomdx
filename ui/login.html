@@ -112,6 +112,19 @@
     }
     .hint a { color: var(--accent); text-decoration: none; }
     .hint a:hover { text-decoration: underline; }
+    .hint-label {
+      display: block; font-size: var(--text-sm);
+      color: var(--ink-soft); font-weight: 500;
+      margin-bottom: 6px; text-transform: uppercase;
+      letter-spacing: var(--tracking-wide);
+    }
+    .hint-cmd {
+      font-family: var(--mono); background: var(--bg-deep);
+      color: var(--ink); font-size: 12.5px;
+      padding: 8px 10px; border-radius: 6px;
+      margin: 8px 0 8px;
+      overflow-x: auto; white-space: nowrap;
+    }
   </style>
 </head>
 <body>
@@ -131,7 +144,10 @@
       New here? <a href="/ui/onboarding.html">Create an account</a> — pick a name, get a key, you're in.
     </div>
     <div class="hint">
-      Already have a key somewhere? Sign in on a device that already has one and mint a new one under <code>Settings → API Keys</code>. The paired CLI, browser extension, and claude-code hooks share this same credential.
+      <span class="hint-label">Forgot my key</span>
+      Run this on the host where the api is installed:
+      <pre class="hint-cmd">./addons/scripts/mint-key.sh</pre>
+      Prints a fresh key bound to your contact. Prompts you to pick one if there's more than one person on this instance.
     </div>
   </div>
 
