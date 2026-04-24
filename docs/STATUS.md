@@ -51,7 +51,7 @@ Goal-titled, focused, assumes tutorial 1 is done. Organized by reader stance (ge
 | `how-to/rotate-an-api-key.md` | planned | — | `api/routes/api_keys.py` |
 | `how-to/change-llm-provider.md` | planned | — | `.env`, `api/inference/` |
 | `how-to/delete-a-delta-or-tag.md` | planned | — | `api/routes/lake.py`, `delta-store/` |
-| `how-to/troubleshoot-install.md` | planned | — | `addons/scripts/preflight.sh`, `install.sh` |
+| `how-to/troubleshoot-install.md` | draft | 2026-04-24 | `addons/scripts/preflight.sh`, `addons/scripts/install.sh`, `docker-compose.yml` |
 
 **Extending Fathom** (reaching into the plugin surfaces):
 
