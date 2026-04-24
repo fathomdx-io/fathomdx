@@ -470,7 +470,7 @@ async def chat_completions(req: ChatRequest, request: Request):
     if session_id:
         session = await db.get_session(session_id)
         if not session:
-            return {"error": f"Session {session_id} not found"}, 404
+            raise HTTPException(status_code=404, detail=f"Session {session_id} not found")
     else:
         session_data = await db.create_session()
         session_id = session_data["id"]

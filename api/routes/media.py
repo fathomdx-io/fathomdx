@@ -6,7 +6,7 @@ image in the lake is always accompanied by text explaining what it is.
 """
 from __future__ import annotations
 
-from fastapi import APIRouter, File, Form, Request, UploadFile
+from fastapi import APIRouter, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import Response
 from pydantic import BaseModel
 
@@ -21,7 +21,7 @@ async def proxy_media(media_hash: str):
     c = await delta_client._get()
     r = await c.get(f"/media/{media_hash}", timeout=15)
     if r.status_code != 200:
-        return {"error": "not found"}, 404
+        raise HTTPException(status_code=404, detail="media not found")
     return Response(content=r.content, media_type="image/webp")
 
 

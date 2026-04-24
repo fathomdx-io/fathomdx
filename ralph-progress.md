@@ -5,20 +5,20 @@
 
 ## Next
 
-**Perspective:** API Consistency
+**Perspective:** Docker & DevOps
 **Repo:** fathomdx
-**Why next:** Cross-Repo Coherence is DONE. Found and fixed one
-user-visible bug: the /v1/deltas GET proxy was forwarding
-`tags_include=a,b` as a single string to delta-store, which expected
-repeated `?tags_include=a&tags_include=b`. Both `fathom recall
---tags a,b` and the MCP `recall` tool were silently returning empty
-on every multi-tag query. Three regression tests now lock the
-contract. Every other addon↔api interface checked out.
+**Why next:** API Consistency is DONE. Found and fixed one latent
+correctness bug: four endpoints used `return {..., "error": ...}, 404`
+which FastAPI doesn't interpret as a status-coded response — it
+serialized the tuple as a 2-element JSON array with HTTP 200 instead.
+`proxy_media` was the only one firing in production, but all four
+paths are now properly raising `HTTPException(404)`. 4 regression
+tests.
 
-API Consistency (#10) is next. Endpoint naming conventions, response
-envelope shapes, error-response formats. Fathom's /v1 surface has
-some mix of `{tree, total_count, as_prompt}`, bare lists, and
-`{results: [...]}` envelopes — worth naming a convention.
+Docker & DevOps (#11) is next. Dockerfile optimization (delta-store
++ source-runner already got layer-cache separation in the dependency
+audit; verify), docker-compose healthchecks (none currently wired?),
+entrypoint robustness.
 
 **Pending cleanup** from the server.py split: `/v1/chat/completions`
 + `fathom_think` + `_resolve_tools` (~250 lines) still in server.py,
@@ -41,7 +41,7 @@ Single repo (`fathomdx`) so the "matrix" is a column. `-` = not started,
 | 7 | Performance                      | DONE     |
 | 8 | Dependency Audit                 | DONE     |
 | 9 | Cross-Repo Coherence             | DONE     |
-| 10| API Consistency                  | -        |
+| 10| API Consistency                  | DONE     |
 | 11| Docker & DevOps                  | -        |
 | 12| Accessibility                    | N/A      |
 | 13| Error Boundary Audit             | -        |
@@ -109,6 +109,42 @@ Format:
 - Key findings or decisions
 - Commits: <sha> <sha>
 ```
+
+---
+
+### 2026-04-23 — API Consistency / fathomdx
+
+One correctness bug fixed, four regression tests. pytest 77 → 81.
+
+**The bug**: FastAPI does **not** interpret `return (body, status_code)`
+tuples as status-coded responses. It serializes the whole tuple as a
+2-element JSON array and sets HTTP 200. Any client branching on
+`r.status_code == 404` for "not found" never fires. Four sites used
+this pattern:
+
+- `api/routes/media.py :: proxy_media` — **this one actually fired**.
+  A missing media_hash went through delta-store (returns 404) and the
+  proxy returned `[{"error":"not found"},404]` with HTTP 200.
+- `api/routes/sessions.py :: get_session / update_session` — latent;
+  `db.get_session` always synthesizes a dict, so the "not found"
+  branch was dead code.
+- `api/server.py :: chat_completions` — same latent shape.
+
+**Fix** (`cee258c`): `raise HTTPException(status_code=404, detail=...)`.
+Four regression tests use `monkeypatch.setattr` on the db helpers to
+force the 404 branch directly rather than relying on a particular
+db response shape.
+
+**Audited and deliberately left alone (style, not bugs)**
+- `/v1/routines/preview-schedule` returns `{"fires": [], "error":
+  "..."}` with HTTP 200 on bad input. Debatable style; the UI reads
+  the `error` field. Not worth churning.
+- `/v1/agents/status` returns `{"agents": [], "error": str(e)}`
+  on query failure. Same pattern; same "it's fine" verdict.
+- Several handlers take `body: dict` rather than pydantic models
+  (routines CRUD, lake proxy handlers). Intentional for proxies
+  that forward arbitrary JSON; routines could be tighter but that's
+  a redesign, not a bug.
 
 ---
 
