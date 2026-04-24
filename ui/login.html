@@ -151,7 +151,7 @@
     <details class="hint hint-forgot">
       <summary>Forgot my key</summary>
       <p>Run this on the host where the api is installed:</p>
-      <pre class="hint-cmd">./addons/scripts/mint-key.sh</pre>
+      <pre class="hint-cmd" id="mintKeyCmd">./addons/scripts/mint-key.sh</pre>
       <p>Prints a fresh key bound to your contact. Prompts you to pick one if there's more than one person on this instance.</p>
     </details>
   </div>
@@ -196,6 +196,10 @@
           if (info.signup_enabled) {
             const hint = document.getElementById('signupHint');
             if (hint) hint.hidden = false;
+          }
+          if (info.mint_key_cmd) {
+            const cmdEl = document.getElementById('mintKeyCmd');
+            if (cmdEl) cmdEl.textContent = info.mint_key_cmd;
           }
         }
       } catch (e) {}

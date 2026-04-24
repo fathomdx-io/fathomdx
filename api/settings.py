@@ -86,6 +86,16 @@ class Settings(BaseSettings):
     mood_state_path: str = "/data/mood-state.json"
     pair_codes_path: str = "/data/pair-codes.json"
 
+    # Absolute host path where this checkout lives — the directory the
+    # operator ran `docker compose up` from. Wired through compose as
+    # FATHOM_HOST_REPO_DIR=${PWD}. Used by UI surfaces that need to
+    # show a real shell command (e.g. the "Forgot my key" disclosure on
+    # the login page, which renders
+    # <host_repo_dir>/addons/scripts/mint-key.sh). Empty when a caller
+    # runs the api outside compose; the UI falls back to a relative
+    # path in that case.
+    host_repo_dir: str = Field("", validation_alias="FATHOM_HOST_REPO_DIR")
+
     # Self-signup gate. When on, POST /v1/auth/register is open: a new
     # person can create their own member-scoped contact + token via the
     # onboarding page without an admin present. Off means only

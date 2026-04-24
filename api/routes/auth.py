@@ -64,9 +64,17 @@ async def bootstrap_status():
     from ..settings import settings
 
     slug = await contacts_mod.first_admin_slug()
+    # Host repo dir lets the UI render operator shell commands with an
+    # absolute path. Empty when the api was started outside compose.
+    mint_cmd = ""
+    if settings.host_repo_dir:
+        mint_cmd = f"{settings.host_repo_dir.rstrip('/')}/addons/scripts/mint-key.sh"
+    else:
+        mint_cmd = "./addons/scripts/mint-key.sh"
     return {
         "needs_bootstrap": slug is None,
         "signup_enabled": bool(settings.signup_enabled),
+        "mint_key_cmd": mint_cmd,
     }
 
 

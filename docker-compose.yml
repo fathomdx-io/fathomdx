@@ -166,10 +166,27 @@ services:
       - ${LAKE_DIR}/api:/data
     environment:
       TZ: ${TZ:-UTC}
+      # Absolute host path of this checkout (where the operator ran
+      # `docker compose up`). The container uses it to print
+      # operator-facing shell commands with a real path instead of
+      # "./addons/...". Docker Compose expands ${PWD} at up-time.
+      FATHOM_HOST_REPO_DIR: ${PWD}
+      # Legacy single-provider slot. Still works; populates the matching
+      # provider's credentials if the per-provider key below is empty.
       LLM_PROVIDER: ${LLM_PROVIDER:-gemini}
       LLM_API_KEY: ${LLM_API_KEY:-}
       LLM_BASE_URL: ${LLM_BASE_URL:-}
       LLM_MODEL: ${LLM_MODEL:-}
+      LLM_MODEL_HARD: ${LLM_MODEL_HARD:-}
+      LLM_MODEL_MEDIUM: ${LLM_MODEL_MEDIUM:-}
+      # Per-provider credentials. Any subset may be set; empty ones
+      # leave that provider unconfigured (hidden from the Models tab).
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      LOCAL_BASE_URL: ${LOCAL_BASE_URL:-}
+      OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-}
+      FATHOM_SIGNUP_ENABLED: ${FATHOM_SIGNUP_ENABLED:-true}
       FATHOM_DELTA_STORE_URL: http://delta-store:8000
       FATHOM_DELTA_API_KEY: ${DELTA_API_KEY:-}
       FATHOM_SOURCE_RUNNER_URL: http://source-runner:8000
