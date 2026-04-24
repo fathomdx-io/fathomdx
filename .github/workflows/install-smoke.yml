@@ -1,10 +1,20 @@
 # Install smoke test
 #
 # Runs `addons/scripts/install.sh` against the working tree on a clean
-# ubuntu-latest runner — the same path a stranger using
-# `curl -fsSL https://fathomdx.io/install.sh | bash` would take. Asserts
-# the stack actually comes up. This is the layer that catches "the
-# installer broke" before a user does.
+# runner — the same path a stranger using
+# `curl -fsSL https://fathomdx.io/install.sh | bash` would take.
+#
+# Two-platform matrix:
+#   - ubuntu-latest:  full smoke. Install + start stack + assert health.
+#                     This is the layer that catches "the installer broke"
+#                     before a Linux user does.
+#   - macos-latest:   install path only. Install Docker CLI via brew so
+#                     the prereq check passes, but skip autostart (GH
+#                     macOS runners don't have a docker daemon by
+#                     default; spinning Colima would add ~3 minutes).
+#                     Catches BSD-vs-GNU portability bugs in our scripts
+#                     (sed, mktemp, bash 3.2 syntax) without needing a
+#                     full container runtime.
 #
 # Why a separate workflow (not a third job in ci.yml):
 #   - This pulls images and builds containers. It's slow (~5 min on cold
@@ -20,8 +30,6 @@
 #   The smoke test has no API key. We don't need a working LLM to
 #   verify the stack starts — just need preflight to let it through.
 #   `ollama` is the only provider that doesn't require a key.
-#   The chat endpoint won't reach a real model in this run, but the
-#   `/v1/stats`, `/health`, and database wiring all become assertable.
 #
 # Why FATHOM_REPO=$GITHUB_WORKSPACE (cloning from local checkout):
 #   We want to test THIS commit's install path, not whatever's on main.
@@ -50,22 +58,43 @@ on:
     - cron: "17 4 * * *"
 
 concurrency:
+  # Workflow-level — `matrix.os` isn't available here, so this cancels the
+  # whole matrix (both Linux + macOS) on a new push to the same ref. That's
+  # what we want; we don't need per-OS concurrency.
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
   smoke:
-    name: Fresh-clone install end-to-end
-    runs-on: ubuntu-latest
+    name: ${{ matrix.os }} install
+    runs-on: ${{ matrix.os }}
     timeout-minutes: 15
+
+    strategy:
+      # One platform breaking shouldn't hide the other.
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
 
     steps:
       - uses: actions/checkout@v4
 
+      - name: Install Docker CLI (macOS prereq)
+        if: matrix.os == 'macos-latest'
+        # The Docker CLI alone (no daemon) is enough to satisfy install.sh's
+        # prereq check — `docker compose version` is a client-side subcommand
+        # and doesn't need a running daemon. We skip autostart below so we
+        # never actually try to talk to the daemon.
+        run: |
+          brew install docker docker-compose
+          docker --version
+          docker compose version
+
       - name: Run install.sh against this commit
         env:
           NONINTERACTIVE: "1"
-          FATHOM_AUTOSTART: "1"
+          # Only autostart on Linux. macOS runners have no docker daemon.
+          FATHOM_AUTOSTART: ${{ matrix.os == 'ubuntu-latest' && '1' || '0' }}
           FATHOM_DIR: ${{ runner.temp }}/fathom-install
           FATHOM_REPO: ${{ github.workspace }}
           FATHOM_REF: ${{ github.sha }}
@@ -73,7 +102,26 @@ jobs:
           LLM_PROVIDER: ollama
         run: ./addons/scripts/install.sh
 
+      - name: Verify install path artifacts (both platforms)
+        # These are the artifacts every successful install creates,
+        # regardless of whether the stack got started. Any portability
+        # bug in preflight (sed, mktemp, file ops) shows up here.
+        run: |
+          set -e
+          INSTALL_DIR="${RUNNER_TEMP}/fathom-install"
+          test -f "${INSTALL_DIR}/.env"               && echo "✓ .env present"
+          test -d "${INSTALL_DIR}/addons/scripts"     && echo "✓ addons/scripts present"
+          test -x "${INSTALL_DIR}/addons/scripts/preflight.sh" && echo "✓ preflight.sh executable"
+          # preflight should have stamped LAKE_DIR into .env
+          grep -E '^LAKE_DIR=/' "${INSTALL_DIR}/.env" && echo "✓ LAKE_DIR set to absolute path"
+          grep -E '^LLM_PROVIDER=ollama' "${INSTALL_DIR}/.env" && echo "✓ LLM_PROVIDER persisted"
+          # Lake subdirs created (default ~/.fathom/mind)
+          for sub in deltas backups source-runner api; do
+            test -d "${HOME}/.fathom/mind/${sub}" && echo "✓ ${HOME}/.fathom/mind/${sub} created"
+          done
+
       - name: Wait for the stack to be healthy
+        if: matrix.os == 'ubuntu-latest'
         working-directory: ${{ runner.temp }}/fathom-install
         run: |
           # Compose has its own healthchecks; poll the user-facing endpoints
@@ -98,6 +146,7 @@ jobs:
           done
 
       - name: Assert stack returns sane responses
+        if: matrix.os == 'ubuntu-latest'
         working-directory: ${{ runner.temp }}/fathom-install
         run: |
           set -euo pipefail
@@ -109,7 +158,7 @@ jobs:
           python -c 'import json,sys; d=json.load(open("/tmp/stats.json")); assert isinstance(d, dict), d; print("stats OK:", d)'
 
       - name: Dump container logs on failure
-        if: failure()
+        if: failure() && matrix.os == 'ubuntu-latest'
         working-directory: ${{ runner.temp }}/fathom-install
         run: |
           echo "=== docker compose ps ==="
@@ -124,6 +173,6 @@ jobs:
           docker compose logs --tail=200 postgres || true
 
       - name: Tear down
-        if: always()
+        if: always() && matrix.os == 'ubuntu-latest'
         working-directory: ${{ runner.temp }}/fathom-install
         run: docker compose down -v
