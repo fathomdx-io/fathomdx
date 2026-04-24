@@ -113,6 +113,7 @@ async def list_sessions(limit: int = 50, contact_slug: str | None = None) -> lis
                 "preview": "",
                 "_preview_ts": "",
                 "_sources": set(),
+                "project": None,
             },
         )
         b["delta_count"] += 1
@@ -123,6 +124,14 @@ async def list_sessions(limit: int = 50, contact_slug: str | None = None) -> lis
             b["created_at"] = ts
         if ts and ts > (b["updated_at"] or ""):
             b["updated_at"] = ts
+
+        # First project tag wins — claude-code sessions stay in one
+        # cwd for their lifetime, so any turn delta's project is
+        # representative. Consumer-api sessions won't carry this tag.
+        if b["project"] is None:
+            p = tag_suffix(tags, "project:")
+            if p:
+                b["project"] = p
 
         content = d.get("content") or ""
 
@@ -140,17 +149,18 @@ async def list_sessions(limit: int = 50, contact_slug: str | None = None) -> lis
 
     sessions = []
     for b in buckets.values():
-        sessions.append(
-            {
-                "id": b["id"],
-                "title": b["title"] or b["id"],
-                "created_at": b["created_at"],
-                "updated_at": b["updated_at"],
-                "delta_count": b["delta_count"],
-                "preview": b.get("preview", ""),
-                "sources": sorted(b["_sources"]),
-            }
-        )
+        entry = {
+            "id": b["id"],
+            "title": b["title"] or b["id"],
+            "created_at": b["created_at"],
+            "updated_at": b["updated_at"],
+            "delta_count": b["delta_count"],
+            "preview": b.get("preview", ""),
+            "sources": sorted(b["_sources"]),
+        }
+        if b.get("project"):
+            entry["project"] = b["project"]
+        sessions.append(entry)
     sessions.sort(key=lambda s: s.get("updated_at") or "", reverse=True)
     return sessions[:limit]
 

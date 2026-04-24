@@ -969,6 +969,11 @@
       margin-left: 8px;
       white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
     }
+    .chat-title-icon {
+      display: inline-flex; align-items: center;
+      margin-right: 8px; color: var(--accent);
+      vertical-align: -2px;
+    }
 
     /* ── Source detail content ──────────────── */
     .source-hero {
@@ -7111,7 +7116,15 @@ GET  /v1/usage               Usage stats`,
           const time = d.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit', ...opts });
           created = `${weekday} · ${time}`;
         }
-        stamp.textContent = data.session.title + (created ? ` · ${created}` : '');
+        // Prefer the derived display title over the raw session id on
+        // the in-stream stamp, so unrenamed claude-code sessions read
+        // as `fathomdx · Thursday · 11:52 AM` instead of the UUID.
+        const stampLabel = displayTitle({
+          id: sessionId,
+          title: data.session.title,
+          project: data.session.project,
+        });
+        stamp.textContent = stampLabel + (created ? ` · ${created}` : '');
         chatStream.appendChild(stamp);
 
         // Now that the session payload has landed, if it came with a
