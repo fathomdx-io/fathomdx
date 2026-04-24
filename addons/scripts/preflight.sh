@@ -139,6 +139,19 @@ check_lake_dir() {
 
 check_llm_key() {
   step "Checking LLM provider"
+
+  # Env vars override .env values, so users can do
+  # `LLM_API_KEY=… curl … | sh` and CI can set LLM_PROVIDER=ollama
+  # without touching files. Persists the override into .env.
+  if [[ -n "${LLM_PROVIDER:-}" ]]; then
+    set_env LLM_PROVIDER "${LLM_PROVIDER}"
+    info "LLM_PROVIDER=${LLM_PROVIDER} (from environment)"
+  fi
+  if [[ -n "${LLM_API_KEY:-}" ]]; then
+    set_env LLM_API_KEY "${LLM_API_KEY}"
+    info "LLM_API_KEY set from environment"
+  fi
+
   local provider="$(get_env LLM_PROVIDER)"
   provider="${provider:-gemini}"
   local key="$(get_env LLM_API_KEY)"
