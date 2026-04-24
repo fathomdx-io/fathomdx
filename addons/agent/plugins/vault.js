@@ -16,7 +16,11 @@ import { homedir } from "os";
 const STATE_PATH = join(homedir(), ".fathom", "vault-state.json");
 
 function loadState() {
-  try { return JSON.parse(readFileSync(STATE_PATH, "utf8")); } catch { return {}; }
+  try {
+    return JSON.parse(readFileSync(STATE_PATH, "utf8"));
+  } catch {
+    return {};
+  }
 }
 
 function saveState(state) {
@@ -41,7 +45,11 @@ export const SOURCE_CAPABILITIES = {
   display_name: "Vault",
   description: "Watch markdown directories. Pushes file changes, extracts images.",
   instance_shape: {
-    id: { type: "string", required: true, help: "stable identifier, e.g. 'obsidian' or 'work-notes'" },
+    id: {
+      type: "string",
+      required: true,
+      help: "stable identifier, e.g. 'obsidian' or 'work-notes'",
+    },
     name: { type: "string", required: true, help: "human label" },
     path: { type: "string", required: true, help: "absolute directory path" },
     tags: { type: "string[]", required: false, help: "extra tags applied to this vault's deltas" },
@@ -84,7 +92,12 @@ export default {
   start(config, pusher) {
     const instances = normalizeInstances(config);
     const validInstances = instances.filter((inst) => {
-      try { statSync(inst.path); return true; } catch { return false; }
+      try {
+        statSync(inst.path);
+        return true;
+      } catch {
+        return false;
+      }
     });
     if (!validInstances.length) {
       const skipped = instances.length ? ` (${instances.length} paths not found)` : "";
@@ -108,7 +121,7 @@ export default {
 
     const diskState = loadState(); // { path: contentHash }
     const seen = new Map(Object.entries(diskState));
-    const uploadedImages = new Set(Object.keys(diskState).filter(k => k.startsWith("img:")));
+    const uploadedImages = new Set(Object.keys(diskState).filter((k) => k.startsWith("img:")));
     let fileCount = 0;
     let imageCount = 0;
     let skippedCount = 0;
@@ -125,12 +138,7 @@ export default {
     const watcher = watch(paths, {
       persistent: true,
       ignoreInitial: false,
-      ignored: [
-        /(^|[\/\\])\./,
-        /node_modules/,
-        /\.sync-conflict/,
-        /\.trash/i,
-      ],
+      ignored: [/(^|[/\\])\./, /node_modules/, /\.sync-conflict/, /\.trash/i],
       awaitWriteFinish: { stabilityThreshold: 500 },
     });
 
@@ -142,7 +150,9 @@ export default {
     watcher.on("change", (filepath) => handleFile(filepath));
     watcher.on("unlink", (filepath) => handleDelete(filepath));
     watcher.on("ready", () => {
-      console.log(`  vault: initial scan complete — ${fileCount} new, ${imageCount} images, ${skippedCount} unchanged`);
+      console.log(
+        `  vault: initial scan complete — ${fileCount} new, ${imageCount} images, ${skippedCount} unchanged`
+      );
       console.log(`  vault: watching for changes...`);
       persistState();
     });
@@ -159,7 +169,10 @@ export default {
       }
 
       const hash = createHash("md5").update(content).digest("hex");
-      if (seen.get(filepath) === hash) { skippedCount++; return; }
+      if (seen.get(filepath) === hash) {
+        skippedCount++;
+        return;
+      }
       seen.set(filepath, hash);
       dirty = true;
       fileCount++;
@@ -180,7 +193,14 @@ export default {
         const imgKey = "img:" + absPath;
         if (uploadedImages.has(imgKey)) continue;
         console.log(`    📷 ${basename(absPath)}`);
-        uploadImage(absPath, img.alt || basename(absPath), [...tags, "vault-image", "image"], source, apiUrl, apiKey);
+        uploadImage(
+          absPath,
+          img.alt || basename(absPath),
+          [...tags, "vault-image", "image"],
+          source,
+          apiUrl,
+          apiKey
+        );
         uploadedImages.add(imgKey);
         seen.set(imgKey, "uploaded");
         dirty = true;
@@ -217,11 +237,19 @@ export default {
       });
     }
 
-    console.log(`  vault: ${validInstances.length} instance${validInstances.length === 1 ? "" : "s"} configured`);
+    console.log(
+      `  vault: ${validInstances.length} instance${validInstances.length === 1 ? "" : "s"} configured`
+    );
     for (const inst of validInstances) {
       console.log(`    · ${inst.id} → ${inst.path}`);
     }
-    return { stop: () => { persistState(); clearInterval(saveTimer); watcher.close(); } };
+    return {
+      stop: () => {
+        persistState();
+        clearInterval(saveTimer);
+        watcher.close();
+      },
+    };
   },
 };
 

@@ -19,6 +19,7 @@ from ._feed_candidates import _MARKDOWN_IMG_RE
 # in the _produce_card retry loop.
 MAX_FORMAT_ATTEMPTS = 3
 
+
 def _strip_fences(text: str) -> str:
 
     s = (text or "").strip()
@@ -112,4 +113,3 @@ def _validate_media_list(
         if kept:
             out.append(kept)
     return out
-

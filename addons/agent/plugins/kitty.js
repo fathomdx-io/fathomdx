@@ -28,13 +28,38 @@ const SOCKET_DIR = "/tmp";
 // veto list from a browser is the exact risk the trust discussion flagged.
 // Everything else is UI-editable.
 export const CONFIG_SHAPE = {
-  workspace_root: { type: "string", required: false, help: "Base directory for workspace-pinned routines. Default: ~/Dropbox/Work." },
-  default_workspace: { type: "string", required: false, help: "Directory claude opens in when a routine fires without a pinned workspace. Absolute path, or a ~-prefix for $HOME (e.g. '~/code/project', '/opt/apps'). Empty = $HOME." },
-  claude_command: { type: "string", required: false, help: "Claude CLI binary. Default: 'claude'." },
+  workspace_root: {
+    type: "string",
+    required: false,
+    help: "Base directory for workspace-pinned routines. Default: ~/Dropbox/Work.",
+  },
+  default_workspace: {
+    type: "string",
+    required: false,
+    help: "Directory claude opens in when a routine fires without a pinned workspace. Absolute path, or a ~-prefix for $HOME (e.g. '~/code/project', '/opt/apps'). Empty = $HOME.",
+  },
+  claude_command: {
+    type: "string",
+    required: false,
+    help: "Claude CLI binary. Default: 'claude'.",
+  },
   kitty_command: { type: "string", required: false, help: "Kitty binary. Default: 'kitty'." },
-  kitty_background: { type: "string", required: false, help: "Background hex color for the spawned kitty window. Default: #17303a." },
-  auto_submit: { type: "string", required: false, help: "'true' to auto-submit prompts after injection, anything else to wait. Default: true." },
-  allowed_permission_modes: { type: "string[]", required: false, editable_from_ui: false, help: "Which claude permission modes routines may request. File-only for safety." },
+  kitty_background: {
+    type: "string",
+    required: false,
+    help: "Background hex color for the spawned kitty window. Default: #17303a.",
+  },
+  auto_submit: {
+    type: "string",
+    required: false,
+    help: "'true' to auto-submit prompts after injection, anything else to wait. Default: true.",
+  },
+  allowed_permission_modes: {
+    type: "string[]",
+    required: false,
+    editable_from_ui: false,
+    help: "Which claude permission modes routines may request. File-only for safety.",
+  },
 };
 
 // Map of fire-delta-id → { socket, routineId, launched_at } for open windows.
@@ -44,7 +69,7 @@ export const CONFIG_SHAPE = {
 // a summary don't leak memory indefinitely (the window itself stays open —
 // user can close it, or a future idle-watchdog can handle the cleanup).
 const openFires = new Map();
-const MAX_FIRE_AGE_MS = 6 * 60 * 60 * 1000;  // 6h
+const MAX_FIRE_AGE_MS = 6 * 60 * 60 * 1000; // 6h
 
 function loadState() {
   try {
@@ -153,13 +178,13 @@ export function spawnClaudeInKitty({
   workspaceCwd,
   prompt,
   permissionMode = "auto",
-  sessionLabel,                       // e.g. "chat-bubbly-brown-beaver"
+  sessionLabel, // e.g. "chat-bubbly-brown-beaver"
   claudeBin = "claude",
   kittyBin = "kitty",
   kittyBackground = "#17303a",
   autoSubmit = true,
   injectDelayMs = 3000,
-  pusher,                             // optional — for logging a launch receipt
+  pusher, // optional — for logging a launch receipt
 }) {
   const stamp = Date.now();
   const title = `fathom-${sessionLabel}-${stamp}`;
@@ -167,13 +192,19 @@ export function spawnClaudeInKitty({
 
   const claudeArgs = claudeArgsForMode(permissionMode);
   const args = [
-    "--listen-on", `unix:${socket}`,
-    "-o", "allow_remote_control=yes",
-    "-o", `background=${kittyBackground}`,
-    "--title", title,
-    "--directory", workspaceCwd,
+    "--listen-on",
+    `unix:${socket}`,
+    "-o",
+    "allow_remote_control=yes",
+    "-o",
+    `background=${kittyBackground}`,
+    "--title",
+    title,
+    "--directory",
+    workspaceCwd,
     "--detach",
-    claudeBin, ...claudeArgs,
+    claudeBin,
+    ...claudeArgs,
   ];
   const child = spawn(kittyBin, args, { stdio: "ignore", detached: true });
   child.unref();
@@ -181,7 +212,7 @@ export function spawnClaudeInKitty({
 
   setTimeout(
     () => injectPrompt(socket, prompt, sessionLabel, null, pusher, autoSubmit),
-    injectDelayMs,
+    injectDelayMs
   );
 
   return { socket, title, spawnedAt: stamp };
@@ -207,7 +238,10 @@ export function kittySendText(socket, text, { submit = true } = {}) {
         resolve(false);
         return;
       }
-      if (!submit) { resolve(true); return; }
+      if (!submit) {
+        resolve(true);
+        return;
+      }
       setTimeout(() => {
         runKitten(["@", "--to", `unix:${socket}`, "send-key", "enter"], (code2, err2) => {
           if (code2 !== 0) {
@@ -262,7 +296,9 @@ function fire(delta, config, pusher) {
   // surface it.
   const allowed = config.allowed_permission_modes || ["auto", "normal"];
   if (!allowed.includes(requestedMode)) {
-    console.log(`  🚫 vetoed ${routineId}: mode ${requestedMode} not allowed (allowed: ${allowed.join(",")})`);
+    console.log(
+      `  🚫 vetoed ${routineId}: mode ${requestedMode} not allowed (allowed: ${allowed.join(",")})`
+    );
     pusher?.push?.({
       content: `[kitty-veto] Fire ${delta.id} for routine ${routineId} blocked locally — permission-mode "${requestedMode}" not in this agent's allow-list (${allowed.join(", ")}).`,
       tags: [
@@ -326,7 +362,9 @@ function injectPrompt(socket, prompt, routineId, fireDeltaId, pusher, autoSubmit
       return;
     }
     if (!autoSubmit) {
-      console.log(`  ✓ injected ${prompt.length}-char prompt → ${routineId} (awaiting user submit)`);
+      console.log(
+        `  ✓ injected ${prompt.length}-char prompt → ${routineId} (awaiting user submit)`
+      );
       return;
     }
     // Claude-code's Ink TUI needs time to commit a pasted multiline buffer

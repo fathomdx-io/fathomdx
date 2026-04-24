@@ -34,7 +34,7 @@
  */
 
 import { createHash } from "crypto";
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "fs";
+import { mkdirSync, readFileSync, writeFileSync } from "fs";
 import { homedir, hostname } from "os";
 import { dirname, join } from "path";
 
@@ -111,13 +111,7 @@ async function pollInstance(instance, state, pusher, host) {
 
     pusher?.push?.({
       content,
-      tags: [
-        "homeassistant",
-        domain,
-        eid,
-        `instance:${instance.id}`,
-        `host:${host}`,
-      ],
+      tags: ["homeassistant", domain, eid, `instance:${instance.id}`, `host:${host}`],
       source: "homeassistant",
     });
   }
@@ -145,10 +139,14 @@ export default {
     state.instances = state.instances || {};
     const host = config.host || hostname();
 
-    console.log(`  homeassistant: ${instances.length} instance${instances.length === 1 ? "" : "s"} configured`);
+    console.log(
+      `  homeassistant: ${instances.length} instance${instances.length === 1 ? "" : "s"} configured`
+    );
     for (const inst of instances) {
       const entityCount = Array.isArray(inst.entities) ? inst.entities.length : 0;
-      console.log(`    · ${inst.id} → ${inst.url} (${entityCount} entities, every ${Math.round((inst.interval_ms || DEFAULT_INTERVAL_MS) / 1000)}s)`);
+      console.log(
+        `    · ${inst.id} → ${inst.url} (${entityCount} entities, every ${Math.round((inst.interval_ms || DEFAULT_INTERVAL_MS) / 1000)}s)`
+      );
     }
 
     const timers = [];
@@ -159,7 +157,7 @@ export default {
         saveState(state);
       };
       timers.push(setInterval(tick, interval));
-      tick();  // fire one immediately
+      tick(); // fire one immediately
     }
 
     return {

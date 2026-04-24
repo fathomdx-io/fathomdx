@@ -5,17 +5,17 @@ of `~/.fathom/` (named by `COMPOSE_PROJECT_NAME`, default `fathom`).
 
 ## What's here
 
-| Path | What |
-|---|---|
-| `api/drift-history.json` | Stats ECG "drift" track — semantic drift between identity crystal and current lake state |
-| `api/mood-state.json` | Current carrier wave (how "loud" things feel) |
-| `api/tokens.json` | Bearer tokens minted by the dashboard for API clients |
-| `deltas/media/` | Image blobs referenced by delta `media_hash` fields |
-| `deltas/resonance.json` | Activation thresholds for facet hooks |
-| `deltas/retrievals-history.json` | Per-minute recall counts for the Stats panel |
-| `backups/deltas-YYYYMMDDTHHMMSSZ.sql.gz` | Rolling `pg_dump` snapshots (3 most recent kept) |
-| `backups/quarantine/` | Suspicious dumps held for manual acknowledgment |
-| `source-runner/` | Per-source poll cursors so restarts don't re-ingest history |
+| Path                                     | What                                                                                     |
+| ---------------------------------------- | ---------------------------------------------------------------------------------------- |
+| `api/drift-history.json`                 | Stats ECG "drift" track — semantic drift between identity crystal and current lake state |
+| `api/mood-state.json`                    | Current carrier wave (how "loud" things feel)                                            |
+| `api/tokens.json`                        | Bearer tokens minted by the dashboard for API clients                                    |
+| `deltas/media/`                          | Image blobs referenced by delta `media_hash` fields                                      |
+| `deltas/resonance.json`                  | Activation thresholds for facet hooks                                                    |
+| `deltas/retrievals-history.json`         | Per-minute recall counts for the Stats panel                                             |
+| `backups/deltas-YYYYMMDDTHHMMSSZ.sql.gz` | Rolling `pg_dump` snapshots (3 most recent kept)                                         |
+| `backups/quarantine/`                    | Suspicious dumps held for manual acknowledgment                                          |
+| `source-runner/`                         | Per-source poll cursors so restarts don't re-ingest history                              |
 
 ## Where the live database actually is
 
@@ -41,7 +41,7 @@ podman volume ls
 podman volume inspect fathom-pg
 ```
 
-The `backups/` directory you see in this lake dir *does* contain real,
+The `backups/` directory you see in this lake dir _does_ contain real,
 restorable SQL dumps of the live DB — the delta-store writes one per hour,
 keeping the 3 most recent. That's your disaster-recovery path if the volume
 is ever corrupt.

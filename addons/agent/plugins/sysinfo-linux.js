@@ -20,8 +20,16 @@ const DEFAULT_INTERVAL = 300000; // 5 minutes
 const DEFAULT_DISKS = ["/", "/home"];
 
 export const CONFIG_SHAPE = {
-  interval: { type: "number", required: false, help: "Poll interval in ms. Default: 300000 (5 min)." },
-  disks: { type: "string[]", required: false, help: "Mount points to check (one per line). Default: /, /home." },
+  interval: {
+    type: "number",
+    required: false,
+    help: "Poll interval in ms. Default: 300000 (5 min).",
+  },
+  disks: {
+    type: "string[]",
+    required: false,
+    help: "Mount points to check (one per line). Default: /, /home.",
+  },
   servers: { type: "string[]", required: false, help: "Server URLs to ping (one per line)." },
   tags: { type: "string[]", required: false, help: "Extra tags applied to every health snapshot." },
   expiry_days: { type: "number", required: false, help: "Delta expiry in days. Default: 1." },
@@ -61,14 +69,16 @@ export default {
       // Thermal
       const temps = readTemps();
       if (temps.length) {
-        lines.push("Thermal: " + temps.map(t => `${t.label} ${t.value}C`).join(", "));
+        lines.push("Thermal: " + temps.map((t) => `${t.label} ${t.value}C`).join(", "));
       }
 
       // Load
       try {
         const load = readFileSync("/proc/loadavg", "utf8").trim().split(" ");
         lines.push(`Load: ${load[0]} / ${load[1]} / ${load[2]} (1m/5m/15m)`);
-      } catch {}
+      } catch {
+        /* best-effort sysinfo; skip on read failure */
+      }
 
       // Memory
       try {
@@ -78,44 +88,61 @@ export default {
         const swap = parseInt(meminfo.match(/SwapFree:\s+(\d+)/)?.[1] || "0");
         const used = total - available;
         const pct = total > 0 ? Math.round((used / total) * 100) : 0;
-        lines.push(`Memory: ${(used / 1024).toFixed(1)}/${(total / 1024).toFixed(1)} GB (${pct}%), swap ${swap} MB`);
-      } catch {}
+        lines.push(
+          `Memory: ${(used / 1024).toFixed(1)}/${(total / 1024).toFixed(1)} GB (${pct}%), swap ${swap} MB`
+        );
+      } catch {
+        /* best-effort sysinfo; skip on read failure */
+      }
 
       // Disk
       for (const mount of disks) {
         try {
-          const df = execSync(`df -BG "${mount}" 2>/dev/null | tail -1`, { encoding: "utf8" }).trim().split(/\s+/);
+          const df = execSync(`df -BG "${mount}" 2>/dev/null | tail -1`, { encoding: "utf8" })
+            .trim()
+            .split(/\s+/);
           if (df.length >= 5) {
             const usedPct = df[4];
             const avail = df[3];
             lines.push(`Disk ${mount}: ${usedPct} used, ${avail} free`);
           }
-        } catch {}
+        } catch {
+          /* best-effort sysinfo; skip on read failure */
+        }
       }
 
       // IO wait
       try {
         const stat = readFileSync("/proc/stat", "utf8");
-        const cpu = stat.match(/^cpu\s+(.+)/m)?.[1]?.split(/\s+/).map(Number);
+        const cpu = stat
+          .match(/^cpu\s+(.+)/m)?.[1]
+          ?.split(/\s+/)
+          .map(Number);
         if (cpu && cpu.length >= 5) {
           const total = cpu.reduce((a, b) => a + b, 0);
           const iowait = total > 0 ? ((cpu[4] / total) * 100).toFixed(1) : "0.0";
           lines.push(`IO wait: ${iowait}%`);
         }
-      } catch {}
+      } catch {
+        /* best-effort sysinfo; skip on read failure */
+      }
 
       // Battery
       try {
         const bat = readBattery();
         if (bat) lines.push(`Battery: ${bat}`);
-      } catch {}
+      } catch {
+        /* best-effort sysinfo; skip on read failure */
+      }
 
       // Network
       try {
         const route = execSync("ip route show default 2>/dev/null", { encoding: "utf8" }).trim();
         const iface = route.match(/dev\s+(\S+)/)?.[1] || "unknown";
         lines.push(`Network: route up via ${iface}`);
-      } catch {}
+      } catch {
+        /* best-effort sysinfo; skip on read failure */
+      }
 
       // Server pings
       for (const url of servers) {
@@ -166,13 +193,22 @@ function readTemps() {
         const type = readFileSync(`${dir}/type`, "utf8").trim();
         const raw = parseInt(readFileSync(`${dir}/temp`, "utf8").trim());
         const value = raw > 1000 ? raw / 1000 : raw;
-        const label = type.includes("cpu") || type.includes("x86") ? "CPU" :
-                      type.includes("nvme") ? "NVMe" :
-                      type.includes("gpu") ? "GPU" : type;
+        const label =
+          type.includes("cpu") || type.includes("x86")
+            ? "CPU"
+            : type.includes("nvme")
+              ? "NVMe"
+              : type.includes("gpu")
+                ? "GPU"
+                : type;
         temps.push({ label, value: value.toFixed(1) });
-      } catch {}
+      } catch {
+        /* best-effort sysinfo; skip on read failure */
+      }
     }
-  } catch {}
+  } catch {
+    /* best-effort sysinfo; skip on read failure */
+  }
 
   return temps;
 }

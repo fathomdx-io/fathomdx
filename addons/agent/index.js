@@ -89,10 +89,29 @@ function parseArgs() {
   const args = process.argv.slice(2);
   const result = { command: null, overrides: {} };
 
-  if (!args.length) { result.command = "help"; return result; }
+  if (!args.length) {
+    result.command = "help";
+    return result;
+  }
 
   const cmd = args[0];
-  if (["run", "--run", "init", "--init", "install", "--install", "uninstall", "--uninstall", "status", "--status", "help", "--help", "-h"].includes(cmd)) {
+  if (
+    [
+      "run",
+      "--run",
+      "init",
+      "--init",
+      "install",
+      "--install",
+      "uninstall",
+      "--uninstall",
+      "status",
+      "--status",
+      "help",
+      "--help",
+      "-h",
+    ].includes(cmd)
+  ) {
     result.command = cmd.replace(/^-+/, "");
   } else if (cmd.startsWith("--")) {
     // Treat bare flags as "run" with overrides
@@ -137,7 +156,7 @@ Env:    FATHOM_API_URL, FATHOM_API_KEY`);
 
   if (plugins?.size) {
     console.log(`\nPlugins:`);
-    for (const [name, p] of plugins) {
+    for (const [_name, p] of plugins) {
       console.log(`  ${p.icon || "•"} ${p.name} (${p.source})`);
     }
   }
@@ -188,7 +207,9 @@ WantedBy=default.target
         execFileSync(cmd, args, { stdio: "inherit" });
         process.stdout.write("ok\n");
       }
-      console.log("\n✓ fathom-agent is running. Check status: systemctl --user status fathom-agent");
+      console.log(
+        "\n✓ fathom-agent is running. Check status: systemctl --user status fathom-agent"
+      );
     } catch (e) {
       console.error(`\nCouldn't auto-start the service: ${e.message}`);
       console.error("Run these manually:");
@@ -213,7 +234,11 @@ WantedBy=default.target
     console.log(`Written: ${path}`);
     try {
       // Unload first in case this is an upgrade of an existing install.
-      try { execFileSync("launchctl", ["unload", path], { stdio: "ignore" }); } catch {}
+      try {
+        execFileSync("launchctl", ["unload", path], { stdio: "ignore" });
+      } catch {
+        /* not loaded; fine */
+      }
       execFileSync("launchctl", ["load", path], { stdio: "inherit" });
       execFileSync("launchctl", ["start", label], { stdio: "inherit" });
       console.log(`\n✓ fathom-agent is running. Check status: launchctl list | grep ${label}`);
@@ -225,17 +250,28 @@ WantedBy=default.target
     }
   } else if (platform === "win32") {
     const batPath = join(CONFIG_DIR, "fathom-agent.bat");
-    writeFileSync(batPath, `@echo off\nset FATHOM_API_URL=${apiUrl}\nset FATHOM_API_KEY=${apiKey}\n"${nodePath}" "${scriptPath}" run\n`);
+    writeFileSync(
+      batPath,
+      `@echo off\nset FATHOM_API_URL=${apiUrl}\nset FATHOM_API_KEY=${apiKey}\n"${nodePath}" "${scriptPath}" run\n`
+    );
     console.log(`Written: ${batPath}`);
     try {
       // /f overwrites any existing task so `install` is idempotent (upgrade re-registers).
-      execFileSync("schtasks", ["/create", "/tn", "FathomAgent", "/tr", batPath, "/sc", "onlogon", "/rl", "limited", "/f"], { stdio: "inherit" });
+      execFileSync(
+        "schtasks",
+        ["/create", "/tn", "FathomAgent", "/tr", batPath, "/sc", "onlogon", "/rl", "limited", "/f"],
+        { stdio: "inherit" }
+      );
       execFileSync("schtasks", ["/run", "/tn", "FathomAgent"], { stdio: "inherit" });
-      console.log("\n✓ fathom-agent scheduled task is running. Check: schtasks /query /tn FathomAgent");
+      console.log(
+        "\n✓ fathom-agent scheduled task is running. Check: schtasks /query /tn FathomAgent"
+      );
     } catch (e) {
       console.error(`\nCouldn't auto-create the scheduled task: ${e.message}`);
       console.error("Run these manually:");
-      console.error(`  schtasks /create /tn "FathomAgent" /tr "${batPath}" /sc onlogon /rl limited /f`);
+      console.error(
+        `  schtasks /create /tn "FathomAgent" /tr "${batPath}" /sc onlogon /rl limited /f`
+      );
       console.error('  schtasks /run /tn "FathomAgent"');
     }
   }
@@ -245,10 +281,18 @@ function uninstallService() {
   const platform = process.platform;
   if (platform === "linux") {
     const path = join(homedir(), ".config", "systemd", "user", "fathom-agent.service");
-    console.log(existsSync(path) ? `Run:\n  systemctl --user stop fathom-agent\n  systemctl --user disable fathom-agent\n  rm ${path}\n  systemctl --user daemon-reload` : "No service found.");
+    console.log(
+      existsSync(path)
+        ? `Run:\n  systemctl --user stop fathom-agent\n  systemctl --user disable fathom-agent\n  rm ${path}\n  systemctl --user daemon-reload`
+        : "No service found."
+    );
   } else if (platform === "darwin") {
     const path = join(homedir(), "Library", "LaunchAgents", "com.fathom.agent.plist");
-    console.log(existsSync(path) ? `Run:\n  launchctl stop com.fathom.agent\n  launchctl unload ${path}\n  rm ${path}` : "No service found.");
+    console.log(
+      existsSync(path)
+        ? `Run:\n  launchctl stop com.fathom.agent\n  launchctl unload ${path}\n  rm ${path}`
+        : "No service found."
+    );
   } else if (platform === "win32") {
     console.log('Run:\n  schtasks /delete /tn "FathomAgent" /f');
   }
@@ -281,7 +325,11 @@ function prompt(question, defaultValue) {
 }
 
 function promptChoice(question, choices, defaultKey) {
-  const labels = choices.map((c) => (c.key === defaultKey ? `[${c.key.toUpperCase()}]${c.label}` : `${c.key}${c.label}`)).join(" / ");
+  const labels = choices
+    .map((c) =>
+      c.key === defaultKey ? `[${c.key.toUpperCase()}]${c.label}` : `${c.key}${c.label}`
+    )
+    .join(" / ");
   const rl = createInterface({ input: process.stdin, output: process.stdout });
   return new Promise((resolve) => {
     rl.question(`${question} (${labels}): `, (answer) => {
@@ -320,7 +368,11 @@ async function redeemPairCode(apiUrl, code, host) {
   if (!r.ok) {
     const body = await r.text().catch(() => "");
     let detail = body;
-    try { detail = JSON.parse(body).detail || body; } catch {}
+    try {
+      detail = JSON.parse(body).detail || body;
+    } catch {
+      /* body wasn't JSON; keep raw */
+    }
     throw new Error(`HTTP ${r.status}: ${detail}`);
   }
   return r.json();
@@ -329,7 +381,12 @@ async function redeemPairCode(apiUrl, code, host) {
 async function runInit(cliArgs, plugins, existingConfig) {
   const overrides = cliArgs.overrides || {};
   const yes = !!(overrides.yes || overrides.y);
-  let apiUrl = overrides["api-url"] || overrides.url || process.env.FATHOM_API_URL || existingConfig.api_url || "http://localhost:8201";
+  let apiUrl =
+    overrides["api-url"] ||
+    overrides.url ||
+    process.env.FATHOM_API_URL ||
+    existingConfig.api_url ||
+    "http://localhost:8201";
   const pairCode = overrides["pair-code"] || overrides.code || "";
   const host = overrides.host || existingConfig.host || hostname();
 
@@ -353,9 +410,12 @@ async function runInit(cliArgs, plugins, existingConfig) {
           { key: "o", label: "verwrite", value: "overwrite" },
           { key: "q", label: "uit", value: "quit" },
         ],
-        "k",
+        "k"
       );
-      if (branch === "quit") { console.log("No changes written."); return; }
+      if (branch === "quit") {
+        console.log("No changes written.");
+        return;
+      }
     }
   }
 
@@ -365,7 +425,10 @@ async function runInit(cliArgs, plugins, existingConfig) {
       apiUrl = await prompt("Fathom dashboard URL", apiUrl);
     }
     var code = await prompt("Pair code from your dashboard (starts with 'pair_')", "");
-    if (!code) { console.error("Pair code is required to register this agent."); process.exit(1); }
+    if (!code) {
+      console.error("Pair code is required to register this agent.");
+      process.exit(1);
+    }
   } else {
     code = pairCode;
   }
@@ -398,7 +461,7 @@ async function runInit(cliArgs, plugins, existingConfig) {
     } else {
       defaultWorkspace = await prompt(
         "Default directory for this agent's routines (absolute path or ~-prefix, blank = ~)",
-        existingDefault,
+        existingDefault
       );
     }
   }
@@ -473,8 +536,14 @@ async function main() {
     process.exit(0);
   }
 
-  if (cliArgs.command === "install") { installService(config); process.exit(0); }
-  if (cliArgs.command === "uninstall") { uninstallService(); process.exit(0); }
+  if (cliArgs.command === "install") {
+    installService(config);
+    process.exit(0);
+  }
+  if (cliArgs.command === "uninstall") {
+    uninstallService();
+    process.exit(0);
+  }
 
   if (cliArgs.command === "init") {
     await runInit(cliArgs, plugins, config);
@@ -503,7 +572,10 @@ async function main() {
   }
 
   // ── Run ──
-  if (cliArgs.command !== "run") { showHelp(plugins); process.exit(0); }
+  if (cliArgs.command !== "run") {
+    showHelp(plugins);
+    process.exit(0);
+  }
 
   try {
     const r = await fetch(`${apiUrl}/health`);
@@ -517,7 +589,7 @@ async function main() {
 
   const pusher = new Pusher(apiUrl, apiKey);
   pusher.start();
-  const running = new Map();  // plugin name (lowercase) → start() handle
+  const running = new Map(); // plugin name (lowercase) → start() handle
 
   // CLI overrides: --vault ~/path becomes { vault: { paths: ["~/path"] } }
   const overrides = cliArgs.overrides;
@@ -556,8 +628,11 @@ async function main() {
       // Tear down existing
       const existing = running.get(nameLower);
       if (existing?.stop) {
-        try { await existing.stop(); }
-        catch (e) { console.error(`  ${plugin.name} stop failed: ${e.message}`); }
+        try {
+          await existing.stop();
+        } catch (e) {
+          console.error(`  ${plugin.name} stop failed: ${e.message}`);
+        }
         running.delete(nameLower);
       }
 
@@ -612,4 +687,7 @@ async function main() {
   });
 }
 
-main().catch((e) => { console.error(e); process.exit(1); });
+main().catch((e) => {
+  console.error(e);
+  process.exit(1);
+});

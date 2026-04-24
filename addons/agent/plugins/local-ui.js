@@ -40,8 +40,16 @@ const CONFIG_PATH = join(process.env.HOME || "", ".fathom", "agent.json");
 
 export const CONFIG_SHAPE = {
   port: { type: "number", required: false, help: "HTTP port for the local UI. Default: 8202." },
-  bind: { type: "string", required: false, help: "Bind address. Keep 127.0.0.1 for localhost-only. Default: 127.0.0.1." },
-  advertise_url: { type: "string", required: false, help: "URL the consumer dashboard should link to for 'configure ↗'. Set this when the dashboard runs on a different machine than this agent (e.g. 'http://nixos-server.local:8202' or 'http://10.0.0.5:8202'). The dashboard probes the URL before enabling the link, so setting it wrong just disables the link — not a security risk." },
+  bind: {
+    type: "string",
+    required: false,
+    help: "Bind address. Keep 127.0.0.1 for localhost-only. Default: 127.0.0.1.",
+  },
+  advertise_url: {
+    type: "string",
+    required: false,
+    help: "URL the consumer dashboard should link to for 'configure ↗'. Set this when the dashboard runs on a different machine than this agent (e.g. 'http://nixos-server.local:8202' or 'http://10.0.0.5:8202'). The dashboard probes the URL before enabling the link, so setting it wrong just disables the link — not a security risk.",
+  },
 };
 const BUILTIN_PLUGIN_DIR = dirname(fileURLToPath(import.meta.url));
 const CUSTOM_PLUGIN_DIR = join(homedir(), ".fathom", "plugins");
@@ -135,12 +143,15 @@ async function scrubFullConfig(cfg) {
     // instance_shape and has no instances but does have a legacy `paths`
     // array, synthesize one instance per path so users see their existing
     // config in the UI. First save from the UI persists as real instances.
-    if (meta.capabilities?.instance_shape
-        && (!Array.isArray(slim.instances) || !slim.instances.length)
-        && Array.isArray(slim.paths) && slim.paths.length) {
+    if (
+      meta.capabilities?.instance_shape &&
+      (!Array.isArray(slim.instances) || !slim.instances.length) &&
+      Array.isArray(slim.paths) &&
+      slim.paths.length
+    ) {
       slim.instances = slim.paths.map((p, i) => ({
         id: `vault-${i}`,
-        name: (p.split("/").filter(Boolean).pop()) || `Vault ${i + 1}`,
+        name: p.split("/").filter(Boolean).pop() || `Vault ${i + 1}`,
         path: p,
         tags: Array.isArray(slim.tags) ? slim.tags : [],
       }));
@@ -226,7 +237,7 @@ async function reloadIfPossible(name) {
   }
 }
 
-async function handle(req, res, config) {
+async function handle(req, res, _config) {
   const url = new URL(req.url, `http://${req.headers.host}`);
   const path = url.pathname;
   const method = req.method;
@@ -246,15 +257,20 @@ async function handle(req, res, config) {
   // identity_nonce matches what heartbeat emitted — see identity.js.
   if (method === "GET" && path === "/api/identity") {
     const cfg = readConfig();
-    const host = (cfg && cfg.host) ? cfg.host : hostname();
+    const host = cfg && cfg.host ? cfg.host : hostname();
     let version = "";
     try {
-      const pkg = JSON.parse(
-        readFileSync(join(BUILTIN_PLUGIN_DIR, "..", "package.json"), "utf8"),
-      );
+      const pkg = JSON.parse(readFileSync(join(BUILTIN_PLUGIN_DIR, "..", "package.json"), "utf8"));
       version = pkg.version || "";
-    } catch {}
-    send(res, 200, { host, agent_version: version, identity_nonce: IDENTITY_NONCE }, IDENTITY_CORS_HEADERS);
+    } catch {
+      /* package.json missing; version stays "" */
+    }
+    send(
+      res,
+      200,
+      { host, agent_version: version, identity_nonce: IDENTITY_NONCE },
+      IDENTITY_CORS_HEADERS
+    );
     return;
   }
 
@@ -264,7 +280,7 @@ async function handle(req, res, config) {
       const cfg = readConfig();
       // Prefer the friendly host name captured during pairing; fall back
       // to the OS hostname so the UI always has something to show.
-      const displayName = (cfg && cfg.host) ? cfg.host : hostname();
+      const displayName = cfg && cfg.host ? cfg.host : hostname();
       // Agent version from its own package.json — cached once per process
       // since the file doesn't change at runtime.
       let version = "";
@@ -273,7 +289,9 @@ async function handle(req, res, config) {
           readFileSync(join(BUILTIN_PLUGIN_DIR, "..", "package.json"), "utf8")
         );
         version = pkg.version || "";
-      } catch {}
+      } catch {
+        /* package.json missing; version stays "" */
+      }
       const rendered = html
         .replaceAll("__FATHOM_HOST__", displayName)
         .replaceAll("__FATHOM_VERSION__", version);
@@ -338,14 +356,19 @@ async function handle(req, res, config) {
     const merged = mergeInstance(existing, body);
     if (existing) {
       cfg.plugins[name].instances = cfg.plugins[name].instances.map((i) =>
-        i.id === body.id ? merged : i,
+        i.id === body.id ? merged : i
       );
     } else {
       cfg.plugins[name].instances.push(merged);
     }
     writeConfig(cfg);
     const reloaded = await reloadIfPossible(name);
-    return send(res, 200, { ok: true, reloaded, restart_required: !reloaded, instance_id: body.id });
+    return send(res, 200, {
+      ok: true,
+      reloaded,
+      restart_required: !reloaded,
+      instance_id: body.id,
+    });
   }
 
   // /api/plugin/:name/instance/:id
@@ -390,7 +413,9 @@ export default {
         console.error(`  local-ui: handler error: ${e.message}`);
         try {
           send(res, 500, { error: "server_error", message: e.message });
-        } catch {}
+        } catch {
+          /* response already closed */
+        }
       });
     });
 

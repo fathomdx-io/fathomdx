@@ -40,8 +40,16 @@ const AGENT_VERSION = (() => {
 })();
 
 export const CONFIG_SHAPE = {
-  interval_ms: { type: "number", required: false, help: "How often to emit a heartbeat (milliseconds). Default: 60000 (1 min)." },
-  expiry_ms: { type: "number", required: false, help: "Time before a heartbeat delta expires (milliseconds). Default: 24h — freshness is computed from the timestamp, not expiry, so long TTL keeps disconnected hosts visible on the dashboard." },
+  interval_ms: {
+    type: "number",
+    required: false,
+    help: "How often to emit a heartbeat (milliseconds). Default: 60000 (1 min).",
+  },
+  expiry_ms: {
+    type: "number",
+    required: false,
+    help: "Time before a heartbeat delta expires (milliseconds). Default: 24h — freshness is computed from the timestamp, not expiry, so long TTL keeps disconnected hosts visible on the dashboard.",
+  },
 };
 
 // Default TTL: 24h. Long enough for the consumer dashboard to show a
@@ -90,7 +98,7 @@ async function buildPluginMetaMap() {
   const map = new Map();
   const dirs = [
     { dir: BUILTIN_PLUGIN_DIR, source: "built-in" },
-    { dir: CUSTOM_PLUGIN_DIR, source: "custom" },  // loaded last so it wins
+    { dir: CUSTOM_PLUGIN_DIR, source: "custom" }, // loaded last so it wins
   ];
   for (const { dir } of dirs) {
     if (!existsSync(dir)) continue;
@@ -128,7 +136,8 @@ async function summarizePlugins() {
 
     // Surface the fields the dashboard cares about. Anything secret (tokens,
     // keys) stays in the config file — heartbeat is a capability summary.
-    if ("allowed_permission_modes" in pc) slim.allowed_permission_modes = pc.allowed_permission_modes;
+    if ("allowed_permission_modes" in pc)
+      slim.allowed_permission_modes = pc.allowed_permission_modes;
     if ("paths" in pc) slim.path_count = Array.isArray(pc.paths) ? pc.paths.length : 0;
     if ("interval" in pc) slim.interval = pc.interval;
     // Agent-level default workspace (kitty plugin). The dashboard reads
@@ -243,8 +252,11 @@ export default {
     emitHeartbeat(config, pusher, startedAt).catch(() => {});
 
     const timer = setInterval(
-      () => emitHeartbeat(config, pusher, startedAt).catch((e) => console.error("heartbeat failed:", e.message)),
-      intervalMs,
+      () =>
+        emitHeartbeat(config, pusher, startedAt).catch((e) =>
+          console.error("heartbeat failed:", e.message)
+        ),
+      intervalMs
     );
 
     return { stop: () => clearInterval(timer) };

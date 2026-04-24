@@ -151,12 +151,12 @@ async function main() {
         "",
         "These are YOUR memories. Say 'I remember' — never 'the search results show' or 'according to the deltas.'",
       ].join("\n"),
-    },
+    }
   );
 
   // Tools — dynamic from /v1/tools
   server.setRequestHandler(ListToolsRequestSchema, async () => ({
-    tools: tools.map(t => ({
+    tools: tools.map((t) => ({
       name: t.name,
       description: t.description,
       inputSchema: t.parameters || { type: "object", properties: {} },
@@ -183,7 +183,8 @@ async function main() {
       {
         uri: "fathom://crystal",
         name: "Identity Crystal",
-        description: "Fathom's identity — a first-person synthesis of who this mind is. Read this at the start of every conversation for persistent context.",
+        description:
+          "Fathom's identity — a first-person synthesis of who this mind is. Read this at the start of every conversation for persistent context.",
         mimeType: "text/plain",
       },
     ],
@@ -199,20 +200,26 @@ async function main() {
           const text = data.text || "No crystal generated yet.";
           const created = data.created_at || "unknown";
           return {
-            contents: [{
-              uri,
-              mimeType: "text/plain",
-              text: `Identity crystal (crystallized ${created}):\n\n${text}`,
-            }],
+            contents: [
+              {
+                uri,
+                mimeType: "text/plain",
+                text: `Identity crystal (crystallized ${created}):\n\n${text}`,
+              },
+            ],
           };
         }
-      } catch {}
+      } catch {
+        /* fall through to the "no crystal" fallback below */
+      }
       return {
-        contents: [{
-          uri,
-          mimeType: "text/plain",
-          text: "No identity crystal available. Generate one from the Fathom dashboard.",
-        }],
+        contents: [
+          {
+            uri,
+            mimeType: "text/plain",
+            text: "No identity crystal available. Generate one from the Fathom dashboard.",
+          },
+        ],
       };
     }
     throw new Error(`Unknown resource: ${uri}`);
@@ -222,7 +229,7 @@ async function main() {
   await server.connect(transport);
 }
 
-main().catch(e => {
+main().catch((e) => {
   console.error(e);
   process.exit(1);
 });

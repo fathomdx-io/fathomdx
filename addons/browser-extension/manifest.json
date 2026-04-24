@@ -3,16 +3,8 @@
   "name": "Fathom Follow Me",
   "version": "0.1.0",
   "description": "Capture browsing screenshots as short-lived Fathom deltas so Fathom can browse with you.",
-  "permissions": [
-    "activeTab",
-    "tabs",
-    "storage",
-    "webNavigation",
-    "scripting"
-  ],
-  "host_permissions": [
-    "<all_urls>"
-  ],
+  "permissions": ["activeTab", "tabs", "storage", "webNavigation", "scripting"],
+  "host_permissions": ["<all_urls>"],
   "background": {
     "service_worker": "background.js",
     "type": "module"

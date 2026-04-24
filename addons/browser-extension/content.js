@@ -24,7 +24,7 @@
         try {
           chrome.runtime.sendMessage({
             type: "capture.scroll",
-            scrollFraction: scrollFraction()
+            scrollFraction: scrollFraction(),
           });
         } catch {
           // Service worker may be asleep; best-effort.

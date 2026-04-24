@@ -61,7 +61,10 @@ async function apiRaw(method, path) {
 
 function fmtMomentList(data) {
   const items = data.results || data.deltas || (Array.isArray(data) ? data : []);
-  if (!items.length) { console.log("No moments surfaced."); return; }
+  if (!items.length) {
+    console.log("No moments surfaced.");
+    return;
+  }
 
   console.log(`${items.length} moments:\n`);
   for (const raw of items) {
@@ -81,7 +84,10 @@ function fmtMomentList(data) {
 function fmtRecall(data) {
   const total = data.total_count || 0;
   const tree = data.tree || [];
-  if (!total || !tree.length) { console.log("No moments surfaced."); return; }
+  if (!total || !tree.length) {
+    console.log("No moments surfaced.");
+    return;
+  }
   console.log(`\x1b[2m${total} moments across ${tree.length} step(s)\x1b[0m\n`);
   console.log(data.as_prompt || "");
 }
@@ -89,7 +95,7 @@ function fmtRecall(data) {
 // ── Commands ─────────────────────────────────────
 
 async function cmdRemember(args) {
-  const query = args.filter(a => !a.startsWith("--")).join(" ");
+  const query = args.filter((a) => !a.startsWith("--")).join(" ");
   if (!query) {
     console.error("Usage: fathom remember <query> [--limit N] [--shallow]");
     process.exit(1);
@@ -106,7 +112,10 @@ async function cmdWrite(args) {
   const parts = [];
   let i = 0;
   while (i < args.length) {
-    if (flags.has(args[i])) { i += 2; continue; }
+    if (flags.has(args[i])) {
+      i += 2;
+      continue;
+    }
     if (args[i] === "-") {
       // Read from stdin
       const chunks = [];
@@ -119,7 +128,10 @@ async function cmdWrite(args) {
     }
   }
   const content = parts.join(" ");
-  if (!content) { console.error("Usage: fathom write <content> [--tags a,b] [--source x] [--image path]"); process.exit(1); }
+  if (!content) {
+    console.error("Usage: fathom write <content> [--tags a,b] [--source x] [--image path]");
+    process.exit(1);
+  }
 
   const tags = (flagVal(args, "--tags") || "").split(",").filter(Boolean);
   const source = flagVal(args, "--source") || "cli";
@@ -165,14 +177,16 @@ async function cmdRecall(args) {
 
 async function cmdDeepRecall(args) {
   // Accept JSON plan as single arg, or `-` for stdin
-  let planJson = args.find(a => !a.startsWith("--"));
+  let planJson = args.find((a) => !a.startsWith("--"));
   if (planJson === "-") {
     const chunks = [];
     for await (const chunk of process.stdin) chunks.push(chunk);
     planJson = Buffer.concat(chunks).toString().trim();
   }
   if (!planJson) {
-    console.error('Usage: fathom deep_recall \'<plan-json>\'  (or pipe plan via stdin: echo \'{"steps":[...]}\' | fathom deep_recall -)');
+    console.error(
+      "Usage: fathom deep_recall '<plan-json>'  (or pipe plan via stdin: echo '{\"steps\":[...]}' | fathom deep_recall -)"
+    );
     process.exit(1);
   }
   let plan;
@@ -188,7 +202,7 @@ async function cmdDeepRecall(args) {
 }
 
 async function cmdSeeImage(args) {
-  const hash = args.find(a => !a.startsWith("--"));
+  const hash = args.find((a) => !a.startsWith("--"));
   if (!hash) {
     console.error("Usage: fathom see_image <media_hash>");
     process.exit(1);
@@ -221,10 +235,7 @@ async function cmdMind(args) {
   }
 
   // Default: stats overview
-  const [stats, tags] = await Promise.all([
-    api("GET", "/v1/stats"),
-    api("GET", "/v1/tags"),
-  ]);
+  const [stats, tags] = await Promise.all([api("GET", "/v1/stats"), api("GET", "/v1/tags")]);
 
   const total = (stats.total || 0).toLocaleString();
   const embedded = (stats.embedded || 0).toLocaleString();
@@ -233,7 +244,9 @@ async function cmdMind(args) {
 
   // Top tags
   if (typeof tags === "object" && !Array.isArray(tags)) {
-    const sorted = Object.entries(tags).sort((a, b) => b[1] - a[1]).slice(0, 20);
+    const sorted = Object.entries(tags)
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 20);
     console.log("Top tags:");
     for (const [tag, count] of sorted) {
       console.log(`  \x1b[33m${tag}\x1b[0m (${count})`);
@@ -247,14 +260,17 @@ async function cmdEngage(kind, args) {
   const parts = [];
   let i = 0;
   while (i < args.length) {
-    if (flagged.has(args[i])) { i += 2; continue; }
+    if (flagged.has(args[i])) {
+      i += 2;
+      continue;
+    }
     parts.push(args[i]);
     i++;
   }
   const targetId = (parts[0] || "").trim();
   const reason = flagVal(args, "--reason") || "";
   if (!targetId) {
-    console.error(`Usage: fathom ${kind.split(':')[0]} <target_id> --reason "<prose>"`);
+    console.error(`Usage: fathom ${kind.split(":")[0]} <target_id> --reason "<prose>"`);
     process.exit(1);
   }
   const data = await api("POST", "/v1/engagement", {
@@ -271,7 +287,10 @@ async function cmdProposeContact(args) {
   const parts = [];
   let i = 0;
   while (i < args.length) {
-    if (flagged.has(args[i])) { i += 2; continue; }
+    if (flagged.has(args[i])) {
+      i += 2;
+      continue;
+    }
     parts.push(args[i]);
     i++;
   }
@@ -280,13 +299,19 @@ async function cmdProposeContact(args) {
   const slug = flagVal(args, "--slug") || flagVal(args, "--candidate-slug") || "";
   const contextRaw = flagVal(args, "--context") || "";
   if (!displayName || !rationale) {
-    console.error("Usage: fathom propose_contact <display_name> --rationale \"<why>\" [--slug bob] [--context '{\"channel\":\"telegram\"}']");
+    console.error(
+      'Usage: fathom propose_contact <display_name> --rationale "<why>" [--slug bob] [--context \'{"channel":"telegram"}\']'
+    );
     process.exit(1);
   }
   let context = {};
   if (contextRaw) {
-    try { context = JSON.parse(contextRaw); }
-    catch { console.error("--context must be valid JSON"); process.exit(1); }
+    try {
+      context = JSON.parse(contextRaw);
+    } catch {
+      console.error("--context must be valid JSON");
+      process.exit(1);
+    }
   }
   const data = await api("POST", "/v1/contact-proposals", {
     display_name: displayName,
@@ -310,21 +335,43 @@ function flagVal(args, flag) {
 // ── Main ─────────────────────────────────────────
 
 const COMMANDS = {
-  remember:    { fn: cmdRemember,   usage: 'fathom remember <query> [--limit N] [--shallow]' },
-  write:       { fn: cmdWrite,      usage: 'fathom write <content> [--tags a,b] [--source x] [--image path/to.png]' },
-  recall:      { fn: cmdRecall,     usage: 'fathom recall [--tags a,b] [--source x] [--since 24h] [--limit N]' },
-  deep_recall: { fn: cmdDeepRecall, usage: "fathom deep_recall '<plan-json>'  (or pipe via stdin with -)" },
-  see_image:   { fn: cmdSeeImage,   usage: 'fathom see_image <media_hash>' },
-  mind:        { fn: cmdMind,       usage: 'fathom mind [tags]' },
-  refute:      { fn: (a) => cmdEngage("refutes",  a), usage: 'fathom refute <target_id> --reason "<why>"' },
-  affirm:      { fn: (a) => cmdEngage("affirms",  a), usage: 'fathom affirm <target_id> --reason "<why>"' },
-  "reply-to":  { fn: (a) => cmdEngage("reply-to", a), usage: 'fathom reply-to <target_id> --reason "<text>"' },
-  propose_contact: { fn: cmdProposeContact, usage: 'fathom propose_contact <display_name> --rationale "<why>" [--slug bob] [--context \'{"channel":"telegram"}\']' },
+  remember: { fn: cmdRemember, usage: "fathom remember <query> [--limit N] [--shallow]" },
+  write: {
+    fn: cmdWrite,
+    usage: "fathom write <content> [--tags a,b] [--source x] [--image path/to.png]",
+  },
+  recall: {
+    fn: cmdRecall,
+    usage: "fathom recall [--tags a,b] [--source x] [--since 24h] [--limit N]",
+  },
+  deep_recall: {
+    fn: cmdDeepRecall,
+    usage: "fathom deep_recall '<plan-json>'  (or pipe via stdin with -)",
+  },
+  see_image: { fn: cmdSeeImage, usage: "fathom see_image <media_hash>" },
+  mind: { fn: cmdMind, usage: "fathom mind [tags]" },
+  refute: {
+    fn: (a) => cmdEngage("refutes", a),
+    usage: 'fathom refute <target_id> --reason "<why>"',
+  },
+  affirm: {
+    fn: (a) => cmdEngage("affirms", a),
+    usage: 'fathom affirm <target_id> --reason "<why>"',
+  },
+  "reply-to": {
+    fn: (a) => cmdEngage("reply-to", a),
+    usage: 'fathom reply-to <target_id> --reason "<text>"',
+  },
+  propose_contact: {
+    fn: cmdProposeContact,
+    usage:
+      'fathom propose_contact <display_name> --rationale "<why>" [--slug bob] [--context \'{"channel":"telegram"}\']',
+  },
 
   // Silent aliases — old verb names still work, undocumented in help
   search: { fn: cmdRemember, hidden: true },
-  query:  { fn: cmdRecall,   hidden: true },
-  stats:  { fn: cmdMind,     hidden: true },
+  query: { fn: cmdRecall, hidden: true },
+  stats: { fn: cmdMind, hidden: true },
 };
 
 const [cmd, ...args] = process.argv.slice(2);
@@ -348,7 +395,7 @@ if (!command) {
   process.exit(1);
 }
 
-command.fn(args).catch(e => {
+command.fn(args).catch((e) => {
   console.error(`Error: ${e.message}`);
   process.exit(1);
 });
