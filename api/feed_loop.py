@@ -53,6 +53,16 @@ logging.getLogger(__name__).setLevel(logging.INFO)
 CARD_TAG = "feed-card"
 CARD_SOURCE = "fathom-feed"
 
+# Below this many real candidates for a slot, don't fire. The model's
+# text isn't grounded against candidates (only body_image + media
+# hashes are validated), so an empty or near-empty pool hands it
+# nothing to lean on and it hallucinates from its training prior.
+# Seen in the wild: a fresh install with no sources produced six
+# confabulated JWST news cards in a row because every slot kept firing
+# with zero candidates. One real candidate is the absolute floor;
+# raise this if you'd rather demand more grounding before a card writes.
+MIN_CANDIDATES_TO_FIRE = 1
+
 
 def _contact_tag(contact_slug: str) -> str:
     return f"contact:{contact_slug}"
@@ -485,6 +495,22 @@ async def _fire_line(
     # to surface the right content. See _fetch_line_candidates.
     candidates = await _fetch_line_candidates(line, limit=20)
     print(f"feed_loop: line {line_id} candidates pre-fetched: {len(candidates)}", flush=True)
+
+    # Grounding guard: if the lake has nothing (or barely anything) to
+    # anchor this slot, skip rather than fire the model. Text fields
+    # don't go through the hash/URL validator, so an empty candidate
+    # pool means whatever prose the model returns is pure prior — i.e.
+    # hallucinated. Better to emit no card than a plausible-looking lie.
+    if len(candidates) < MIN_CANDIDATES_TO_FIRE:
+        print(
+            f"feed_loop[{contact_slug}]: line {line_id} skipped — "
+            f"{len(candidates)} candidates (<{MIN_CANDIDATES_TO_FIRE}); "
+            f"nothing grounded to write from",
+            flush=True,
+        )
+        _tally_inc(contact_slug, "lines_skipped_no_candidates")
+        return
+
     candidates_block = _format_candidates(candidates)
 
     skip_if = (line.get("skip_if") or "").strip()
