@@ -23,18 +23,22 @@ app.add_middleware(
 
 DATA_DIR = os.environ.get("DATA_DIR", "/data")
 _runner: SourceRunner | None = None
+# Strong reference for the long-running _runner.run() task — without
+# it the event loop only holds a weak ref (Python 3.12+) and the whole
+# source poller can be garbage-collected mid-flight.
+_runner_task: asyncio.Task | None = None
 
 
 @app.on_event("startup")
 async def startup():
-    global _runner
+    global _runner, _runner_task
     _runner = SourceRunner(
         delta_url=os.environ.get("DELTA_STORE_URL", "http://localhost:4246"),
         delta_key=os.environ.get("DELTA_API_KEY", ""),
         sources_path=os.path.join(DATA_DIR, "sources.json"),
         state_dir=os.path.join(DATA_DIR, "source-state"),
     )
-    asyncio.create_task(_runner.run(), name="source-runner")
+    _runner_task = asyncio.create_task(_runner.run(), name="source-runner")
     log.info("Source runner started")
 
 

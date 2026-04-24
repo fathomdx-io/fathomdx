@@ -30,6 +30,7 @@ from datetime import datetime, timedelta
 from typing import Any
 
 from . import delta_client, feed_crystal
+from ._bgtasks import spawn as _spawn_task
 from ._time import now as _now
 from .settings import settings
 
@@ -274,7 +275,7 @@ async def force_fire(contact_slug: str, reason: str = "manual") -> dict:
     """
     if _lock_for(contact_slug).locked():
         return {"fired": False, "reason": "already-running"}
-    asyncio.create_task(_run_once(contact_slug, reason=reason))
+    _spawn_task(_run_once(contact_slug, reason=reason), name=f"feed-loop/{contact_slug}")
     return {"fired": True}
 
 

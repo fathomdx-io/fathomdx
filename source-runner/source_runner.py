@@ -96,6 +96,10 @@ class SourceRunner:
         self._producers: dict[str, SourceProducer] = {}
         self._registry: dict[str, type[SourceProducer]] = {}
         self._http: httpx.AsyncClient | None = None
+        # Strong references for manual-poll tasks — without this the event
+        # loop only holds a weak ref (Python 3.12+) and the poll can be
+        # garbage-collected mid-flight.
+        self._poll_tasks: set[asyncio.Task] = set()
         self._register_builtins()
 
     def _register_builtins(self) -> None:
@@ -380,7 +384,9 @@ class SourceRunner:
     async def manual_poll(self, source_id: str) -> None:
         if source_id not in self._sources:
             raise KeyError(f"Source not found: {source_id}")
-        asyncio.create_task(self._poll_source(source_id))
+        task = asyncio.create_task(self._poll_source(source_id), name=f"manual-poll/{source_id}")
+        self._poll_tasks.add(task)
+        task.add_done_callback(self._poll_tasks.discard)
 
     # ── Query ────────────────────────────────────────────────────────
 
