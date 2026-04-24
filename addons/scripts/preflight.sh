@@ -217,14 +217,17 @@ check_llm_key() {
     openai) info "Get a key at https://platform.openai.com/api-keys" ;;
   esac
   printf "    Paste your %s API key (or press enter to set later): " "${provider}"
-  # -s suppresses echo so the key doesn't end up in scrollback.
+  # Visible echo on purpose: silent input makes paste impossible to verify
+  # mid-install, which generates more "did it work?" anxiety than the
+  # marginal scrollback risk avoids. Users running an install command are
+  # already trusting their terminal; if the threat model demands more,
+  # they can pre-set LLM_API_KEY in the environment and skip this prompt.
   local entered=""
-  read -r -s entered
-  echo  # newline after the silent prompt
+  read -r entered
 
   if [[ -n "${entered}" ]]; then
     set_env LLM_API_KEY "${entered}"
-    ok "LLM_PROVIDER=${provider} (key set)"
+    ok "LLM_PROVIDER=${provider} (key set, ${#entered} chars)"
     return 0
   fi
 
