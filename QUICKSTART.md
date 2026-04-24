@@ -19,8 +19,8 @@ This clones into `~/fathom` (override with `FATHOM_DIR=…`), runs preflight to 
 If you'd rather drive each step yourself:
 
 ```bash
-git clone https://github.com/myrakrusemark/consumer-fathom.git
-cd consumer-fathom
+git clone https://github.com/fathomdx-io/fathomdx.git
+cd fathomdx
 ./addons/scripts/preflight.sh
 ```
 
@@ -101,7 +101,7 @@ Neither path is inside this checkout. Cloning into a new directory, renaming thi
 ## Running a second instance on the same machine
 
 ```bash
-git clone https://github.com/myrakrusemark/consumer-fathom.git fathom-dev
+git clone https://github.com/fathomdx-io/fathomdx.git fathom-dev
 cd fathom-dev
 cp .env.example .env
 # edit .env: set COMPOSE_PROJECT_NAME=fathom-dev (and change host port mappings)

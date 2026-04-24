@@ -13,7 +13,7 @@
 #
 # Environment overrides (set before piping):
 #   FATHOM_DIR    install location (default: $HOME/fathom)
-#   FATHOM_REPO   git URL (default: https://github.com/myrakrusemark/consumer-fathom.git)
+#   FATHOM_REPO   git URL (default: https://github.com/fathomdx-io/fathomdx.git)
 #   FATHOM_REF    branch/tag/sha (default: main)
 #   NONINTERACTIVE=1   skip all prompts, accept all defaults
 #   FATHOM_AUTOSTART=1 in non-interactive mode, also start the stack
@@ -117,7 +117,7 @@ fi
 ok "Target: ${FATHOM_DIR}"
 
 # ── clone or update ──────────────────────────────────────────────────
-FATHOM_REPO="${FATHOM_REPO:-https://github.com/myrakrusemark/consumer-fathom.git}"
+FATHOM_REPO="${FATHOM_REPO:-https://github.com/fathomdx-io/fathomdx.git}"
 FATHOM_REF="${FATHOM_REF:-main}"
 
 if [[ -d "${FATHOM_DIR}/.git" ]]; then
