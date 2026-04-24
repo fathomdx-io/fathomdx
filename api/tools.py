@@ -104,17 +104,36 @@ async def execute(name: str, arguments: dict, session_id: str | None = None) -> 
             return json.dumps(_slim_search_results(raw))
 
         if name == "write":
-            result = await delta_client.write(
-                content=arguments["content"],
-                tags=arguments.get("tags", []),
-                source=arguments.get("source", "consumer-api"),
-            )
+            # image_b64 routes through upload_media so the model can attach
+            # a picture to a write in one call. image_path is registry-only
+            # (staging-volume path gated by the HTTP sandbox); chat ignores
+            # it — the LLM should reach for image_b64 when it has pixels.
+            image_b64 = arguments.get("image_b64")
+            if image_b64:
+                file_bytes = base64.b64decode(image_b64)
+                result = await delta_client.upload_media(
+                    file_bytes=file_bytes,
+                    filename="upload.bin",
+                    content=arguments["content"],
+                    tags=arguments.get("tags", []),
+                    source=arguments.get("source", "consumer-api"),
+                )
+            else:
+                result = await delta_client.write(
+                    content=arguments["content"],
+                    tags=arguments.get("tags", []),
+                    source=arguments.get("source", "consumer-api"),
+                )
             return json.dumps(result)
 
         if name == "recall":
+            # LAKE_TOOLS exposes the model-facing param as `tags`;
+            # delta_client.query takes it as `tags_include`. The registry's
+            # request_map handles that translation for HTTP callers (MCP);
+            # in-process callers (chat) translate here.
             raw = await delta_client.query(
                 limit=arguments.get("limit", 50),
-                tags_include=arguments.get("tags_include"),
+                tags_include=arguments.get("tags"),
                 source=arguments.get("source"),
                 time_start=arguments.get("time_start"),
             )

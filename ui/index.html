@@ -830,6 +830,21 @@
     }
     .new-session-btn:hover { border-color: var(--accent); color: var(--accent); }
 
+    /* Source filter toggle below the new-session button. Lets users
+       include kitty-window claude-code sessions in the sidebar. Off by
+       default — claude-code can be chatty and most users want the
+       dashboard's chat view uncluttered. */
+    .sidebar-filter {
+      margin: 8px 0 0;
+      display: flex; align-items: center; gap: 6px;
+      font-family: var(--sans); font-size: 11.5px;
+      color: var(--ink-faint);
+      cursor: pointer; user-select: none;
+      padding: 4px 2px;
+    }
+    .sidebar-filter input { margin: 0; cursor: pointer; }
+    .sidebar-filter:hover { color: var(--ink-soft); }
+
     .sidebar-body {
       flex: 1; overflow-y: auto;
       padding: 8px 8px 12px;
@@ -2256,6 +2271,10 @@
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
         <span>New session</span>
       </button>
+      <label class="sidebar-filter" for="showClaudeCodeToggle">
+        <input type="checkbox" id="showClaudeCodeToggle">
+        <span>Show claude-code sessions</span>
+      </label>
     </div>
     <div class="sidebar-body">
       <!-- Populated dynamically from GET /v1/sessions -->
@@ -6860,15 +6879,36 @@ GET  /v1/usage               Usage stats`,
 
     // Dynamic sidebar session loading
     const sidebarBody = document.querySelector('.sidebar-body');
+    const showClaudeCodeToggle = document.getElementById('showClaudeCodeToggle');
+
+    // Persist the toggle across reloads. Default off — kitty-window
+    // claude-code can be chatty and most users open the dashboard to
+    // see consumer-api chat threads specifically.
+    const SHOW_CC_KEY = 'fathom.sidebar.showClaudeCode';
+    showClaudeCodeToggle.checked = localStorage.getItem(SHOW_CC_KEY) === '1';
+    showClaudeCodeToggle.addEventListener('change', () => {
+      localStorage.setItem(SHOW_CC_KEY, showClaudeCodeToggle.checked ? '1' : '0');
+      loadSessions();
+    });
+
+    function isClaudeCodeSession(s) {
+      // Session sources come from the delta `source` field — claude-code
+      // hook writes with source="claude-code". A session is claude-code
+      // if ANY of its deltas carry that source, even if it was later
+      // renamed (which adds a fathom-chat source delta). Origin wins.
+      return (s.sources || []).includes('claude-code');
+    }
 
     async function loadSessions() {
       try {
         const data = await api('/v1/sessions');
         sidebarBody.innerHTML = '';
         const groupLabels = { today: 'Today', yesterday: 'Yesterday', last_7_days: 'Last 7 days', older: 'Older' };
+        const showCC = showClaudeCodeToggle.checked;
         for (const [key, label] of Object.entries(groupLabels)) {
-          const sessions = data.groups[key];
-          if (!sessions || sessions.length === 0) continue;
+          const raw = data.groups[key] || [];
+          const sessions = showCC ? raw : raw.filter(s => !isClaudeCodeSession(s));
+          if (sessions.length === 0) continue;
           const group = document.createElement('div');
           group.className = 'session-group';
           group.innerHTML = `<h3>${label}</h3><ul class="session-list"></ul>`;
@@ -6880,6 +6920,7 @@ GET  /v1/usage               Usage stats`,
             if (s.id === currentSessionId) btn.classList.add('active');
             btn.textContent = s.title;
             btn.dataset.sessionId = s.id;
+            if (isClaudeCodeSession(s)) btn.dataset.source = 'claude-code';
             btn.addEventListener('click', () => {
               sidebarBody.querySelectorAll('.session-item.active').forEach(a => a.classList.remove('active'));
               btn.classList.add('active');

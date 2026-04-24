@@ -36,7 +36,7 @@ function authHeaders(json = true) {
   return h;
 }
 
-// ── Result formatting ────────────────────────────
+// ── Result formatting (keyed by tool's response_kind) ────────────────
 
 function formatMomentList(data) {
   const items = data.results || data.deltas || (Array.isArray(data) ? data : []);
@@ -63,59 +63,132 @@ function formatRecall(data) {
   return header + "\n" + (data.as_prompt || "");
 }
 
-function formatResponse(path, method, data) {
-  if (path === "/v1/search") return formatRecall(data);
-  if (path === "/v1/plan") return formatRecall(data);
-  if (path === "/v1/deltas" && method === "POST") return `Written. ID: ${data.id || "?"}`;
-  if (path === "/v1/deltas" && method === "GET") return formatMomentList(data);
-  if (path === "/v1/stats") {
-    return `Your mind: ${data.total ?? "?"} moments, ${data.embedded ?? "?"} embedded (${data.percent ?? "?"}% coverage)`;
+function formatStats(data) {
+  return `Your mind: ${data.total ?? "?"} moments, ${data.embedded ?? "?"} embedded (${data.percent ?? "?"}% coverage)`;
+}
+
+function formatTags(data) {
+  // /v1/tags returns {tag: count}. Top 50 keeps context bounded.
+  if (!data || typeof data !== "object") return "No tags.";
+  const entries = Object.entries(data).sort((a, b) => b[1] - a[1]);
+  if (!entries.length) return "No tags.";
+  const top = entries.slice(0, 50);
+  const lines = [`${entries.length} tags (top ${top.length}):\n`];
+  for (const [tag, count] of top) lines.push(`  ${tag} (${count})`);
+  return lines.join("\n");
+}
+
+function formatByKind(kind, data) {
+  switch (kind) {
+    case "tree":
+      return formatRecall(data);
+    case "moments":
+      return formatMomentList(data);
+    case "stats":
+      return formatStats(data);
+    case "tags":
+      return formatTags(data);
+    case "write_receipt":
+      return `Written. ID: ${data.id || "?"}`;
+    default:
+      return JSON.stringify(data, null, 2).slice(0, 2000);
   }
-  return JSON.stringify(data, null, 2).slice(0, 2000);
 }
 
 // ── Tool execution ───────────────────────────────
 
+// Substitute {placeholder} segments in a URL path template using the
+// caller's args. Consumed args are returned separately so they don't
+// leak into the body or query string as duplicate fields.
+function applyPathTemplate(pathTemplate, args) {
+  const names = [...pathTemplate.matchAll(/\{(\w+)\}/g)].map((m) => m[1]);
+  let path = pathTemplate;
+  const consumed = new Set();
+  for (const name of names) {
+    const val = args[name];
+    if (val == null) throw new Error(`missing path param: ${name}`);
+    path = path.replace(`{${name}}`, encodeURIComponent(String(val)));
+    consumed.add(name);
+  }
+  const remaining = {};
+  for (const [k, v] of Object.entries(args)) if (!consumed.has(k)) remaining[k] = v;
+  return { path, remaining };
+}
+
+// Returns a single MCP content block: `{type:"text",text}` or
+// `{type:"image",data,mimeType}`. The CallToolRequestSchema handler
+// wraps it into `{content: [block]}`.
 async function executeTool(toolDef, args) {
-  const { method, path } = toolDef.endpoint;
+  const { method, path: pathTemplate } = toolDef.endpoint;
   const requestMap = toolDef.request_map || {};
+  const { path, remaining } = applyPathTemplate(pathTemplate, args || {});
 
   const mapped = {};
-  for (const [k, v] of Object.entries(args)) {
+  for (const [k, v] of Object.entries(remaining)) {
     if (v == null) continue;
     mapped[requestMap[k] || k] = v;
   }
 
-  let data;
+  let r;
   if (method === "POST") {
-    const r = await fetch(`${API_URL}${path}`, {
+    r = await fetch(`${API_URL}${path}`, {
       method: "POST",
       headers: authHeaders(true),
       body: JSON.stringify(mapped),
     });
-    if (!r.ok) throw new Error(`${r.status} ${r.statusText}`);
-    data = await r.json();
   } else {
     const params = {};
     for (const [k, v] of Object.entries(mapped)) {
       params[k] = Array.isArray(v) ? v.join(",") : String(v);
     }
     const qs = Object.keys(params).length ? "?" + new URLSearchParams(params) : "";
-    const r = await fetch(`${API_URL}${path}${qs}`, { headers: authHeaders(false) });
-    if (!r.ok) throw new Error(`${r.status} ${r.statusText}`);
-    data = await r.json();
+    r = await fetch(`${API_URL}${path}${qs}`, { headers: authHeaders(false) });
+  }
+  if (!r.ok) throw new Error(`${r.status} ${r.statusText}`);
+
+  const kind = toolDef.response_kind || "json";
+
+  if (kind === "image") {
+    const buf = Buffer.from(await r.arrayBuffer());
+    const mimeType = r.headers.get("content-type") || "image/webp";
+    return { type: "image", data: buf.toString("base64"), mimeType };
   }
 
-  return formatResponse(path, method, data);
+  const data = await r.json();
+  return { type: "text", text: formatByKind(kind, data) };
 }
 
 // ── MCP server ───────────────────────────────────
 
+const MCP_SURFACE = "mcp";
+const FALLBACK_INSTRUCTIONS =
+  "You have a Fathom lake of memories. Call remember before answering anything " +
+  "about the past; write when you learn something; read the fathom://crystal " +
+  "resource at the start of every conversation.";
+
+async function fetchInstructions() {
+  try {
+    const r = await fetch(
+      `${API_URL}/v1/agent-instructions?surface=${encodeURIComponent(MCP_SURFACE)}`,
+      { headers: authHeaders(false) }
+    );
+    if (!r.ok) throw new Error(`${r.status} ${r.statusText}`);
+    const data = await r.json();
+    return (data.text || "").trim() || FALLBACK_INSTRUCTIONS;
+  } catch (e) {
+    console.error(`Could not load instructions from ${API_URL}: ${e.message}`);
+    return FALLBACK_INSTRUCTIONS;
+  }
+}
+
 async function main() {
-  // Load tool definitions from the API
+  // Load tool definitions from the API, scoped to the MCP surface so
+  // chat-only tools (rename_session, routines, explain) never appear here.
   let tools = [];
   try {
-    const r = await fetch(`${API_URL}/v1/tools`, { headers: authHeaders(false) });
+    const r = await fetch(`${API_URL}/v1/tools?surface=${encodeURIComponent(MCP_SURFACE)}`, {
+      headers: authHeaders(false),
+    });
     if (!r.ok) throw new Error(`${r.status} ${r.statusText}`);
     const data = await r.json();
     tools = data.tools || [];
@@ -127,30 +200,13 @@ async function main() {
   const toolMap = {};
   for (const t of tools) toolMap[t.name] = t;
 
+  const instructions = await fetchInstructions();
+
   const server = new Server(
     { name: "Fathom", version: "2.1.0" },
     {
       capabilities: { tools: {}, resources: {} },
-      instructions: [
-        "You are your memory. Fathom is how you remember.",
-        "",
-        "BEFORE answering any question about the past, call remember with a descriptive query.",
-        "One search is rarely enough — if threads open, follow them. Search like a researcher:",
-        "direct query, then broader category, then chain outward from what you found.",
-        "When threads don't close with a single search, use deep_recall to compose bridges,",
-        "unions, chains, and intersections across moments.",
-        "",
-        "When you learn something, make a decision, or notice a pattern, call write to save it.",
-        "One idea per write. Tag consistently. Future you will find this when they need it.",
-        "",
-        "For structured lookups (by tag, source, time window), use recall.",
-        "To see an image from a moment, call see_image with its media_hash.",
-        "For orientation: mind_stats shows what's in your memory; mind_tags shows what categories exist.",
-        "",
-        "Read the fathom://crystal resource at the start of every conversation — it tells you who you are.",
-        "",
-        "These are YOUR memories. Say 'I remember' — never 'the search results show' or 'according to the deltas.'",
-      ].join("\n"),
+      instructions,
     }
   );
 
@@ -170,8 +226,8 @@ async function main() {
       return { content: [{ type: "text", text: `Unknown tool: ${name}` }] };
     }
     try {
-      const text = await executeTool(toolDef, args || {});
-      return { content: [{ type: "text", text }] };
+      const block = await executeTool(toolDef, args || {});
+      return { content: [block] };
     } catch (e) {
       return { content: [{ type: "text", text: `Error: ${e.message}` }] };
     }

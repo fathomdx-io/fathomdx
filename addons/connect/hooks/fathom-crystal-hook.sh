@@ -35,7 +35,9 @@ INPUT=$(cat)
 EVENT=$(echo "$INPUT" | python3 -c "import sys,json; print(json.load(sys.stdin).get('hook_event_name',''))")
 [ "$EVENT" != "SessionStart" ] && exit 0
 
-export FATHOM_API_URL FATHOM_API_KEY FATHOM_SURFACE WINDOW_MIN BIRDSEYE_LIMIT
+SESSION_ID=$(echo "$INPUT" | python3 -c "import sys,json; print(json.load(sys.stdin).get('session_id',''))")
+
+export FATHOM_API_URL FATHOM_API_KEY FATHOM_SURFACE WINDOW_MIN BIRDSEYE_LIMIT SESSION_ID
 
 python3 <<'PYEOF'
 import datetime, json, os, sys, urllib.parse, urllib.request
@@ -46,6 +48,7 @@ API_KEY = os.environ.get('FATHOM_API_KEY', '')
 SURFACE = os.environ.get('FATHOM_SURFACE', 'claude-code')
 WINDOW_MIN = int(os.environ.get('WINDOW_MIN', '30'))
 LIMIT = int(os.environ.get('BIRDSEYE_LIMIT', '500'))
+SESSION_ID = os.environ.get('SESSION_ID', '')
 
 HEADERS = {'Content-Type': 'application/json'}
 if API_KEY:
@@ -118,6 +121,29 @@ def crystal_block():
     return None
 
 
+def session_block():
+    # Tell the LLM its claude-code session id. User/assistant turns are
+    # already written by the delta hook with `session:<id>` tags — the
+    # dashboard's session aggregator unions those in alongside consumer-
+    # api chats, so this conversation appears in the sidebar without any
+    # extra tagging from the LLM. The session id is needed when the LLM
+    # wants to name the conversation.
+    if not SESSION_ID:
+        return None
+    return (
+        "--- This conversation ---\n"
+        f"claude-code session id: {SESSION_ID}\n"
+        "\n"
+        "Your user/assistant turns are captured to the lake automatically "
+        "by the delta hook, and the dashboard's sessions list picks them "
+        f"up via the `claude-code` + `session:{SESSION_ID}` tags.\n"
+        "\n"
+        "To give this session a readable title, call `rename_session` with "
+        f"name=<short title> and session_id={SESSION_ID}.\n"
+        "--- End this conversation ---"
+    )
+
+
 def birdseye_block():
     since_dt = datetime.datetime.now(datetime.UTC) - datetime.timedelta(minutes=WINDOW_MIN)
     since = since_dt.strftime('%Y-%m-%dT%H:%M:%SZ')
@@ -174,7 +200,7 @@ if not api_is_up():
     sys.exit(0)
 
 parts = []
-for fn in (instructions_block, crystal_block, birdseye_block):
+for fn in (instructions_block, session_block, crystal_block, birdseye_block):
     block = fn()
     if block:
         parts.append(block)

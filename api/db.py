@@ -29,6 +29,18 @@ def _extract_chat_slug(tags: list[str]) -> str | None:
     return tag_suffix(tags, "chat:")
 
 
+def _extract_session_key(tags: list[str]) -> str | None:
+    """Return a stable session identifier from a tag list.
+
+    Consumer-api chat deltas carry `chat:<slug>`; claude-code deltas
+    (written by the delta hook) carry `session:<uuid>`. The dashboard
+    aggregates both kinds into the same sessions list, so we read
+    either prefix. Values don't collide in practice — slugs are short
+    word-hyphen triplets, session ids are 36-char UUIDs.
+    """
+    return tag_suffix(tags, "chat:") or tag_suffix(tags, "session:")
+
+
 async def create_session(title: str = "New session") -> dict:
     """Mint a fresh slug. No delta written until first message (or name)."""
     # Generate a unique slug by checking for collisions in the lake
@@ -62,10 +74,30 @@ async def list_sessions(limit: int = 50, contact_slug: str | None = None) -> lis
         limit=LAKE_SESSION_LIST_LIMIT,
     )
 
+    # Union in claude-code deltas so kitty-window claude-code sessions
+    # show up in the same sidebar as consumer-api chat. Skipped when a
+    # contact filter is set, because claude-code deltas don't carry
+    # contact tags and including them would leak other users' sessions
+    # to a member. Single-user installs (contact_slug=None → admin path)
+    # see everything.
+    if not contact_slug:
+        cc_results = await delta_client.query(
+            tags_include=["claude-code"],
+            time_start=since,
+            limit=LAKE_SESSION_LIST_LIMIT,
+        )
+        # De-dupe by delta id in case a future delta carries both
+        # fathom-chat and claude-code tags (renamed claude-code session's
+        # chat-name delta, for example).
+        seen = {d.get("id") for d in results if d.get("id")}
+        for d in cc_results:
+            if d.get("id") and d["id"] not in seen:
+                results.append(d)
+
     buckets: dict[str, dict] = {}
     for d in results:
         tags = d.get("tags") or []
-        slug = _extract_chat_slug(tags)
+        slug = _extract_session_key(tags)
         if not slug:
             slug = "legacy"
         ts = d.get("timestamp") or ""
@@ -80,9 +112,13 @@ async def list_sessions(limit: int = 50, contact_slug: str | None = None) -> lis
                 "delta_count": 0,
                 "preview": "",
                 "_preview_ts": "",
+                "_sources": set(),
             },
         )
         b["delta_count"] += 1
+        src = d.get("source")
+        if src:
+            b["_sources"].add(src)
         if ts and ts < (b["created_at"] or ts):
             b["created_at"] = ts
         if ts and ts > (b["updated_at"] or ""):
@@ -112,6 +148,7 @@ async def list_sessions(limit: int = 50, contact_slug: str | None = None) -> lis
                 "updated_at": b["updated_at"],
                 "delta_count": b["delta_count"],
                 "preview": b.get("preview", ""),
+                "sources": sorted(b["_sources"]),
             }
         )
     sessions.sort(key=lambda s: s.get("updated_at") or "", reverse=True)
@@ -124,6 +161,15 @@ async def get_session(session_id: str) -> dict | None:
         tags_include=[LAKE_CHAT_TAG, f"chat:{session_id}"],
         limit=1,
     )
+    if not results:
+        # Claude-code sessions use `session:<uuid>` instead of `chat:<slug>`
+        # and don't carry the `fathom-chat` tag on turn deltas. Probe for
+        # one of those too so the dashboard can render the session header
+        # when the user clicks a claude-code session in the sidebar.
+        results = await delta_client.query(
+            tags_include=[f"session:{session_id}", "claude-code"],
+            limit=1,
+        )
     if not results:
         # Session exists but has no deltas yet — still valid if just created
         return {"id": session_id, "title": session_id, "created_at": "", "updated_at": ""}
@@ -231,6 +277,23 @@ async def get_messages(session_id: str, limit: int = 200) -> list[dict]:
         tags_include=[f"chat:{session_id}"],
         limit=limit,
     )
+    # Claude-code turn deltas are tagged `session:<uuid>` (no chat: prefix)
+    # — pull those in too so the dashboard can render a claude-code
+    # session's history when opened from the sidebar. De-dupe by id in
+    # case a delta carries both prefixes (e.g. a rename against a
+    # claude-code session).
+    cc_results = await delta_client.query(
+        tags_include=[f"session:{session_id}", "claude-code"],
+        limit=limit,
+    )
+    if cc_results:
+        seen = {d.get("id") for d in results if d.get("id")}
+        for d in cc_results:
+            if d.get("id") and d["id"] not in seen:
+                results.append(d)
+        # Re-sort newest-first after the merge so the reverse-to-
+        # chronological step below still does the right thing.
+        results.sort(key=lambda d: d.get("timestamp") or "", reverse=True)
     # Newest-first from API, reverse for chronological
     results.reverse()
     messages = []

@@ -30,7 +30,12 @@ async def create_session(req: SessionCreate):
 
 
 @router.get("/v1/sessions")
-async def list_sessions(request: Request, limit: int = 50):
+async def list_sessions(
+    request: Request,
+    limit: int = 50,
+    include_source: str | None = None,
+    exclude_source: str | None = None,
+):
     # Members see only sessions they participated in. Admins see every
     # session so they can support other contacts. Auth gate upstream
     # ensures request.state.contact is always populated when auth is
@@ -39,6 +44,16 @@ async def list_sessions(request: Request, limit: int = 50):
     contact = getattr(request.state, "contact", None) or {}
     filter_slug = None if contact.get("role") == "admin" else slug
     sessions = await db.list_sessions(limit, contact_slug=filter_slug)
+    # Post-aggregation source filters. Claude-code and consumer-api
+    # sessions live in the same list once both write fathom-chat deltas;
+    # the dashboard uses these to toggle claude-code sessions on/off.
+    # Filtering runs on the full aggregation so session sources are
+    # complete — applying at the delta level would miss cross-source
+    # sessions entirely.
+    if include_source:
+        sessions = [s for s in sessions if include_source in (s.get("sources") or [])]
+    if exclude_source:
+        sessions = [s for s in sessions if exclude_source not in (s.get("sources") or [])]
     # Group by recency for the sidebar
     now = datetime.now(UTC)
     groups: dict[str, list] = {"today": [], "yesterday": [], "last_7_days": [], "older": []}
@@ -91,6 +106,32 @@ async def update_session(session_id: str, req: SessionUpdate):
         if hasattr(result.get(k), "isoformat"):
             result[k] = result[k].isoformat()
     return result
+
+
+class ChatRename(BaseModel):
+    session_id: str
+    name: str
+
+
+@router.post("/v1/chat/rename")
+async def chat_rename(req: ChatRename):
+    """Rename a chat session by writing a chat-name delta — latest wins.
+
+    POST variant of PATCH /v1/sessions/{id}, exposed so MCP and CLI clients
+    (whose generic dispatchers only speak POST/GET) can call it as a
+    registry tool. Same underlying operation; no session-existence check
+    here because chat sessions aren't a separate table — any tag is a
+    valid session, and the rename delta brings an un-materialized session
+    into existence.
+    """
+    session_id = (req.session_id or "").strip()
+    name = (req.name or "").strip()
+    if not session_id:
+        raise HTTPException(status_code=400, detail="session_id is required")
+    if not name:
+        raise HTTPException(status_code=400, detail="name is required")
+    await db.update_session(session_id, name)
+    return {"ok": True, "session_id": session_id, "name": name}
 
 
 @router.delete("/v1/sessions/{session_id}")

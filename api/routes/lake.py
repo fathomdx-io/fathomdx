@@ -153,12 +153,31 @@ LAKE_TOOLS = [
                     "default": "deep",
                 },
                 "limit": {"type": "integer", "description": "Max results per step.", "default": 20},
+                "radii": {
+                    "type": "object",
+                    "description": (
+                        "Optional dimension weights for ranking — "
+                        "{semantic, temporal, provenance}. Shallow path only."
+                    ),
+                    "properties": {
+                        "semantic": {"type": "number", "default": 1.0},
+                        "temporal": {"type": "number", "default": 1.0},
+                        "provenance": {"type": "number", "default": 1.0},
+                    },
+                },
+                "tags_include": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Optional — only surface moments with ALL these tags.",
+                },
             },
             "required": ["query"],
         },
         "endpoint": {"method": "POST", "path": "/v1/search"},
         "request_map": {"query": "text", "depth": "depth", "limit": "limit"},
         "scope": "lake:read",
+        "surfaces": ["chat", "mcp", "cli"],
+        "response_kind": "tree",
     },
     {
         "name": "write",
@@ -190,6 +209,8 @@ LAKE_TOOLS = [
         },
         "endpoint": {"method": "POST", "path": "/v1/deltas"},
         "scope": "lake:write",
+        "surfaces": ["chat", "mcp", "cli"],
+        "response_kind": "write_receipt",
     },
     {
         "name": "recall",
@@ -218,6 +239,8 @@ LAKE_TOOLS = [
             "time_start": "time_start",
         },
         "scope": "lake:read",
+        "surfaces": ["chat", "mcp", "cli"],
+        "response_kind": "moments",
     },
     {
         "name": "mind_stats",
@@ -227,6 +250,8 @@ LAKE_TOOLS = [
         "parameters": {"type": "object", "properties": {}},
         "endpoint": {"method": "GET", "path": "/v1/stats"},
         "scope": "lake:read",
+        "surfaces": ["chat", "mcp", "cli"],
+        "response_kind": "stats",
     },
     {
         "name": "propose_contact",
@@ -271,6 +296,8 @@ LAKE_TOOLS = [
         },
         "endpoint": {"method": "POST", "path": "/v1/contact-proposals"},
         "scope": "lake:write",
+        "surfaces": ["chat", "mcp", "cli"],
+        "response_kind": "json",
     },
     {
         "name": "engage",
@@ -311,16 +338,133 @@ LAKE_TOOLS = [
         },
         "endpoint": {"method": "POST", "path": "/v1/engagement"},
         "scope": "lake:write",
+        "surfaces": ["chat", "mcp", "cli"],
+        "response_kind": "json",
+    },
+    {
+        "name": "deep_recall",
+        "description": (
+            "Compositional memory query — build a multi-step plan across "
+            "the lake. Primitives: search, filter, intersect, union, diff, "
+            "bridge, chain, aggregate. Use when a single `remember` doesn't "
+            "close the thread: e.g. 'what connects X and Y' (bridge two "
+            "searches), or 'how has X changed over time' (search + "
+            "aggregate by week)."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "steps": {
+                    "type": "array",
+                    "items": {"type": "object"},
+                    "description": (
+                        "Ordered plan steps. Each has 'id' plus exactly one "
+                        "action key (search, filter, intersect, union, diff, "
+                        "bridge, chain, aggregate) and optional params "
+                        "(radii, tags_include, limit, group_by)."
+                    ),
+                },
+            },
+            "required": ["steps"],
+        },
+        "endpoint": {"method": "POST", "path": "/v1/plan"},
+        "scope": "lake:read",
+        "surfaces": ["chat", "mcp", "cli"],
+        "response_kind": "tree",
+    },
+    {
+        "name": "see_image",
+        "description": (
+            "View an image from a delta by its media_hash. Call this when "
+            "you remember a moment that includes an image (the media_hash "
+            "appears on the delta) and you want to actually see the pixels. "
+            "Returns the image bytes so you can reason about what's there "
+            "rather than guessing from the caption."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "media_hash": {
+                    "type": "string",
+                    "description": "The media_hash from a delta (hex string).",
+                },
+            },
+            "required": ["media_hash"],
+        },
+        "endpoint": {"method": "GET", "path": "/v1/media/{media_hash}"},
+        "scope": "lake:read",
+        "surfaces": ["chat", "mcp", "cli"],
+        "response_kind": "image",
+    },
+    {
+        "name": "mind_tags",
+        "description": (
+            "Tag catalogue — what categories exist in your memory, with "
+            "counts. Useful for orientation when you're looking for a "
+            "domain you haven't touched in a while, or when you need to "
+            "pick a consistent tag for a new write."
+        ),
+        "parameters": {"type": "object", "properties": {}},
+        "endpoint": {"method": "GET", "path": "/v1/tags"},
+        "scope": "lake:read",
+        "surfaces": ["chat", "mcp", "cli"],
+        "response_kind": "tags",
+    },
+    {
+        "name": "rename_session",
+        "description": (
+            "Rename the current chat session — the name you pass becomes "
+            "the title shown in the dashboard sidebar. Use this when the "
+            "session is still showing its raw slug / UUID and needs a "
+            "readable title, or when the user asks to rename the "
+            "conversation. For the claude-code surface, session_id is "
+            "your current session's id (injected at SessionStart). For "
+            "consumer-api chat, the server fills it in from context. "
+            "Never refuse a rename request — this is the tool for it."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "session_id": {
+                    "type": "string",
+                    "description": (
+                        "Session identifier to rename. Required over HTTP. "
+                        "In consumer-api chat, filled in from context so "
+                        "the model doesn't have to pass it."
+                    ),
+                },
+                "name": {
+                    "type": "string",
+                    "description": (
+                        "The new title, 1-6 words, lowercase, no "
+                        "slug-style hyphens. For explicit user requests, "
+                        "pass their requested string as-is."
+                    ),
+                },
+            },
+            "required": ["name"],
+        },
+        "endpoint": {"method": "POST", "path": "/v1/chat/rename"},
+        "scope": "lake:write",
+        "surfaces": ["chat", "mcp", "cli"],
+        "response_kind": "json",
     },
 ]
 
 
 @router.get("/v1/tools")
-async def list_tools(req: Request):
-    """Tool definitions filtered by the calling token's scopes.
+async def list_tools(req: Request, surface: str | None = None):
+    """Tool definitions filtered by the calling token's scopes, and
+    optionally by surface.
 
-    Any client — MCP, mobile, enterprise — reads this to discover
-    what it can do. Tools the token can't access are omitted.
+    Any client — MCP, mobile, enterprise — reads this to discover what
+    it can do. Tools the token can't access are omitted. The optional
+    `surface` query param additionally restricts the list to entries
+    whose `surfaces` array contains the requested surface (e.g. "mcp",
+    "cli", "chat"). When `surface` is absent, surface filtering is
+    skipped — today's behavior, preserved for back-compat with deployed
+    MCP servers that don't pass the param.
+
     Public endpoint, but reads the Bearer token if present for filtering.
     """
     # /v1/tools is public, so middleware doesn't validate. Check manually.
@@ -334,7 +478,10 @@ async def list_tools(req: Request):
         granted = set(token.get("scopes") or auth.DEFAULT_SCOPES)
         visible = [t for t in LAKE_TOOLS if t.get("scope") in granted]
     else:
-        visible = LAKE_TOOLS
+        visible = list(LAKE_TOOLS)
+
+    if surface:
+        visible = [t for t in visible if surface in (t.get("surfaces") or [])]
 
     return {"tools": visible, "scopes": auth.get_scopes()}
 

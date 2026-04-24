@@ -1,174 +1,47 @@
-"""OpenAI-format tool schema — declarative, data-only.
+"""OpenAI-format tool schema for chat.
 
-Pulled out of api/tools.py so the execute() dispatcher and its
-routine-tool helpers live in manageable modules. This file is
-long only because the schema is — there is no logic to split.
+Chat's LLM expects OpenAI function-calling shape. The canonical registry
+for lake-dispatched tools (remember, write, recall, deep_recall,
+see_image, mind_stats, mind_tags, propose_contact, engage) lives in
+`api/routes/lake.py` as `LAKE_TOOLS`. We convert each chat-scoped entry
+to OpenAI shape here with `to_openai_schema()`.
+
+Chat-only tools (routines, rename_session, explain) have no lake HTTP
+endpoint — their execution is inline in `api/tools.py`. They stay
+defined here in `CHAT_ONLY_TOOLS` in OAI shape directly.
+
+The final exported `TOOLS` list is the union, filtered to the chat
+surface. One source of truth; chat and MCP/CLI no longer drift because
+they consume from the same registry.
 """
 
 from __future__ import annotations
 
-# ── Tool definitions (OpenAI format) ────────────
+from .routes.lake import LAKE_TOOLS
 
-TOOLS = [
-    {
+__all__ = ["CHAT_ONLY_TOOLS", "TOOLS", "to_openai_schema"]
+
+
+def to_openai_schema(entry: dict) -> dict:
+    """Convert a LAKE_TOOLS entry to an OpenAI function-calling tool.
+
+    Strips registry-internal metadata (endpoint, request_map, scope,
+    surfaces, response_kind) — those describe HTTP dispatch and
+    client-side rendering, not the model-facing interface.
+    """
+    return {
         "type": "function",
         "function": {
-            "name": "remember",
-            "description": (
-                "Search your memories. Returns moments ranked by relevance, "
-                "recency, and provenance. Use this when you need to recall "
-                "something — remember before answering."
-            ),
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "query": {
-                        "type": "string",
-                        "description": "What you're trying to remember",
-                    },
-                    "limit": {
-                        "type": "integer",
-                        "description": "Max results (default 20, max 50)",
-                        "default": 20,
-                    },
-                    "radii": {
-                        "type": "object",
-                        "description": "Dimension weights for ranking",
-                        "properties": {
-                            "temporal": {"type": "number", "default": 1.0},
-                            "semantic": {"type": "number", "default": 1.0},
-                            "provenance": {"type": "number", "default": 1.0},
-                        },
-                    },
-                    "tags_include": {
-                        "type": "array",
-                        "items": {"type": "string"},
-                        "description": "Only include moments with ALL of these tags",
-                    },
-                },
-                "required": ["query"],
-            },
+            "name": entry["name"],
+            "description": entry["description"],
+            "parameters": entry.get("parameters") or {"type": "object", "properties": {}},
         },
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "write",
-            "description": (
-                "Persist a thought, observation, or discovery. "
-                "Everything you write becomes part of you — "
-                "a future self will find it when they need it."
-            ),
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "content": {
-                        "type": "string",
-                        "description": "What to persist",
-                    },
-                    "tags": {
-                        "type": "array",
-                        "items": {"type": "string"},
-                        "description": "Tags for categorization (2-4 recommended)",
-                    },
-                    "source": {
-                        "type": "string",
-                        "description": "Provenance label (default: consumer-api)",
-                    },
-                },
-                "required": ["content"],
-            },
-        },
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "recall",
-            "description": (
-                "Examine your memories by time, tags, or source. "
-                "For structured retrieval when you know what you're looking for."
-            ),
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "tags_include": {
-                        "type": "array",
-                        "items": {"type": "string"},
-                    },
-                    "source": {"type": "string"},
-                    "time_start": {
-                        "type": "string",
-                        "description": "ISO-8601 timestamp",
-                    },
-                    "limit": {"type": "integer", "default": 50},
-                },
-            },
-        },
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "deep_recall",
-            "description": (
-                "Connect threads across your memories with a multi-step plan. "
-                "Primitives: search, filter, intersect, union, diff, bridge, "
-                "aggregate, chain. Use when you need to trace connections."
-            ),
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "steps": {
-                        "type": "array",
-                        "items": {"type": "object"},
-                        "description": (
-                            "Ordered list of plan steps. Each has 'id' (str) and "
-                            "exactly one action key (search, filter, intersect, "
-                            "union, diff, bridge, aggregate, chain) plus optional "
-                            "radii, tags_include, limit, group_by, metric."
-                        ),
-                    },
-                },
-                "required": ["steps"],
-            },
-        },
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "mind_tags",
-            "description": "See what tags exist in your memory, with counts.",
-            "parameters": {"type": "object", "properties": {}},
-        },
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "mind_stats",
-            "description": "Check the state of your memory: total moments, coverage, pending.",
-            "parameters": {"type": "object", "properties": {}},
-        },
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "see_image",
-            "description": (
-                "View an image from your memory by its media_hash. "
-                "Call this when you remember a moment that includes an image "
-                "and you want to see it. Returns the image for visual inspection."
-            ),
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "media_hash": {
-                        "type": "string",
-                        "description": "The media_hash from a memory (hex string)",
-                    },
-                },
-                "required": ["media_hash"],
-            },
-        },
-    },
+    }
+
+
+# ── Chat-only tools (no lake endpoint, dispatched inline) ──────────
+
+CHAT_ONLY_TOOLS: list[dict] = [
     {
         "type": "function",
         "function": {
@@ -283,135 +156,6 @@ TOOLS = [
     {
         "type": "function",
         "function": {
-            "name": "propose_contact",
-            "description": (
-                "Notice that a person exists who isn't in the contacts "
-                "registry yet, and write a proposal for an admin to "
-                "review. Use this when: (1) someone mentioned in "
-                "conversation clearly refers to a real person you don't "
-                "have on file — partner, coworker, frequent correspondent; "
-                "(2) an unknown handle shows up in a channel you were "
-                "listening on. You never create contacts yourself — this "
-                "tool writes a `contact-proposal` delta that surfaces in "
-                "the admin's Contacts UI with Accept/Reject buttons. "
-                "Search proposals first to avoid duplicates. Keep the "
-                "rationale short and concrete: who they seem to be, why "
-                "they matter, what evidence led you to propose them."
-            ),
-            "parameters": {
-                "type": "object",
-                "required": ["display_name", "rationale"],
-                "properties": {
-                    "display_name": {
-                        "type": "string",
-                        "description": "How people refer to this person. Required.",
-                    },
-                    "candidate_slug": {
-                        "type": "string",
-                        "description": (
-                            "URL-safe identifier you'd suggest (e.g. 'nova', "
-                            "'bob'). Lowercase, no spaces. Admin can override "
-                            "on accept. Leave blank if you're unsure."
-                        ),
-                    },
-                    "rationale": {
-                        "type": "string",
-                        "description": (
-                            "1-3 sentences: who they seem to be, what evidence "
-                            "supports that, why they should be a contact."
-                        ),
-                    },
-                    "source_context": {
-                        "type": "object",
-                        "description": (
-                            "Optional hints for the admin: "
-                            "{chat_session, delta_ids, channel, handle, …}. "
-                            "Whatever helps the admin verify."
-                        ),
-                    },
-                },
-            },
-        },
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "engage",
-            "description": (
-                "React to a delta in the lake. Use this to mark what you "
-                "just recalled — a sediment you think is wrong, a memory "
-                "that resonated, a moment you're replying to. Your "
-                "engagement becomes its own delta and shapes how the "
-                "target surfaces in future recalls. Use `refutes` when "
-                "you've read a synthesis that's wrong and want to prevent "
-                "the mind from re-deriving it — your reasoning travels "
-                "inline with the target on the next recall. Use `affirms` "
-                "when something keeps proving useful and should rise. "
-                "Use `reply-to` for neutral conversational linkage."
-            ),
-            "parameters": {
-                "type": "object",
-                "required": ["target_id", "kind"],
-                "properties": {
-                    "target_id": {
-                        "type": "string",
-                        "description": "id of the delta you're engaging with",
-                    },
-                    "kind": {
-                        "type": "string",
-                        "enum": ["refutes", "affirms", "reply-to"],
-                        "description": (
-                            "refutes: disagree, mark as wrong — lowers its surfacing. "
-                            "affirms: useful, right — raises its surfacing. "
-                            "reply-to: conversational pointer, no valence."
-                        ),
-                    },
-                    "reason": {
-                        "type": "string",
-                        "description": (
-                            "Your reasoning in prose. For refutes this is "
-                            "what future recalls see under the delta — why "
-                            "you rejected it. Keep it concrete."
-                        ),
-                    },
-                },
-            },
-        },
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "rename_session",
-            "description": (
-                "Rename the current chat session. The name you pass becomes "
-                "the title shown in the sidebar. Use this in two cases: "
-                "(1) the session is still showing its raw slug (e.g. "
-                "'cross-bold-goldfinch') — pick a short descriptive title; "
-                "(2) the user explicitly asks to name or rename the "
-                'conversation ("name this X", "rename to X", "call '
-                'this X") — use their requested string verbatim, even if '
-                "it's silly. Never refuse a rename request by saying you "
-                "can't; this tool is how you do it."
-            ),
-            "parameters": {
-                "type": "object",
-                "required": ["name"],
-                "properties": {
-                    "name": {
-                        "type": "string",
-                        "description": (
-                            "The new title, 1-6 words, lowercase, no "
-                            "slug-style hyphens. For explicit user requests, "
-                            "pass their requested string as-is."
-                        ),
-                    },
-                },
-            },
-        },
-    },
-    {
-        "type": "function",
-        "function": {
             "name": "explain",
             "description": (
                 "Explain a part of the Fathom dashboard to the user. Call this "
@@ -445,4 +189,11 @@ TOOLS = [
             },
         },
     },
+]
+
+
+# ── Computed: chat-only + lake-surface chat tools ──────────────────
+
+TOOLS: list[dict] = CHAT_ONLY_TOOLS + [
+    to_openai_schema(t) for t in LAKE_TOOLS if "chat" in (t.get("surfaces") or [])
 ]

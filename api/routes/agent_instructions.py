@@ -5,6 +5,7 @@ Serves the canonical voice / tool-guide block for a given surface
 api/agent_instructions.py — clients fetch on boot so updates ship without
 republishing hook scripts.
 """
+
 from __future__ import annotations
 
 from fastapi import APIRouter
