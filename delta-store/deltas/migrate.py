@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import contextlib
 import sqlite3
 import struct
 import sys
@@ -61,10 +62,8 @@ async def migrate(sqlite_path: str, pg_dsn: str, batch_size: int = 500) -> dict:
         "CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT NOT NULL)"
     )
     for _name, ddl in HNSW_INDEXES:
-        try:
+        with contextlib.suppress(asyncpg.DuplicateObjectError, asyncpg.DuplicateTableError):
             await conn.execute(ddl)
-        except (asyncpg.DuplicateObjectError, asyncpg.DuplicateTableError):
-            pass
 
     # Fetch all tags
     all_tags = _fetch_all_tags(sqlite_conn)

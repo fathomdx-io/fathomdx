@@ -15,13 +15,14 @@ a time — overwritten on each accepted regen.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import json
 import math
 import os
 import tempfile
-from datetime import UTC, datetime
 from pathlib import Path
 
+from ._time import now_iso as _now_iso
 from .settings import settings
 
 _lock = asyncio.Lock()
@@ -30,10 +31,6 @@ _lock = asyncio.Lock()
 def _path() -> Path:
     base = Path(settings.mood_state_path).parent
     return base / "crystal-anchor.json"
-
-
-def _now_iso() -> str:
-    return datetime.now(UTC).isoformat()
 
 
 def _atomic_write(data: dict) -> None:
@@ -45,10 +42,8 @@ def _atomic_write(data: dict) -> None:
             json.dump(data, f)
         os.replace(tmp, p)
     except Exception:
-        try:
+        with contextlib.suppress(FileNotFoundError):
             os.unlink(tmp)
-        except FileNotFoundError:
-            pass
         raise
 
 
@@ -86,7 +81,7 @@ def cosine_distance(a: list[float], b: list[float]) -> float:
     dot = 0.0
     na = 0.0
     nb = 0.0
-    for x, y in zip(a, b):
+    for x, y in zip(a, b, strict=True):
         dot += x * y
         na += x * x
         nb += y * y

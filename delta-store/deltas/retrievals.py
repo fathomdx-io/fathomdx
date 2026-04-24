@@ -15,6 +15,7 @@ uniformly.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import json
 import logging
 import os
@@ -64,10 +65,8 @@ def _save_raw(state: dict) -> None:
             json.dump(state, f)
         os.replace(tmp, _PATH)
     except Exception:
-        try:
+        with contextlib.suppress(FileNotFoundError):
             os.unlink(tmp)
-        except FileNotFoundError:
-            pass
         raise
 
 

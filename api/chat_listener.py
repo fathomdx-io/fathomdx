@@ -15,6 +15,7 @@ One process, one listener. No distributed locks, no dedup protocol.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import json
 import logging
 from datetime import UTC, datetime, timedelta
@@ -101,10 +102,8 @@ class ChatListener:
                 await self._tick()
             except Exception as e:
                 log.exception("chat-listener: tick error: %s", e)
-            try:
+            with contextlib.suppress(TimeoutError):
                 await asyncio.wait_for(self._stop.wait(), timeout=POLL_INTERVAL_SECONDS)
-            except TimeoutError:
-                pass
 
     async def _tick(self) -> None:
         # Pull every delta newer than last_seen. The delta-store supports

@@ -26,10 +26,11 @@ import json
 import logging
 import re
 import time
-from datetime import UTC, datetime, timedelta
+from datetime import datetime, timedelta
 from typing import Any
 
 from . import delta_client, feed_crystal
+from ._time import now as _now
 from .settings import settings
 
 log = logging.getLogger(__name__)
@@ -185,11 +186,16 @@ def _summarize_outcome(contact_slug: str, had_crystal: bool, had_lines: bool) ->
         }
     # At least one real failure — warn state.
     reasons = []
-    if timeouts: reasons.append(f"{timeouts} timed out")
-    if format_fail: reasons.append(f"{format_fail} format-failed")
-    if missing: reasons.append(f"{missing} missing title/body")
-    if fresh: reasons.append(f"{fresh} already-fresh")
-    if skipped: reasons.append(f"{skipped} model-pass")
+    if timeouts:
+        reasons.append(f"{timeouts} timed out")
+    if format_fail:
+        reasons.append(f"{format_fail} format-failed")
+    if missing:
+        reasons.append(f"{missing} missing title/body")
+    if fresh:
+        reasons.append(f"{fresh} already-fresh")
+    if skipped:
+        reasons.append(f"{skipped} model-pass")
     return {
         "summary": "no_cards",
         "detail": (
@@ -221,10 +227,6 @@ def _lock_for(contact_slug: str) -> asyncio.Lock:
         lock = asyncio.Lock()
         _run_locks[contact_slug] = lock
     return lock
-
-
-def _now() -> datetime:
-    return datetime.now(UTC)
 
 
 def current_status(contact_slug: str) -> dict:

@@ -17,13 +17,15 @@ a derived view, sibling to /v1/usage.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import json
 import os
 import tempfile
-from datetime import UTC, datetime
+from datetime import datetime
 from pathlib import Path
 
 from . import delta_client
+from ._time import now as _now
 from .settings import settings
 
 # ── Weights ─────────────────────────────────────
@@ -46,10 +48,6 @@ PRESSURE_WINDOW_HOURS: int = 36
 
 # ── Persisted state (the small bit) ─────────────
 _lock = asyncio.Lock()
-
-
-def _now() -> datetime:
-    return datetime.now(UTC)
 
 
 def _iso(dt: datetime) -> str:
@@ -100,10 +98,8 @@ def _save_raw(state: dict) -> None:
             json.dump(state, f, indent=2)
         os.replace(tmp, p)
     except Exception:
-        try:
+        with contextlib.suppress(FileNotFoundError):
             os.unlink(tmp)
-        except FileNotFoundError:
-            pass
         raise
 
 

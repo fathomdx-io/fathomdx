@@ -10,10 +10,11 @@ from __future__ import annotations
 import json
 import logging
 import re
-from datetime import UTC, datetime
+from datetime import datetime
 
 from . import delta_client, pressure
 from . import search as search_module
+from ._time import now as _now
 from .prompt import MOOD_DIRECTIVE
 from .providers import llm
 from .settings import settings
@@ -31,10 +32,6 @@ def _sanitize_state(raw: str) -> str:
     """Lowercase, strip non-letters; cap at 24 chars. Empty -> 'unset'."""
     cleaned = _STATE_RE.sub("", (raw or "").lower())[:24]
     return cleaned or "unset"
-
-
-def _now() -> datetime:
-    return datetime.now(UTC)
 
 
 def _strip_fences(text: str) -> str:
@@ -241,7 +238,7 @@ async def synthesize_mood(session_slug: str | None = None) -> dict | None:
     }, ensure_ascii=False)
 
     state = parsed["state"]
-    delta_tags = MOOD_TAGS + [f"feeling:{state}"]
+    delta_tags = [*MOOD_TAGS, f"feeling:{state}"]
 
     written = None
     try:

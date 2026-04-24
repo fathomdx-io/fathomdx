@@ -36,8 +36,6 @@ from . import (
 from . import contacts as contacts_mod
 from . import routines as routines_mod
 from . import usage as usage_module
-
-log = logging.getLogger(__name__)
 from .prompt import (
     CRYSTAL_DIRECTIVE,
     CRYSTAL_REGEN_SYSTEM,
@@ -48,6 +46,8 @@ from .providers import llm
 from .search import search as nl_search
 from .settings import settings
 from .tools import IMAGE_RESULT_PREFIX, TOOLS, execute, heartbeat_age_seconds, heartbeat_is_fresh
+
+log = logging.getLogger(__name__)
 
 # ── Request / response models ───────────────────
 
@@ -2331,13 +2331,13 @@ async def proxy_write_delta(body: dict, request: Request):
             try:
                 file_bytes = await asyncio.to_thread(Path(image_path).read_bytes)
             except (FileNotFoundError, PermissionError, OSError) as e:
-                raise HTTPException(status_code=400, detail=f"image_path unreadable: {e}")
+                raise HTTPException(status_code=400, detail=f"image_path unreadable: {e}") from e
             filename = Path(image_path).name or "upload.bin"
         else:
             try:
                 file_bytes = base64.b64decode(image_b64, validate=True)
             except Exception as e:
-                raise HTTPException(status_code=400, detail=f"image_b64 decode failed: {e}")
+                raise HTTPException(status_code=400, detail=f"image_b64 decode failed: {e}") from e
             filename = "upload.bin"
         return await delta_client.upload_media(
             file_bytes=file_bytes,

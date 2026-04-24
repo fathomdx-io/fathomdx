@@ -5,17 +5,20 @@
 
 ## Next
 
-**Perspective:** Senior Dev Audit
+**Perspective:** Bug Hunt
 **Repo:** fathomdx
-**Why next:** With Dead Code & Cleanup done the remaining 51 ruff errors
-are style/correctness (SIM105 × 11, E402 × 5, E701 × 5, RUF002 × 8,
-B904 × 6, SIM102/103, RUF001/003/005, B905 × 2) — exactly the "what
-would a senior reviewer flag in PR review" bucket. Also worth looking
-at `api/server.py` which is 2 417 lines after this iteration's -75:
-still well over the 800-line ceiling from PRD §Completion, so splitting
-it is part of this perspective.
+**Why next:** Senior Dev Audit is DONE. The 8 remaining ruff errors
+are all RUF006 (asyncio-dangling-task) — each one is a potential
+silent failure where an `asyncio.create_task(...)` return value is
+discarded and the task can be GC'd mid-flight. Those are bugs, not
+style, so they belong in Bug Hunt. Read each site line-by-line before
+the mechanical "store a reference" fix — some call sites may actually
+want `asyncio.ensure_future` + a task-set, or fire-and-forget is
+correct (and the right fix is a `# noqa: RUF006` with a why).
 
-Hold RUF006 × 8 (asyncio-dangling-task) for Bug Hunt, not Senior Dev.
+Also open: look for race conditions in `chat_listener` (the PRD called
+this out at priority #3) and check the feed-loop's cooldown logic for
+off-by-ones.
 
 ## Coverage matrix
 
@@ -25,7 +28,7 @@ Single repo (`fathomdx`) so the "matrix" is a column. `-` = not started,
 | # | Perspective                      | fathomdx |
 |---|----------------------------------|----------|
 | 1 | Dead Code & Cleanup              | DONE     |
-| 2 | Senior Dev Audit                 | -        |
+| 2 | Senior Dev Audit                 | DONE     |
 | 3 | Bug Hunt                         | -        |
 | 4 | Quality Scaffold                 | -        |
 | 5 | Test Creation                    | -        |
@@ -63,8 +66,29 @@ N/A cells are frontend / visual / UX concerns that live in `site/` or
 
 ## Needs human
 
-_None yet. Use this section when a fix requires an architectural decision
-or would take > ~15 min._
+### api/server.py split (2 417 LOC, ceiling is 800)
+
+After the Dead Code + Senior Dev passes, server.py still ships 2 417
+lines and 80+ route handlers. It is well over the PRD-§Completion
+ceiling and the biggest single file in the repo. Splitting it is
+architectural — each option changes ownership of URL paths, and the
+PRD explicitly forbids changing contracts under `/v1/*` without
+approval, so this is not a safe Ralph-unilateral move.
+
+Two plausible shapes for the split (pick one before next iteration):
+
+1. **By resource** — one router file per cluster, `FastAPI.include_router`
+   in server.py. Route counts: feed (12), sources (9), contacts (8),
+   routines (6), sessions (5), tokens+pair+auth (7), moods+drift+
+   pressure+crystal (9), media+deltas+recall+search (10). Lands
+   close to seven ~300-line modules, keeps URL paths identical.
+
+2. **By layer** — split per-concern: `api/models.py` for pydantic,
+   `api/routes/` for handlers, `api/lifespan.py` for startup.
+   Smaller per-file diffs but the feed cluster still ends up large.
+
+Myra to choose. Once chosen, the split itself is ~45 minutes of
+mechanical moves + one `pytest` + a `curl /v1/*` smoke.
 
 ## Iteration log
 
@@ -75,6 +99,48 @@ Format:
 - Key findings or decisions
 - Commits: <sha> <sha>
 ```
+
+---
+
+### 2026-04-23 — Senior Dev Audit / fathomdx
+
+Nine commits on `ralph`. Ruff violations 51 → 8 (all remaining are
+RUF006, deferred to Bug Hunt). Tests stayed green (1/1).
+
+**Style / correctness commits (one ruff rule per commit)**
+- `e935228` — SIM105: 11 `try/except/pass` → `contextlib.suppress`
+  (2 asyncio-wait-for, 9 temp-file-cleanup idioms)
+- `201c2c4` — B904: 6 `raise HTTPException(…)` in except blocks now
+  chain with `from e` (4 source-runner endpoints, api/server.py media)
+- `7abd167` — B905: 2 cosine-distance helpers use `zip(strict=True)`
+- `8a2a3f7` — E402: move `log = logging.getLogger(__name__)` below
+  the import block in server.py
+- `f131fb7` — E701: break 5 single-line `if cond: reasons.append(…)`
+  in feed_loop
+- `c6cc249` — SIM102 + SIM103 + RUF005: three small idiom flattens
+- `dd072e0` — ruff config: ignore RUF001/002/003 (intentional math
+  notation ×, −, Σ in pressure/crystal docstrings)
+
+**DRY consolidation**
+- `a5a157b` — hoist 7 byte-identical `_now()` + 2 `_now_iso()` into
+  `api/_time.py`. Seven modules now import the private names via
+  alias (`from ._time import now as _now`), so call sites didn't
+  change. Dropped a stray local `from datetime import datetime,
+  timedelta` in feed_crystal that shadowed module imports.
+
+**Totals**: 13 files touched, +36 / -41 in the consolidation alone;
+43 line-of-code net reduction across all 9 commits. `api/_time.py` is
+new (21 lines).
+
+**Key findings**
+- `cosine_distance` in `crystal_anchor.py` and `_cosine_distance` in
+  `feed_crystal.py` are near-duplicate implementations. Added as a
+  future consolidation target.
+- `api/server.py` at 2 417 LOC is still over the 800 ceiling. Written
+  up under **Needs human** above — needs a split-topology decision
+  (by resource vs. by layer) before the mechanical work.
+- Ruff now reports only 8 errors, all RUF006 asyncio-dangling-task.
+  Bug Hunt territory.
 
 ---
 

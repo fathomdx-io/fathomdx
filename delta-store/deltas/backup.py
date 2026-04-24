@@ -19,6 +19,7 @@ Lockdown is sticky — only cleared by POST /admin/backup/ack.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import json
 import logging
 import os
@@ -201,10 +202,8 @@ async def run_cycle(pool, store) -> dict:
         state["last_reason"] = REASON_PG_DUMP_FAILED
         save_state(state)
         log.error("pg_dump failed: %s", err)
-        try:
+        with contextlib.suppress(OSError):
             tmp_path.unlink(missing_ok=True)
-        except OSError:
-            pass
         return state
 
     new_size = tmp_path.stat().st_size

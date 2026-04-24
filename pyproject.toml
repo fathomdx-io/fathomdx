@@ -49,6 +49,12 @@ ignore = [
   "E501",   # line too long — formatter handles wrapping; long strings/URLs are ok
   "B008",   # function call in default arg — FastAPI Depends() pattern
   "SIM108", # ternary vs if/else — readability judgment call
+  # Math-notation glyphs (×, −, Σ) appear intentionally in pressure / crystal
+  # docstrings and in a couple of Fathom-voice user-facing strings. Flagging
+  # them as "ambiguous" produces more noise than signal for this codebase.
+  "RUF001", # ambiguous unicode in string literal
+  "RUF002", # ambiguous unicode in docstring
+  "RUF003", # ambiguous unicode in comment
 ]
 
 [tool.ruff.lint.per-file-ignores]

@@ -1,11 +1,11 @@
 {
   "version": 1,
   "summary": {
-    "total_lines_removed": 182,
-    "total_lines_added": 102,
-    "total_bugs_fixed": 0,
+    "total_lines_removed": 301,
+    "total_lines_added": 205,
+    "total_bugs_fixed": 6,
     "total_tests_added": 0,
-    "iterations_completed": 1,
+    "iterations_completed": 2,
     "repos_cleaned": []
   },
   "baseline": {
@@ -19,11 +19,12 @@
   },
   "current": {
     "date": "2026-04-23",
-    "ruff_errors": 51,
+    "ruff_errors": 8,
     "ruff_autofixable": 0,
     "ruff_unformatted_files": 34,
     "pytest_count": 1,
-    "api_server_py_loc": 2417
+    "api_server_py_loc": 2417,
+    "_note": "Remaining 8 errors are all RUF006 asyncio-dangling-task; saved for Bug Hunt."
   },
   "findings": [
     {
@@ -40,12 +41,35 @@
         "49ec30c", "a273fab", "c372e86",
         "9b2c113", "7d9ac49", "954992d", "4cb7d9a", "08835b8"
       ]
+    },
+    {
+      "date": "2026-04-23",
+      "perspective": "Senior Dev Audit",
+      "repo": "fathomdx",
+      "description": "Ruff style/correctness (SIM105, B904, B905, E402, E701, SIM102/103, RUF005) + ruff-config ignore for RUF001-003 math notation + DRY consolidation of 7 _now / 2 _now_iso duplicates into new api/_time.py. Ruff errors 51->8. B904 fix counts as a bug class — six HTTPException raises were masking their original cause in tracebacks.",
+      "type": "refactor",
+      "files_changed": 24,
+      "lines_added": 103,
+      "lines_removed": 119,
+      "bugs_fixed": 6,
+      "commits": [
+        "e935228", "201c2c4", "7abd167", "8a2a3f7", "f131fb7",
+        "c6cc249", "dd072e0", "a5a157b"
+      ]
     }
   ],
   "consolidation_targets": {
     "_now_helper": {
-      "note": "Module-local _now() returning datetime.now(UTC) is duplicated across 7+ files (api/pairing, api/mood, api/feed_loop, api/drift, api/auto_regen, api/pressure, api/feed_crystal, delta-store/deltas/retrievals). Candidate for shared utility module.",
+      "status": "DONE (a5a157b)",
+      "note": "Hoisted into api/_time.py. Seven modules under api/ now import `now as _now` and `now_iso as _now_iso`. pairing._now returns int (different semantics) and delta-store retrievals._now are out of scope — stayed local."
+    },
+    "cosine_distance": {
+      "note": "api/crystal_anchor.py cosine_distance and api/feed_crystal.py _cosine_distance are near-duplicate implementations. Candidate for consolidation into api/_time.py or a new api/_math.py.",
       "perspective": "Utility Consolidation (#14)"
+    },
+    "server_py_split": {
+      "note": "api/server.py is 2 417 LOC with 80+ route handlers. Needs split per PRD completion ceiling (800 LOC). Write-up in ralph-progress.md under 'Needs human' — needs Myra to choose split topology (by resource vs. by layer) before mechanical work.",
+      "perspective": "Senior Dev Audit (blocked)"
     }
   }
 }
