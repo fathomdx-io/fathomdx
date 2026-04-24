@@ -46,11 +46,11 @@ Goal-titled, focused, assumes tutorial 1 is done. Organized by reader stance (ge
 
 | Page | State | Last verified | Owners |
 |---|---|---|---|
-| `how-to/back-up-and-restore-the-lake.md` | planned | — | `docker-compose.yml`, pg volume, `$LAKE_DIR` |
-| `how-to/update-fathom.md` | planned | — | `addons/scripts/`, `docker-compose.yml` |
-| `how-to/rotate-an-api-key.md` | planned | — | `api/routes/api_keys.py` |
-| `how-to/change-llm-provider.md` | planned | — | `.env`, `api/inference/` |
-| `how-to/delete-a-delta-or-tag.md` | planned | — | `api/routes/lake.py`, `delta-store/` |
+| `how-to/back-up-and-restore-the-lake.md` | draft | 2026-04-24 | `docker-compose.yml`, pg volume, `$LAKE_DIR` |
+| `how-to/update-fathom.md` | draft | 2026-04-24 | `addons/scripts/install.sh`, `docker-compose.yml` |
+| `how-to/rotate-an-api-key.md` | planned | — | `api/routes/auth.py` |
+| `how-to/change-llm-provider.md` | draft | 2026-04-24 | `.env.example`, `api/providers.py`, `api/llm_config.py` |
+| `how-to/delete-a-delta-or-tag.md` | draft | 2026-04-24 | `delta-store/deltas/store.py`, `delta-store/deltas/server.py` |
 | `how-to/troubleshoot-install.md` | draft | 2026-04-24 | `addons/scripts/preflight.sh`, `addons/scripts/install.sh`, `docker-compose.yml` |
 
 **Extending Fathom** (reaching into the plugin surfaces):
