@@ -5,145 +5,134 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
   <meta name="theme-color" content="#0d1f26" id="metaThemeColor" />
   <title>Welcome · Fathom</title>
-  <link rel="preconnect" href="https://fonts.googleapis.com" />
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;700;800&family=JetBrains+Mono:wght@400;500&family=Source+Serif+Pro:wght@400;500&display=swap" rel="stylesheet" />
   <script>
     // Inline pre-paint theme apply — same shape as index.html / login.html.
-    try {
-      var saved = localStorage.getItem('fathom-theme');
-      if (saved === 'light') document.documentElement.setAttribute('data-theme', 'light');
-    } catch (e) {}
+    (function () {
+      try {
+        var saved = localStorage.getItem('fathom-theme');
+        var prefersLight = window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches;
+        var theme = saved || (prefersLight ? 'light' : 'dark');
+        if (theme === 'light') document.documentElement.setAttribute('data-theme', 'light');
+      } catch (e) {}
+    })();
   </script>
+  <!-- Shared Fathom design tokens — same file the dashboard links. -->
+  <link rel="stylesheet" href="https://design.fathomdx.io/v1/tokens.css" />
   <style>
-    :root {
-      --bg: #0d1f26;
-      --surface: #142a33;
-      --surface-2: #1a3440;
-      --rule: #244654;
-      --ink: #e7eef0;
-      --ink-soft: #93a9b0;
-      --ink-muted: #6e8790;
-      --accent: #6bb9c7;
-      --accent-soft: #2d5d6a;
-      --danger: #e07876;
-      --font: 'Manrope', system-ui, -apple-system, sans-serif;
-      --mono: 'JetBrains Mono', ui-monospace, 'SF Mono', monospace;
-      --serif: 'Source Serif Pro', Georgia, serif;
-    }
-    [data-theme="light"] {
-      --bg: #eef2f3;
-      --surface: #fff;
-      --surface-2: #f6f8f9;
-      --rule: #d7dde0;
-      --ink: #0d1f26;
-      --ink-soft: #3d5560;
-      --ink-muted: #6e8790;
-      --accent: #2d7a8a;
-      --accent-soft: #bedfe6;
-    }
     * { box-sizing: border-box; }
-    html, body { margin: 0; padding: 0; background: var(--bg); color: var(--ink); font-family: var(--font); min-height: 100%; }
-    body { display: flex; align-items: center; justify-content: center; padding: 32px; }
+    html, body { margin: 0; padding: 0; background: var(--bg); color: var(--ink); font-family: var(--sans); min-height: 100%; -webkit-font-smoothing: antialiased; }
+    body {
+      display: flex; align-items: center; justify-content: center; padding: 32px;
+      background:
+        radial-gradient(ellipse at 20% -10%, var(--body-glow-a), transparent 55%),
+        radial-gradient(ellipse at 80% 110%, var(--body-glow-b), transparent 50%),
+        var(--bg);
+    }
     .card {
       background: var(--surface);
       border: 1px solid var(--rule);
-      border-radius: 16px;
-      padding: 40px 36px 32px;
-      width: 100%;
-      max-width: 520px;
-      box-shadow: 0 20px 60px rgba(0,0,0,0.15);
+      border-radius: var(--radius);
+      padding: 36px 36px 30px;
+      width: 100%; max-width: 520px;
+      box-shadow: var(--composer-shadow);
     }
-    .logo {
-      font-weight: 800; font-size: 13px; letter-spacing: 0.06em;
-      text-transform: uppercase; color: var(--accent);
-      margin-bottom: 20px;
+    .brand {
+      font-family: var(--serif); font-size: var(--text-2xl);
+      color: var(--ink); letter-spacing: 0.01em;
+      margin: 0 0 22px;
     }
+    .brand .brand-mark { color: var(--accent); margin-left: 4px; }
     .letter {
-      font-family: var(--serif); line-height: 1.65;
+      font-family: var(--serif); line-height: 1.6;
       color: var(--ink-soft); margin: 0 0 26px;
     }
-    .letter p { margin: 0 0 14px; font-size: 16px; }
+    .letter p { margin: 0 0 12px; font-size: var(--text-lg); }
     .letter p:first-child {
-      font-size: 22px; color: var(--ink); font-weight: 500;
+      font-size: 24px; color: var(--ink);
       letter-spacing: 0.005em; margin-bottom: 14px;
+      font-style: italic;
     }
-    label { display: block; font-size: 12px; color: var(--ink-soft); font-weight: 500; margin-bottom: 6px; text-transform: uppercase; letter-spacing: 0.04em; }
+    label {
+      display: block; font-size: var(--text-sm);
+      color: var(--ink-faint); font-weight: 500;
+      margin-bottom: 6px; text-transform: uppercase;
+      letter-spacing: var(--tracking-wide);
+    }
     input[type="text"], input[type="email"], textarea, select {
       width: 100%;
-      background: var(--surface-2);
+      background: var(--bg-deep);
       border: 1px solid var(--rule);
-      border-radius: 10px;
-      padding: 12px 14px;
+      border-radius: 8px;
+      padding: 11px 13px;
       color: var(--ink);
-      font-size: 14px;
-      font-family: inherit;
+      font-size: var(--text-base);
+      font-family: var(--sans);
       outline: none;
-      transition: border-color 0.15s, background 0.15s;
+      transition: border-color 120ms;
     }
-    input:focus, textarea:focus, select:focus { border-color: var(--accent); background: var(--surface); }
-    textarea { resize: vertical; min-height: 72px; font-family: inherit; }
+    input:focus, textarea:focus, select:focus { border-color: var(--accent); }
+    textarea { resize: vertical; min-height: 72px; }
     .slug-hint {
-      font-size: 12px; color: var(--ink-muted); margin-top: 6px;
-      font-family: var(--mono);
+      font-size: var(--text-md); color: var(--ink-faint);
+      margin-top: 6px; font-family: var(--mono);
     }
     .slug-hint .slug-val { color: var(--accent); }
     .slug-hint button {
-      background: none; border: none; color: var(--ink-muted);
-      font-family: inherit; font-size: 12px; cursor: pointer;
+      background: none; border: none; color: var(--ink-faint);
+      font-family: inherit; font-size: var(--text-md); cursor: pointer;
       padding: 0 0 0 8px; text-decoration: underline;
     }
     .slug-hint button:hover { color: var(--accent); }
     .row { display: flex; gap: 8px; margin-top: 20px; align-items: center; justify-content: flex-end; }
     .btn {
-      background: var(--accent);
-      color: var(--bg);
-      border: none;
-      border-radius: 10px;
+      display: inline-flex; align-items: center; gap: 6px;
+      background: var(--accent); color: var(--bg-deep);
+      border: 0; border-radius: 10px;
       padding: 11px 20px;
-      font-size: 14px;
-      font-weight: 700;
-      cursor: pointer;
-      font-family: inherit;
-      transition: filter 0.15s;
+      font-family: var(--sans); font-weight: 600; font-size: var(--text-base);
+      cursor: pointer; transition: background 120ms;
     }
-    .btn:hover { filter: brightness(1.1); }
+    .btn:hover { background: var(--accent-bright); }
     .btn:disabled { opacity: 0.5; cursor: not-allowed; }
     .toggle-more {
       background: none; border: none; color: var(--ink-soft);
-      font-size: 13px; cursor: pointer; padding: 0;
-      font-family: inherit; text-decoration: underline;
+      font-size: var(--text-md); cursor: pointer; padding: 0;
+      font-family: var(--sans); text-decoration: underline;
       margin-top: 18px;
     }
     .toggle-more:hover { color: var(--accent); }
     .more-panel {
-      margin-top: 18px;
-      padding-top: 18px;
+      margin-top: 18px; padding-top: 18px;
       border-top: 1px solid var(--rule);
       display: flex; flex-direction: column; gap: 14px;
     }
     .more-panel[hidden] { display: none; }
     .settings-note {
-      font-size: 12px; color: var(--ink-muted);
+      font-size: var(--text-md); color: var(--ink-faint);
       line-height: 1.5; margin: 2px 0 0;
     }
     .status {
-      margin-top: 14px;
-      padding: 10px 12px;
-      border-radius: 8px;
-      font-size: 13px;
-      line-height: 1.4;
+      margin-top: 14px; padding: 10px 12px;
+      border-radius: 8px; font-size: var(--text-md); line-height: 1.4;
       display: none;
     }
     .status.show { display: block; }
-    .status.error { background: rgba(224,120,118,0.12); color: var(--danger); border: 1px solid rgba(224,120,118,0.3); }
-    .status.ok { background: rgba(107,185,199,0.12); color: var(--accent); border: 1px solid rgba(107,185,199,0.3); }
+    .status.error {
+      background: color-mix(in srgb, var(--danger) 12%, transparent);
+      color: var(--danger);
+      border: 1px solid color-mix(in srgb, var(--danger) 28%, transparent);
+    }
+    .status.ok {
+      background: var(--accent-soft);
+      color: var(--accent);
+      border: 1px solid color-mix(in srgb, var(--accent) 28%, transparent);
+    }
     .primary-field { margin-bottom: 4px; }
   </style>
 </head>
 <body>
   <div class="card">
-    <div class="logo">Fathom</div>
+    <div class="brand">Fathom<span class="brand-mark">▲</span></div>
     <div class="letter">
       <p>Hi, I'm Fathom. Pleased to meet you.</p>
       <p>Before we start, who am I talking to? Tell me what to call you and I'll remember it from here on out.</p>
