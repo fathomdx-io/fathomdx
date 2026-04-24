@@ -1,7 +1,11 @@
 FROM python:3.12-slim
 
 WORKDIR /app
-RUN pip install --no-cache-dir fastapi uvicorn httpx feedparser html-to-markdown
+
+# Separate COPY for requirements.txt so code changes don't invalidate
+# the pip-install layer. Matches the delta-store Dockerfile pattern.
+COPY requirements.txt /app/requirements.txt
+RUN pip install --no-cache-dir -r /app/requirements.txt
 
 COPY server.py source_runner.py ./
 COPY sources/ ./sources/

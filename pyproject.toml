@@ -9,12 +9,17 @@ requires-python = ">=3.12"
 # tooling config (ruff, pytest) and dev-time extras only.
 
 [project.optional-dependencies]
+# Upper caps match the runtime-dep pattern in api/requirements.txt —
+# patch and minor updates flow, majors require an intentional bump.
+# CI resolves these via `pip install -e .[dev]` so a breaking ruff
+# release can't silently churn the lint output overnight.
 dev = [
-  "ruff>=0.8",
-  "pytest>=8",
-  "pytest-asyncio>=0.24",
-  "httpx>=0.28",
-  "pytest-httpx>=0.34",
+  "ruff>=0.8,<1.0",
+  # pytest >=9.0.3 to pick up the fix for CVE-2025-71176.
+  "pytest>=9.0.3,<10",
+  "pytest-asyncio>=0.24,<2.0",
+  "httpx>=0.28,<1.0",
+  "pytest-httpx>=0.34,<1.0",
 ]
 
 # ── ruff ────────────────────────────────────────────────────────────────────

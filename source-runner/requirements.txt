@@ -1,0 +1,9 @@
+# Source-runner runtime dependencies. Moved out of the Dockerfile so
+# pip-audit, dependabot, and anything else that scans requirements
+# files can actually see the dep set. Upper bounds cap the major
+# version to keep rebuilds reproducible.
+fastapi>=0.115,<1.0
+uvicorn>=0.34,<1.0
+httpx>=0.28,<1.0
+feedparser>=6.0,<7.0
+html-to-markdown>=1.0,<2.0
