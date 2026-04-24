@@ -762,6 +762,34 @@
       transition: background 120ms;
     }
     .composer .send:hover { background: var(--accent-bright); }
+    /* Composer resume mode — swaps the meaning of the input without
+       replacing the component. The textarea carries a `claude --resume`
+       command instead of a message to send; the send button becomes a
+       copy-to-clipboard affordance. Attach is hidden because there's
+       nothing to send. Dashboard can't actually continue a kitty-window
+       claude-code session in-browser, so this is the honest path. */
+    .composer .send .icon-copy,
+    .composer .send .icon-check { display: none; }
+    .composer[data-mode="resume"] .send .icon-send { display: none; }
+    .composer[data-mode="resume"] .send .icon-copy { display: block; }
+    .composer[data-mode="resume"] .send[data-copied="true"] .icon-copy { display: none; }
+    .composer[data-mode="resume"] .send[data-copied="true"] .icon-check { display: block; }
+    .composer[data-mode="resume"] .attach,
+    .composer[data-mode="resume"] .attach-preview { display: none !important; }
+    .composer[data-mode="resume"] textarea {
+      font-family: var(--mono);
+      font-size: 13.5px;
+      color: var(--ink-soft);
+      user-select: all;
+    }
+    .composer[data-mode="resume"]::before {
+      content: "Continue in terminal";
+      position: absolute; transform: translateY(-22px);
+      font-family: var(--mono); font-size: 10px; letter-spacing: 0.08em;
+      text-transform: uppercase; color: var(--ink-faint);
+      pointer-events: none;
+    }
+    .composer[data-mode="resume"] { position: relative; }
     .composer .attach {
       width: 36px; height: 36px; border-radius: 10px;
       background: transparent; border: 0; color: var(--ink-soft);
@@ -3180,7 +3208,9 @@
       <textarea rows="1" placeholder="Ask Fathom…"></textarea>
       <div class="tools">
         <button class="send" aria-label="Send">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><line x1="12" y1="19" x2="12" y2="5"/><polyline points="5 12 12 5 19 12"/></svg>
+          <svg class="icon-send" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><line x1="12" y1="19" x2="12" y2="5"/><polyline points="5 12 12 5 19 12"/></svg>
+          <svg class="icon-copy" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg>
+          <svg class="icon-check" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
         </button>
       </div>
     </div>
@@ -6550,6 +6580,49 @@ GET  /v1/usage               Usage stats`,
     const composerTa = composer.querySelector('textarea');
     const composerSend = composer.querySelector('.send');
 
+    // Composer lives in two modes. "send" is the default: typed text
+    // goes to Fathom's chat listener via POST /chat. "resume" is for
+    // claude-code sessions, which run in the user's kitty window and
+    // can't be continued in-browser — we pre-fill a `claude --resume
+    // <uuid>` command and turn the send button into a copy affordance.
+    // Same DOM; just a data-mode flip on the composer element.
+    function setComposerMode(mode, opts = {}) {
+      const prev = composer.dataset.mode || 'send';
+      if (mode === 'resume') {
+        composer.dataset.mode = 'resume';
+        const sid = opts.sessionId || '';
+        composerTa.value = sid ? `claude --resume ${sid}` : '';
+        composerTa.placeholder = '';
+        composerTa.style.height = 'auto';
+        composerSend.setAttribute('aria-label', 'Copy command');
+        composerSend.removeAttribute('data-copied');
+      } else {
+        if (prev === 'resume') composerTa.value = '';
+        composer.dataset.mode = 'send';
+        composerTa.placeholder = 'Ask Fathom…';
+        composerSend.setAttribute('aria-label', 'Send');
+        composerSend.removeAttribute('data-copied');
+      }
+    }
+    setComposerMode('send');
+
+    async function copyComposerCommand() {
+      const text = composerTa.value;
+      try {
+        await navigator.clipboard.writeText(text);
+      } catch {
+        // Clipboard denied (insecure context etc.) — fall back to select
+        composerTa.select();
+        return;
+      }
+      composerSend.dataset.copied = 'true';
+      setTimeout(() => {
+        if (composerSend.dataset.copied === 'true') {
+          composerSend.removeAttribute('data-copied');
+        }
+      }, 1400);
+    }
+
     // ── Live session management ────────────────
 
     const PH_TRIANGLE = '<svg class="ph-triangle" viewBox="0 0 340 256" fill="currentColor"><g transform="rotate(20.4 128 150)" opacity="0.28"><path d="M236.8,188.09,149.35,36.22a24.76,24.76,0,0,0-42.7,0L19.2,188.09a23.51,23.51,0,0,0,0,23.72A24.35,24.35,0,0,0,40.55,224h174.9a24.35,24.35,0,0,0,21.33-12.19A23.51,23.51,0,0,0,236.8,188.09ZM222.93,203.8a8.5,8.5,0,0,1-7.48,4.2H40.55a8.5,8.5,0,0,1-7.48-4.2,7.59,7.59,0,0,1,0-7.72L120.52,44.21a8.75,8.75,0,0,1,15,0l87.45,151.87A7.59,7.59,0,0,1,222.93,203.8Z"/></g><g transform="translate(41 0) rotate(-17.2 128 150)" opacity="0.58"><path d="M236.8,188.09,149.35,36.22a24.76,24.76,0,0,0-42.7,0L19.2,188.09a23.51,23.51,0,0,0,0,23.72A24.35,24.35,0,0,0,40.55,224h174.9a24.35,24.35,0,0,0,21.33-12.19A23.51,23.51,0,0,0,236.8,188.09ZM222.93,203.8a8.5,8.5,0,0,1-7.48,4.2H40.55a8.5,8.5,0,0,1-7.48-4.2,7.59,7.59,0,0,1,0-7.72L120.52,44.21a8.75,8.75,0,0,1,15,0l87.45,151.87A7.59,7.59,0,0,1,222.93,203.8Z"/></g><g transform="translate(82 0) rotate(0.4 128 150)"><path d="M149.35,36.22a24.76,24.76,0,0,0-42.7,0L19.2,188.09a23.51,23.51,0,0,0,0,23.72A24.35,24.35,0,0,0,40.55,224h174.9a24.35,24.35,0,0,0,21.33-12.19,23.51,23.51,0,0,0,0-23.72Z"/></g></svg>';
@@ -6897,7 +6970,7 @@ GET  /v1/usage               Usage stats`,
       }
     });
 
-    async function openChatWithSession(sessionId, title) {
+    async function openChatWithSession(sessionId, title, isClaudeCode = false) {
       _stopChatPoll();
       _renderedMessageIds = new Set();
       // Drop any pending seed-card pairing — the user navigated away from
@@ -6908,6 +6981,10 @@ GET  /v1/usage               Usage stats`,
       currentSessionId = sessionId;
       chatStream.innerHTML = '<div class="session-stamp">Loading…</div>';
       hideMainOpenChat();
+      // Claude-code sessions can't be driven from the browser — flip the
+      // composer into resume-command mode so the user can continue in
+      // their terminal. Consumer-api sessions stay in send mode.
+      setComposerMode(isClaudeCode ? 'resume' : 'send', { sessionId });
 
       try {
         const data = await api(`/v1/sessions/${sessionId}`);
@@ -6943,6 +7020,7 @@ GET  /v1/usage               Usage stats`,
       chatTitle.textContent = 'New session';
       currentSessionId = null;
       chatStream.innerHTML = '<div class="session-stamp">New session · just now</div>';
+      setComposerMode('send');
       hideMainOpenChat();
       setTimeout(() => composerTa && composerTa.focus(), 100);
     }
@@ -6960,6 +7038,7 @@ GET  /v1/usage               Usage stats`,
       // Drop the seed-card pairing if the user backed out without sending —
       // the chat-engagement signal only fires on actual conversation.
       _seedCard = null;
+      setComposerMode('send');
       viewChat.hidden = true;
       viewMain.hidden = false;
       syncComposer();
@@ -7035,7 +7114,7 @@ GET  /v1/usage               Usage stats`,
               sidebarBody.querySelectorAll('.session-item.active').forEach(a => a.classList.remove('active'));
               btn.classList.add('active');
               if (isMobile()) closeSidebar();
-              openChatWithSession(s.id, s.title);
+              openChatWithSession(s.id, s.title, isClaudeCodeSession(s));
             });
             li.appendChild(btn);
             ul.appendChild(li);
@@ -7206,11 +7285,19 @@ GET  /v1/usage               Usage stats`,
       }
     }
 
-    composerSend.addEventListener('click', sendFromComposer);
+    function composerAction() {
+      if (composer.dataset.mode === 'resume') {
+        copyComposerCommand();
+      } else {
+        sendFromComposer();
+      }
+    }
+
+    composerSend.addEventListener('click', composerAction);
     composerTa.addEventListener('keydown', (e) => {
       if (e.key === 'Enter' && !e.shiftKey) {
         e.preventDefault();
-        sendFromComposer();
+        composerAction();
       }
     });
 
