@@ -215,7 +215,7 @@ async def synthesize_mood(session_slug: str | None = None) -> dict | None:
 
     try:
         resp = await llm.chat.completions.create(
-            model=settings.resolved_model,
+            model=settings.resolved_model_medium,
             messages=[
                 {"role": "system", "content": MOOD_DIRECTIVE},
                 {"role": "user", "content": user_message},

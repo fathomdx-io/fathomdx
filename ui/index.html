@@ -1192,6 +1192,44 @@
     .settings-tab.active { color: var(--accent); border-bottom-color: var(--accent); }
     .settings-panel[hidden] { display: none; }
 
+    /* Models tab — one card per tier */
+    .model-tier {
+      border: 1px solid var(--border); border-radius: 8px;
+      padding: 16px 18px; margin-bottom: 12px;
+      background: var(--bg-elev, transparent);
+    }
+    .model-tier-head {
+      display: flex; justify-content: space-between; align-items: baseline;
+      gap: 12px; margin-bottom: 6px;
+    }
+    .model-tier-label { font-size: 15px; color: var(--ink); font-weight: 500; }
+    .model-tier-uses { font-size: 12px; color: var(--ink-faint); line-height: 1.5; margin-bottom: 12px; }
+    .model-tier-value {
+      font-family: var(--mono); font-size: 14px; color: var(--ink);
+      background: var(--bg-sunk, rgba(0,0,0,0.04));
+      padding: 8px 12px; border-radius: 6px;
+      display: flex; align-items: center; gap: 10px;
+    }
+    .model-tier-rec {
+      font-family: var(--sans, inherit); font-size: 11.5px;
+      color: var(--accent); font-style: italic;
+    }
+    .model-tier-hint {
+      font-size: 12px; color: var(--ink-faint);
+      margin-top: 8px;
+    }
+    .model-tier-hint code {
+      background: var(--bg-sunk, rgba(0,0,0,0.04));
+      padding: 1px 5px; border-radius: 3px;
+      font-size: 11.5px;
+    }
+    .model-provider-row {
+      display: flex; flex-direction: column; gap: 4px;
+      padding: 10px 14px;
+      background: var(--bg-sunk, rgba(0,0,0,0.03));
+      border-radius: 6px;
+    }
+
     /* Profile hero — avatar + name/slug/role + sign out */
     .profile-hero {
       display: flex; align-items: center; gap: 16px;
@@ -2814,6 +2852,7 @@
       <div class="settings-tabs" role="tablist">
         <button class="settings-tab active" data-tab="account" role="tab">Account</button>
         <button class="settings-tab" data-tab="keys" role="tab" data-admin-only>API Keys</button>
+        <button class="settings-tab" data-tab="models" role="tab" data-admin-only>Models</button>
         <button class="settings-tab" data-tab="admin" role="tab" data-admin-only>Admin</button>
       </div>
 
@@ -2925,6 +2964,24 @@
           </div>
         </section>
       </div><!-- /account panel -->
+
+      <!-- ═══ MODELS TAB (admin-only) ═══════════════════ -->
+      <div class="settings-panel" data-panel="models" data-admin-only hidden>
+        <section class="section">
+          <div class="section-head">
+            <h2>Models</h2>
+            <span class="meta">which LLM runs which task</span>
+          </div>
+          <p style="font-size: 14px; color: var(--ink-soft); line-height: 1.55; margin: 0 0 18px;">
+            Fathom's call-sites are grouped by difficulty. The hard tier handles the chat loop and crystal regeneration — tool use, structured output, voice. The medium tier handles search planning, mood, and feed crystal; a cheaper model is fine here. Change either by setting the listed env var in <code>.env</code> and restarting the api.
+          </p>
+          <div id="modelsProvider" class="model-provider-row" style="margin-bottom: 18px;">
+            <div class="meta">Provider</div>
+            <div class="mono" id="modelsProviderValue">…</div>
+          </div>
+          <div id="modelsTiers"></div>
+        </section>
+      </div><!-- /models panel -->
 
       <!-- ═══ API KEYS TAB (admin-only) ═════════════════ -->
       <div class="settings-panel" data-panel="keys" data-admin-only hidden>
@@ -5157,6 +5214,53 @@
       // Lazy-load when switching into tabs that pull heavier data.
       if (which === 'keys') loadTokens();
       if (which === 'admin') loadContacts();
+      if (which === 'models') loadModelsSettings();
+    }
+
+    // ── Models settings (read-only in v1) ────────
+    // Pulls the tier-aware model config from /v1/settings/models and
+    // renders one card per tier. "(recommended)" appears when the
+    // current pick matches PROVIDER_DEFAULTS for the active provider.
+    // Editing happens in .env + restart for now; no live write path yet.
+    async function loadModelsSettings() {
+      const providerEl = document.getElementById('modelsProviderValue');
+      const tiersEl = document.getElementById('modelsTiers');
+      if (!providerEl || !tiersEl) return;
+      providerEl.textContent = '…';
+      tiersEl.innerHTML = '';
+      let data;
+      try {
+        data = await api('/v1/settings/models');
+      } catch (e) {
+        tiersEl.innerHTML = `<div class="meta" style="color: var(--danger);">Couldn't load: ${_esc(String(e))}</div>`;
+        return;
+      }
+      providerEl.textContent = data.provider || '(unset)';
+      tiersEl.innerHTML = (data.tiers || []).map(t => {
+        const current = t.current || '(unset)';
+        const recommended = t.recommended || '';
+        const isRec = recommended && current === recommended;
+        const recBadge = isRec
+          ? `<span class="model-tier-rec">(recommended)</span>`
+          : recommended
+            ? `<span class="model-tier-rec" style="color: var(--ink-faint); font-style: normal;">recommended: ${_esc(recommended)}</span>`
+            : '';
+        return `
+          <div class="model-tier">
+            <div class="model-tier-head">
+              <div class="model-tier-label">${_esc(t.label)}</div>
+            </div>
+            <div class="model-tier-uses">${_esc(t.uses)}</div>
+            <div class="model-tier-value">
+              <span>${_esc(current)}</span>
+              ${recBadge}
+            </div>
+            <div class="model-tier-hint">
+              Set with <code>${_esc(t.env_var)}=&lt;model&gt;</code> in <code>.env</code> and restart the api.
+            </div>
+          </div>
+        `;
+      }).join('');
     }
 
     // ── Sign out (button lives in the Profile hero) ───

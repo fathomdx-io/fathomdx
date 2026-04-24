@@ -397,7 +397,7 @@ async def synthesize(contact_slug: str) -> dict | None:
 
     try:
         resp = await llm.chat.completions.create(
-            model=settings.resolved_model,
+            model=settings.resolved_model_medium,
             messages=[
                 {"role": "system", "content": FEED_CRYSTAL_DIRECTIVE},
                 {"role": "user", "content": user_message},

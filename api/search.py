@@ -87,7 +87,7 @@ async def _generate_plan(
 
     try:
         resp = await llm.chat.completions.create(
-            model=settings.resolved_model,
+            model=settings.resolved_model_medium,
             messages=[
                 {"role": "system", "content": SEARCH_PLANNER_PROMPT},
                 {"role": "user", "content": prompt},
@@ -227,7 +227,7 @@ async def _synthesize_thinking(
     body = _sediment_prompt_body(query, deltas_by_step)
     try:
         resp = await llm.chat.completions.create(
-            model=settings.resolved_model,
+            model=settings.resolved_model_medium,
             messages=[
                 {"role": "system", "content": SEDIMENT_SYNTHESIS_PROMPT},
                 {"role": "user", "content": body},

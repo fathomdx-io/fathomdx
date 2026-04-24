@@ -319,7 +319,11 @@ async def fathom_think(
     Returns the full messages list with the final assistant response as the
     last entry.
     """
-    model = model or settings.resolved_model
+    # Default to the hard-tier model — fathom_think is the chat loop +
+    # crystal regen path, both of which need tool-use + structured-output
+    # reliability. Callers that want a cheaper model for a specific task
+    # can pass `model=` explicitly.
+    model = model or settings.resolved_model_hard
 
     # Resolve tool surface: replace, extend, or default
     resolved_tools = tools if tools is not None else TOOLS
@@ -685,6 +689,40 @@ async def list_models():
                 "object": "model",
                 "owned_by": settings.provider,
             }
+        ],
+    }
+
+
+@app.get("/v1/settings/models")
+async def settings_models():
+    """Tier-aware model config for the Settings → Models UI.
+
+    Returns the active provider, the current pick per tier, and the
+    recommended pick per tier (so the UI can mark a match as
+    "recommended"). Read-only in v1; editing lives in .env for now.
+    """
+    from .settings import PROVIDER_DEFAULTS
+
+    recs = PROVIDER_DEFAULTS.get(settings.provider, {})
+    return {
+        "provider": settings.provider,
+        "tiers": [
+            {
+                "id": "hard",
+                "label": "Main chat & heavy work",
+                "uses": "Chat loop, identity-crystal regeneration",
+                "current": settings.resolved_model_hard,
+                "recommended": recs.get("hard", ""),
+                "env_var": "LLM_MODEL_HARD",
+            },
+            {
+                "id": "medium",
+                "label": "Standard tasks",
+                "uses": "Search planning, mood synthesis, feed crystal",
+                "current": settings.resolved_model_medium,
+                "recommended": recs.get("medium", ""),
+                "env_var": "LLM_MODEL_MEDIUM",
+            },
         ],
     }
 

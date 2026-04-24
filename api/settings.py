@@ -5,18 +5,32 @@ from __future__ import annotations
 from pydantic import Field
 from pydantic_settings import BaseSettings
 
+# Per-provider model picks, grouped by difficulty tier. Picks are
+# opinionated choices that balance capability against cost; they're not
+# authoritative — verify against the provider's current lineup when
+# model families age out. Users override via LLM_MODEL_HARD /
+# LLM_MODEL_MEDIUM in .env (with LLM_MODEL as a back-compat alias for
+# hard). Two tiers today:
+#   hard   — chat loop, identity-crystal regen. Needs tool use,
+#            structured output, voice. Don't under-spec this.
+#   medium — search planning, mood synth, feed-crystal, in-turn prose.
+#            Fine to run on a cheaper model; under-speccing shows up as
+#            weaker memory routing, not broken conversation.
 PROVIDER_DEFAULTS: dict[str, dict[str, str]] = {
     "gemini": {
         "base_url": "https://generativelanguage.googleapis.com/v1beta/openai/",
-        "model": "gemini-2.5-flash",
+        "medium": "gemini-2.5-flash",
+        "hard": "gemini-2.5-pro",
     },
     "openai": {
         "base_url": "https://api.openai.com/v1/",
-        "model": "gpt-4o",
+        "medium": "gpt-4o-mini",
+        "hard": "gpt-4o",
     },
     "ollama": {
         "base_url": "http://localhost:11434/v1/",
-        "model": "llama3.1",
+        "medium": "llama3.1:8b",
+        "hard": "qwen2.5:32b",  # ~20GB VRAM; drop to :14b on a 16GB box
     },
 }
 
@@ -28,7 +42,11 @@ class Settings(BaseSettings):
     provider: str = Field("gemini", validation_alias="LLM_PROVIDER")
     api_key: str = Field("", validation_alias="LLM_API_KEY")
     base_url: str = Field("", validation_alias="LLM_BASE_URL")  # overrides provider default
-    model: str = Field("", validation_alias="LLM_MODEL")  # overrides provider default
+    # Per-tier overrides. LLM_MODEL is the pre-tier name; it still works
+    # and maps to the hard tier so existing .env files keep running.
+    model: str = Field("", validation_alias="LLM_MODEL")
+    model_hard: str = Field("", validation_alias="LLM_MODEL_HARD")
+    model_medium: str = Field("", validation_alias="LLM_MODEL_MEDIUM")
 
     # Delta store
     delta_store_url: str = "http://localhost:8100"
@@ -109,10 +127,26 @@ class Settings(BaseSettings):
         return PROVIDER_DEFAULTS.get(self.provider, {}).get("base_url", "")
 
     @property
-    def resolved_model(self) -> str:
-        if self.model:
+    def resolved_model_hard(self) -> str:
+        """Model for the chat loop and identity-crystal regen."""
+        if self.model_hard:
+            return self.model_hard
+        if self.model:  # back-compat: bare LLM_MODEL means "the chat model"
             return self.model
-        return PROVIDER_DEFAULTS.get(self.provider, {}).get("model", "")
+        return PROVIDER_DEFAULTS.get(self.provider, {}).get("hard", "")
+
+    @property
+    def resolved_model_medium(self) -> str:
+        """Model for search planning, mood, feed-crystal."""
+        if self.model_medium:
+            return self.model_medium
+        return PROVIDER_DEFAULTS.get(self.provider, {}).get("medium", "")
+
+    # Backwards-compatible alias for call-sites that only ever wanted
+    # "the chat model" — keep pointing them at the hard tier.
+    @property
+    def resolved_model(self) -> str:
+        return self.resolved_model_hard
 
 
 settings = Settings()
