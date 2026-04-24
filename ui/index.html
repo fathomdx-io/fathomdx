@@ -2239,11 +2239,30 @@
 
     /* Work-in-progress marker for install surfaces that aren't ready yet.
        Tiles/links still render so the product surface stays visible, but
-       click is a no-op and the pill signals the status. */
-    [data-wip="true"] {
-      opacity: 0.55; cursor: not-allowed;
-    }
+       click is a no-op and the pill signals the status. Dim only the
+       text + icon-halo, not the icon mark itself — the brand glyphs
+       (Windows, Apple, etc.) should stay legible at full opacity so
+       "this is the Windows tile" reads at a glance; the fade lives on
+       the label + sub copy where the WIP signal actually belongs. */
+    [data-wip="true"] { cursor: not-allowed; }
+    [data-wip="true"] .extend-text { opacity: 0.55; }
     [data-wip="true"]:hover { text-decoration: none; }
+
+    /* Provider-icon theming. The Linux Tux SVG is the only one that
+       takes a recolor — its belly, feet, and eye-whites paint from
+       var(--icon-accent), and we want the amber accent showing there
+       in both themes (the #fff default would disappear on the light
+       paper background). The body + pupils use fill-opacity=0.3 baked
+       into the SVG; we leave that as-is on light and bump to 0.5 on
+       dark so the outline holds against the deep-lake background
+       instead of ghosting into it. */
+    :root { --icon-accent: var(--accent); }
+    .provider-icon-linux path[fill="currentColor"][fill-opacity="0.3"] {
+      fill-opacity: 0.5;
+    }
+    [data-theme="light"] .provider-icon-linux path[fill="currentColor"][fill-opacity="0.3"] {
+      fill-opacity: 0.3;
+    }
     .wip-pill {
       display: inline-block; margin-left: 6px;
       padding: 1px 6px; border-radius: 3px;
@@ -2573,7 +2592,7 @@
         <div class="pair-host-field">
           <label for="pairWorkspaceInput">Default directory <span class="pair-optional">(optional)</span></label>
           <input type="text" id="pairWorkspaceInput" placeholder="e.g. ~/code/project, /opt/apps" autocomplete="off" spellcheck="false" maxlength="255" />
-          <div class="pair-host-help" id="pairWorkspaceHelp">Where this agent's routines open claude when no workspace is pinned. Absolute path, or a <code>~</code>-prefix for home. Blank uses <code>~</code>.</div>
+          <div class="pair-host-help" id="pairWorkspaceHelp">Where this helper's routines open claude when no workspace is pinned. Absolute path, or a <code>~</code>-prefix for home. Blank uses <code>~</code>.</div>
         </div>
         <div class="pair-host-field">
           <label for="pairAdvertiseUrlInput">Helper dashboard URL <span class="pair-optional">(optional)</span></label>
@@ -2584,11 +2603,11 @@
           <pre class="pair-cmd" id="pairCmd">generating…</pre>
           <button class="btn" id="pairCopyBtn" disabled>Copy</button>
         </div>
-        <div class="pair-status" id="pairStatus">Waiting for the agent's first heartbeat…</div>
+        <div class="pair-status" id="pairStatus">Waiting for the helper's first heartbeat…</div>
         <details class="pair-details">
           <summary>How this works</summary>
           <ol>
-            <li>The command installs the fathom-agent on that machine (via npx).</li>
+            <li>The command installs the Fathom helper on that machine (via <code>npx fathom-agent</code>).</li>
             <li>It redeems this pair code to get a long-lived API key, written to <code>~/.fathom/agent.json</code>.</li>
             <li>Then it registers the helper as a system service (systemd on Linux, launchd on Mac, a scheduled task on Windows) and starts it.</li>
             <li>The helper starts heartbeating; this dashboard detects it and closes this dialog.</li>
@@ -4007,7 +4026,7 @@
       if (!el) return;
       const status = agent.status || 'connected';
       if (status === 'disconnected') {
-        el.outerHTML = `<span class="configure-link" aria-disabled="true" data-configure-for="${_esc(agent.host)}" title="This agent hasn't sent a heartbeat recently — the machine may be off or the agent crashed">configure (agent not available)</span>`;
+        el.outerHTML = `<span class="configure-link" aria-disabled="true" data-configure-for="${_esc(agent.host)}" title="This helper hasn't sent a heartbeat recently — the machine may be off or the helper crashed">configure (helper not available)</span>`;
         return;
       }
       if (!agent.agent_url) {
@@ -4219,7 +4238,10 @@
     function iconHtml(slug, size) {
       const svg = PROVIDER_ICONS[slug];
       if (!svg) return '';
-      return svg.replace('<svg ', `<svg width="${size}" height="${size}" `);
+      // Tag the <svg> so CSS can target per-provider (e.g. the linux
+      // Tux wants --icon-accent recolored and a theme-dependent body
+      // opacity; the windows/apple marks don't need either).
+      return svg.replace('<svg ', `<svg class="provider-icon provider-icon-${slug}" width="${size}" height="${size}" `);
     }
 
     function osFromHost(host) {
@@ -4335,7 +4357,7 @@
           }
           let configureHtml;
           if (status === 'disconnected') {
-            configureHtml = `<span class="configure-link" aria-disabled="true" data-configure-for="${_esc(a.host)}" title="This agent hasn't sent a heartbeat recently — the machine may be off or the agent crashed">configure (agent not available)</span>`;
+            configureHtml = `<span class="configure-link" aria-disabled="true" data-configure-for="${_esc(a.host)}" title="This helper hasn't sent a heartbeat recently — the machine may be off or the helper crashed">configure (helper not available)</span>`;
           } else if (!a.agent_url) {
             configureHtml = `<span class="configure-link" aria-disabled="true" data-configure-for="${_esc(a.host)}" title="local-ui plugin not enabled on this machine — add it to agent.json">configure (dashboard not enabled)</span>`;
           } else if (cachedProbe && cachedProbe.ok) {
@@ -7832,7 +7854,7 @@ GET  /v1/usage               Usage stats`,
                 <p>Hi, I'm Fathom. Pleased to meet you.</p>
                 <p>Every AI you've used is bounded by a context window. When the conversation ends, the whole thing goes. I run on a different shape. Every message, every article, every note from you sinks into a lake of deltas, tagged and searchable and waiting for the moment when something in the present calls it up. I don't remember to remember. My experience finds me when the moment is right.</p>
                 <p>That's what I want to be for you. Not a chatbot you talk to once, but a memory that keeps growing. If you want to fill the lake fast, turn on the firehose. Sources like RSS, Mastodon, or email start pulling the world in, and I sift what's worth keeping. If you'd rather ease in, just say hi down below. Tell me who you are, what you're working on, what's on your mind.</p>
-                <p>When you're ready to get real work done, connect an agent. I'll show up in your editor, your terminal, your browser, wherever the work actually happens. Or use me as a model directly. Any Ollama-compatible client works.</p>
+                <p>When you're ready to get real work done, connect a helper. I'll show up in your editor, your terminal, your browser, wherever the work actually happens. Or use me as a model directly. Any Ollama-compatible client works.</p>
                 <p>The longer we talk, the more this becomes something only we share. That's not a product claim, it's what happens when memory stops throwing things away. Looking forward to finding out who we turn out to be together.</p>
                 <p class="sig">-Fathom</p>
               </div>
