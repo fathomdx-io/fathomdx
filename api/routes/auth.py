@@ -51,13 +51,99 @@ def _slugify(raw: str) -> str:
 
 @router.get("/v1/auth/bootstrap-status")
 async def bootstrap_status():
-    """Return whether this instance still needs first-run onboarding.
+    """Return whether this instance still needs first-run onboarding,
+    and whether open self-signup is enabled.
 
-    True when no active admin contact exists in the registry. The UI
-    uses this to decide between onboarding.html and the dashboard on
-    first boot."""
+    `needs_bootstrap` is true when no active admin contact exists yet —
+    the UI uses it to decide between the bootstrap onboarding form and
+    the dashboard on first boot. `signup_enabled` tells the UI whether
+    to expose a "new here?" path for additional (member) contacts after
+    bootstrap has already happened; it follows FATHOM_SIGNUP_ENABLED and
+    defaults on for self-hosted instances.
+    """
+    from ..settings import settings
+
     slug = await contacts_mod.first_admin_slug()
-    return {"needs_bootstrap": slug is None}
+    return {
+        "needs_bootstrap": slug is None,
+        "signup_enabled": bool(settings.signup_enabled),
+    }
+
+
+# ── New-contact self-signup ──────────────────────
+#
+# Post-bootstrap, a new person hitting /ui/onboarding.html can create
+# their own contact + get a token back. The returned token auto-logs
+# them in on the dashboard. Member-scoped: no sources:manage / no
+# tokens:manage (admins keep those powers). Gated by
+# FATHOM_SIGNUP_ENABLED so operators running a public instance can
+# close the door and require admin-minted pair codes instead.
+
+
+MEMBER_SCOPES = ["lake:read", "lake:write", "chat"]
+
+
+@router.post("/v1/auth/register", status_code=201)
+async def register(body: BootstrapBody):
+    """Create a new member contact + mint a token for them.
+
+    Returns the same shape as /v1/auth/bootstrap so the UI can treat
+    both flows uniformly. 403 if signup is disabled; 409 if the
+    requested slug already exists (tombstoned slugs included, so we
+    don't silently merge into a prior contact's delta stream).
+    """
+    from ..settings import settings
+
+    if not settings.signup_enabled:
+        raise HTTPException(403, "Self-signup is disabled on this instance")
+
+    # After bootstrap only — before bootstrap, callers should use the
+    # bootstrap endpoint so the first contact lands with admin role.
+    first_admin = await contacts_mod.first_admin_slug()
+    if not first_admin:
+        raise HTTPException(
+            409,
+            "This instance hasn't been bootstrapped yet — use /v1/auth/bootstrap first",
+        )
+
+    display_name = (body.display_name or "").strip()
+    if not display_name:
+        raise HTTPException(400, "display_name is required")
+
+    slug = _slugify(body.slug or display_name)
+
+    existing_row = await delta_client.get_contact_row(slug, include_disabled=True)
+    if existing_row:
+        raise HTTPException(409, f"Slug '{slug}' already exists")
+
+    initial_profile: dict = {"role": "member", "display_name": display_name}
+    if body.profile:
+        for key in ("pronouns", "timezone", "language", "bio", "aliases", "avatar"):
+            v = body.profile.get(key)
+            if v is not None:
+                initial_profile[key] = v
+
+    contact = await contacts_mod.create(slug, initial_profile=initial_profile, actor_slug=None)
+
+    if body.email:
+        email = body.email.strip()
+        if email:
+            try:
+                await delta_client.add_handle(slug, "email", email)
+            except Exception:
+                log.exception("register: add_handle(email) failed for %s", slug)
+
+    token_result = auth_mod.create_token(
+        name=f"Member ({display_name})",
+        scopes=MEMBER_SCOPES,
+        contact_slug=slug,
+    )
+
+    auth_mod.invalidate_contact_cache(slug)
+
+    hydrated = await contacts_mod.get(slug) or contact
+
+    return {"token": token_result["token"], "contact": hydrated}
 
 
 @router.post("/v1/auth/bootstrap", status_code=201)

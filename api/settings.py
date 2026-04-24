@@ -86,6 +86,15 @@ class Settings(BaseSettings):
     mood_state_path: str = "/data/mood-state.json"
     pair_codes_path: str = "/data/pair-codes.json"
 
+    # Self-signup gate. When on, POST /v1/auth/register is open: a new
+    # person can create their own member-scoped contact + token via the
+    # onboarding page without an admin present. Off means only
+    # admin-minted pair codes can onboard new contacts. Default on
+    # because self-hosted single-box installs typically run on a LAN
+    # where open signup is the frictionless default; operators running
+    # a public instance should flip this.
+    signup_enabled: bool = Field(True, validation_alias="FATHOM_SIGNUP_ENABLED")
+
     # Allowlist directory for `image_path` on POST /v1/deltas and the
     # `write` tool. When a caller hands the api a local filesystem path
     # instead of base64, the api reads that path — a bare acceptance

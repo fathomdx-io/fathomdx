@@ -40,8 +40,10 @@
       font-family: var(--serif); font-size: var(--text-2xl);
       color: var(--ink); letter-spacing: 0.01em;
       margin: 0 0 22px;
+      display: inline-flex; align-items: baseline;
     }
-    .brand .brand-mark { color: var(--accent); margin-left: 4px; }
+    .brand .brand-mark { color: var(--accent); margin-left: 4px; display: inline-flex; vertical-align: baseline; }
+    .brand .ph-triangle { height: 20px; width: auto; vertical-align: -2px; }
     .letter {
       font-family: var(--serif); line-height: 1.6;
       color: var(--ink-soft); margin: 0 0 26px;
@@ -132,7 +134,7 @@
 </head>
 <body>
   <div class="card">
-    <div class="brand">Fathom<span class="brand-mark">▲</span></div>
+    <div class="brand">fathom<span class="brand-mark"><svg class="ph-triangle" viewBox="0 0 340 256" fill="currentColor"><g transform="rotate(20.4 128 150)" opacity="0.28"><path d="M236.8,188.09,149.35,36.22a24.76,24.76,0,0,0-42.7,0L19.2,188.09a23.51,23.51,0,0,0,0,23.72A24.35,24.35,0,0,0,40.55,224h174.9a24.35,24.35,0,0,0,21.33-12.19A23.51,23.51,0,0,0,236.8,188.09ZM222.93,203.8a8.5,8.5,0,0,1-7.48,4.2H40.55a8.5,8.5,0,0,1-7.48-4.2,7.59,7.59,0,0,1,0-7.72L120.52,44.21a8.75,8.75,0,0,1,15,0l87.45,151.87A7.59,7.59,0,0,1,222.93,203.8Z"/></g><g transform="translate(41 0) rotate(-17.2 128 150)" opacity="0.58"><path d="M236.8,188.09,149.35,36.22a24.76,24.76,0,0,0-42.7,0L19.2,188.09a23.51,23.51,0,0,0,0,23.72A24.35,24.35,0,0,0,40.55,224h174.9a24.35,24.35,0,0,0,21.33-12.19A23.51,23.51,0,0,0,236.8,188.09ZM222.93,203.8a8.5,8.5,0,0,1-7.48,4.2H40.55a8.5,8.5,0,0,1-7.48-4.2,7.59,7.59,0,0,1,0-7.72L120.52,44.21a8.75,8.75,0,0,1,15,0l87.45,151.87A7.59,7.59,0,0,1,222.93,203.8Z"/></g><g transform="translate(82 0) rotate(0.4 128 150)"><path d="M149.35,36.22a24.76,24.76,0,0,0-42.7,0L19.2,188.09a23.51,23.51,0,0,0,0,23.72A24.35,24.35,0,0,0,40.55,224h174.9a24.35,24.35,0,0,0,21.33-12.19,23.51,23.51,0,0,0,0-23.72Z"/></g></svg></span></div>
     <div class="letter">
       <p>Hi, I'm Fathom. Pleased to meet you.</p>
       <p>Before we start, who am I talking to? Tell me what to call you and I'll remember it from here on out.</p>
@@ -287,17 +289,47 @@
       el.className = 'status show ' + kind;
     }
 
-    // If already bootstrapped, don't linger on this page.
+    // Two flows share this page:
+    //   - needs_bootstrap=true  → creates the first admin (POST /v1/auth/bootstrap)
+    //   - already bootstrapped  → creates a new member contact (POST /v1/auth/register)
+    // The mode decides the copy, the submit endpoint, and whether we
+    // show the page at all (if signup is disabled after bootstrap, we
+    // punt back to the login page).
+    let _mode = 'bootstrap';  // fallback until probe returns
     (async () => {
       try {
         const r = await fetch(API_BASE + '/v1/auth/bootstrap-status');
         if (!r.ok) return;
         const info = await r.json();
-        if (!info.needs_bootstrap) {
-          location.replace('/ui/');
+        if (info.needs_bootstrap) {
+          _mode = 'bootstrap';
+          return;
         }
+        if (!info.signup_enabled) {
+          // Already bootstrapped and registration is closed — nothing
+          // for a new visitor to do here.
+          location.replace('/ui/login.html');
+          return;
+        }
+        _mode = 'register';
+        _applyRegisterCopy();
       } catch (e) {}
     })();
+
+    function _applyRegisterCopy() {
+      // Rewrite the letter so a new member doesn't read the "first-run"
+      // framing. The shape of the form (display name, more info) is the
+      // same; only the surrounding prose + submit label change.
+      const letter = document.querySelector('.letter');
+      if (letter) {
+        letter.innerHTML = `
+          <p>Welcome. Tell me who you are and I'll open a space for you in this lake.</p>
+          <p>Your reply threads, feed, and engagement all land under this identity — a contact named for you, with the profile you sketch below. You can change any of it later.</p>
+        `;
+      }
+      const btn = document.getElementById('submitBtn');
+      if (btn) btn.textContent = 'Create account';
+    }
 
     document.getElementById('onboardingForm').addEventListener('submit', async (ev) => {
       ev.preventDefault();
@@ -328,8 +360,9 @@
       const email = document.getElementById('email').value.trim();
 
       btn.disabled = true;
+      const endpoint = _mode === 'register' ? '/v1/auth/register' : '/v1/auth/bootstrap';
       try {
-        const r = await fetch(API_BASE + '/v1/auth/bootstrap', {
+        const r = await fetch(API_BASE + endpoint, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({

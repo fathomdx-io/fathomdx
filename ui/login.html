@@ -42,8 +42,10 @@
       font-family: var(--serif); font-size: var(--text-2xl);
       color: var(--ink); letter-spacing: 0.01em;
       margin: 0 0 22px;
+      display: inline-flex; align-items: baseline;
     }
-    .brand .brand-mark { color: var(--accent); margin-left: 4px; }
+    .brand .brand-mark { color: var(--accent); margin-left: 4px; display: inline-flex; vertical-align: baseline; }
+    .brand .ph-triangle { height: 20px; width: auto; vertical-align: -2px; }
     h1 {
       margin: 0 0 10px; font-family: var(--serif);
       font-size: var(--text-2xl); font-weight: 400; letter-spacing: 0.005em;
@@ -108,11 +110,13 @@
       padding: 2px 6px; border-radius: 4px;
       font-size: 11.5px; color: var(--ink-soft);
     }
+    .hint a { color: var(--accent); text-decoration: none; }
+    .hint a:hover { text-decoration: underline; }
   </style>
 </head>
 <body>
   <div class="card">
-    <div class="brand">Fathom<span class="brand-mark">▲</span></div>
+    <div class="brand">fathom<span class="brand-mark"><svg class="ph-triangle" viewBox="0 0 340 256" fill="currentColor"><g transform="rotate(20.4 128 150)" opacity="0.28"><path d="M236.8,188.09,149.35,36.22a24.76,24.76,0,0,0-42.7,0L19.2,188.09a23.51,23.51,0,0,0,0,23.72A24.35,24.35,0,0,0,40.55,224h174.9a24.35,24.35,0,0,0,21.33-12.19A23.51,23.51,0,0,0,236.8,188.09ZM222.93,203.8a8.5,8.5,0,0,1-7.48,4.2H40.55a8.5,8.5,0,0,1-7.48-4.2,7.59,7.59,0,0,1,0-7.72L120.52,44.21a8.75,8.75,0,0,1,15,0l87.45,151.87A7.59,7.59,0,0,1,222.93,203.8Z"/></g><g transform="translate(41 0) rotate(-17.2 128 150)" opacity="0.58"><path d="M236.8,188.09,149.35,36.22a24.76,24.76,0,0,0-42.7,0L19.2,188.09a23.51,23.51,0,0,0,0,23.72A24.35,24.35,0,0,0,40.55,224h174.9a24.35,24.35,0,0,0,21.33-12.19A23.51,23.51,0,0,0,236.8,188.09ZM222.93,203.8a8.5,8.5,0,0,1-7.48,4.2H40.55a8.5,8.5,0,0,1-7.48-4.2,7.59,7.59,0,0,1,0-7.72L120.52,44.21a8.75,8.75,0,0,1,15,0l87.45,151.87A7.59,7.59,0,0,1,222.93,203.8Z"/></g><g transform="translate(82 0) rotate(0.4 128 150)"><path d="M149.35,36.22a24.76,24.76,0,0,0-42.7,0L19.2,188.09a23.51,23.51,0,0,0,0,23.72A24.35,24.35,0,0,0,40.55,224h174.9a24.35,24.35,0,0,0,21.33-12.19,23.51,23.51,0,0,0,0-23.72Z"/></g></svg></span></div>
     <h1>Sign in</h1>
     <p class="subtitle">Paste an API key to sign in. Each key is bound to a contact — your reply threads, feed, and engagement land under that identity.</p>
     <form id="loginForm" autocomplete="off">
@@ -123,8 +127,11 @@
       </div>
     </form>
     <div class="status" id="status"></div>
+    <div class="hint" id="signupHint" hidden>
+      New here? <a href="/ui/onboarding.html">Create an account</a> — pick a name, get a key, you're in.
+    </div>
     <div class="hint">
-      Don't have a key? Sign in on a device that already has one and mint a new one under <code>Settings → API Keys</code>. The paired CLI, browser extension, and claude-code hooks share this same credential.
+      Already have a key somewhere? Sign in on a device that already has one and mint a new one under <code>Settings → API Keys</code>. The paired CLI, browser extension, and claude-code hooks share this same credential.
     </div>
   </div>
 
@@ -153,15 +160,22 @@
 
     // Pre-bootstrap instances have no admin yet; landing on the login
     // page is a dead end (nothing to sign into). Redirect to onboarding
-    // so the first user introduces themselves.
+    // so the first user introduces themselves. Post-bootstrap, if
+    // self-signup is enabled, reveal the "new here?" link so new folks
+    // can create their own member account from the onboarding page.
     (async () => {
       try {
         const r = await fetch(API_BASE + '/v1/auth/bootstrap-status');
-        if (!r.ok) return;
-        const info = await r.json();
-        if (info.needs_bootstrap) {
-          location.replace('/ui/onboarding.html');
-          return;
+        if (r.ok) {
+          const info = await r.json();
+          if (info.needs_bootstrap) {
+            location.replace('/ui/onboarding.html');
+            return;
+          }
+          if (info.signup_enabled) {
+            const hint = document.getElementById('signupHint');
+            if (hint) hint.hidden = false;
+          }
         }
       } catch (e) {}
       // Already bootstrapped: if we already have a valid key, bounce
