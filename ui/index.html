@@ -833,17 +833,20 @@
     /* Source filter toggle below the new-session button. Lets users
        include kitty-window claude-code sessions in the sidebar. Off by
        default — claude-code can be chatty and most users want the
-       dashboard's chat view uncluttered. */
+       dashboard's chat view uncluttered. Reuses the global .switch
+       component; this wrapper just handles label alignment + spacing. */
     .sidebar-filter {
-      margin: 8px 0 0;
-      display: flex; align-items: center; gap: 6px;
-      font-family: var(--sans); font-size: 11.5px;
+      margin: 10px 2px 0;
+      display: flex; align-items: center; justify-content: space-between;
+      gap: 10px;
+      font-family: var(--sans); font-size: 12px;
       color: var(--ink-faint);
       cursor: pointer; user-select: none;
-      padding: 4px 2px;
     }
-    .sidebar-filter input { margin: 0; cursor: pointer; }
     .sidebar-filter:hover { color: var(--ink-soft); }
+    .sidebar-filter .switch { width: 34px; height: 20px; }
+    .sidebar-filter .switch .slider::before { width: 14px; height: 14px; }
+    .sidebar-filter .switch input:checked + .slider::before { transform: translateX(14px); }
 
     .sidebar-body {
       flex: 1; overflow-y: auto;
@@ -2281,9 +2284,12 @@
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
         <span>New session</span>
       </button>
-      <label class="sidebar-filter" for="showClaudeCodeToggle" id="showClaudeCodeFilter" hidden>
-        <input type="checkbox" id="showClaudeCodeToggle">
-        <span>Show claude-code sessions</span>
+      <label class="sidebar-filter" id="showClaudeCodeFilter" hidden>
+        <span>Show claude-code</span>
+        <span class="switch">
+          <input type="checkbox" id="showClaudeCodeToggle">
+          <span class="slider"></span>
+        </span>
       </label>
     </div>
     <div class="sidebar-body">
