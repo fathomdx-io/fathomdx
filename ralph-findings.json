@@ -1,11 +1,11 @@
 {
   "version": 1,
   "summary": {
-    "total_lines_removed": 4629,
-    "total_lines_added": 4883,
+    "total_lines_removed": 4685,
+    "total_lines_added": 5090,
     "total_bugs_fixed": 30,
-    "total_tests_added": 84,
-    "iterations_completed": 13,
+    "total_tests_added": 103,
+    "iterations_completed": 14,
     "repos_cleaned": []
   },
   "baseline": {
@@ -22,9 +22,9 @@
     "ruff_errors": 0,
     "ruff_autofixable": 0,
     "ruff_unformatted_files": 46,
-    "pytest_count": 85,
+    "pytest_count": 104,
     "api_server_py_loc": 694,
-    "_note": "Error Boundary Audit found one real correctness fix (auto_regen cooldown fail-safe on unparseable timestamp — runaway-regen shape). Plus two observability adds. pytest 81 -> 85."
+    "_note": "Utility Consolidation dropped the cosine_distance dupe and replaced 9 inline tag-parse loops with one shared helper. pytest 85 -> 104. Only §Completion target left is ruff format --check."
   },
   "findings": [
     {
@@ -99,6 +99,18 @@
       "bugs_fixed": 2,
       "tests_added": 7,
       "commits": ["b848a5c", "1b561f5"]
+    },
+    {
+      "date": "2026-04-23",
+      "perspective": "Utility Consolidation",
+      "repo": "fathomdx",
+      "description": "Two consolidations: (1) _cosine_distance dupe in feed_crystal removed; now reuses crystal_anchor.cosine_distance (8 math-invariant tests). (2) Nine inline `for t in tags: if t.startswith(...)` loops across chat_listener, db, reserved_tags, contacts, routines, tools, routes/agents, routes/media replaced with shared api/_tags.py helpers (tag_suffix, has_any_tag_with_prefix; 11 behaviour tests). Uniform non-string tolerance across all call sites for the first time. pytest 85 -> 104.",
+      "type": "refactor",
+      "files_changed": 12,
+      "lines_added": 207,
+      "lines_removed": 56,
+      "tests_added": 19,
+      "commits": ["d40957e", "8ae5d3d"]
     },
     {
       "date": "2026-04-23",
@@ -206,8 +218,8 @@
       "note": "Hoisted into api/_time.py. Seven modules under api/ now import `now as _now` and `now_iso as _now_iso`. pairing._now returns int (different semantics) and delta-store retrievals._now are out of scope — stayed local."
     },
     "cosine_distance": {
-      "note": "api/crystal_anchor.py cosine_distance and api/feed_crystal.py _cosine_distance are near-duplicate implementations. Candidate for consolidation into api/_time.py or a new api/_math.py.",
-      "perspective": "Utility Consolidation (#14)"
+      "status": "DONE (d40957e)",
+      "note": "feed_crystal._cosine_distance removed; reuses crystal_anchor.cosine_distance directly. 8 unit tests on the shared implementation."
     },
     "server_py_split": {
       "status": "DONE (mostly)",

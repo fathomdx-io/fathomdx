@@ -5,19 +5,20 @@
 
 ## Next
 
-**Perspective:** Utility Consolidation
+**Perspective:** New Perspectives (#15) or `ruff format` cleanup
 **Repo:** fathomdx
-**Why next:** Error Boundary Audit is DONE. One real correctness fix
-landed — `auto_regen._within_cooldown` now fails safe on unparseable
-crystal `created_at` (matches the 2026-04-19 runaway-regen pattern).
-Added logging to two silent best-effort sites.
+**Why next:** Utility Consolidation is DONE. Two consolidations
+landed: cosine_distance dupe (crystal_anchor + feed_crystal)
+reduced to a single shared function with 8 new math tests; 9
+inline `for t in tags: if t.startswith(...)` loops replaced with
+a new api/_tags.py helper module (`tag_suffix`, `has_any_tag_with_prefix`)
+with 11 behaviour tests. pytest 85 → 104.
 
-Utility Consolidation (#14) is next — the PRD flagged `cosine_distance`
-(crystal_anchor vs feed_crystal, near-duplicate), tag-parsing
-(multiple `for t in tags: if t.startswith("..."):` inline loops),
-delta-write boilerplate. The `_now()` consolidation already happened
-in Senior Dev Audit (api/_time.py); this pass is about the remaining
-utilities.
+The loop has hit every cell in the coverage matrix that applies
+to this repo. The last outstanding §Completion target is
+`ruff format --check` (46 files unformatted). A single-commit
+reformat pass + one more "anything I missed?" sweep closes the
+loop.
 
 **Pending cleanup** from the server.py split: `/v1/chat/completions`
 + `fathom_think` + `_resolve_tools` (~250 lines) still in server.py,
@@ -44,7 +45,7 @@ Single repo (`fathomdx`) so the "matrix" is a column. `-` = not started,
 | 11| Docker & DevOps                  | DONE     |
 | 12| Accessibility                    | N/A      |
 | 13| Error Boundary Audit             | DONE     |
-| 14| Utility Consolidation            | -        |
+| 14| Utility Consolidation            | DONE     |
 | 15| New Perspectives                 | -        |
 | 16| Feed Experience                  | N/A      |
 | 17| Chat & Conversation UX           | -        |
@@ -108,6 +109,45 @@ Format:
 - Key findings or decisions
 - Commits: <sha> <sha>
 ```
+
+---
+
+### 2026-04-23 — Utility Consolidation / fathomdx
+
+Two commits. pytest 85 → 104 (+19 tests). Every consolidation also
+picked up a latent bug-class fix: uniform non-string-tag tolerance
+where some call sites had it and others would have crashed.
+
+**Fixes**
+
+1. `d40957e` — `_cosine_distance` dupe (`feed_crystal`) removed;
+   reuses `crystal_anchor.cosine_distance` directly. 8 math-invariant
+   tests pin the shared implementation (identical = 0, orthogonal =
+   1, antipodal = 2, scale-invariance, empty / mismatched / zero
+   inputs, known 45° angle). This helper now drives BOTH the identity
+   crystal's drift AND the feed-orient crystal's — skewing it would
+   push spurious regens on both surfaces.
+
+2. `8ae5d3d` — 9 inline `for t in tags: if t.startswith(...)` loops
+   replaced with two shared helpers in new `api/_tags.py`:
+   - `tag_suffix(tags, prefix)` — first match's suffix or None
+   - `has_any_tag_with_prefix(tags, prefix)` — presence check
+
+   Touched chat_listener, db, reserved_tags, contacts, routines,
+   tools, routes/agents, routes/media. Behaviour is now uniform
+   across non-string junk, None inputs, empty-suffix cases, and
+   prefix-boundary ambiguity (`contact-deleted` must not match
+   `contact:` prefix — new test pins it). Eleven unit tests.
+
+**Audited and left alone**
+- `delta-write boilerplate` — PRD flagged this, but the actual
+  pattern is `delta_client.write(content, tags=..., source=...)`
+  which is already minimal; nothing worth hoisting.
+- `api/_time.py now/now_iso` already landed in Senior Dev Audit.
+- Remaining `for t in tags` patterns are in code that needs all
+  matches (search.py tag-cloud count, mood.py engagement pickup)
+  rather than the first-match shape the helper serves — leaving
+  those inline is correct.
 
 ---
 

@@ -17,6 +17,7 @@ import httpx
 from fastapi import APIRouter
 
 from .. import delta_client
+from .._tags import tag_suffix
 from ..tools import heartbeat_age_seconds, heartbeat_is_fresh
 
 router = APIRouter()
@@ -80,7 +81,7 @@ async def agents_status():
     by_host: dict[str, dict] = {}
     for d in deltas:
         tags = d.get("tags") or []
-        host = next((t.split(":", 1)[1] for t in tags if t.startswith("host:")), "unknown")
+        host = tag_suffix(tags, "host:") or "unknown"
         ts = d.get("timestamp", "")
         prev = by_host.get(host)
         if prev is None or ts > prev.get("timestamp", ""):
