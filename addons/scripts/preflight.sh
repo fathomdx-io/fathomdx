@@ -143,10 +143,10 @@ check_lake_dir() {
 }
 
 check_llm_key() {
-  step "Checking LLM provider"
+  step "LLM provider"
 
   # Env vars override .env values, so users can do
-  # `LLM_API_KEY=… curl … | sh` and CI can set LLM_PROVIDER=ollama
+  # `LLM_API_KEY=… curl … | bash` and CI can set LLM_PROVIDER=ollama
   # without touching files. Persists the override into .env.
   if [[ -n "${LLM_PROVIDER:-}" ]]; then
     set_env LLM_PROVIDER "${LLM_PROVIDER}"
@@ -161,28 +161,77 @@ check_llm_key() {
   provider="${provider:-gemini}"
   local key="$(get_env LLM_API_KEY)"
 
-  case "${provider}" in
-    ollama)
-      ok "LLM_PROVIDER=ollama (no API key needed)"
-      ;;
-    gemini|openai)
-      if [[ -z "${key}" ]]; then
-        warn "LLM_API_KEY is blank for provider '${provider}'"
-        case "${provider}" in
-          gemini) info "Get one at https://aistudio.google.com/apikey" ;;
-          openai) info "Get one at https://platform.openai.com/api-keys" ;;
-        esac
-        info "Open .env and set LLM_API_KEY=... before continuing."
-        return 1
-      else
-        ok "LLM_PROVIDER=${provider} (key present)"
-      fi
+  # ollama is a local model server — no key needed, regardless of who set it.
+  if [[ "${provider}" == "ollama" ]]; then
+    ok "LLM_PROVIDER=ollama (no API key needed)"
+    return 0
+  fi
+
+  # Already configured for a hosted provider with a key — done.
+  if [[ -n "${key}" ]]; then
+    ok "LLM_PROVIDER=${provider} (key present)"
+    return 0
+  fi
+
+  # No key. Interactive: ask which provider + paste the key right here.
+  # Non-interactive: log what's missing and exit non-zero.
+  if [[ ! -t 0 ]]; then
+    warn "LLM_API_KEY is blank for provider '${provider}'"
+    case "${provider}" in
+      gemini) info "Get one at https://aistudio.google.com/apikey" ;;
+      openai) info "Get one at https://platform.openai.com/api-keys" ;;
+      *)      warn "Unknown LLM_PROVIDER='${provider}' (expected: gemini, openai, ollama)" ;;
+    esac
+    info "Open .env and set LLM_API_KEY=... before continuing."
+    return 1
+  fi
+
+  # Interactive provider pick.
+  echo "    Which LLM provider does this instance talk to?"
+  echo "      gemini  — Google AI Studio (free tier available)"
+  echo "      openai  — OpenAI (gpt-4o by default)"
+  echo "      ollama  — local model server, no key needed"
+  printf "    Provider [%s]: " "${provider}"
+  local answer=""
+  read -r answer
+  answer="${answer:-${provider}}"
+
+  case "${answer}" in
+    gemini|openai|ollama)
+      provider="${answer}"
+      set_env LLM_PROVIDER "${provider}"
       ;;
     *)
-      warn "Unknown LLM_PROVIDER='${provider}' (expected: gemini, openai, ollama)"
-      return 1
+      warn "Unknown provider '${answer}' — keeping ${provider}"
       ;;
   esac
+
+  if [[ "${provider}" == "ollama" ]]; then
+    ok "LLM_PROVIDER=ollama (no API key needed)"
+    return 0
+  fi
+
+  # Hosted provider — prompt for key, with a skip option.
+  case "${provider}" in
+    gemini) info "Get a key at https://aistudio.google.com/apikey" ;;
+    openai) info "Get a key at https://platform.openai.com/api-keys" ;;
+  esac
+  printf "    Paste your %s API key (or press enter to set later): " "${provider}"
+  # -s suppresses echo so the key doesn't end up in scrollback.
+  local entered=""
+  read -r -s entered
+  echo  # newline after the silent prompt
+
+  if [[ -n "${entered}" ]]; then
+    set_env LLM_API_KEY "${entered}"
+    ok "LLM_PROVIDER=${provider} (key set)"
+    return 0
+  fi
+
+  # User skipped — leave .env untouched, surface clearly what to do.
+  warn "No key entered."
+  info "Open ${REPO_DIR}/.env, set LLM_API_KEY=…, then re-run preflight."
+  return 1
 }
 
 check_compose() {
