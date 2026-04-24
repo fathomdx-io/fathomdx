@@ -27,8 +27,19 @@ PROVIDER_DEFAULTS: dict[str, dict[str, str]] = {
         "medium": "gpt-4o-mini",
         "hard": "gpt-4o",
     },
-    "ollama": {
-        "base_url": "http://localhost:11434/v1/",
+    "anthropic": {
+        # Anthropic publishes an OpenAI-compatible endpoint that speaks
+        # the same tool-call protocol — same client works.
+        "base_url": "https://api.anthropic.com/v1/",
+        "medium": "claude-haiku-4-5",
+        "hard": "claude-sonnet-4-6",
+    },
+    "local": {
+        # Any local OpenAI-compat server (ollama, LM Studio, vLLM,
+        # llama.cpp server, …). Base URL is user-supplied because the
+        # default depends on where the server runs relative to the api
+        # container (host.docker.internal vs a LAN IP).
+        "base_url": "",
         "medium": "llama3.1:8b",
         "hard": "qwen2.5:32b",  # ~20GB VRAM; drop to :14b on a 16GB box
     },
@@ -52,10 +63,14 @@ class Settings(BaseSettings):
 
     # Per-provider credentials. Any subset may be set; a provider without
     # credentials is hidden from the Models tab and can't be chosen for
-    # a tier. Ollama needs no key — presence of its base URL is the
-    # "configured" signal.
+    # a tier. `local` (any OpenAI-compat server running on your machine
+    # or LAN — ollama, LM Studio, vLLM, …) needs no API key; presence
+    # of LOCAL_BASE_URL is the "configured" signal. OLLAMA_BASE_URL is
+    # kept as a legacy alias so upgrade-in-place works.
     gemini_api_key: str = Field("", validation_alias="GEMINI_API_KEY")
     openai_api_key: str = Field("", validation_alias="OPENAI_API_KEY")
+    anthropic_api_key: str = Field("", validation_alias="ANTHROPIC_API_KEY")
+    local_base_url: str = Field("", validation_alias="LOCAL_BASE_URL")
     ollama_base_url: str = Field("", validation_alias="OLLAMA_BASE_URL")
 
     # Delta store
@@ -134,7 +149,7 @@ class Settings(BaseSettings):
     def resolved_base_url(self) -> str:
         if self.base_url:
             return self.base_url
-        return PROVIDER_DEFAULTS.get(self.provider, {}).get("base_url", "")
+        return PROVIDER_DEFAULTS.get(self.effective_provider, {}).get("base_url", "")
 
     @property
     def resolved_model_hard(self) -> str:
@@ -143,20 +158,29 @@ class Settings(BaseSettings):
             return self.model_hard
         if self.model:  # back-compat: bare LLM_MODEL means "the chat model"
             return self.model
-        return PROVIDER_DEFAULTS.get(self.provider, {}).get("hard", "")
+        return PROVIDER_DEFAULTS.get(self.effective_provider, {}).get("hard", "")
 
     @property
     def resolved_model_medium(self) -> str:
         """Model for search planning, mood, feed-crystal."""
         if self.model_medium:
             return self.model_medium
-        return PROVIDER_DEFAULTS.get(self.provider, {}).get("medium", "")
+        return PROVIDER_DEFAULTS.get(self.effective_provider, {}).get("medium", "")
 
     # Backwards-compatible alias for call-sites that only ever wanted
     # "the chat model" — keep pointing them at the hard tier.
     @property
     def resolved_model(self) -> str:
         return self.resolved_model_hard
+
+    @property
+    def effective_provider(self) -> str:
+        """Normalizes legacy LLM_PROVIDER=ollama to the new 'local' name
+        so the rest of the config ladder lines up without a special case
+        at every site."""
+        if self.provider == "ollama":
+            return "local"
+        return self.provider
 
     def provider_credentials(self, provider: str) -> tuple[str, str]:
         """(api_key, base_url) for a provider. Falls back to the legacy
@@ -169,18 +193,25 @@ class Settings(BaseSettings):
             api_key = self.gemini_api_key
         elif provider == "openai":
             api_key = self.openai_api_key
-        elif provider == "ollama":
-            # Ollama doesn't need a key. The SDK still requires a non-
-            # empty string, so pass a placeholder.
-            api_key = "ollama"
-            if self.ollama_base_url:
+        elif provider == "anthropic":
+            api_key = self.anthropic_api_key
+        elif provider == "local":
+            # Local OpenAI-compat servers don't need a real key. The SDK
+            # requires a non-empty string though, so pass a placeholder.
+            api_key = "local"
+            # LOCAL_BASE_URL is preferred; OLLAMA_BASE_URL is a
+            # back-compat alias honored only when LOCAL_ isn't set.
+            if self.local_base_url:
+                base_url = self.local_base_url
+            elif self.ollama_base_url:
                 base_url = self.ollama_base_url
-        # Legacy fallback: if LLM_PROVIDER names this provider and a
-        # per-provider key wasn't set, populate from LLM_API_KEY.
-        if not api_key and self.provider == provider and self.api_key:
+        # Legacy fallback: if LLM_PROVIDER names this provider (via its
+        # current or legacy alias — ollama → local) and a per-provider
+        # key wasn't set, populate from LLM_API_KEY.
+        if not api_key and self.effective_provider == provider and self.api_key:
             api_key = self.api_key
         # Legacy override for base_url too.
-        if self.provider == provider and self.base_url:
+        if self.effective_provider == provider and self.base_url:
             base_url = self.base_url
         return api_key, base_url
 
@@ -190,8 +221,10 @@ class Settings(BaseSettings):
         out: list[str] = []
         for provider in PROVIDER_DEFAULTS:
             api_key, base_url = self.provider_credentials(provider)
-            if provider == "ollama":
-                # Ollama is configured when a base URL is present.
+            if provider == "local":
+                # `local` is configured when its base URL is set — the
+                # placeholder api_key is always non-empty, so base_url
+                # is the real signal.
                 if base_url:
                     out.append(provider)
             else:

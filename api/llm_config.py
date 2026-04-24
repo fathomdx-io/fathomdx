@@ -62,8 +62,8 @@ def _env_fallback(tier: str) -> dict[str, str] | None:
     if not env_model:
         return None
     # Env doesn't specify a provider per tier (yet) — pair the model
-    # with LLM_PROVIDER.
-    return {"provider": settings.provider, "model": env_model}
+    # with LLM_PROVIDER (normalized via effective_provider).
+    return {"provider": settings.effective_provider, "model": env_model}
 
 
 def _defaults_fallback(tier: str) -> dict[str, str] | None:
@@ -73,7 +73,8 @@ def _defaults_fallback(tier: str) -> dict[str, str] | None:
         return None
     # Prefer LLM_PROVIDER's default if it's configured; otherwise the
     # first configured provider.
-    candidate = settings.provider if settings.provider in configured else configured[0]
+    ep = settings.effective_provider
+    candidate = ep if ep in configured else configured[0]
     model = PROVIDER_DEFAULTS.get(candidate, {}).get(tier, "")
     if not model:
         return None
