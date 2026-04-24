@@ -1,11 +1,11 @@
 {
   "version": 1,
   "summary": {
-    "total_lines_removed": 4623,
-    "total_lines_added": 4686,
+    "total_lines_removed": 4627,
+    "total_lines_added": 4784,
     "total_bugs_fixed": 29,
     "total_tests_added": 80,
-    "iterations_completed": 11,
+    "iterations_completed": 12,
     "repos_cleaned": []
   },
   "baseline": {
@@ -99,6 +99,17 @@
       "bugs_fixed": 2,
       "tests_added": 7,
       "commits": ["b848a5c", "1b561f5"]
+    },
+    {
+      "date": "2026-04-23",
+      "perspective": "Docker & DevOps",
+      "repo": "fathomdx",
+      "description": "Added healthchecks to all 4 compose services (postgres pg_isready, three FastAPI services probing /health via python urllib). Converted every depends_on to condition: service_healthy, so cold-boot no longer shouts 'delta-store GET /stats failed, retrying' for 3-5s while pg finishes WAL init. Added top-level .dockerignore — COPY layers no longer haul in __pycache__, .pytest_cache, .ruff_cache, tests/, or .sync-conflict files. Both changes additive; running lake unaffected.",
+      "type": "devops",
+      "files_changed": 2,
+      "lines_added": 98,
+      "lines_removed": 4,
+      "commits": ["f9d3ad9", "e486bb6"]
     },
     {
       "date": "2026-04-23",

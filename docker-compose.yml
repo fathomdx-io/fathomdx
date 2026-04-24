@@ -62,6 +62,15 @@ services:
     ports:
       - "127.0.0.1:5432:5432"
     restart: unless-stopped
+    # Readiness probe — pg_isready returns 0 once the server is accepting
+    # connections. Lets dependent services wait for real readiness instead
+    # of just container-started (the default depends_on behaviour).
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U fathom -d deltas"]
+      interval: 5s
+      timeout: 3s
+      retries: 12  # 60s total — long enough for first-run WAL init
+      start_period: 10s
     command: >
       postgres
         -c shared_buffers=256MB
@@ -93,8 +102,17 @@ services:
       DELTA_BACKUP_ENABLED: "true"
       DELTA_API_KEY: ${DELTA_API_KEY:-}
     depends_on:
-      - postgres
+      postgres:
+        condition: service_healthy
     restart: unless-stopped
+    # /health exists on every consumer-api and delta-store surface;
+    # python-based so no curl needed in the slim base image.
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8000/health',timeout=3).status==200 else 1)"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 15s
 
   source-runner:
     build:
@@ -110,8 +128,15 @@ services:
       DELTA_STORE_URL: http://delta-store:8000
       DELTA_API_KEY: ${DELTA_API_KEY:-}
     depends_on:
-      - delta-store
+      delta-store:
+        condition: service_healthy
     restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8000/health',timeout=3).status==200 else 1)"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 10s
 
   api:
     build:
@@ -149,6 +174,14 @@ services:
       FATHOM_DELTA_API_KEY: ${DELTA_API_KEY:-}
       FATHOM_SOURCE_RUNNER_URL: http://source-runner:8000
     depends_on:
-      - delta-store
-      - source-runner
+      delta-store:
+        condition: service_healthy
+      source-runner:
+        condition: service_healthy
     restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8200/health',timeout=3).status==200 else 1)"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 15s
