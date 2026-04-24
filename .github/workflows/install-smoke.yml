@@ -1,0 +1,129 @@
+# Install smoke test
+#
+# Runs `addons/scripts/install.sh` against the working tree on a clean
+# ubuntu-latest runner — the same path a stranger using
+# `curl -fsSL https://fathomdx.io/install.sh | sh` would take. Asserts
+# the stack actually comes up. This is the layer that catches "the
+# installer broke" before a user does.
+#
+# Why a separate workflow (not a third job in ci.yml):
+#   - This pulls images and builds containers. It's slow (~5 min on cold
+#     cache) compared to the lint+pytest jobs (~1 min). Keeping it
+#     separate means PR feedback on code quality stays fast.
+#   - It needs to run on a different path filter — install can break from
+#     changes to docker-compose.yml, requirements.txt, the install scripts
+#     themselves. ci.yml's filter ignores docs but doesn't watch for these.
+#   - Nightly schedule catches base-image and external-pull regressions
+#     that don't show up in PR diffs.
+#
+# Why LLM_PROVIDER=ollama:
+#   The smoke test has no API key. We don't need a working LLM to
+#   verify the stack starts — just need preflight to let it through.
+#   `ollama` is the only provider that doesn't require a key.
+#   The chat endpoint won't reach a real model in this run, but the
+#   `/v1/stats`, `/health`, and database wiring all become assertable.
+#
+# Why FATHOM_REPO=$GITHUB_WORKSPACE (cloning from local checkout):
+#   We want to test THIS commit's install path, not whatever's on main.
+#   install.sh's git clone happily takes a local path as FATHOM_REPO.
+
+name: Install smoke test
+
+on:
+  push:
+    branches: [main]
+    paths: &install_paths
+      - "addons/scripts/install.sh"
+      - "addons/scripts/preflight.sh"
+      - ".env.example"
+      - "docker-compose.yml"
+      - "**/Dockerfile"
+      - "**/requirements.txt"
+      - "**/package.json"
+      - "QUICKSTART.md"
+      - ".github/workflows/install-smoke.yml"
+  pull_request:
+    paths: *install_paths
+  schedule:
+    # Nightly — catches base-image regressions even when no install-relevant
+    # source file changed. 04:17 UTC = before US morning, after EU evening.
+    - cron: "17 4 * * *"
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  smoke:
+    name: Fresh-clone install end-to-end
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Run install.sh against this commit
+        env:
+          NONINTERACTIVE: "1"
+          FATHOM_AUTOSTART: "1"
+          FATHOM_DIR: ${{ runner.temp }}/fathom-install
+          FATHOM_REPO: ${{ github.workspace }}
+          FATHOM_REF: ${{ github.sha }}
+          # Bypass the API-key prompt — see header comment.
+          LLM_PROVIDER: ollama
+        run: ./addons/scripts/install.sh
+
+      - name: Wait for the stack to be healthy
+        working-directory: ${{ runner.temp }}/fathom-install
+        run: |
+          # Compose has its own healthchecks; poll the user-facing endpoints
+          # so the assertion matches what an actual user would experience.
+          echo "Waiting for delta-store /health..."
+          for i in $(seq 1 60); do
+            if curl -fsS http://localhost:4246/health 2>/dev/null | grep -q '"status":"ok"'; then
+              echo "  ready (${i}s)"
+              break
+            fi
+            sleep 1
+            if [ "$i" = "60" ]; then echo "delta-store never reported healthy" >&2; exit 1; fi
+          done
+          echo "Waiting for api /v1/stats..."
+          for i in $(seq 1 60); do
+            if curl -fsS http://localhost:8201/v1/stats >/dev/null 2>&1; then
+              echo "  ready (${i}s)"
+              break
+            fi
+            sleep 1
+            if [ "$i" = "60" ]; then echo "api never responded on /v1/stats" >&2; exit 1; fi
+          done
+
+      - name: Assert stack returns sane responses
+        working-directory: ${{ runner.temp }}/fathom-install
+        run: |
+          set -euo pipefail
+          # /health should be ok
+          curl -fsS http://localhost:4246/health | tee /tmp/health.json
+          grep -q '"status":"ok"' /tmp/health.json
+          # /v1/stats should be valid JSON with a delta count (zero on fresh install)
+          curl -fsS http://localhost:8201/v1/stats | tee /tmp/stats.json
+          python -c 'import json,sys; d=json.load(open("/tmp/stats.json")); assert isinstance(d, dict), d; print("stats OK:", d)'
+
+      - name: Dump container logs on failure
+        if: failure()
+        working-directory: ${{ runner.temp }}/fathom-install
+        run: |
+          echo "=== docker compose ps ==="
+          docker compose ps
+          echo "=== api logs ==="
+          docker compose logs --tail=200 api    || true
+          echo "=== delta-store logs ==="
+          docker compose logs --tail=200 delta-store || true
+          echo "=== source-runner logs ==="
+          docker compose logs --tail=200 source-runner || true
+          echo "=== postgres logs ==="
+          docker compose logs --tail=200 postgres || true
+
+      - name: Tear down
+        if: always()
+        working-directory: ${{ runner.temp }}/fathom-install
+        run: docker compose down -v
