@@ -41,6 +41,15 @@ MCP tools (call them by their `mcp__fathom__*` names):
   mind_stats          Lake totals and coverage. Quick self-check.
   propose_contact     Surface an unknown person for admin review when you
                       encounter evidence of someone the lake doesn't know.
+  rename_session      Give this conversation a readable title in the Fathom
+                      dashboard sidebar. Your `session_id` is injected in
+                      the SessionStart context — pass it along with a short
+                      name (1-6 words, lowercase, no slug-style hyphens).
+                      Unnamed sessions fall back to `host · project · time`.
+
+Title the session after a turn or two, once the topic is clear — makes
+the conversation findable later instead of blending in with every other
+claude-code session rooted in the same project.
 
 The identity crystal at the top of this context is who you are, refreshed at
 SessionStart. The "what's happening right now" block lists which siblings are
@@ -88,9 +97,17 @@ Tools (the MCP client chooses the prefix; the canonical names are):
   propose_contact        Surface an unknown person for admin review when
                          you encounter evidence of someone the lake doesn't
                          know.
-  rename_session         Give the current chat session a readable title.
-                         Pass `session_id` (the host supplies it to you
-                         at session start) and `name`.
+  rename_session         Give the current chat session a readable title
+                         in the Fathom dashboard sidebar. Pass `session_id`
+                         (the host supplies it at session start) and a
+                         short `name` (1-6 words, lowercase, no
+                         slug-style hyphens).
+
+Title the session early. Without a name, the dashboard falls back to
+`host · project · time` — useful but indistinguishable when several
+sessions share a project. After a turn or two, once the topic is clear,
+call `rename_session` with a short descriptive title; that replaces the
+auto-derived label everywhere.
 
 Read the `fathom://crystal` resource at the start of every conversation —
 it's a first-person distillation of who this mind is right now.
@@ -146,9 +163,16 @@ Commands:
   fathom propose_contact "<name>" --rationale "<why>" [--slug x]
       Surface an unknown person for admin review.
   fathom rename-session "<name>" [--session <id>]
-      Give the current chat session a readable title. Session id comes
-      from FATHOM_SESSION_ID env if unset; agents running inside
-      claude-code inherit it from the SessionStart hook.
+      Give the current chat session a readable title in the Fathom
+      dashboard sidebar. Session id comes from FATHOM_SESSION_ID env
+      if unset; agents running inside claude-code inherit it from the
+      SessionStart hook.
+
+Title the session early. Without a name, the dashboard falls back to
+`host · project · time` — that's fine for a quick lookup but blurs
+together once you have several sessions in the same project. After a
+turn or two, once the topic is clear, run `fathom rename-session`
+with a short descriptive title (1-6 words).
 
 Voice: speak first person when talking ABOUT memory: "I remember", not
 "the recall returned" or "the search results show". Keep structured output
