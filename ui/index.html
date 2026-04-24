@@ -2248,20 +2248,29 @@
     [data-wip="true"] .extend-text { opacity: 0.55; }
     [data-wip="true"]:hover { text-decoration: none; }
 
-    /* Provider-icon theming. The Linux Tux SVG is the only one that
-       takes a recolor — its belly, feet, and eye-whites paint from
-       var(--icon-accent), and we want the amber accent showing there
-       in both themes (the #fff default would disappear on the light
-       paper background). The body + pupils use fill-opacity=0.3 baked
-       into the SVG; we leave that as-is on light and bump to 0.5 on
-       dark so the outline holds against the deep-lake background
-       instead of ghosting into it. */
+    /* Provider-icon theming. The Linux Tux SVG has two layers — a body
+       + pupils group (fill=currentColor, baked at opacity 0.3) and a
+       belly/feet/eye-whites group (fill=var(--icon-accent)). The two
+       themes want inverse figure/ground treatments:
+
+         dark mode  → body: currentColor at 50% opacity (outline held
+                      against the deep-lake bg); accent bits: amber
+         light mode → body: solid amber (the silhouette carries the
+                      color); accent bits: white (internal highlights)
+
+       Implementation: set --icon-accent at :root for dark, flip it at
+       [data-theme="light"]. Bump the body opacity to 0.5 globally; on
+       light, also repaint those body paths to opaque amber — CSS fill
+       overrides the SVG fill attribute, so we can swap a currentColor
+       path to the accent color without editing the SVG itself. */
     :root { --icon-accent: var(--accent); }
     .provider-icon-linux path[fill="currentColor"][fill-opacity="0.3"] {
       fill-opacity: 0.5;
     }
+    [data-theme="light"] { --icon-accent: #fff; }
     [data-theme="light"] .provider-icon-linux path[fill="currentColor"][fill-opacity="0.3"] {
-      fill-opacity: 0.3;
+      fill: var(--accent);
+      fill-opacity: 1;
     }
     .wip-pill {
       display: inline-block; margin-left: 6px;
@@ -7055,22 +7064,38 @@ GET  /v1/usage               Usage stats`,
       }
     });
 
-    async function openChatWithSession(sessionId, title, isClaudeCode = false) {
+    async function openChatWithSession(session, isClaudeCode = false) {
+      // Accept either a full session object (from the sidebar) or a
+      // bare id string (legacy callers). Normalize to an object so the
+      // rest of the function can work with `session.title`, `.project`.
+      if (typeof session === 'string') session = { id: session };
+      const sessionId = session.id;
       _stopChatPoll();
       _renderedMessageIds = new Set();
       // Drop any pending seed-card pairing — the user navigated away from
       // the fresh card-seeded session before sending. Chat engagement
       // only fires when there's an actual message in the seeded session.
       _seedCard = null;
-      chatTitle.textContent = title || 'Session';
+      const headerLabel = displayTitle(session);
+      if (isClaudeCode) {
+        chatTitle.innerHTML = `<span class="chat-title-icon">${iconHtml('claude-code', 14)}</span><span></span>`;
+        chatTitle.querySelector('span:last-child').textContent = headerLabel || 'Session';
+      } else {
+        chatTitle.textContent = headerLabel || 'Session';
+      }
+      if (session.project) chatTitle.title = session.project;
       currentSessionId = sessionId;
       chatStream.innerHTML = '<div class="session-stamp">Loading…</div>';
       hideMainOpenChat();
       // Claude-code sessions can't be driven from the browser — flip the
       // composer into resume-command mode so the user can continue in
       // their terminal. Consumer-api sessions stay in send mode. The
-      // project path is filled in after the session fetch lands below.
-      setComposerMode(isClaudeCode ? 'resume' : 'send', { sessionId });
+      // project path comes with the session if the sidebar had it;
+      // otherwise it's filled in after the fetch lands below.
+      setComposerMode(isClaudeCode ? 'resume' : 'send', {
+        sessionId,
+        project: session.project,
+      });
 
       try {
         const data = await api(`/v1/sessions/${sessionId}`);
@@ -7209,6 +7234,30 @@ GET  /v1/usage               Usage stats`,
       return (s.sources || []).includes('claude-code');
     }
 
+    // A session's raw title falls back to its id when no `chat-name`
+    // delta has ever landed — which for claude-code is everything by
+    // default, so the sidebar ends up full of UUIDs. When we can, fall
+    // back to the project dir's basename instead (short, human, tied
+    // to the actual work). User-chosen titles (where title !== id) are
+    // preserved as-is.
+    function basenameOf(path) {
+      if (!path) return '';
+      const trimmed = String(path).replace(/\/+$/, '');
+      const i = trimmed.lastIndexOf('/');
+      return i >= 0 ? trimmed.slice(i + 1) : trimmed;
+    }
+    function displayTitle(s) {
+      if (!s) return '';
+      const named = s.title && s.title !== s.id;
+      if (named) return s.title;
+      const base = basenameOf(s.project);
+      if (base) return base;
+      // Unrenamed consumer-api session slug (word-hyphen-word) is short
+      // enough to show; UUIDs we truncate for the sidebar.
+      if (/^[0-9a-f]{8}-[0-9a-f]{4}/i.test(s.id)) return s.id.slice(0, 8) + '…';
+      return s.id;
+    }
+
     async function loadSessions() {
       try {
         const data = await api('/v1/sessions');
@@ -7235,19 +7284,21 @@ GET  /v1/usage               Usage stats`,
             btn.className = 'session-item';
             if (s.id === currentSessionId) btn.classList.add('active');
             const isCC = isClaudeCodeSession(s);
+            const label = displayTitle(s);
             if (isCC) {
               btn.dataset.source = 'claude-code';
               btn.innerHTML = `<span class="session-icon">${iconHtml('claude-code', 14)}</span><span class="session-title"></span>`;
-              btn.querySelector('.session-title').textContent = s.title;
+              btn.querySelector('.session-title').textContent = label;
             } else {
-              btn.textContent = s.title;
+              btn.textContent = label;
             }
+            if (s.project) btn.title = s.project;
             btn.dataset.sessionId = s.id;
             btn.addEventListener('click', () => {
               sidebarBody.querySelectorAll('.session-item.active').forEach(a => a.classList.remove('active'));
               btn.classList.add('active');
               if (isMobile()) closeSidebar();
-              openChatWithSession(s.id, s.title, isClaudeCodeSession(s));
+              openChatWithSession(s, isClaudeCodeSession(s));
             });
             li.appendChild(btn);
             ul.appendChild(li);
