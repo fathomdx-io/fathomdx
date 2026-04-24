@@ -112,12 +112,17 @@
     }
     .hint a { color: var(--accent); text-decoration: none; }
     .hint a:hover { text-decoration: underline; }
-    .hint-label {
-      display: block; font-size: var(--text-sm);
-      color: var(--ink-soft); font-weight: 500;
-      margin-bottom: 6px; text-transform: uppercase;
-      letter-spacing: var(--tracking-wide);
+    .hint-forgot { padding: 0; }
+    .hint-forgot summary {
+      cursor: pointer;
+      color: var(--accent); text-decoration: none;
+      list-style: none;
+      display: inline-block;
     }
+    .hint-forgot summary::-webkit-details-marker { display: none; }
+    .hint-forgot summary:hover { text-decoration: underline; }
+    .hint-forgot[open] summary { margin-bottom: 8px; }
+    .hint-forgot p { margin: 6px 0; }
     .hint-cmd {
       font-family: var(--mono); background: var(--bg-deep);
       color: var(--ink); font-size: 12.5px;
@@ -143,12 +148,12 @@
     <div class="hint" id="signupHint" hidden>
       New here? <a href="/ui/onboarding.html">Create an account</a> — pick a name, get a key, you're in.
     </div>
-    <div class="hint">
-      <span class="hint-label">Forgot my key</span>
-      Run this on the host where the api is installed:
+    <details class="hint hint-forgot">
+      <summary>Forgot my key</summary>
+      <p>Run this on the host where the api is installed:</p>
       <pre class="hint-cmd">./addons/scripts/mint-key.sh</pre>
-      Prints a fresh key bound to your contact. Prompts you to pick one if there's more than one person on this instance.
-    </div>
+      <p>Prints a fresh key bound to your contact. Prompts you to pick one if there's more than one person on this instance.</p>
+    </details>
   </div>
 
   <script>
