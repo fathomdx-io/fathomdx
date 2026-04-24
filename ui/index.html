@@ -7011,11 +7011,16 @@ GET  /v1/usage               Usage stats`,
           setComposerMode('resume', { sessionId, project: data.session.project });
         }
 
+        // Initial load: enter sticky mode and force a jump to the bottom,
+        // then again after the paint settles so images that lazy-load
+        // don't leave the view floating partway up.
+        _stickBottom = true;
         for (const m of (data.messages || [])) {
           if (m.id) _renderedMessageIds.add(m.id);
           _renderMessageToStream(m);
         }
-        scrollToBottomOfChat();
+        scrollToBottomOfChat(true);
+        setTimeout(() => scrollToBottomOfChat(true), 120);
         _startChatPoll();
       } catch (err) {
         chatStream.innerHTML = `<div class="session-stamp">Failed to load session</div>`;
@@ -7025,6 +7030,7 @@ GET  /v1/usage               Usage stats`,
     function openChatFresh() {
       _stopChatPoll();
       _renderedMessageIds = new Set();
+      _stickBottom = true;
       chatTitle.textContent = 'New session';
       currentSessionId = null;
       chatStream.innerHTML = '<div class="session-stamp">New session · just now</div>';
@@ -7052,12 +7058,40 @@ GET  /v1/usage               Usage stats`,
       syncComposer();
     }
 
-    function scrollToBottomOfChat() {
-      const main = viewChat.querySelector('main');
+    // Sticky-bottom scrolling. The chat sticks to the bottom by default
+    // so new messages keep pushing into view; if the user scrolls up to
+    // read history, we stop auto-scrolling and only resume once they
+    // come back within AT_BOTTOM_TOLERANCE of the bottom. Session open
+    // forces an initial bottom-scroll (the `force` arg bypasses the
+    // stick check) with a follow-up pass to catch images that settle
+    // after the first rAF.
+    //
+    // The scroll container is the document (html), not the chat <main>:
+    // main is `flex: 1 overflow-y: auto` but nothing constrains its
+    // height, so it grows to fit content and the window becomes what
+    // actually scrolls. We target documentElement.scrollTop directly.
+    let _stickBottom = true;
+    const AT_BOTTOM_TOLERANCE = 40;
+
+    function _isAtBottom() {
+      const el = document.scrollingElement || document.documentElement;
+      return el.scrollHeight - el.scrollTop - window.innerHeight <= AT_BOTTOM_TOLERANCE;
+    }
+
+    function scrollToBottomOfChat(force = false) {
+      if (!force && !_stickBottom) return;
+      const el = document.scrollingElement || document.documentElement;
       requestAnimationFrame(() => {
-        main.scrollTop = main.scrollHeight;
+        el.scrollTop = el.scrollHeight;
       });
     }
+
+    // Only track scroll intent while the chat view is the one showing —
+    // other views do their own scrolling and shouldn't affect the flag.
+    window.addEventListener('scroll', () => {
+      if (viewChat.hidden) return;
+      _stickBottom = _isAtBottom();
+    }, { passive: true });
 
     chatBackBtn.addEventListener('click', () => {
       closeChat();
@@ -7217,7 +7251,10 @@ GET  /v1/usage               Usage stats`,
         );
       }
       chatStream.appendChild(userEl);
-      scrollToBottomOfChat();
+      // User just hit send — re-arm sticky mode so they follow the reply
+      // regardless of where they were scrolled before.
+      _stickBottom = true;
+      scrollToBottomOfChat(true);
       refreshLightbox();
 
       // Show typing indicator. It stays until the poll reconcile sees a
@@ -7229,7 +7266,7 @@ GET  /v1/usage               Usage stats`,
       typing.className = 'typing';
       typing.innerHTML = '<span></span><span></span><span></span>';
       chatStream.appendChild(typing);
-      scrollToBottomOfChat();
+      scrollToBottomOfChat(true);
 
       try {
         const r = await fetch(API_BASE + '/v1/chat/completions', {
