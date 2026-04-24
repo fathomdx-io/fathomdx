@@ -24,7 +24,7 @@ Goal: a reader who has never seen Fathom finishes, and has a working mental mode
 | Page | State | Last verified | Owners |
 |---|---|---|---|
 | `tutorials/01-the-lake-and-you.md` | draft | 2026-04-24 | `addons/scripts/install.sh`, `QUICKSTART.md`, `api/routes/` |
-| `tutorials/02-fathom-knows-whats-going-on.md` | planned | — | `addons/connect/`, `addons/hooks/`, `addons/mcp-node/` |
+| `tutorials/02-fathom-knows-whats-going-on.md` | draft | 2026-04-24 | `addons/connect/`, `addons/hooks/`, `addons/mcp-node/`, `api/routes/` |
 | `tutorials/03-fathom-does-things.md` | planned | — | `addons/agent/`, `source-runner/plugins/heartbeat/`, routine spec |
 
 Each tutorial targets 30–45 minutes end-to-end. Every code block pulled from a real file or executed in the install-smoke CI job.
