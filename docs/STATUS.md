@@ -31,21 +31,38 @@ Each tutorial targets 30–45 minutes end-to-end. Every code block pulled from a
 
 ## Quadrant: how-to
 
-Goal-titled, focused, assumes tutorial 1 is done.
+Goal-titled, focused, assumes tutorial 1 is done. Organized by reader stance (getting set up, living with Fathom, extending Fathom).
+
+**Getting set up** (the first few days after install):
 
 | Page | State | Last verified | Owners |
 |---|---|---|---|
 | `how-to/connect-claude-code.md` | draft | 2026-04-24 | `addons/connect/`, `addons/mcp-node/`, `addons/hooks/` |
-| `how-to/run-a-second-instance.md` | planned | — | `docker-compose.yml`, `.env.example` |
 | `how-to/add-a-feed-source.md` | planned | — | `source-runner/plugins/` |
-| `how-to/back-up-and-restore-the-lake.md` | planned | — | `docker-compose.yml`, pg volume |
-| `how-to/update-fathom.md` | planned | — | `addons/scripts/`, compose |
+| `how-to/pair-another-machine.md` | planned | — | `addons/agent/`, `api/routes/pairing.py` |
+| `how-to/set-up-a-routine.md` | planned | — | `reference/routine-spec.md`, `addons/agent/plugins/kitty.js` |
+
+**Living with Fathom** (operator concerns that come up once it's running):
+
+| Page | State | Last verified | Owners |
+|---|---|---|---|
+| `how-to/back-up-and-restore-the-lake.md` | planned | — | `docker-compose.yml`, pg volume, `$LAKE_DIR` |
+| `how-to/update-fathom.md` | planned | — | `addons/scripts/`, `docker-compose.yml` |
+| `how-to/rotate-an-api-key.md` | planned | — | `api/routes/api_keys.py` |
+| `how-to/change-llm-provider.md` | planned | — | `.env`, `api/inference/` |
 | `how-to/delete-a-delta-or-tag.md` | planned | — | `api/routes/lake.py`, `delta-store/` |
+| `how-to/troubleshoot-install.md` | planned | — | `addons/scripts/preflight.sh`, `install.sh` |
+
+**Extending Fathom** (reaching into the plugin surfaces):
+
+| Page | State | Last verified | Owners |
+|---|---|---|---|
 | `how-to/use-fathom-as-an-openai-endpoint.md` | planned | — | `api/routes/`, `api/inference/` |
 | `how-to/write-a-source-plugin.md` | planned | — | `source-runner/plugins/` |
 | `how-to/write-a-helper-plugin.md` | planned | — | `api/helpers/` (TBD) |
 | `how-to/write-a-hook.md` | planned | — | `addons/hooks/` |
-| `how-to/troubleshoot-install.md` | planned | — | `addons/scripts/preflight.sh`, `install.sh` |
+
+**Explicitly not a how-to:** "run a second instance." Fathom is one mind per person, not a multi-instance product. Developer-side instance isolation (via `COMPOSE_PROJECT_NAME`) is documented in `QUICKSTART.md` as a dev note, not a flagship how-to.
 
 ## Quadrant: reference
 

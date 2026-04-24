@@ -156,8 +156,8 @@ The word "lake" is not a metaphor. It's a Postgres table with an embedding colum
 Or jump to how-tos when you have a specific goal:
 
 - [Connect Claude Code](../how-to/connect-claude-code.md)
-- [Run a second instance](../how-to/run-a-second-instance.md)
 - [Add a feed source](../how-to/add-a-feed-source.md)
+- [Pair another machine](../how-to/pair-another-machine.md)
 
 ## If something didn't work
 
