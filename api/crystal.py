@@ -25,7 +25,6 @@ from __future__ import annotations
 
 import asyncio
 import time
-from datetime import datetime, timezone
 
 from . import delta_client
 
@@ -50,10 +49,6 @@ _CACHE_TTL_SECONDS = 10.0
 _cache: dict | None = None
 _cache_at: float = 0.0
 _cache_lock = asyncio.Lock()
-
-
-def _now() -> datetime:
-    return datetime.now(timezone.utc)
 
 
 def matches_regen(delta: dict) -> bool:

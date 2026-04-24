@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from . import crystal, crystal_anchor, delta_client, drift
 from .settings import settings
@@ -28,7 +28,7 @@ _in_flight = False
 
 
 def _now() -> datetime:
-    return datetime.now(timezone.utc)
+    return datetime.now(UTC)
 
 
 async def _within_cooldown() -> bool:
@@ -169,7 +169,7 @@ async def _loop() -> None:
                 _stop_event.wait(),
                 timeout=settings.crystal_drift_poll_seconds,
             )
-        except asyncio.TimeoutError:
+        except TimeoutError:
             pass
     log.info("auto-regen loop stopped")
 
@@ -194,7 +194,7 @@ async def stop() -> None:
     if _task is not None:
         try:
             await asyncio.wait_for(_task, timeout=5.0)
-        except asyncio.TimeoutError:
+        except TimeoutError:
             _task.cancel()
         except Exception:
             pass

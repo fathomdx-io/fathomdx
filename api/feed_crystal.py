@@ -34,7 +34,7 @@ import os
 import re
 import tempfile
 import time
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 from . import delta_client
@@ -65,7 +65,7 @@ _cache_lock = asyncio.Lock()
 
 
 def _now() -> datetime:
-    return datetime.now(timezone.utc)
+    return datetime.now(UTC)
 
 
 def _now_iso() -> str:
@@ -238,8 +238,8 @@ async def _fetch_lake_topic_summary(window_hours: int = 72) -> str:
     a chance to engage with them. Including a recency snapshot lets the
     crystal propose lines that the loop can actually fulfill.
     """
-    from datetime import datetime, timedelta, timezone
-    cutoff = (datetime.now(timezone.utc) - timedelta(hours=window_hours)).isoformat()
+    from datetime import datetime, timedelta
+    cutoff = (datetime.now(UTC) - timedelta(hours=window_hours)).isoformat()
     try:
         all_recent = await delta_client.query(time_start=cutoff, limit=300)
     except Exception:

@@ -14,7 +14,6 @@ from dataclasses import dataclass
 
 from . import delta_client
 
-
 # ── Gate identifiers ──────────────────────────────
 
 GATE_ADMIN = "admin"

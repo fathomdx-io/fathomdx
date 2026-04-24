@@ -7,27 +7,42 @@ import json
 import logging
 import re
 from contextlib import asynccontextmanager
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from typing import AsyncGenerator
 
 import httpx
 from fastapi import Depends, FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, StreamingResponse
+from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
-from . import auth, auto_regen, contacts as contacts_mod, crystal, crystal_anchor, db, delta_client, drift, feed_crystal, feed_loop, mood, pairing, pressure, recall, reserved_tags, routines as routines_mod, usage as usage_module
+from . import (
+    auth,
+    auto_regen,
+    crystal,
+    crystal_anchor,
+    db,
+    delta_client,
+    drift,
+    feed_crystal,
+    feed_loop,
+    mood,
+    pairing,
+    pressure,
+    recall,
+    reserved_tags,
+)
+from . import contacts as contacts_mod
+from . import routines as routines_mod
+from . import usage as usage_module
 
 log = logging.getLogger(__name__)
 from .prompt import (
     CRYSTAL_DIRECTIVE,
     CRYSTAL_REGEN_SYSTEM,
-    FEED_DIRECTIVE,
     ORIENT_PROMPT,
     build_system_prompt,
-    load_feed_directive,
 )
 from .providers import llm
 from .search import search as nl_search
@@ -104,13 +119,14 @@ class EngagementRequest(BaseModel):
 
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
-    from . import chat_listener
     # Resolve the first-admin slug up front so the legacy-token migration
     # and any contact-tag backfill have a target. On a fresh install with
     # no admin yet, this returns None and both operations become no-ops
     # until bootstrap runs. Retries because delta-store may still be
     # booting when api starts.
     import asyncio as _asyncio
+
+    from . import chat_listener
     resolved_admin: str | None = None
     for attempt in range(6):
         try:
@@ -195,23 +211,6 @@ def _current_contact_slug(request: Request) -> str:
     fallback)."""
     contact = getattr(request.state, "contact", None)
     return (contact or {}).get("slug") or ""
-
-
-def _msg_dicts(messages: list[Message]) -> list[dict]:
-    """Convert pydantic models to plain dicts for the openai SDK."""
-    out = []
-    for m in messages:
-        d: dict = {"role": m.role}
-        if m.content is not None:
-            d["content"] = m.content
-        if m.tool_calls is not None:
-            d["tool_calls"] = m.tool_calls
-        if m.tool_call_id is not None:
-            d["tool_call_id"] = m.tool_call_id
-        if m.name is not None:
-            d["name"] = m.name
-        out.append(d)
-    return out
 
 
 async def _resolve_tools(
@@ -307,63 +306,6 @@ async def _resolve_tools(
     choice = resp.choices[0]
     messages.append({"role": "assistant", "content": choice.message.content or ""})
     return messages
-
-
-async def _stream_response(
-    messages: list[dict],
-    model: str,
-    tool_events: list[dict],
-    session_id: str | None = None,
-    **kwargs,
-) -> AsyncGenerator[str, None]:
-    """Stream tool events + final LLM text response as SSE.
-
-    Format:
-      event: tool_result
-      data: {"name": "remember", "count": 14}
-
-      data: {"choices": [{"delta": {"content": "token..."}}]}
-      ...
-      data: [DONE]
-    """
-    # Phase 1: emit tool events collected during resolution
-    for evt in tool_events:
-        yield f"event: tool_result\ndata: {json.dumps(evt)}\n\n"
-
-    # Phase 2: stream final text from the last assistant message.
-    # The last message in `messages` is the assistant's text response
-    # from _resolve_tools. We stream it token-by-token by re-calling
-    # the LLM — or if the text is already there, stream it directly.
-    last = messages[-1] if messages else {}
-    if last.get("role") == "assistant" and last.get("content"):
-        # Already have the full text from the non-streaming tool loop.
-        # Emit it as a single chunk in OpenAI streaming format.
-        chunk = {
-            "choices": [{
-                "index": 0,
-                "delta": {"content": last["content"]},
-                "finish_reason": None,
-            }],
-        }
-        yield f"data: {json.dumps(chunk)}\n\n"
-        done_chunk = {
-            "choices": [{"index": 0, "delta": {}, "finish_reason": "stop"}],
-        }
-        yield f"data: {json.dumps(done_chunk)}\n\n"
-    else:
-        # Fallback: re-call the LLM with streaming (no tools)
-        stream = await llm.chat.completions.create(
-            model=model,
-            messages=messages,
-            stream=True,
-            **kwargs,
-        )
-        async for chunk in stream:
-            yield f"data: {chunk.model_dump_json()}\n\n"
-
-    meta = {"session_id": session_id} if session_id else {}
-    yield f"event: meta\ndata: {json.dumps(meta)}\n\n"
-    yield "data: [DONE]\n\n"
 
 
 # ── Core loop ──────────────────────────────────
@@ -816,9 +758,9 @@ async def feed_engagement_history(
     limit: int = 500,
 ):
     """Engagement marks for the ECG bottom rule. Returns time + sign per delta."""
-    from datetime import datetime, timedelta, timezone
+    from datetime import datetime, timedelta
     slug = _current_contact_slug(request)
-    cutoff = (datetime.now(timezone.utc) - timedelta(seconds=since_seconds)).isoformat()
+    cutoff = (datetime.now(UTC) - timedelta(seconds=since_seconds)).isoformat()
     try:
         deltas = await delta_client.query(
             tags_include=["feed-engagement", f"contact:{slug}"],
@@ -892,7 +834,7 @@ async def list_sessions(request: Request, limit: int = 50):
     filter_slug = None if contact.get("role") == "admin" else slug
     sessions = await db.list_sessions(limit, contact_slug=filter_slug)
     # Group by recency for the sidebar
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     groups: dict[str, list] = {"today": [], "yesterday": [], "last_7_days": [], "older": []}
     for s in sessions:
         raw = s["updated_at"]
@@ -1139,7 +1081,7 @@ async def usage():
     timestamps = await delta_client.recent_deltas_timestamps(limit=5000)
     day_counts = Counter(timestamps)
     # Build sorted daily series (last 14 days)
-    today = datetime.now(timezone.utc).date()
+    today = datetime.now(UTC).date()
     days = []
     for i in range(13, -1, -1):
         d = today - timedelta(days=i)
@@ -1251,7 +1193,7 @@ async def source_detail(source_id: str):
     if delta_source == source_type:
         delta_source = f"{source_type}/{source_id}"
 
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     t_24h = (now - timedelta(hours=24)).strftime("%Y-%m-%dT%H:%M:%S.000Z")
     t_7d = (now - timedelta(days=7)).strftime("%Y-%m-%dT%H:%M:%S.000Z")
 
@@ -1374,7 +1316,7 @@ async def agents_latest_version():
     if checked and (now - checked) < _LATEST_AGENT_TTL_SECONDS and _LATEST_AGENT_CACHE.get("version"):
         return {
             "latest": _LATEST_AGENT_CACHE["version"],
-            "checked_at": datetime.fromtimestamp(checked, timezone.utc).isoformat(),
+            "checked_at": datetime.fromtimestamp(checked, UTC).isoformat(),
             "cached": True,
         }
     try:
@@ -1386,14 +1328,14 @@ async def agents_latest_version():
         _LATEST_AGENT_CACHE.update({"version": version, "checked_at": now, "error": None})
         return {
             "latest": version,
-            "checked_at": datetime.fromtimestamp(now, timezone.utc).isoformat(),
+            "checked_at": datetime.fromtimestamp(now, UTC).isoformat(),
             "cached": False,
         }
     except Exception as e:
         _LATEST_AGENT_CACHE.update({"checked_at": now, "error": str(e)})
         return {
             "latest": _LATEST_AGENT_CACHE.get("version"),  # last-known may still be useful
-            "checked_at": datetime.fromtimestamp(now, timezone.utc).isoformat(),
+            "checked_at": datetime.fromtimestamp(now, UTC).isoformat(),
             "error": "registry_unreachable",
         }
 

@@ -26,7 +26,7 @@ import json
 import logging
 import re
 import time
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from . import delta_client, feed_crystal
@@ -132,8 +132,8 @@ def _summarize_outcome(contact_slug: str, had_crystal: bool, had_lines: bool) ->
         return {
             "summary": "cold_start",
             "detail": (
-                f"No crystal yet — ran one broad curiosity card. "
-                f"Engage with a few cards (thumbs, clicks) and a real feed directive forms."
+                "No crystal yet — ran one broad curiosity card. "
+                "Engage with a few cards (thumbs, clicks) and a real feed directive forms."
             ),
             "cards_written": cards,
             "at": at,
@@ -224,7 +224,7 @@ def _lock_for(contact_slug: str) -> asyncio.Lock:
 
 
 def _now() -> datetime:
-    return datetime.now(timezone.utc)
+    return datetime.now(UTC)
 
 
 def current_status(contact_slug: str) -> dict:
@@ -423,7 +423,7 @@ async def _cold_start_fire(contact_slug: str) -> None:
             _produce_card(contact_slug, line=None, crystal=None, directive=directive),
             timeout=settings.feed_loop_budget_seconds,
         )
-    except asyncio.TimeoutError:
+    except TimeoutError:
         log.info("feed_loop: cold-start fire timed out (contact=%s)", contact_slug)
     finally:
         _llm_active_exit(contact_slug)
@@ -664,7 +664,7 @@ async def _fire_line(contact_slug: str, line: dict, crystal: dict) -> None:
             ),
             timeout=settings.feed_loop_budget_seconds,
         )
-    except asyncio.TimeoutError:
+    except TimeoutError:
         print(f"feed_loop[{contact_slug}]: line {line_id} timed out", flush=True)
         _tally_inc(contact_slug, "lines_timed_out")
     finally:

@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
-from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
+from datetime import UTC, datetime, timezone
 from pathlib import Path
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from .settings import settings
 
@@ -136,14 +136,14 @@ def build_system_prompt(
     """
     parts = [SYSTEM_PREAMBLE]
 
-    tz: timezone | ZoneInfo = timezone.utc
+    tz: timezone | ZoneInfo = UTC
     if user_timezone:
         try:
             tz = ZoneInfo(user_timezone)
         except (ZoneInfoNotFoundError, ValueError):
-            tz = timezone.utc
+            tz = UTC
     now = datetime.now(tz)
-    tz_label = user_timezone if tz is not timezone.utc else "UTC"
+    tz_label = user_timezone if tz is not UTC else "UTC"
     parts.append(
         f"\nCurrent time: {now.strftime('%A, %B %d, %Y at %I:%M %p')} {tz_label}."
     )

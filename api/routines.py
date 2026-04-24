@@ -18,7 +18,7 @@ See docs/routine-spec.md for the canonical field reference.
 from __future__ import annotations
 
 import time
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from . import delta_client
 
@@ -396,7 +396,7 @@ async def fire(routine_id: str, prompt_override: str | None = None) -> dict:
         raise FileNotFoundError(f"Routine {routine_id} not found")
     meta = existing["meta"]
     body = prompt_override if prompt_override is not None else existing["body"]
-    fired_at = datetime.now(timezone.utc).isoformat(timespec="milliseconds").replace("+00:00", "Z")
+    fired_at = datetime.now(UTC).isoformat(timespec="milliseconds").replace("+00:00", "Z")
     tags = ["routine-fire", f"routine-id:{routine_id}", f"fired-at:{fired_at}"]
     if existing["workspace"]:
         tags.append(f"workspace:{existing['workspace']}")

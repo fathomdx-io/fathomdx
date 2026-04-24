@@ -10,9 +10,10 @@ from __future__ import annotations
 import json
 import logging
 import re
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
-from . import delta_client, pressure, search as search_module
+from . import delta_client, pressure
+from . import search as search_module
 from .prompt import MOOD_DIRECTIVE
 from .providers import llm
 from .settings import settings
@@ -33,7 +34,7 @@ def _sanitize_state(raw: str) -> str:
 
 
 def _now() -> datetime:
-    return datetime.now(timezone.utc)
+    return datetime.now(UTC)
 
 
 def _strip_fences(text: str) -> str:

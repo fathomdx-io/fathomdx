@@ -3,11 +3,12 @@ from __future__ import annotations
 
 import base64
 import json
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 import httpx
 
-from . import delta_client, routines as routines_mod
+from . import delta_client
+from . import routines as routines_mod
 from .chat_listener import write_chat_event
 from .settings import settings
 
@@ -33,7 +34,7 @@ def heartbeat_age_seconds(delta: dict) -> float | None:
         hb = datetime.fromisoformat(ts.replace("Z", "+00:00"))
     except Exception:
         return None
-    return (datetime.now(timezone.utc) - hb).total_seconds()
+    return (datetime.now(UTC) - hb).total_seconds()
 
 
 def heartbeat_is_fresh(delta: dict) -> bool:
@@ -743,7 +744,7 @@ async def _agent_alive() -> tuple[bool, list[dict]]:
     # Bound the query to the freshness window on the server side. Heartbeat
     # deltas linger for 24h so the dashboard can show disconnected cards —
     # without time_start we'd pull every heartbeat from every host.
-    time_start = (datetime.now(timezone.utc) - timedelta(seconds=HEARTBEAT_STALE_SECONDS)).isoformat()
+    time_start = (datetime.now(UTC) - timedelta(seconds=HEARTBEAT_STALE_SECONDS)).isoformat()
     try:
         deltas = await delta_client.query(
             limit=50,

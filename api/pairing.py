@@ -21,9 +21,12 @@ import json
 import secrets
 import string
 import time
+from datetime import UTC
 from pathlib import Path
 
-from .auth import ALL_SCOPES, _hash, _load as _load_tokens, _save as _save_tokens
+from .auth import _hash
+from .auth import _load as _load_tokens
+from .auth import _save as _save_tokens
 from .settings import settings
 
 ALPHABET = string.ascii_lowercase + string.digits
@@ -141,12 +144,14 @@ def redeem_pair_code(code: str, host: str = "") -> dict:
     # Mint the new token directly into tokens.json with the agent-default
     # scopes. auth.create_token uses the settings path, which is the same
     # file; importing through auth ensures the format matches.
-    from .auth import TOKEN_PREFIX, TOKEN_RAND_LEN, ALPHABET as TOKEN_ALPHABET
-    from datetime import datetime, timezone
+    from datetime import datetime
+
+    from .auth import ALPHABET as TOKEN_ALPHABET
+    from .auth import TOKEN_PREFIX, TOKEN_RAND_LEN
 
     token_raw = TOKEN_PREFIX + "".join(secrets.choice(TOKEN_ALPHABET) for _ in range(TOKEN_RAND_LEN))
     token_hash = _hash(token_raw)
-    nowiso = datetime.now(timezone.utc).isoformat()
+    nowiso = datetime.now(UTC).isoformat()
     record = {
         "id": token_hash[:12],
         "name": f"agent:{host}" if host else "agent:paired",

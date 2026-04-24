@@ -5,7 +5,6 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-import os
 import re
 import time
 import uuid
@@ -15,7 +14,6 @@ from pathlib import Path
 from typing import Any
 
 import httpx
-
 from sources.base import ProducedDelta, SourceProducer
 
 log = logging.getLogger("source_runner")

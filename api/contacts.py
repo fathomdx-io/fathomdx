@@ -24,10 +24,9 @@ from __future__ import annotations
 
 import json
 import logging
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 from . import delta_client
-
 
 log = logging.getLogger(__name__)
 
@@ -281,7 +280,7 @@ PROPOSAL_RESOLVED_TTL_SECONDS = 90 * 24 * 3600
 
 
 def _expires_in(seconds: int) -> str:
-    return (datetime.now(timezone.utc) + timedelta(seconds=seconds)).isoformat()
+    return (datetime.now(UTC) + timedelta(seconds=seconds)).isoformat()
 
 
 async def propose(
@@ -506,7 +505,7 @@ async def disable(slug: str, actor_slug: str | None) -> bool:
         "contact",
         f"contact:{slug}",
         "contact-deleted",
-        f"profile-event:disabled",
+        "profile-event:disabled",
     ]
     if actor_slug and actor_slug != slug:
         tags.append(f"actor:{actor_slug}")

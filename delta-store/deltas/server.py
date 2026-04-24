@@ -69,7 +69,7 @@ plan_executor = None  # PlanExecutor — set after import in lifespan
 api_key_header = APIKeyHeader(name="X-API-Key", auto_error=False)
 
 
-async def verify_api_key(key: str | None = Security(api_key_header)):  # noqa: B008
+async def verify_api_key(key: str | None = Security(api_key_header)):
     if not API_KEY:
         return
     if key != API_KEY:
@@ -367,7 +367,7 @@ async def write_media_delta_b64(req: MediaDeltaIn):
 
 @app.post("/deltas/media/upload", response_model=WriteResult)
 async def write_media_delta_upload(
-    file: UploadFile = File(...),  # noqa: B008
+    file: UploadFile = File(...),
     content: str = Form(""),
     tags: str = Form(""),
     source: str = Form("unknown"),
@@ -485,8 +485,8 @@ async def get_delta(delta_id: str):
 async def query_deltas(
     time_start: str | None = None,
     time_end: str | None = None,
-    tags_include: list[str] | None = Query(None),  # noqa: B008
-    tags_exclude: list[str] | None = Query(None),  # noqa: B008
+    tags_include: list[str] | None = Query(None),
+    tags_exclude: list[str] | None = Query(None),
     modality: str | None = None,
     source: str | None = None,
     limit: int = 100,
@@ -561,7 +561,7 @@ async def engagement_cloud(req: EngagementCloudRequest):
 
 @app.post("/search/image", response_model=SearchResult)
 async def search_by_image(
-    file: UploadFile = File(...),  # noqa: B008
+    file: UploadFile = File(...),
     origin: str = Form(""),
     radii_semantic: float = Form(1.5),
     radii_temporal: float = Form(2.0),
@@ -645,8 +645,9 @@ async def _compute_lake_centroid(tags_include: list[str] | None = None):
     the feed-orient crystal to anchor on engagement-tagged deltas only.
     Same semantics as store.query's tags_include (AND across tags).
     """
-    import numpy as np
     from datetime import UTC, datetime
+
+    import numpy as np
 
     if tags_include:
         all_deltas = await store.query(tags_include=tags_include, limit=5000)
@@ -792,7 +793,7 @@ async def admin_backup_ack(req: BackupAckRequest):
 async def export_deltas(
     time_start: str | None = None,
     time_end: str | None = None,
-    tags_include: list[str] | None = Query(None),  # noqa: B008
+    tags_include: list[str] | None = Query(None),
     source: str | None = None,
 ):
     async def generate():
@@ -819,7 +820,7 @@ class ImportResult(_BaseModel):
 
 @app.post("/import", response_model=ImportResult)
 async def import_deltas(
-    file: UploadFile = File(...),  # noqa: B008
+    file: UploadFile = File(...),
     skip_duplicates: bool = Form(True),
 ):
     content = await file.read()

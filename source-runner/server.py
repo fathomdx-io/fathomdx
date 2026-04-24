@@ -9,7 +9,6 @@ import os
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
-
 from source_runner import SourceRunner
 
 log = logging.getLogger("source-runner")

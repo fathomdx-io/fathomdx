@@ -1,7 +1,7 @@
 """Lake-backed sessions (matching loop-api pattern)."""
 from __future__ import annotations
 
-from datetime import datetime, timezone, timedelta
+from datetime import UTC, datetime, timedelta
 
 from . import delta_client
 from .slug import generate_slug
@@ -39,7 +39,7 @@ async def create_session(title: str = "New session") -> dict:
         r = await c.get("/deltas", params={"tags_include": f"chat:{slug}", "limit": 1})
         if r.status_code == 200 and not r.json():
             break
-    return {"id": slug, "title": title, "created_at": datetime.now(timezone.utc).isoformat()}
+    return {"id": slug, "title": title, "created_at": datetime.now(UTC).isoformat()}
 
 
 async def list_sessions(
@@ -53,7 +53,7 @@ async def list_sessions(
     delta (user message, fathom reply-to-them, or event-addressed-to-them)
     appear. Passing None returns every session — used by admin views.
     """
-    since = (datetime.now(timezone.utc) - timedelta(days=LAKE_SESSION_LIST_WINDOW_DAYS)).strftime(
+    since = (datetime.now(UTC) - timedelta(days=LAKE_SESSION_LIST_WINDOW_DAYS)).strftime(
         "%Y-%m-%dT%H:%M:%S.000Z"
     )
     tags = [LAKE_CHAT_TAG]

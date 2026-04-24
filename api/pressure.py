@@ -20,7 +20,7 @@ import asyncio
 import json
 import os
 import tempfile
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 from . import delta_client
@@ -49,7 +49,7 @@ _lock = asyncio.Lock()
 
 
 def _now() -> datetime:
-    return datetime.now(timezone.utc)
+    return datetime.now(UTC)
 
 
 def _iso(dt: datetime) -> str:
