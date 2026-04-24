@@ -1,11 +1,11 @@
 {
   "version": 1,
   "summary": {
-    "total_lines_removed": 4557,
-    "total_lines_added": 3916,
-    "total_bugs_fixed": 16,
-    "total_tests_added": 59,
-    "iterations_completed": 6,
+    "total_lines_removed": 4573,
+    "total_lines_added": 4176,
+    "total_bugs_fixed": 21,
+    "total_tests_added": 67,
+    "iterations_completed": 7,
     "repos_cleaned": []
   },
   "baseline": {
@@ -22,9 +22,9 @@
     "ruff_errors": 0,
     "ruff_autofixable": 0,
     "ruff_unformatted_files": 46,
-    "pytest_count": 60,
+    "pytest_count": 68,
     "api_server_py_loc": 690,
-    "_note": "Zero ruff errors. pytest 8 -> 60 after Test Creation landed slug + reserved_tags + auth coverage (2x the PRD §Completion target of 30). Format pass still pending (46 files). Five of six §Completion targets now met — only `ruff format --check` cleanup remains."
+    "_note": "Zero ruff errors. pytest 60 -> 68 after Security Review added path-traversal + file-perms tests. One high-sev fix (arbitrary-file-read via image_path), two medium (0600 on credential files), two defence-in-depth (tag/b64 caps, pg_dump exec argv)."
   },
   "findings": [
     {
@@ -99,6 +99,19 @@
       "bugs_fixed": 2,
       "tests_added": 7,
       "commits": ["b848a5c", "1b561f5"]
+    },
+    {
+      "date": "2026-04-23",
+      "perspective": "Security Review",
+      "repo": "fathomdx",
+      "description": "Five fixes: (HIGH) image_path arbitrary-file-read via POST /v1/deltas sandboxed to an allowlist prefix, disabled by default (CWE-22); (MEDIUM) tokens.json + pair-codes.json now chmod 0600 after write; (LOW) pg_dump shell pipeline replaced with exec argv; (DoS defence-in-depth) tag count cap (64) and image_b64 size cap (~25MB decoded) on POST /v1/deltas. 8 new tests (6 path-traversal, 2 file-perms). CORS wildcard audited and kept (bearer-token API, no credentials).",
+      "type": "security",
+      "files_changed": 7,
+      "lines_added": 260,
+      "lines_removed": 16,
+      "bugs_fixed": 5,
+      "tests_added": 8,
+      "commits": ["d7961f3", "e183bf9", "5d79048", "b1702a4"]
     },
     {
       "date": "2026-04-23",

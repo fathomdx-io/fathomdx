@@ -13,6 +13,7 @@ gate admin-only routes without re-resolving.
 """
 from __future__ import annotations
 
+import contextlib
 import hashlib
 import json
 import secrets
@@ -155,7 +156,14 @@ def _load() -> list[dict]:
 def _save(tokens: list[dict]) -> None:
     p = _tokens_path()
     p.parent.mkdir(parents=True, exist_ok=True)
+    # Write then chmod to 0600 so the token hashes aren't world-readable.
+    # Default umask leaves 0644, which lets any local user on the host
+    # read the hash file. SHA-256 is not trivially reversible, but
+    # tokens.json is password-equivalent material — treat it like a
+    # private key. os.chmod is a no-op on Windows; safe to call there.
     p.write_text(json.dumps(tokens, indent=2))
+    with contextlib.suppress(OSError):
+        p.chmod(0o600)
 
 
 # ── CRUD ──────────────────────────────────────────

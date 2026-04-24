@@ -23,8 +23,55 @@ from pydantic import BaseModel
 
 from .. import auth, delta_client, reserved_tags
 from ..search import search as nl_search
+from ..settings import settings
 
 router = APIRouter()
+
+# Bounds on caller-supplied input fields. These are defence-in-depth,
+# not the primary gate (that's auth + reserved_tags). A lake:write
+# caller who tries to pile up 100k tags on one delta or stream a 100MB
+# base64 blob shouldn't be able to blow out memory before the gate
+# rejects them. Numbers picked generously relative to realistic usage:
+# real deltas average <10 tags and <1MB of content.
+_MAX_TAGS_PER_DELTA = 64
+_MAX_IMAGE_B64_CHARS = 35_000_000  # ≈ 25MB decoded
+
+
+def _resolve_allowed_image_path(image_path: str) -> Path:
+    """Return a resolved Path inside `settings.image_path_allowed_prefix`,
+    or raise HTTPException(400). This is the single defence against
+    arbitrary-file-read via the image_path parameter — any caller with a
+    lake:write token could otherwise hand in `/etc/passwd` or
+    `/data/tokens.json` and have the api read it off disk.
+
+    The feature is off by default (empty prefix). Operators who mount a
+    dedicated staging volume into the api container set the setting to
+    that volume's path and anything under it becomes eligible.
+    """
+    prefix = (settings.image_path_allowed_prefix or "").strip()
+    if not prefix:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "image_path uploads are disabled on this instance. "
+                "Pass image_b64 or set FATHOM_image_path_allowed_prefix."
+            ),
+        )
+    try:
+        allowed_root = Path(prefix).resolve(strict=False)
+        candidate = Path(image_path).resolve(strict=False)
+    except (OSError, ValueError) as e:
+        raise HTTPException(
+            status_code=400, detail=f"image_path invalid: {e}"
+        ) from e
+    try:
+        candidate.relative_to(allowed_root)
+    except ValueError:
+        raise HTTPException(
+            status_code=400,
+            detail="image_path must resolve under the configured allowed prefix",
+        ) from None
+    return candidate
 
 
 class EngagementRequest(BaseModel):
@@ -334,12 +381,22 @@ async def proxy_write_delta(body: dict, request: Request):
     contact = getattr(request.state, "contact", None)
     caller_slug = (contact or {}).get("slug")
 
+    # (0) Reject absurdly oversized inputs up front. Defence-in-depth;
+    # keeps a lake:write caller from OOMing the api before the auth
+    # gate gets a chance to reject them.
+    raw_tags = body.get("tags") or []
+    if isinstance(raw_tags, list) and len(raw_tags) > _MAX_TAGS_PER_DELTA:
+        raise HTTPException(
+            status_code=400,
+            detail=f"too many tags ({len(raw_tags)} > {_MAX_TAGS_PER_DELTA})",
+        )
+
     # (1) Strip caller-supplied contact:* tags; re-stamp with the
     # authenticated caller's slug if we have one. Internal-tag callers
     # never use this endpoint, so unknown-caller writes don't carry a
     # contact tag at all — that's fine; the reservation scan will catch
     # any authority-bearing write that came in unauthenticated.
-    caller_tags = reserved_tags.strip_contact_tags(list(body.get("tags") or []))
+    caller_tags = reserved_tags.strip_contact_tags(list(raw_tags))
     if caller_slug:
         caller_tags.append(f"contact:{caller_slug}")
     body = {**body, "tags": caller_tags}
@@ -364,12 +421,21 @@ async def proxy_write_delta(body: dict, request: Request):
     image_b64 = body.get("image_b64")
     if image_path or image_b64:
         if image_path:
+            safe_path = _resolve_allowed_image_path(image_path)
             try:
-                file_bytes = await asyncio.to_thread(Path(image_path).read_bytes)
+                file_bytes = await asyncio.to_thread(safe_path.read_bytes)
             except (FileNotFoundError, PermissionError, OSError) as e:
                 raise HTTPException(status_code=400, detail=f"image_path unreadable: {e}") from e
-            filename = Path(image_path).name or "upload.bin"
+            filename = safe_path.name or "upload.bin"
         else:
+            if not isinstance(image_b64, str) or len(image_b64) > _MAX_IMAGE_B64_CHARS:
+                raise HTTPException(
+                    status_code=400,
+                    detail=(
+                        f"image_b64 too large ({len(image_b64 or '')} chars > "
+                        f"{_MAX_IMAGE_B64_CHARS})"
+                    ),
+                )
             try:
                 file_bytes = base64.b64decode(image_b64, validate=True)
             except Exception as e:

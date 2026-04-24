@@ -5,20 +5,19 @@
 
 ## Next
 
-**Perspective:** Security Review
+**Perspective:** Performance
 **Repo:** fathomdx
-**Why next:** Test Creation is DONE. pytest 8 → 60 this iteration, 2×
-past the PRD §Completion target of 30. Coverage landed on the three
-PRD-flagged surfaces: slug generation (9 tests), reserved-tag gate
-(20 tests), auth CRUD + scope matrix (23 tests). Skipped mood-
-synthesis scoring because it's LLM-coupled and hard to unit-test
-without integration-test infra — better done with a small
-"score-a-known-thread" regression corpus in a later pass.
+**Why next:** Security Review is DONE. Five real fixes landed
+including one high-severity arbitrary-file-read (image_path on
+/v1/deltas) and two credential-file permission hardening fixes
+(tokens.json, pair-codes.json now 0600 instead of 0644). Also
+replaced pg_dump's shell pipeline with exec-argv, and added
+tag-count + image-b64 size caps as defence-in-depth. 8 new tests.
 
-Security Review is the natural next step per PRD priority #6: auth
-middleware, file-upload paths, any shellout, token-persistence-file
-permissions. Mood scoring and perf checks can wait for Performance
-(#7) or a dedicated regression-corpus iteration.
+Performance is the next PRD priority: feed loop allocations, N+1
+queries against the lake, caching opportunities. Also: chat_listener
+timestamp string comparisons are allocating strings per delta per
+tick — fine at current scale, maybe relevant at 1000× volume.
 
 **Pending cleanup** from the server.py split: `/v1/chat/completions`
 + `fathom_think` + `_resolve_tools` (~250 lines) still in server.py,
@@ -37,7 +36,7 @@ Single repo (`fathomdx`) so the "matrix" is a column. `-` = not started,
 | 3 | Bug Hunt                         | DONE     |
 | 4 | Quality Scaffold                 | DONE     |
 | 5 | Test Creation                    | DONE     |
-| 6 | Security Review                  | -        |
+| 6 | Security Review                  | DONE     |
 | 7 | Performance                      | -        |
 | 8 | Dependency Audit                 | -        |
 | 9 | Cross-Repo Coherence             | -        |
@@ -109,6 +108,32 @@ Format:
 - Key findings or decisions
 - Commits: <sha> <sha>
 ```
+
+---
+
+### 2026-04-23 — Security Review / fathomdx
+
+Five commits on `ralph`, eight new tests. One real high-severity fix,
+two credential-hardening fixes, two defence-in-depth additions. CORS
+wildcard audited and left as-is (bearer-token API, no credentials, no
+cookies → safe).
+
+**Findings + fixes**
+
+| Severity | Finding | Fix (commit) |
+|---|---|---|
+| **HIGH** | `image_path` on POST /v1/deltas let any `lake:write` caller read arbitrary server-side files (CWE-22). `Path(image_path).read_bytes()` with no validation. | `e183bf9` — sandbox via new `settings.image_path_allowed_prefix`; feature disabled by default; `Path.resolve().relative_to(prefix)` blocks `..` traversal and symlink escapes. 6 tests. |
+| MEDIUM | `tokens.json` + `pair-codes.json` written with default umask (0644) → world-readable on the host. Contents are password-equivalent material. | `d7961f3` — chmod 0600 after each write, wrapped in `contextlib.suppress(OSError)` so Windows doesn't trip. 2 POSIX-only tests. |
+| LOW | `_dump_to` in delta-store used `create_subprocess_shell` with f-string-interpolated DSN. Operator-controlled (DATABASE_URL) so not an external attack surface, but shell-interpolating any string is a smell. | `5d79048` — switched to `create_subprocess_exec` with argv list, piping pg_dump → gzip via `asyncio.subprocess` pipe instead of shell. |
+| DoS | No size caps on POST /v1/deltas — a `lake:write` caller could pile up 100k tags or stream 100MB base64. | `b1702a4` — `_MAX_TAGS_PER_DELTA = 64`, `_MAX_IMAGE_B64_CHARS = 35M` (~25MB decoded). Auth still gates first; these are defence-in-depth. |
+
+**Audited + OK**
+- CORS: `allow_origins=["*"]` without `allow_credentials=True`. Bearer-token API with no cookies — safe by design; browsers send the Authorization header explicitly, so cross-origin calls still need a stolen token.
+- Auth middleware scope gate: `_required_scope` prefix-match is fail-closed (adds scope requirement on false-positive).
+- SQL: all pg queries use positional parameters; f-string interpolation only on integer param indices. No injection.
+- Token-in-log: one `log.info` near tokens, logs count + slug only, no raw tokens.
+- Pair-code comparison is `==`, not `hmac.compare_digest`. Codes are 26 char base36 (~10^40 keyspace), TTL 10 min — timing-attack economics don't work.
+- `?token=` query-param fallback on GET /v1/media/*: documented tradeoff in middleware comments; scoped to GET-only so a leaked URL grants read not write. Acceptable.
 
 ---
 

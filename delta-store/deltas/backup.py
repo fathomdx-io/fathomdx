@@ -141,19 +141,45 @@ def _rotate(keep: int) -> None:
 
 
 async def _dump_to(tmp_path: Path, dsn: str) -> tuple[bool, str]:
-    """Run pg_dump → gzip → tmp_path. Returns (ok, error_msg_if_not_ok)."""
-    cmd = (
-        f"pg_dump --no-owner --clean --if-exists '{dsn}' "
-        f"| gzip -9 > '{tmp_path}'"
-    )
-    proc = await asyncio.create_subprocess_shell(
-        cmd,
-        stdout=asyncio.subprocess.PIPE,
-        stderr=asyncio.subprocess.PIPE,
-    )
-    _, stderr = await proc.communicate()
-    if proc.returncode != 0:
-        return False, stderr.decode(errors="replace")[:500]
+    """Run pg_dump → gzip → tmp_path. Returns (ok, error_msg_if_not_ok).
+
+    Uses create_subprocess_exec (argv list) + an explicit pipe between
+    pg_dump and gzip instead of a shell-interpolated pipeline. That
+    way a DSN containing a single quote, backtick, or newline can't
+    inject into the shell — defence-in-depth since DATABASE_URL comes
+    from env and is operator-controlled, not attacker-controlled.
+    """
+    # pg_dump writes to stdout; gzip reads from pg_dump.stdout; the
+    # compressed bytes land in the tmp file opened here.
+    with open(tmp_path, "wb") as tmp_file:
+        pg = await asyncio.create_subprocess_exec(
+            "pg_dump",
+            "--no-owner",
+            "--clean",
+            "--if-exists",
+            dsn,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        gz = await asyncio.create_subprocess_exec(
+            "gzip",
+            "-9",
+            stdin=pg.stdout,
+            stdout=tmp_file,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        # Close our handle to pg's stdout so gzip is the only reader.
+        # Without this, pg_dump's stdout pipe doesn't get EOF and the
+        # pipeline deadlocks on very large dumps.
+        if pg.stdout is not None:
+            pg.stdout.close()
+        _, pg_err = await pg.communicate()
+        _, gz_err = await gz.communicate()
+
+    if pg.returncode != 0:
+        return False, pg_err.decode(errors="replace")[:500]
+    if gz.returncode != 0:
+        return False, gz_err.decode(errors="replace")[:500]
     return True, ""
 
 
