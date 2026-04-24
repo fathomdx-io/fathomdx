@@ -123,13 +123,25 @@
     .hint-forgot summary:hover { text-decoration: underline; }
     .hint-forgot[open] summary { margin-bottom: 8px; }
     .hint-forgot p { margin: 6px 0; }
-    .hint-cmd {
-      font-family: var(--mono); background: var(--bg-deep);
-      color: var(--ink); font-size: 12.5px;
-      padding: 8px 10px; border-radius: 6px;
-      margin: 8px 0 8px;
-      overflow-x: auto; white-space: nowrap;
+    /* Command + copy surface — mirrors .pair-cmd-wrap / .pair-cmd in
+       the dashboard so the two contexts feel like the same control. */
+    .cmd-wrap { display: flex; gap: 8px; align-items: stretch; margin: 8px 0; }
+    .cmd-pre {
+      flex: 1; margin: 0; padding: 10px 12px;
+      background: var(--bg-deep); border: 1px solid var(--rule); border-radius: 8px;
+      font-family: var(--mono); font-size: 12px; color: var(--ink);
+      white-space: pre-wrap; word-break: break-all; overflow-wrap: break-word;
+      max-height: 140px; overflow-y: auto;
     }
+    .cmd-copy {
+      display: inline-flex; align-items: center; justify-content: center;
+      background: var(--accent); color: var(--bg-deep);
+      border: 0; border-radius: 8px;
+      padding: 0 14px;
+      font-family: var(--sans); font-weight: 600; font-size: var(--text-md);
+      cursor: pointer; transition: background 120ms;
+    }
+    .cmd-copy:hover { background: var(--accent-bright); }
   </style>
 </head>
 <body>
@@ -151,7 +163,10 @@
     <details class="hint hint-forgot">
       <summary>Forgot my key</summary>
       <p>Run this on the host where the api is installed:</p>
-      <pre class="hint-cmd" id="mintKeyCmd">./addons/scripts/mint-key.sh</pre>
+      <div class="cmd-wrap">
+        <pre class="cmd-pre" id="mintKeyCmd">./addons/scripts/mint-key.sh</pre>
+        <button type="button" class="cmd-copy" data-copy-target="mintKeyCmd">Copy</button>
+      </div>
       <p>Prints a fresh key bound to your contact. Prompts you to pick one if there's more than one person on this instance.</p>
     </details>
   </div>
@@ -170,6 +185,25 @@
       el.textContent = msg;
       el.className = 'status show ' + kind;
     }
+
+    // Generic copy button: any [data-copy-target="<id>"] button copies
+    // that element's textContent to the clipboard and flashes "Copied".
+    // Matches the dashboard's pair-cmd / update-cmd pattern.
+    document.addEventListener('click', async (ev) => {
+      const btn = ev.target.closest('[data-copy-target]');
+      if (!btn) return;
+      const src = document.getElementById(btn.dataset.copyTarget);
+      if (!src) return;
+      try {
+        await navigator.clipboard.writeText(src.textContent.trim());
+        const old = btn.textContent;
+        btn.textContent = 'Copied ✓';
+        setTimeout(() => { btn.textContent = old; }, 1200);
+      } catch (e) {
+        btn.textContent = 'Copy failed';
+        setTimeout(() => { btn.textContent = 'Copy'; }, 1500);
+      }
+    });
 
     async function validateToken(token) {
       const r = await fetch(API_BASE + '/v1/auth/me', {
