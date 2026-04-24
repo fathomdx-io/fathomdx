@@ -5,20 +5,20 @@
 
 ## Next
 
-**Perspective:** Test Creation
+**Perspective:** Security Review
 **Repo:** fathomdx
-**Why next:** Quality Scaffold is DONE. Key win was adding
-`_request_with_retry` to `api/delta_client.py` so every idempotent
-read retries 502/503/504 and network hiccups 3x with jittered
-exponential backoff — a real compose-stack delta-store restart no
-longer translates to dashboard errors, just a 200-600 ms stutter.
-Added 7 tests along the way (retry contract + session-lock LRU),
-pytest went 1 → 8.
+**Why next:** Test Creation is DONE. pytest 8 → 60 this iteration, 2×
+past the PRD §Completion target of 30. Coverage landed on the three
+PRD-flagged surfaces: slug generation (9 tests), reserved-tag gate
+(20 tests), auth CRUD + scope matrix (23 tests). Skipped mood-
+synthesis scoring because it's LLM-coupled and hard to unit-test
+without integration-test infra — better done with a small
+"score-a-known-thread" regression corpus in a later pass.
 
-Test Creation is the natural follow-up — the PRD flags auth, tag
-parsing, slug generation, and the mood-synthesis scoring paths as
-under-tested. Write unit tests for each, target ~30 tests total to
-hit the PRD §Completion goal.
+Security Review is the natural next step per PRD priority #6: auth
+middleware, file-upload paths, any shellout, token-persistence-file
+permissions. Mood scoring and perf checks can wait for Performance
+(#7) or a dedicated regression-corpus iteration.
 
 **Pending cleanup** from the server.py split: `/v1/chat/completions`
 + `fathom_think` + `_resolve_tools` (~250 lines) still in server.py,
@@ -36,7 +36,7 @@ Single repo (`fathomdx`) so the "matrix" is a column. `-` = not started,
 | 2 | Senior Dev Audit                 | DONE     |
 | 3 | Bug Hunt                         | DONE     |
 | 4 | Quality Scaffold                 | DONE     |
-| 5 | Test Creation                    | -        |
+| 5 | Test Creation                    | DONE     |
 | 6 | Security Review                  | -        |
 | 7 | Performance                      | -        |
 | 8 | Dependency Audit                 | -        |
@@ -109,6 +109,42 @@ Format:
 - Key findings or decisions
 - Commits: <sha> <sha>
 ```
+
+---
+
+### 2026-04-23 — Test Creation / fathomdx
+
+Three commits, 52 new tests. pytest 8 → 60 — hit 2× the PRD
+§Completion target of 30 in a single iteration.
+
+**Commits**
+- `300f331` — `api/slug.py`: 9 tests covering adj-adj-animal grammar,
+  slot uniqueness over 500 seeded draws, deterministic rng, and the
+  `is_slug_taken` / `generate_unique_slug` helpers including the lake-
+  unreachable fail-open and the collision-fallback suffix path.
+- `96b47b4` — `api/reserved_tags.py`: 20 tests for the authority gate
+  (strip_contact_tags, resolve, hint_for, evaluate across every gate
+  branch + unknown-gate fail-closed + unauthenticated-writer reject).
+  Monkeypatched synthetic gate rows for the two branches that don't
+  have real tags in the current registry.
+- `166962a` — `api/auth.py`: 23 tests for token CRUD, scope-matrix
+  mapping, legacy-migration idempotency, contact-slug request helper,
+  contact-cache invalidation. tmp_path fixture isolates the tokens
+  file so tests never touch /data.
+
+**PRD-flagged surfaces**
+- [x] auth — 23 tests
+- [x] tag parsing — 20 tests (reserved_tags)
+- [x] slug — 9 tests
+- [ ] mood-synthesis scoring — skipped, LLM-coupled
+
+**Why skip mood scoring**: `mood.synthesize_mood` runs an LLM call to
+produce a `carrier_wave` + `threads` JSON, then calls `pressure` /
+`delta_client` internals. Unit-testing that requires mocking a stable
+LLM response AND the pressure state — high effort for low signal.
+A dedicated "regression corpus" pass with golden-file thread
+signatures is a better shape for that test. Logged for Performance
+or a future iteration.
 
 ---
 

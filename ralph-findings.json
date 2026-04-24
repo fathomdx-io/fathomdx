@@ -2,10 +2,10 @@
   "version": 1,
   "summary": {
     "total_lines_removed": 4557,
-    "total_lines_added": 3390,
+    "total_lines_added": 3916,
     "total_bugs_fixed": 16,
-    "total_tests_added": 7,
-    "iterations_completed": 5,
+    "total_tests_added": 59,
+    "iterations_completed": 6,
     "repos_cleaned": []
   },
   "baseline": {
@@ -22,9 +22,9 @@
     "ruff_errors": 0,
     "ruff_autofixable": 0,
     "ruff_unformatted_files": 46,
-    "pytest_count": 8,
+    "pytest_count": 60,
     "api_server_py_loc": 690,
-    "_note": "Zero ruff errors. pytest 1 -> 8 after Quality Scaffold added retry + session-lock tests. Format pass still pending (46 files). PRD §Completion wants pytest >= 30 and ruff format clean — two of six targets left."
+    "_note": "Zero ruff errors. pytest 8 -> 60 after Test Creation landed slug + reserved_tags + auth coverage (2x the PRD §Completion target of 30). Format pass still pending (46 files). Five of six §Completion targets now met — only `ruff format --check` cleanup remains."
   },
   "findings": [
     {
@@ -99,6 +99,18 @@
       "bugs_fixed": 2,
       "tests_added": 7,
       "commits": ["b848a5c", "1b561f5"]
+    },
+    {
+      "date": "2026-04-23",
+      "perspective": "Test Creation",
+      "repo": "fathomdx",
+      "description": "Three test modules covering the PRD-flagged under-tested surfaces. Slug generation (grammar, uniqueness, fail-open, collision-fallback), reserved-tags gate (all branches, fail-closed on unknown gate, strip-and-re-stamp), auth (scope matrix, token CRUD, scope filter, legacy migration, contact-slug helper, cache). pytest 8 -> 60, 2x past PRD §Completion target. Mood-synthesis scoring skipped (LLM-coupled).",
+      "type": "tests",
+      "files_changed": 3,
+      "lines_added": 526,
+      "lines_removed": 0,
+      "tests_added": 52,
+      "commits": ["300f331", "96b47b4", "166962a"]
     }
   ],
   "consolidation_targets": {
