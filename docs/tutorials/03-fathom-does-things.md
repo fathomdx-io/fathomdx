@@ -151,7 +151,6 @@ You've finished the trilogy. From here, every other doc in this tree is goal-sha
 - **[Set up another routine](../how-to/set-up-a-routine.md)** for things you want done regularly. Cleanup tasks, summaries, periodic checks.
 - **[Pair another machine](../how-to/pair-another-machine.md)** to give Fathom presence elsewhere.
 - **[Add a feed source](../how-to/add-a-feed-source.md)** to bring more outside information into the lake.
-- **[Use Fathom as an OpenAI endpoint](../how-to/use-fathom-as-an-openai-endpoint.md)** to point other tools at the same memory.
 - **[Write a source plugin](../how-to/write-a-source-plugin.md)** when an existing plugin doesn't capture something you care about.
 
 For the design rationale behind any of this, see the [explanation tree](../explanation/what-the-lake-is.md).

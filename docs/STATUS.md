@@ -38,9 +38,9 @@ Goal-titled, focused, assumes tutorial 1 is done. Organized by reader stance (ge
 | Page | State | Last verified | Owners |
 |---|---|---|---|
 | `how-to/connect-claude-code.md` | draft | 2026-04-24 | `addons/connect/`, `addons/mcp-node/`, `addons/hooks/` |
-| `how-to/add-a-feed-source.md` | planned | — | `source-runner/plugins/` |
-| `how-to/pair-another-machine.md` | planned | — | `addons/agent/`, `api/routes/pairing.py` |
-| `how-to/set-up-a-routine.md` | planned | — | `reference/routine-spec.md`, `addons/agent/plugins/kitty.js` |
+| `how-to/add-a-feed-source.md` | draft | 2026-04-24 | `source-runner/sources/rss.py`, `api/routes/sources.py` |
+| `how-to/pair-another-machine.md` | draft | 2026-04-24 | `addons/agent/`, `api/routes/pairing.py` |
+| `how-to/set-up-a-routine.md` | draft | 2026-04-24 | `api/routes/routines.py`, `addons/agent/plugins/kitty.js`, `reference/routine-spec.md` |
 
 **Living with Fathom** (operator concerns that come up once it's running):
 
@@ -57,8 +57,8 @@ Goal-titled, focused, assumes tutorial 1 is done. Organized by reader stance (ge
 
 | Page | State | Last verified | Owners |
 |---|---|---|---|
-| `how-to/use-fathom-as-an-openai-endpoint.md` | planned | — | `api/routes/`, `api/inference/` |
-| `how-to/write-a-source-plugin.md` | planned | — | `source-runner/plugins/` |
+| `how-to/use-fathom-as-an-openai-endpoint.md` | future | — | `api/server.py:491` (path exists; not yet OpenAI-compatible — chat_completions persists user delta only, reply comes async) |
+| `how-to/write-a-source-plugin.md` | draft | 2026-04-24 | `source-runner/sources/template.py`, `source-runner/source_runner.py` |
 | `how-to/write-a-helper-plugin.md` | planned | — | `api/helpers/` (TBD) |
 | `how-to/write-a-hook.md` | planned | — | `addons/hooks/` |
 
