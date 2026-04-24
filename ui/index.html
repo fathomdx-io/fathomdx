@@ -2281,7 +2281,7 @@
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
         <span>New session</span>
       </button>
-      <label class="sidebar-filter" for="showClaudeCodeToggle">
+      <label class="sidebar-filter" for="showClaudeCodeToggle" id="showClaudeCodeFilter" hidden>
         <input type="checkbox" id="showClaudeCodeToggle">
         <span>Show claude-code sessions</span>
       </label>
@@ -6974,10 +6974,14 @@ GET  /v1/usage               Usage stats`,
     // Dynamic sidebar session loading
     const sidebarBody = document.querySelector('.sidebar-body');
     const showClaudeCodeToggle = document.getElementById('showClaudeCodeToggle');
+    const showClaudeCodeFilter = document.getElementById('showClaudeCodeFilter');
 
     // Persist the toggle across reloads. Default off — kitty-window
     // claude-code can be chatty and most users open the dashboard to
-    // see consumer-api chat threads specifically.
+    // see consumer-api chat threads specifically. The filter row itself
+    // stays hidden until the lake actually contains a claude-code
+    // session, so the toggle doesn't take up real estate for users who
+    // don't use claude-code.
     const SHOW_CC_KEY = 'fathom.sidebar.showClaudeCode';
     showClaudeCodeToggle.checked = localStorage.getItem(SHOW_CC_KEY) === '1';
     showClaudeCodeToggle.addEventListener('change', () => {
@@ -6999,6 +7003,12 @@ GET  /v1/usage               Usage stats`,
         sidebarBody.innerHTML = '';
         const groupLabels = { today: 'Today', yesterday: 'Yesterday', last_7_days: 'Last 7 days', older: 'Older' };
         const showCC = showClaudeCodeToggle.checked;
+        // Reveal the filter only if the lake has at least one claude-code
+        // session in the visible window — empty installs stay uncluttered.
+        const hasClaudeCode = Object.values(data.groups || {}).some(arr =>
+          (arr || []).some(isClaudeCodeSession)
+        );
+        showClaudeCodeFilter.hidden = !hasClaudeCode;
         for (const [key, label] of Object.entries(groupLabels)) {
           const raw = data.groups[key] || [];
           const sessions = showCC ? raw : raw.filter(s => !isClaudeCodeSession(s));
