@@ -11,12 +11,12 @@
 # support `pipefail` or `[[`. The guard below catches this and prints a
 # friendly message rather than the cryptic `Illegal option -o pipefail`.)
 #
-# Clones fathomdx into ~/fathom (or wherever you tell it), runs preflight,
+# Clones fathomdx into ~/.fathom/src (or wherever you tell it), runs preflight,
 # and optionally starts the stack. Idempotent — re-running updates an
 # existing install via `git pull` and re-runs preflight.
 #
 # Environment overrides (set before piping):
-#   FATHOM_DIR    install location (default: $HOME/fathom)
+#   FATHOM_DIR    install location (default: $HOME/.fathom/src)
 #   FATHOM_REPO   git URL (default: https://github.com/fathomdx-io/fathomdx.git)
 #   FATHOM_REF    branch/tag/sha (default: main)
 #   NONINTERACTIVE=1   skip all prompts, accept all defaults
@@ -125,7 +125,7 @@ fi
 # ── target dir ───────────────────────────────────────────────────────
 step "Where to install"
 
-FATHOM_DIR="${FATHOM_DIR:-${HOME}/fathom}"
+FATHOM_DIR="${FATHOM_DIR:-${HOME}/.fathom/src}"
 FATHOM_DIR="$(ask "Install location" "${FATHOM_DIR}")"
 FATHOM_DIR="${FATHOM_DIR/#\~/${HOME}}"  # expand leading ~
 

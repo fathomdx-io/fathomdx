@@ -14,7 +14,7 @@ Self-host Fathom on a single Linux machine. About five minutes from clone to run
 curl -fsSL https://fathomdx.io/install.sh | bash
 ```
 
-This clones into `~/fathom` (override with `FATHOM_DIR=…`), runs preflight to set up `.env` and the lake's directories, then offers to start the stack. Inspect the script first at [`addons/scripts/install.sh`](addons/scripts/install.sh) if piping curl into sh isn't your style.
+This clones into `~/.fathom/src` (override with `FATHOM_DIR=…`), runs preflight to set up `.env` and the lake's directories, then offers to start the stack. Inspect the script first at [`addons/scripts/install.sh`](addons/scripts/install.sh) if piping curl into bash isn't your style.
 
 If you'd rather drive each step yourself:
 
