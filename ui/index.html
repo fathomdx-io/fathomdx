@@ -1531,6 +1531,14 @@
       color: var(--ink-faint);
       margin-bottom: 7px;
     }
+    .msg-recalled {
+      font-family: var(--serif); font-style: italic;
+      font-size: 13.5px; line-height: 1.5;
+      color: var(--ink-faint);
+      margin: -2px 0 10px;
+    }
+    .msg-recalled::before { content: "~ "; opacity: 0.7; }
+    .msg-recalled::after { content: " ~"; opacity: 0.7; }
     .msg-body {
       font-size: 15.5px; line-height: 1.6; color: var(--ink);
     }
@@ -6340,7 +6348,10 @@ GET  /v1/usage               Usage stats`,
         const el = document.createElement('div');
         el.className = 'msg msg-fathom';
         const body = turn.html || renderMd(turn.text || '');
-        el.innerHTML = `<div class="msg-meta">Fathom · ${turn.time}</div><div class="msg-body">${body}</div>`;
+        const recalledHtml = turn.recalled
+          ? `<div class="msg-recalled">${_esc(turn.recalled)}</div>`
+          : '';
+        el.innerHTML = `<div class="msg-meta">Fathom · ${turn.time}</div>${recalledHtml}<div class="msg-body">${body}</div>`;
         return el;
       }
       if (turn.role === 'agent') {
@@ -6450,7 +6461,8 @@ GET  /v1/usage               Usage stats`,
       } else if (m.role === 'user') {
         el = renderTurn({ role: 'user', time, text: m.content || '' });
       } else if (m.role === 'assistant') {
-        el = renderTurn({ role: 'fathom', time, html: renderMd(m.content || '') });
+        const { body, recalled } = _splitRecalled(m.content || '');
+        el = renderTurn({ role: 'fathom', time, html: renderMd(body), recalled });
       } else if (m.role === 'agent') {
         el = renderTurn({
           role: 'agent', time,
@@ -6500,6 +6512,23 @@ GET  /v1/usage               Usage stats`,
       if (rendered) loadSessions();
     }
 
+    // Pull a single <recalled>...</recalled> preamble out of a Fathom
+    // reply. The tag is provenance — a short first-person reflection on
+    // what memories surfaced this turn — paired with the reply itself
+    // rather than a separate ephemeral chat-event. Renders as a muted
+    // subtitle above the bubble; stripped from the body so it doesn't
+    // double up in markdown. Case-insensitive and DOTALL-ish so wrapped
+    // prose works. We match the first tag only; extras stay in the body
+    // as-is (a stray tag is a model glitch, not worth special-casing).
+    const _RECALLED_RE = /<recalled>([\s\S]*?)<\/recalled>/i;
+    function _splitRecalled(content) {
+      const match = content.match(_RECALLED_RE);
+      if (!match) return { body: content, recalled: '' };
+      const recalled = (match[1] || '').trim();
+      const body = content.replace(_RECALLED_RE, '').trim();
+      return { body, recalled };
+    }
+
     function _maybeRemoveTyping(m) {
       // Any signal from Fathom (message, silence ack, or a body's
       // signoff) ends the "typing" state. Tool-use events also count —
@@ -6520,6 +6549,14 @@ GET  /v1/usage               Usage stats`,
     function _renderChatEvent(m) {
       const kind = m.kind || 'event';
       const data = m.data || {};
+
+      // Memory-tool events no longer render as their own strip — the
+      // paired <recalled> preamble on Fathom's reply carries that signal
+      // now. Old TTL'd events from before the switchover still land in
+      // polling results for a few minutes; drop them silently.
+      if (kind === 'remember' || kind === 'recall' || kind === 'deep_recall') {
+        return null;
+      }
 
       if (kind === 'silence') {
         // A silent ack renders as a compact Fathom meta-line with a

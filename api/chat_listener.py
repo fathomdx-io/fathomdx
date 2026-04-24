@@ -19,6 +19,7 @@ import asyncio
 import contextlib
 import json
 import logging
+import re
 from collections import OrderedDict
 from datetime import UTC, datetime, timedelta
 
@@ -66,6 +67,18 @@ IGNORED_SOURCES = {
     "fathom-mood",
     "fathom-feed",
 }
+
+# Memory-tool events no longer surface as chat-event deltas — the model's
+# own <recalled>...</recalled> preamble on its reply is the durable
+# provenance. Silence-ack and image-view events still flow through as
+# before; only retrieval chatter is dropped.
+_SUPPRESSED_TOOL_EVENTS = {"remember", "recall", "deep_recall"}
+
+# Pattern for the provenance tag the model may emit at the top of its
+# reply. Kept DOTALL so wrapped prose is accepted; kept non-greedy so a
+# model that accidentally includes angle brackets later doesn't swallow
+# the rest of the reply.
+_RECALLED_RE = re.compile(r"<recalled>.*?</recalled>", re.DOTALL | re.IGNORECASE)
 
 
 class ChatListener:
@@ -232,6 +245,8 @@ class ChatListener:
         def on_tool_event(kind: str, name: str, data: dict) -> None:
             if kind != "result":
                 return
+            if name in _SUPPRESSED_TOOL_EVENTS:
+                return
             _spawn_task(
                 write_chat_event(slug, name, data, contact_slug=addressee_slug),
                 name=f"chat-event/{name}",
@@ -269,7 +284,12 @@ class ChatListener:
             on_tool_event=on_tool_event,
         )
         reply_text = (messages[-1].get("content") or "").strip() if messages else ""
-        if not reply_text or reply_text == "<...>":
+        # A reply that is only a <recalled> preamble with no body is
+        # still silence — the model peeked at memory but chose not to
+        # speak. Strip the tag before the silence check so these read
+        # as silent acks, not as deltas with just provenance.
+        body_after_recall = _RECALLED_RE.sub("", reply_text).strip()
+        if not body_after_recall or body_after_recall == "<...>":
             # Active silence — Fathom heard, chose not to speak. Write a
             # short-lived ack delta so the UI knows the turn happened.
             # No persistence value, just a live receipt.
