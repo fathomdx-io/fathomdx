@@ -68,6 +68,13 @@ IGNORED_SOURCES = {
     "fathom-feed",
 }
 
+# Session-metadata deltas (renames, tombstones) carry source=fathom-chat
+# and no participant tag, so the source + participant filters below
+# can't catch them — they'd otherwise be treated as fresh user messages
+# and trigger a spurious turn whose "user text" is the session title.
+# db.get_messages already skips these same tags as metadata.
+METADATA_TAGS = {"chat-name", "chat-deleted"}
+
 # Memory-tool events no longer surface as chat-event deltas — the model's
 # own <recalled>...</recalled> preamble on its reply is the durable
 # provenance. Silence-ack and image-view events still flow through as
@@ -170,6 +177,10 @@ class ChatListener:
             # IGNORED_SOURCES catches them by source, but a manually written
             # delta tagged participant:fathom should also be skipped).
             if "participant:fathom" in (d.get("tags") or []):
+                continue
+            # Session-metadata deltas (rename, tombstone) look like
+            # chat deltas to the coarse filters above but aren't turns.
+            if METADATA_TAGS.intersection(d.get("tags") or []):
                 continue
             by_session.setdefault(session_slug, []).append(d)
 
