@@ -1,11 +1,11 @@
 {
   "version": 1,
   "summary": {
-    "total_lines_removed": 4627,
-    "total_lines_added": 4784,
-    "total_bugs_fixed": 29,
-    "total_tests_added": 80,
-    "iterations_completed": 12,
+    "total_lines_removed": 4629,
+    "total_lines_added": 4883,
+    "total_bugs_fixed": 30,
+    "total_tests_added": 84,
+    "iterations_completed": 13,
     "repos_cleaned": []
   },
   "baseline": {
@@ -22,9 +22,9 @@
     "ruff_errors": 0,
     "ruff_autofixable": 0,
     "ruff_unformatted_files": 46,
-    "pytest_count": 81,
-    "api_server_py_loc": 690,
-    "_note": "API Consistency fixed 4 sites of `return (body, 404)` tuple-returns that FastAPI silently turned into `[body, 404]` HTTP-200 responses. The /v1/media/{hash} path was the only one firing in production; the other three were latent (db helpers never returned None). 4 regression tests. pytest 77 -> 81."
+    "pytest_count": 85,
+    "api_server_py_loc": 694,
+    "_note": "Error Boundary Audit found one real correctness fix (auto_regen cooldown fail-safe on unparseable timestamp — runaway-regen shape). Plus two observability adds. pytest 81 -> 85."
   },
   "findings": [
     {
@@ -99,6 +99,19 @@
       "bugs_fixed": 2,
       "tests_added": 7,
       "commits": ["b848a5c", "1b561f5"]
+    },
+    {
+      "date": "2026-04-23",
+      "perspective": "Error Boundary Audit",
+      "repo": "fathomdx",
+      "description": "One correctness fix: auto_regen._within_cooldown silently returned 'not in cooldown' on an unparseable crystal timestamp, which would then fire a regen — the exact shape of the 2026-04-19 runaway. Fix fails safe (treat-as-within-cooldown + log). 4 regression tests. Plus two observability adds on best-effort paths (refresh_crystal facet hook, vault _load_image_state corrupt-json) that used to swallow silently.",
+      "type": "bug_fix",
+      "files_changed": 4,
+      "lines_added": 99,
+      "lines_removed": 2,
+      "bugs_fixed": 1,
+      "tests_added": 4,
+      "commits": ["03c90f3", "223e3f6"]
     },
     {
       "date": "2026-04-23",

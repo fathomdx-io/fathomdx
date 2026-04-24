@@ -469,6 +469,11 @@ class VaultProducer(SourceProducer):
         try:
             return json.loads(path.read_text())
         except Exception:
+            # Matches the _load_files_state corrupt-json warning at L456.
+            # Corrupt image state causes every image in the vault to
+            # re-upload on next poll — wasted bandwidth, not a bug.
+            # Log so the cause is visible if it ever recurs.
+            log.warning("vault: corrupt images.json at %s; starting fresh", path)
             return {}
 
     def _save_image_state(self, state_dir: Path, state: dict) -> None:

@@ -642,7 +642,12 @@ async def refresh_crystal():
                 json={"facets": facets},
             )
         except Exception:
-            pass
+            # Best-effort: the crystal has already been written, hooks
+            # missing on this tick just means resonance filters don't
+            # update immediately. Log so a persistent failure (bad hook
+            # config, delta-store unreachable) is visible rather than
+            # silently degrading "how come my resonance doesn't work?"
+            log.exception("crystal-refresh: facet hook post failed (non-fatal)")
 
     return {"status": "ok", "length": len(text)}
 

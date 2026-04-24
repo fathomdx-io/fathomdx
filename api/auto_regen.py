@@ -61,7 +61,18 @@ async def _within_cooldown() -> bool:
                 _last_fired_at = ts
                 return True
         except Exception:
-            pass
+            # Corrupt / unparseable timestamp on the crystal delta. Fail
+            # safe like the lake-unreachable branch above: treat as
+            # within-cooldown. An unreadable timestamp used to fall
+            # through to "not in cooldown" — which then fired a regen
+            # that wrote ANOTHER delta with a (maybe) bad timestamp.
+            # Exactly the shape of the 2026-04-19 runaway.
+            log.warning(
+                "auto-regen cooldown check: crystal created_at unparseable (%r), "
+                "failing safe (treating as within cooldown)",
+                current.get("created_at"),
+            )
+            return True
     return False
 
 
