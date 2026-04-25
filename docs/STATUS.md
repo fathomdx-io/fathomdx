@@ -48,7 +48,7 @@ Goal-titled, focused, assumes tutorial 1 is done. Organized by reader stance (ge
 |---|---|---|---|
 | `how-to/back-up-and-restore-the-lake.md` | draft | 2026-04-24 | `docker-compose.yml`, pg volume, `$LAKE_DIR` |
 | `how-to/update-fathom.md` | draft | 2026-04-24 | `addons/scripts/install.sh`, `docker-compose.yml` |
-| `how-to/rotate-an-api-key.md` | planned | — | `api/routes/auth.py` |
+| `how-to/rotate-an-api-key.md` | draft | 2026-04-24 | `api/routes/auth.py` |
 | `how-to/change-llm-provider.md` | draft | 2026-04-24 | `.env.example`, `api/providers.py`, `api/llm_config.py` |
 | `how-to/delete-a-delta-or-tag.md` | draft | 2026-04-24 | `delta-store/deltas/store.py`, `delta-store/deltas/server.py` |
 | `how-to/troubleshoot-install.md` | draft | 2026-04-24 | `addons/scripts/preflight.sh`, `addons/scripts/install.sh`, `docker-compose.yml` |
@@ -59,8 +59,8 @@ Goal-titled, focused, assumes tutorial 1 is done. Organized by reader stance (ge
 |---|---|---|---|
 | `how-to/use-fathom-as-an-openai-endpoint.md` | future | — | `api/server.py:491` (path exists; not yet OpenAI-compatible — chat_completions persists user delta only, reply comes async) |
 | `how-to/write-a-source-plugin.md` | draft | 2026-04-24 | `source-runner/sources/template.py`, `source-runner/source_runner.py` |
-| `how-to/write-a-helper-plugin.md` | planned | — | `api/helpers/` (TBD) |
-| `how-to/write-a-hook.md` | planned | — | `addons/hooks/` |
+| `how-to/write-a-helper-plugin.md` | future | — | no helper plugin surface in `api/` yet; defer until designed |
+| `how-to/write-a-hook.md` | draft | 2026-04-24 | `addons/connect/hooks/`, `addons/connect/index.js` |
 
 **Explicitly not a how-to:** "run a second instance." Fathom is one mind per person, not a multi-instance product. Developer-side instance isolation (via `COMPOSE_PROJECT_NAME`) is documented in `QUICKSTART.md` as a dev note, not a flagship how-to.
 
