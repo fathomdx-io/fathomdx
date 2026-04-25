@@ -3,7 +3,7 @@
 export const DEFAULTS = {
   apiUrl: "http://localhost:8201",
   apiToken: "",
-  ttlSeconds: 86400,
+  ttlSeconds: 604800,
   expires: true,
   scrollDebounceMs: 2000,
   scrollThresholdPct: 80,

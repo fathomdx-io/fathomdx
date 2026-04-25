@@ -31,7 +31,7 @@ class MastodonProducer(SourceProducer):
     schedule_type = "poll"
     default_interval = "15m"
     digestion = "raw"
-    default_expiry_days = 7
+    default_expiry_days = 30
     expiry_configurable = True
 
     async def poll(self, config: dict, since: float | None = None) -> list[RawItem]:

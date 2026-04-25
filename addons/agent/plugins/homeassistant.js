@@ -40,6 +40,7 @@ import { dirname, join } from "path";
 
 const STATE_PATH = join(homedir(), ".fathom", "homeassistant-state.json");
 const DEFAULT_INTERVAL_MS = 5 * 60 * 1000;
+const DEFAULT_EXPIRY_DAYS = 30;
 
 // Capability descriptor for future dashboard registration (phase 4 will wire
 // this into heartbeats so the UI can list "what this machine can do").
@@ -57,6 +58,17 @@ export const SOURCE_CAPABILITIES = {
   },
 };
 
+// Plugin-level config — applies to every instance the plugin polls.
+// expiry_days governs how long emitted state-change deltas survive in
+// the lake before the reaper drops them. Observation data; default 30d.
+export const CONFIG_SHAPE = {
+  expiry_days: {
+    type: "number",
+    required: false,
+    help: "Delta expiry in days. Default: 30. State changes are observations, not authored memory — they wilt unless engaged.",
+  },
+};
+
 function loadState() {
   try {
     return JSON.parse(readFileSync(STATE_PATH, "utf8"));
@@ -70,7 +82,7 @@ function saveState(state) {
   writeFileSync(STATE_PATH, JSON.stringify(state, null, 2));
 }
 
-async function pollInstance(instance, state, pusher, host) {
+async function pollInstance(instance, state, pusher, host, expiryDays) {
   const url = (instance.url || "").replace(/\/$/, "");
   const token = instance.token || "";
   const entities = instance.entities || [];
@@ -109,11 +121,15 @@ async function pollInstance(instance, state, pusher, host) {
     const content = unit ? `${friendly}: ${stateVal} ${unit}` : `${friendly}: ${stateVal}`;
     const domain = eid.includes(".") ? eid.split(".")[0] : "entity";
 
-    pusher?.push?.({
+    const delta = {
       content,
       tags: ["homeassistant", domain, eid, `instance:${instance.id}`, `host:${host}`],
       source: "homeassistant",
-    });
+    };
+    if (expiryDays != null) {
+      delta.expires_at = new Date(Date.now() + expiryDays * 86400000).toISOString();
+    }
+    pusher?.push?.(delta);
   }
 
   state.instances[instance.id] = instanceState;
@@ -126,6 +142,7 @@ export default {
   description: "Poll Home Assistant entities and push state changes.",
   defaults: {
     instances: [],
+    expiry_days: DEFAULT_EXPIRY_DAYS,
   },
 
   start(config, pusher) {
@@ -138,6 +155,7 @@ export default {
     const state = loadState();
     state.instances = state.instances || {};
     const host = config.host || hostname();
+    const expiryDays = config.expiry_days != null ? config.expiry_days : DEFAULT_EXPIRY_DAYS;
 
     console.log(
       `  homeassistant: ${instances.length} instance${instances.length === 1 ? "" : "s"} configured`
@@ -153,7 +171,7 @@ export default {
     for (const inst of instances) {
       const interval = inst.interval_ms || DEFAULT_INTERVAL_MS;
       const tick = async () => {
-        await pollInstance(inst, state, pusher, host);
+        await pollInstance(inst, state, pusher, host, expiryDays);
         saveState(state);
       };
       timers.push(setInterval(tick, interval));

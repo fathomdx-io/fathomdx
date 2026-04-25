@@ -10,7 +10,7 @@ import re
 import time
 import uuid
 from contextlib import asynccontextmanager
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, Request
@@ -866,18 +866,26 @@ async def _validate_crystal_candidate(text: str) -> str | None:
     return None
 
 
+CRYSTAL_REJECT_TTL_SECONDS = 7 * 24 * 3600
+
+
 async def _record_rejected_candidate(text: str, reason: str) -> None:
     """Preserve a rejected candidate in the lake for forensics.
 
     Tagged crystal-reject — invisible to the crystal-regen detection
     rule so it doesn't show up on the identity ECG, but searchable
-    later to diagnose what the LLM produced.
+    later to diagnose what the LLM produced. Short TTL — this is a
+    debug breadcrumb, not memory.
     """
+    expires_at = (
+        datetime.now(UTC) + timedelta(seconds=CRYSTAL_REJECT_TTL_SECONDS)
+    ).isoformat()
     try:
         await delta_client.write(
             content=(text or "(empty)")[:4000] + f"\n\n[rejected: {reason}]",
             tags=["crystal-reject"],
             source="consumer-api",
+            expires_at=expires_at,
         )
     except Exception:
         log.exception("failed to record rejected crystal candidate")

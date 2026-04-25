@@ -23,6 +23,7 @@ import { join, dirname } from "path";
 
 const STATE_PATH = join(homedir(), ".fathom", "kitty-state.json");
 const SOCKET_DIR = "/tmp";
+const DEFAULT_RECEIPT_EXPIRY_DAYS = 30;
 
 // Permission modes are deliberately file-only — accidentally widening the
 // veto list from a browser is the exact risk the trust discussion flagged.
@@ -59,6 +60,11 @@ export const CONFIG_SHAPE = {
     required: false,
     editable_from_ui: false,
     help: "Which claude permission modes routines may request. File-only for safety.",
+  },
+  receipt_expiry_days: {
+    type: "number",
+    required: false,
+    help: "Delta expiry in days for fire receipts (kitty-fire-receipt, kitty-fire-blocked). Default: 30. These are accountability breadcrumbs, not memory — the routine's summary delta is the durable artifact.",
   },
 };
 
@@ -185,6 +191,7 @@ export function spawnClaudeInKitty({
   autoSubmit = true,
   injectDelayMs = 3000,
   pusher, // optional — for logging a launch receipt
+  receiptExpiresAt, // optional ISO; receipt delta TTL
 }) {
   const stamp = Date.now();
   const title = `fathom-${sessionLabel}-${stamp}`;
@@ -211,7 +218,7 @@ export function spawnClaudeInKitty({
   child.on("error", (e) => console.error(`  kitty spawn failed: ${e.message}`));
 
   setTimeout(
-    () => injectPrompt(socket, prompt, sessionLabel, null, pusher, autoSubmit),
+    () => injectPrompt(socket, prompt, sessionLabel, null, pusher, autoSubmit, receiptExpiresAt),
     injectDelayMs
   );
 
@@ -295,11 +302,18 @@ function fire(delta, config, pusher) {
   // list is refused with a blocked-locally receipt delta so the dashboard can
   // surface it.
   const allowed = config.allowed_permission_modes || ["auto", "normal"];
+  const receiptExpiryDays =
+    config.receipt_expiry_days != null
+      ? config.receipt_expiry_days
+      : DEFAULT_RECEIPT_EXPIRY_DAYS;
+  const receiptExpiresAt = receiptExpiryDays
+    ? new Date(Date.now() + receiptExpiryDays * 86400000).toISOString()
+    : null;
   if (!allowed.includes(requestedMode)) {
     console.log(
       `  🚫 vetoed ${routineId}: mode ${requestedMode} not allowed (allowed: ${allowed.join(",")})`
     );
-    pusher?.push?.({
+    const blocked = {
       content: `[kitty-veto] Fire ${delta.id} for routine ${routineId} blocked locally — permission-mode "${requestedMode}" not in this agent's allow-list (${allowed.join(", ")}).`,
       tags: [
         "kitty-fire-blocked",
@@ -308,7 +322,9 @@ function fire(delta, config, pusher) {
         `blocked-mode:${requestedMode}`,
       ],
       source: "kitty",
-    });
+    };
+    if (receiptExpiresAt) blocked.expires_at = receiptExpiresAt;
+    pusher?.push?.(blocked);
     return;
   }
 
@@ -337,6 +353,7 @@ function fire(delta, config, pusher) {
     autoSubmit: config.auto_submit !== false,
     injectDelayMs: config.inject_delay_ms,
     pusher,
+    receiptExpiresAt,
   });
 
   // Track the open window so a matching routine-summary delta can close it.
@@ -348,7 +365,15 @@ function fire(delta, config, pusher) {
   });
 }
 
-function injectPrompt(socket, prompt, routineId, fireDeltaId, pusher, autoSubmit = true) {
+function injectPrompt(
+  socket,
+  prompt,
+  routineId,
+  fireDeltaId,
+  pusher,
+  autoSubmit = true,
+  receiptExpiresAt = null
+) {
   if (!existsSync(socket)) {
     console.error(`  kitty: socket ${socket} not found — kitty may have failed to start`);
     return;
@@ -382,11 +407,13 @@ function injectPrompt(socket, prompt, routineId, fireDeltaId, pusher, autoSubmit
         // that spawn outside the routine-fire path pass fireDeltaId=null so
         // they don't pollute the lake with a fake fire-delta: tag.
         if (fireDeltaId && pusher?.push) {
-          pusher.push({
+          const receipt = {
             content: `[kitty-fire] routine ${routineId} launched. Prompt: ${prompt.slice(0, 200)}${prompt.length > 200 ? "…" : ""}`,
             tags: ["kitty-fire-receipt", `routine-id:${routineId}`, `fire-delta:${fireDeltaId}`],
             source: "kitty",
-          });
+          };
+          if (receiptExpiresAt) receipt.expires_at = receiptExpiresAt;
+          pusher.push(receipt);
         }
       });
     }, 800);
@@ -426,6 +453,7 @@ export default {
     // delta and is skipped. Set to ["normal"] to refuse all auto-mode routines
     // locally, or [] to stop all routine connectivity while keeping sources.
     allowed_permission_modes: ["auto", "normal"],
+    receipt_expiry_days: DEFAULT_RECEIPT_EXPIRY_DAYS,
   },
 
   start(config, pusher) {
