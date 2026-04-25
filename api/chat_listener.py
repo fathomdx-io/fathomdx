@@ -178,6 +178,11 @@ class ChatListener:
             # delta tagged participant:fathom should also be skipped).
             if "participant:fathom" in (d.get("tags") or []):
                 continue
+            # OpenAI-compat system messages ride in as recorded wishes,
+            # not triggers. The accompanying user delta (when present)
+            # is what fires a turn; a lone system delta must not.
+            if "participant:client-system" in (d.get("tags") or []):
+                continue
             # Session-metadata deltas (rename, tombstone) look like
             # chat deltas to the coarse filters above but aren't turns.
             if METADATA_TAGS.intersection(d.get("tags") or []):
