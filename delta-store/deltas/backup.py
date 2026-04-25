@@ -149,32 +149,57 @@ async def _dump_to(tmp_path: Path, dsn: str) -> tuple[bool, str]:
     inject into the shell — defence-in-depth since DATABASE_URL comes
     from env and is operator-controlled, not attacker-controlled.
     """
-    # pg_dump writes to stdout; gzip reads from pg_dump.stdout; the
-    # compressed bytes land in the tmp file opened here.
-    with open(tmp_path, "wb") as tmp_file:
-        pg = await asyncio.create_subprocess_exec(
-            "pg_dump",
-            "--no-owner",
-            "--clean",
-            "--if-exists",
-            dsn,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-        )
-        gz = await asyncio.create_subprocess_exec(
-            "gzip",
-            "-9",
-            stdin=pg.stdout,
-            stdout=tmp_file,
-            stderr=asyncio.subprocess.PIPE,
-        )
-        # Close our handle to pg's stdout so gzip is the only reader.
-        # Without this, pg_dump's stdout pipe doesn't get EOF and the
-        # pipeline deadlocks on very large dumps.
-        if pg.stdout is not None:
-            pg.stdout.close()
-        _, pg_err = await pg.communicate()
-        _, gz_err = await gz.communicate()
+    # pg_dump writes to a pipe; gzip reads from it; gzip's stdout
+    # lands in the tmp file. The pipe has to be a real OS-level pipe
+    # (os.pipe() → integer fds) — passing asyncio.subprocess.PIPE for
+    # pg_dump's stdout produces a StreamReader, which can't then be
+    # handed to gzip's stdin (no fileno()).
+    read_fd, write_fd = os.pipe()
+    pg_started = gz_started = False
+    try:
+        with open(tmp_path, "wb") as tmp_file:
+            pg = await asyncio.create_subprocess_exec(
+                "pg_dump",
+                "--no-owner",
+                "--clean",
+                "--if-exists",
+                dsn,
+                stdout=write_fd,
+                stderr=asyncio.subprocess.PIPE,
+            )
+            pg_started = True
+            # pg_dump inherited a dup of write_fd; the parent's copy
+            # has to close so the pipe sees EOF when pg_dump exits.
+            os.close(write_fd)
+            write_fd = -1
+
+            gz = await asyncio.create_subprocess_exec(
+                "gzip",
+                "-9",
+                stdin=read_fd,
+                stdout=tmp_file,
+                stderr=asyncio.subprocess.PIPE,
+            )
+            gz_started = True
+            os.close(read_fd)
+            read_fd = -1
+
+            _, pg_err = await pg.communicate()
+            _, gz_err = await gz.communicate()
+    finally:
+        if write_fd >= 0:
+            os.close(write_fd)
+        if read_fd >= 0:
+            os.close(read_fd)
+        # If we threw before either child completed, don't leak it.
+        if pg_started and pg.returncode is None:
+            with contextlib.suppress(ProcessLookupError):
+                pg.kill()
+            await pg.wait()
+        if gz_started and gz.returncode is None:
+            with contextlib.suppress(ProcessLookupError):
+                gz.kill()
+            await gz.wait()
 
     if pg.returncode != 0:
         return False, pg_err.decode(errors="replace")[:500]
