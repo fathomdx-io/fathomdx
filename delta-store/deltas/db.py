@@ -6,7 +6,6 @@ new connection so embedding columns round-trip as Python lists.
 
 from __future__ import annotations
 
-import contextlib
 import os
 
 import asyncpg
@@ -69,17 +68,15 @@ ALTER TABLE contacts DROP COLUMN IF EXISTS role;
 ALTER TABLE contacts DROP COLUMN IF EXISTS notes;
 """
 
-# HNSW indexes are expensive to create and can't use IF NOT EXISTS before pg17.
-# We create them separately and swallow "already exists" errors.
 HNSW_INDEXES = [
     (
         "idx_deltas_embedding",
-        "CREATE INDEX idx_deltas_embedding ON deltas "
+        "CREATE INDEX IF NOT EXISTS idx_deltas_embedding ON deltas "
         "USING hnsw (embedding vector_cosine_ops) WITH (m = 16, ef_construction = 64)",
     ),
     (
         "idx_deltas_prov_embedding",
-        "CREATE INDEX idx_deltas_prov_embedding ON deltas "
+        "CREATE INDEX IF NOT EXISTS idx_deltas_prov_embedding ON deltas "
         "USING hnsw (provenance_embedding vector_cosine_ops) WITH (m = 16, ef_construction = 64)",
     ),
 ]
@@ -114,10 +111,8 @@ async def init_pool(dsn: str | None = None) -> asyncpg.Pool:
         await conn.execute(DDL_SQL)
         await conn.execute(MIGRATIONS_SQL)
 
-        # Create HNSW indexes (swallow "already exists")
         for _name, ddl in HNSW_INDEXES:
-            with contextlib.suppress(asyncpg.DuplicateObjectError, asyncpg.DuplicateTableError):
-                await conn.execute(ddl)
+            await conn.execute(ddl)
 
         # Schema version tracking
         await conn.execute(
