@@ -6128,7 +6128,24 @@
             </label>`;
           }).join('');
         }
-        if (!tokenR.ok) { tokenList.innerHTML = ''; return; }
+        if (!tokenR.ok) {
+          // Surface why the list is empty instead of silently rendering
+          // nothing. The most common case is a browser token that lacks
+          // tokens:manage — the user is admin (so the tab is visible) but
+          // the token they pasted at login is agent-scoped.
+          let detail = '';
+          try {
+            const body = await tokenR.json();
+            if (body && body.required && body.granted) {
+              detail = `Your current API token can’t list keys. It needs the <code style="font-family: var(--mono);">${body.required}</code> scope. Granted: <code style="font-family: var(--mono);">${(body.granted || []).join(', ') || 'none'}</code>. Mint a fully-scoped token (<code style="font-family: var(--mono);">addons/scripts/mint-key.sh</code>) and re-log-in.`;
+            } else if (body && body.error) {
+              detail = body.error;
+            }
+          } catch (e) { /* non-JSON body */ }
+          if (!detail) detail = `Couldn’t load tokens (HTTP ${tokenR.status}).`;
+          tokenList.innerHTML = `<div style="color: var(--ink-soft); font-size: 14px; padding: 10px 12px; border: 1px solid var(--rule); border-radius: 8px; background: var(--surface); line-height: 1.5;">${detail}</div>`;
+          return;
+        }
         const tokens = await tokenR.json();
         if (!tokens.length) {
           tokenList.innerHTML = '<div style="color: var(--ink-faint); font-size: 14px; padding: 8px 0;">No tokens yet. Create one to secure your API.</div>';
