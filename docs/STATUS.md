@@ -59,7 +59,7 @@ Goal-titled, focused, assumes tutorial 1 is done. Organized by reader stance (ge
 |---|---|---|---|
 | `how-to/use-fathom-as-an-openai-endpoint.md` | draft | 2026-04-24 | `api/server.py`, `api/chat_listener.py` |
 | `how-to/write-a-source-plugin.md` | draft | 2026-04-24 | `source-runner/sources/template.py`, `source-runner/source_runner.py` |
-| `how-to/write-a-helper-plugin.md` | future | — | no helper plugin surface in `api/` yet; defer until designed |
+| `how-to/write-a-helper-plugin.md` | draft | 2026-04-24 | `api/routes/lake.py` (LAKE_TOOLS), `api/_tool_schema.py` (CHAT_ONLY_TOOLS), `api/tools.py` (execute dispatcher) |
 | `how-to/write-a-hook.md` | draft | 2026-04-24 | `addons/connect/hooks/`, `addons/connect/index.js` |
 
 **Explicitly not a how-to:** "run a second instance." Fathom is one mind per person, not a multi-instance product. Developer-side instance isolation (via `COMPOSE_PROJECT_NAME`) is documented in `QUICKSTART.md` as a dev note, not a flagship how-to.
