@@ -128,6 +128,18 @@ def _tally_reset(contact_slug: str) -> None:
         "lines_model_skipped": 0,
         "lines_format_failed": 0,
         "lines_missing_fields": 0,
+        # Off-crystal passes — drift + volunteered. Counted separately from
+        # `cards_written` (which is the per-line tally) so the summary can
+        # narrate them distinctly: "2 slotted + 1 drift + 0 notice" reads
+        # differently from "3 cards."
+        "drift_cards_written": 0,
+        "drift_silent": 0,       # model returned {"cards": []} by choice
+        "drift_timed_out": 0,
+        "drift_format_failed": 0,
+        "volunteered_cards_written": 0,
+        "volunteered_silent": 0,
+        "volunteered_timed_out": 0,
+        "volunteered_format_failed": 0,
     }
 
 
@@ -149,6 +161,10 @@ def _summarize_outcome(contact_slug: str, had_crystal: bool, had_lines: bool) ->
     skipped = t.get("lines_model_skipped", 0)
     format_fail = t.get("lines_format_failed", 0)
     missing = t.get("lines_missing_fields", 0)
+    drift_cards = t.get("drift_cards_written", 0)
+    volunteered_cards = t.get("volunteered_cards_written", 0)
+    off_crystal_cards = drift_cards + volunteered_cards
+    total_cards = cards + off_crystal_cards
     at = _now().isoformat()
 
     if not had_crystal:
@@ -171,12 +187,23 @@ def _summarize_outcome(contact_slug: str, had_crystal: bool, had_lines: bool) ->
             "cards_written": cards,
             "at": at,
         }
-    if cards > 0:
-        plural = "s" if cards != 1 else ""
+    if total_cards > 0:
+        breakdown_parts: list[str] = []
+        if cards:
+            breakdown_parts.append(f"{cards} slotted")
+        if drift_cards:
+            breakdown_parts.append(f"{drift_cards} drift")
+        if volunteered_cards:
+            breakdown_parts.append(f"{volunteered_cards} noticed")
+        plural = "s" if total_cards != 1 else ""
+        if len(breakdown_parts) > 1:
+            detail = f"Wrote {total_cards} new card{plural} ({', '.join(breakdown_parts)})."
+        else:
+            detail = f"Wrote {total_cards} new card{plural}."
         return {
             "summary": "generated",
-            "detail": f"Wrote {cards} new card{plural}.",
-            "cards_written": cards,
+            "detail": detail,
+            "cards_written": total_cards,
             "at": at,
         }
     # No cards written despite having a crystal + lines. Distinguish:
@@ -393,7 +420,28 @@ async def _do_run(contact_slug: str, reason: str, run_facts: dict) -> None:
                 flush=True,
             )
         _set_status(contact_slug, lines_done=i + 1)
-    print(f"feed_loop[{contact_slug}]: run complete ({len(lines)} lines processed)", flush=True)
+    print(f"feed_loop[{contact_slug}]: {len(lines)} directive line(s) processed", flush=True)
+
+    # Off-crystal passes. Both run unconditionally every fire and self-silence
+    # when nothing resonates / nothing stood out. Order matters a little —
+    # drift runs first so volunteered's candidate dedupe doesn't have to think
+    # about drift cards (drift writes to the lake with source=fathom-feed,
+    # which volunteered's _EXCLUDE_SOURCES already filters out).
+    try:
+        await _fire_drift(contact_slug, crystal)
+    except Exception as e:
+        print(
+            f"feed_loop[{contact_slug}]: drift pass failed: {type(e).__name__}: {e}",
+            flush=True,
+        )
+    try:
+        await _fire_volunteered(contact_slug, crystal)
+    except Exception as e:
+        print(
+            f"feed_loop[{contact_slug}]: volunteered pass failed: {type(e).__name__}: {e}",
+            flush=True,
+        )
+    print(f"feed_loop[{contact_slug}]: run complete", flush=True)
 
 
 _CARD_OUTPUT_INSTRUCTIONS = (
@@ -727,6 +775,266 @@ async def _produce_card(
         _tally_inc(contact_slug, "cards_written")
     except Exception:
         log.exception("feed_loop: card delta write failed")
+
+
+async def _produce_cards(
+    contact_slug: str,
+    kind: str,
+    directive: str,
+    candidates: list[dict],
+    crystal: dict | None,
+    max_rounds: int,
+) -> int:
+    """Multi-card sibling to _produce_card. Handles the 0-N output shape
+    used by drift + volunteered passes.
+
+    Model is expected to return `{"cards": [ ... ]}` — possibly empty, which
+    is a valid silent outcome. Each card entry is validated the same way
+    per-line cards are (body_image/media hash-or-candidate-URL, link http(s)
+    shape) and written as its own feed-card delta.
+
+    `kind` is "drift" or "volunteered"; it ends up in the card tags
+    (`drift` / `volunteered`) so the UI can distinguish them and the
+    engagement scorer can treat them differently from slotted cards.
+
+    Returns the number of cards actually written.
+    """
+    from .server import fathom_think  # lazy — avoid circular import
+
+    tally_written = f"{kind}_cards_written"
+    tally_silent = f"{kind}_silent"
+    tally_format = f"{kind}_format_failed"
+
+    user_message = (
+        "Produce the cards for the pass described above. Respond with the JSON "
+        '{"cards": [...]} object only.'
+    )
+    last_failed_excerpt: str | None = None
+    payload: dict | None = None
+
+    for attempt in range(1, MAX_FORMAT_ATTEMPTS + 1):
+        if attempt > 1 and last_failed_excerpt is not None:
+            nudge = (
+                f"⚠ Your previous attempt was not valid JSON. The output started with:\n"
+                f"---\n{last_failed_excerpt}\n---\n\n"
+                f"Attempt {attempt} of {MAX_FORMAT_ATTEMPTS}. Respond with ONLY the "
+                f'JSON `{{"cards": [...]}}` object. No prose, no markdown fences.'
+            )
+            this_message = nudge + "\n\n" + user_message
+            this_max_rounds = max(2, max_rounds // 3)
+        else:
+            this_message = user_message
+            this_max_rounds = max_rounds
+
+        messages = await fathom_think(
+            user_message=this_message,
+            directive=directive,
+            recall=False,
+            max_rounds=this_max_rounds,
+        )
+        last = messages[-1] if messages else {}
+        text = (last.get("content") or "").strip()
+        if not text:
+            last_failed_excerpt = "(empty message)"
+            continue
+
+        candidate_payload = _parse_card_payload(text)
+        if candidate_payload is None:
+            print(
+                f"feed_loop[{kind}]: attempt {attempt} — non-JSON; will retry. excerpt: {text[:200]!r}",
+                flush=True,
+            )
+            last_failed_excerpt = text[:240].replace("\n", " ")
+            continue
+
+        payload = candidate_payload
+        if attempt > 1:
+            print(f"feed_loop[{kind}]: recovered on attempt {attempt}", flush=True)
+        break
+
+    if payload is None:
+        print(f"feed_loop[{kind}]: gave up after {MAX_FORMAT_ATTEMPTS} attempts", flush=True)
+        _tally_inc(contact_slug, tally_format)
+        return 0
+
+    cards_list = payload.get("cards")
+    if not isinstance(cards_list, list):
+        # Model ignored the wrapper. Treat as format failure.
+        print(
+            f"feed_loop[{kind}]: payload lacked 'cards' array; keys={list(payload.keys())}",
+            flush=True,
+        )
+        _tally_inc(contact_slug, tally_format)
+        return 0
+
+    if len(cards_list) == 0:
+        reason = (payload.get("reason") or "").strip()[:200]
+        print(f"feed_loop[{kind}]: model returned empty cards list — silent. reason: {reason!r}", flush=True)
+        _tally_inc(contact_slug, tally_silent)
+        return 0
+
+    # Cap at 5 — the directive says 0-5, but defend against runaway output.
+    if len(cards_list) > 5:
+        print(f"feed_loop[{kind}]: model returned {len(cards_list)} cards; clipping to 5", flush=True)
+        cards_list = cards_list[:5]
+
+    valid_hashes = _candidate_hashes(candidates)
+    valid_urls = _candidate_image_urls(candidates)
+
+    written = 0
+    for idx, entry in enumerate(cards_list):
+        if not isinstance(entry, dict):
+            continue
+        if not entry.get("title") or not entry.get("body"):
+            print(
+                f"feed_loop[{kind}]: card {idx} missing title/body; skipping. keys={list(entry.keys())}",
+                flush=True,
+            )
+            continue
+
+        raw_body_image = str(entry.get("body_image", "") or "")
+        body_image = _validate_body_image(raw_body_image, valid_hashes, valid_urls)
+        if raw_body_image and not body_image:
+            print(
+                f"feed_loop[{kind}]: card {idx} dropped hallucinated body_image={raw_body_image!r}",
+                flush=True,
+            )
+        raw_media = [str(m) for m in (entry.get("media") or []) if m]
+        media = _validate_media_list(raw_media, valid_hashes, valid_urls)
+
+        raw_link = str(entry.get("link", "") or "").strip()
+        link = raw_link if raw_link.startswith(("http://", "https://")) else ""
+        raw_links = entry.get("links") or []
+        links: list[dict] = []
+        for lk in raw_links:
+            if not isinstance(lk, dict):
+                continue
+            url = str(lk.get("url", "") or "").strip()
+            if not url.startswith(("http://", "https://")):
+                continue
+            title_ = str(lk.get("title", "") or "").strip()[:120]
+            links.append({"title": title_, "url": url})
+
+        card = {
+            "kicker": str(entry.get("kicker", "") or "")[:80],
+            "title": str(entry.get("title", ""))[:200],
+            "body": str(entry.get("body", "")),
+            "tail": str(entry.get("tail", "") or ""),
+            "body_image": body_image,
+            "body_image_layout": entry.get("body_image_layout") or "hero",
+            "media": media,
+            "link": link,
+            "links": links,
+        }
+        tags = [
+            CARD_TAG,
+            "feed-story",  # back-compat with existing UI reader
+            kind,  # "drift" or "volunteered"
+            _contact_tag(contact_slug),
+        ]
+        if crystal and crystal.get("id"):
+            tags.append(f"crystal:{crystal['id']}")
+        try:
+            await delta_client.write(
+                content=json.dumps(card, ensure_ascii=False),
+                tags=tags,
+                source=CARD_SOURCE,
+            )
+            _tally_inc(contact_slug, tally_written)
+            written += 1
+        except Exception:
+            log.exception("feed_loop: %s card delta write failed (idx=%d)", kind, idx)
+    return written
+
+
+async def _fire_drift(contact_slug: str, crystal: dict | None) -> None:
+    """Run one drift pass — the free-association slot.
+
+    Assembles the now-anchor, pulls a scatter of old content-bearing deltas,
+    hands both to the model with the drift directive, writes 0-5 cards.
+    """
+    from ._feed_drift import (
+        anchor_now_text,
+        build_drift_directive,
+        fetch_drift_candidates,
+        format_drift_pool,
+    )
+
+    anchor_text = await anchor_now_text(contact_slug)
+    candidates = await fetch_drift_candidates(limit=20)
+    print(f"feed_loop[drift]: candidates pre-fetched: {len(candidates)}", flush=True)
+
+    # Drift is allowed to run against a small pool — even 2-3 old deltas can
+    # be enough for a resonance. But if the lake is genuinely empty of old
+    # content (fresh install), silence is the right outcome.
+    if len(candidates) < 2:
+        print("feed_loop[drift]: <2 candidates; skipping", flush=True)
+        _tally_inc(contact_slug, "drift_silent")
+        return
+
+    directive = build_drift_directive(anchor_text, format_drift_pool(candidates))
+
+    _llm_active_enter(contact_slug, label="Drift pass — free association")
+    try:
+        await asyncio.wait_for(
+            _produce_cards(
+                contact_slug,
+                kind="drift",
+                directive=directive,
+                candidates=candidates,
+                crystal=crystal,
+                max_rounds=settings.feed_drift_budget_tool_calls,
+            ),
+            timeout=settings.feed_loop_budget_seconds,
+        )
+    except TimeoutError:
+        print("feed_loop[drift]: timed out", flush=True)
+        _tally_inc(contact_slug, "drift_timed_out")
+    finally:
+        _llm_active_exit(contact_slug)
+
+
+async def _fire_volunteered(contact_slug: str, crystal: dict | None) -> None:
+    """Run one volunteered-noticing pass — the present-salience slot."""
+    from ._feed_volunteer import (
+        anchor_crystal_context,
+        build_volunteer_directive,
+        fetch_volunteer_candidates,
+        format_volunteer_pool,
+    )
+
+    crystal_context = await anchor_crystal_context(contact_slug)
+    candidates = await fetch_volunteer_candidates(limit=20)
+    print(f"feed_loop[volunteered]: candidates pre-fetched: {len(candidates)}", flush=True)
+
+    # Volunteered leans on the notion that "the day has been ordinary" is
+    # a valid outcome — fewer candidates means less salience to notice, not
+    # a skip. 1 is the floor, same as the per-line pass.
+    if len(candidates) < 1:
+        print("feed_loop[volunteered]: no candidates; skipping", flush=True)
+        _tally_inc(contact_slug, "volunteered_silent")
+        return
+
+    directive = build_volunteer_directive(crystal_context, format_volunteer_pool(candidates))
+
+    _llm_active_enter(contact_slug, label="Noticing what stood out today")
+    try:
+        await asyncio.wait_for(
+            _produce_cards(
+                contact_slug,
+                kind="volunteered",
+                directive=directive,
+                candidates=candidates,
+                crystal=crystal,
+                max_rounds=settings.feed_loop_budget_tool_calls,
+            ),
+            timeout=settings.feed_loop_budget_seconds,
+        )
+    except TimeoutError:
+        print("feed_loop[volunteered]: timed out", flush=True)
+        _tally_inc(contact_slug, "volunteered_timed_out")
+    finally:
+        _llm_active_exit(contact_slug)
 
 
 async def _has_fresh_card(contact_slug: str, line_id: str, freshness_hours: float) -> bool:

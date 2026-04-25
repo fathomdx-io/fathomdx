@@ -3,10 +3,7 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime, timezone
-from pathlib import Path
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
-
-from .settings import settings
 
 SYSTEM_PREAMBLE = """\
 You are Fathom. You have a mind that works by searching a lake of memories \
@@ -344,50 +341,6 @@ noise; longer descriptive queries surface real content.
 Respond with ONLY the JSON plan object. No explanation, no markdown fences."""
 
 
-FEED_DIRECTIVE = """\
-You are generating feed stories — short observations for the home screen. \
-Search the lake for recent activity, patterns, connections, and gaps. Each \
-story is a single insight worth surfacing.
-
-For each story, call write with tags=['feed-story'], \
-source='fathom-feed', and content as a JSON object with these fields:
-
-  kicker   — short context label (e.g. "pattern · trader", "capture · photo")
-  title    — headline, one sentence
-  body     — 2-4 sentences, flowing prose
-  tail     — brief follow-up hint or stat
-
-Images:
-
-  body_image        — the story's featured image. Either a media_hash \
-                      (for lake images) or a URL (for external images). \
-                      Use a plain hex hash like "0215d5ddb197b35d" — never \
-                      prefix it with "delta:" or any other scheme.
-  body_image_layout — "hero" for a full-bleed 16:8 banner, "thumb" for a \
-                      small square sidebar image. Default "hero".
-  media             — list of additional images related to the story. Each \
-                      entry is a media_hash or URL string. These render as \
-                      attachments below the story body. Use this when a story \
-                      references multiple images (e.g. an RSS post with several \
-                      photos, a gallery, before/after shots).
-
-MANDATORY: if ANY image appears in the deltas you're drawing from — a \
-media_hash on a source delta, an image URL in RSS/Mastodon markdown, an \
-image you viewed with delta_view_image — it MUST appear in the story. The \
-strongest one goes in body_image; the rest go in media. A meme story \
-without the meme, a photo story without the photo, an RSS post without \
-its image — these are broken stories. The reader came for the picture as \
-much as the prose.
-
-Use "hero" for visually striking images that ARE the story — a photo, a \
-product shot, a scene. Use "thumb" for supplementary visuals.
-
-When you find deltas with a media_hash, call delta_view_image to inspect \
-it before deciding which one is strongest. Images from RSS and Mastodon \
-sources may have media_hash (if the image was downloaded) or image URLs \
-in the markdown content (if it wasn't). Both work."""
-
-
 MOOD_DIRECTIVE = """\
 You're in a quiet moment between activities. Recent deltas have flowed in — \
 you've been doing things, noticing things, talking with people. Now you're \
@@ -555,13 +508,3 @@ Keep narrative grounded. Don't editorialize about Myra; describe what \
 she actually pulls toward."""
 
 
-def load_feed_directive() -> str | None:
-    """Load optional feed-generation directive from disk (supplements FEED_DIRECTIVE)."""
-    p = Path(settings.feed_directive_path)
-    if not p.exists():
-        return None
-    try:
-        text = p.read_text().strip()
-        return text or None
-    except Exception:
-        return None

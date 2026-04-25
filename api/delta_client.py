@@ -135,16 +135,22 @@ async def write(
 async def query(
     limit: int = 50,
     tags_include: list[str] | None = None,
+    tags_exclude: list[str] | None = None,
     source: str | None = None,
     time_start: str | None = None,
+    time_end: str | None = None,
 ) -> list:
     params: dict = {"limit": limit}
     if tags_include:
         params["tags_include"] = tags_include
+    if tags_exclude:
+        params["tags_exclude"] = tags_exclude
     if source:
         params["source"] = source
     if time_start:
         params["time_start"] = time_start
+    if time_end:
+        params["time_end"] = time_end
     r = await _request_with_retry("GET", "/deltas", params=params)
     r.raise_for_status()
     return r.json()

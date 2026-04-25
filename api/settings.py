@@ -81,7 +81,6 @@ class Settings(BaseSettings):
     source_runner_url: str = "http://localhost:4260"
 
     # Paths (container defaults). Crystal is lake-backed — no file path.
-    feed_directive_path: str = "/data/feed-directive.txt"
     tokens_path: str = "/data/tokens.json"
     mood_state_path: str = "/data/mood-state.json"
     pair_codes_path: str = "/data/pair-codes.json"
@@ -157,6 +156,16 @@ class Settings(BaseSettings):
     feed_loop_budget_tool_calls: int = 8
     feed_loop_budget_seconds: int = 90
     feed_loop_visit_debounce_seconds: int = 600  # 10 min
+
+    # Drift pass — the free-association card slot. Gets a bigger tool-call
+    # ceiling than per-line because its whole shape is "follow the thread"
+    # (remember/recall outward from a scatter item). Wall-clock stays the
+    # same; drift shouldn't be allowed to monopolize a fire.
+    feed_drift_budget_tool_calls: int = 16
+
+    # Volunteered noticing — the present-salience off-crystal slot. Reuses
+    # per-line budgets (feed_loop_budget_tool_calls + feed_loop_budget_seconds).
+    # Its shape is closer to per-line than drift: "scan, pick, compose."
 
     # Server
     host: str = "0.0.0.0"
