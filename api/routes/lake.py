@@ -23,6 +23,7 @@ from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
 
 from .. import auth, delta_client, reserved_tags
+from .._engagement import build_engagement_payload
 from ..search import search as nl_search
 from ..settings import settings
 
@@ -120,11 +121,13 @@ async def write_engagement(req: EngagementRequest, request: Request):
     if contact_slug:
         tags.append(f"contact:{contact_slug}")
 
-    content = (req.reason or "").strip()
+    reason = (req.reason or "").strip()
+    content, media_hash = await build_engagement_payload(target_id, reason)
     written = await delta_client.write(
         content=content,
         tags=tags,
         source="fathom-engagement",
+        media_hash=media_hash,
     )
     return {"status": "ok", "id": written.get("id")}
 

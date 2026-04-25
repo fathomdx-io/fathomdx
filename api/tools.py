@@ -8,6 +8,7 @@ from datetime import UTC, datetime, timedelta
 
 from . import delta_client
 from . import routines as routines_mod
+from ._engagement import build_engagement_payload
 from ._tags import tag_suffix
 from ._tool_explain import _execute_explain
 from ._tool_schema import TOOLS
@@ -192,10 +193,12 @@ async def execute(name: str, arguments: dict, session_id: str | None = None) -> 
             if not target_id:
                 return json.dumps({"error": "target_id required"})
             reason = (arguments.get("reason") or "").strip()
+            content, media_hash = await build_engagement_payload(target_id, reason)
             written = await delta_client.write(
-                content=reason,
+                content=content,
                 tags=[f"{kind}:{target_id}"],
                 source="fathom-engagement",
+                media_hash=media_hash,
             )
             return json.dumps(
                 {

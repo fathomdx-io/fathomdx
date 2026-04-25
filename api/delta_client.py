@@ -119,11 +119,17 @@ async def write(
     tags: list[str] | None = None,
     source: str = "consumer-api",
     expires_at: str | None = None,
+    media_hash: str | None = None,
 ) -> dict:
     c = await _get()
     body = {"content": content, "source": source, "tags": tags or []}
     if expires_at:
         body["expires_at"] = expires_at
+    if media_hash:
+        # Re-references existing media bytes by hash without re-uploading.
+        # Used by engagement-snapshot to keep an affirmed image viewable
+        # after the source delta reaps.
+        body["media_hash"] = media_hash
     r = await c.post("/deltas", json=body)
     r.raise_for_status()
     return r.json()
