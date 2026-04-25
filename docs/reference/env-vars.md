@@ -9,7 +9,7 @@ title: Environment variables
 description: Every env var Fathom reads, with its default and what it controls. Generated from .env.example.
 audience: operator
 quadrant: reference
-last_verified: 2026-04-24
+last_verified: 2026-04-25
 owners: [.env.example, docker-compose.yml]
 ---
 

@@ -9,7 +9,7 @@ title: HTTP API
 description: Every endpoint the Fathom api exposes. Generated from the running stack's OpenAPI schema.
 audience: developer
 quadrant: reference
-last_verified: 2026-04-24
+last_verified: 2026-04-25
 owners: [api/server.py, api/routes/]
 ---
 

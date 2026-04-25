@@ -9,7 +9,7 @@ title: MCP tools
 description: Tools the Fathom MCP server exposes to Claude Code, Claude Desktop, Cursor, and other MCP clients. Generated from the running api's tool catalogue.
 audience: developer
 quadrant: reference
-last_verified: 2026-04-24
+last_verified: 2026-04-25
 owners: [api/_tool_schema.py, addons/mcp-node/index.js]
 ---
 

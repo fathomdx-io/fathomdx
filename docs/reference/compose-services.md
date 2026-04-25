@@ -9,7 +9,7 @@ title: Compose services
 description: The four services in fathomdx's docker-compose stack, their ports, and their dependencies. Generated from docker-compose.yml.
 audience: operator
 quadrant: reference
-last_verified: 2026-04-24
+last_verified: 2026-04-25
 owners: [docker-compose.yml]
 ---
 
