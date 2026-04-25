@@ -118,6 +118,7 @@ class SearchRequest(BaseModel):
     subset_id: str | None = None
     limit: int = 50
     include_engagement_cloud: bool = False
+    suppress_noise: bool = True
 
 
 class ScoredDelta(BaseModel):

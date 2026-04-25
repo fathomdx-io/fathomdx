@@ -219,6 +219,79 @@ ENGAGEMENT_TOPK_CAP = 100  # only look up clouds for the top-N scored deltas
 VALENCE_MAX_PCT = 0.30  # cap ±30% rank shift from valence
 
 
+# ── Noise suppression ────────────────────────────────────────────────────────
+#
+# Search-time rerank that pushes generic, low-information deltas down without
+# dropping them — short user interjections ("hey", "ok", "yeah"), throwaway
+# corrections ("that's not what I wanted"), bare acks. These match the user's
+# query in embedding space because they're vague enough to be near anything,
+# not because they're load-bearing answers. We don't tag at write time
+# (intent is hard to call from a single delta in isolation); we just penalize
+# in ranking. Two compounding signals:
+#   1. length: content under LENGTH_THRESHOLD chars takes a fixed bump
+#   2. centroid: similarity to a seeded "generic noise" centroid → bump scaled
+#      to NOISE_ALPHA when above NOISE_FLOOR
+# Applied multiplicatively to distance (lower is better, so penalty > 1).
+
+NOISE_SEEDS = (
+    "hey",
+    "ok",
+    "okay",
+    "yeah",
+    "yep",
+    "yes",
+    "no",
+    "nope",
+    "sure",
+    "wait",
+    "stop",
+    "huh",
+    "hmm",
+    "uh",
+    "um",
+    "lol",
+    "haha",
+    "what",
+    "what's up",
+    "hi",
+    "hello",
+    "thanks",
+    "ty",
+    "nvm",
+    "nevermind",
+    "actually",
+    "that's not what i wanted",
+    "no not that",
+    "do it again",
+)
+NOISE_ALPHA = 0.35  # max additional fraction added to distance from centroid term
+NOISE_FLOOR = 0.55  # cosine similarity below this contributes nothing
+LENGTH_THRESHOLD = 24  # chars; below → length penalty kicks in
+LENGTH_PENALTY = 0.20  # multiplicative bump from length term
+
+
+def _noise_modifier(
+    content: str | None,
+    embedding: list[float],
+    noise_centroid: list[float],
+) -> float:
+    """Multiplicative modifier on distance — >1 penalizes, =1 neutral.
+
+    Both terms compound. Length is content-only (no embedding needed); the
+    centroid term is skipped silently if either embedding is absent.
+    """
+    factor = 1.0
+    text = (content or "").strip()
+    if 0 < len(text) < LENGTH_THRESHOLD:
+        factor *= 1.0 + LENGTH_PENALTY
+    if noise_centroid and embedding:
+        noise_sim = 1.0 - _cosine_distance(embedding, noise_centroid)
+        excess = max(0.0, noise_sim - NOISE_FLOOR)
+        scale = max(1.0 - NOISE_FLOOR, 0.001)
+        factor *= 1.0 + NOISE_ALPHA * (excess / scale)
+    return factor
+
+
 def _valence_modifier(cloud: list[dict]) -> float:
     """Multiplicative modifier on distance (lower distance = better rank).
 
@@ -269,10 +342,34 @@ class QueryEngine:
     config: QueryConfig = field(default_factory=QueryConfig)
     sessions: SessionStore = field(init=False)
     subsets: SubsetStore = field(init=False)
+    _noise_centroid_cache: list[float] | None = field(init=False, default=None)
 
     def __post_init__(self):
         self.sessions = SessionStore(self.config)
         self.subsets = SubsetStore()
+
+    def _get_noise_centroid(self) -> list[float]:
+        """Lazy-built normalized centroid of NOISE_SEEDS embeddings."""
+        if self._noise_centroid_cache is not None:
+            return self._noise_centroid_cache
+        embeddings = []
+        for seed in NOISE_SEEDS:
+            try:
+                e = embed_text(seed)
+            except Exception:
+                e = None
+            if e:
+                embeddings.append(e)
+        if not embeddings:
+            self._noise_centroid_cache = []
+            return self._noise_centroid_cache
+        arr = np.array(embeddings, dtype=np.float32)
+        centroid = arr.mean(axis=0)
+        norm = np.linalg.norm(centroid)
+        if norm > 0:
+            centroid = centroid / norm
+        self._noise_centroid_cache = centroid.tolist()
+        return self._noise_centroid_cache
 
     async def _centroid_from_ids(self, ids: list[str]) -> list[float]:
         """Compute normalized centroid from stored embeddings of the given delta IDs."""
@@ -420,6 +517,7 @@ class QueryEngine:
         limit: int = 50,
         weights: DimensionWeights | None = None,
         include_engagement_cloud: bool = False,
+        suppress_noise: bool = True,
     ) -> SearchResult:
         r = radii or weights or DimensionWeights()
         r_t = r.temporal
@@ -485,6 +583,7 @@ class QueryEngine:
 
         # 4. Score — per-dimension independent filtering
         scored: list[ScoredDelta] = []
+        noise_centroid = self._get_noise_centroid() if suppress_noise else []
         for d in candidates:
             t_dist = _temporal_distance(_now_as_iso(), d["timestamp"], max_span_ms)
             s_dist = d.get("s_dist", _cosine_distance(origin_embedding, d["embedding"]))
@@ -495,6 +594,9 @@ class QueryEngine:
 
             max_r = max(r_t, r_s, r_p, 0.001)
             distance = max(t_dist / max_r, s_dist / max_r, p_dist / max_r)
+
+            if suppress_noise:
+                distance *= _noise_modifier(d.get("content"), d.get("embedding") or [], noise_centroid)
 
             scored.append(
                 ScoredDelta(

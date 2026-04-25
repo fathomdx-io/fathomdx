@@ -536,6 +536,7 @@ async def search(req: SearchRequest):
             subset_id=req.subset_id,
             limit=req.limit,
             include_engagement_cloud=req.include_engagement_cloud,
+            suppress_noise=req.suppress_noise,
         )
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e)) from e
