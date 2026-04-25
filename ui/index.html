@@ -341,6 +341,20 @@
       margin-top: 22px; font-style: italic; color: var(--ink);
     }
 
+    /* Inline notice — surfaces "we tried to load this and couldn't"
+       failures (scope mismatch, HTTP error) inside a panel where an
+       empty render would otherwise look like "nothing to show". */
+    .inline-notice {
+      color: var(--ink-soft); font-size: 14px;
+      padding: 10px 12px; line-height: 1.5;
+      border: 1px solid var(--rule); border-radius: 8px;
+      background: var(--surface);
+    }
+    .inline-notice code { font-family: var(--mono); }
+    /* For use inside a flex container (chip rows) — forces the notice
+       onto its own full-width line instead of squeezing alongside chips. */
+    .inline-notice.flex-break { flex: 1 1 100%; }
+
     /* Sources strip */
     .sources { display: flex; flex-wrap: wrap; gap: 8px; }
     .chip {
@@ -3482,7 +3496,28 @@
     async function loadSources() {
       try {
         const r = await fetch(API_BASE + '/v1/sources', { headers: authHeaders() });
-        if (!r.ok) return;
+        if (!r.ok) {
+          // Surface the failure so the section isn't silently empty. Most
+          // common cause: the token in the browser lacks `sources:manage`
+          // (e.g. a `mind` or agent-scoped key got pasted at login).
+          let detail = '';
+          try {
+            const body = await r.json();
+            if (body && body.required && body.granted) {
+              detail = `Your current API token can’t list sources. It needs the <code>${body.required}</code> scope. Granted: <code>${(body.granted || []).join(', ') || 'none'}</code>. Mint a fully-scoped token (Settings → API Keys) and re-log-in.`;
+            } else if (body && body.error) {
+              detail = body.error;
+            }
+          } catch (e) { /* non-JSON body */ }
+          if (!detail) detail = `Couldn’t load sources (HTTP ${r.status}).`;
+          const addBtn = sourcesList.querySelector('.chip.add');
+          sourcesList.innerHTML = `<div class="inline-notice flex-break">${detail}</div>` + (addBtn ? addBtn.outerHTML : '<button class="chip add" id="addSourceBtn" type="button">+ Add source</button>');
+          const newAddBtn = document.getElementById('addSourceBtn');
+          if (newAddBtn) newAddBtn.addEventListener('click', openAddSource);
+          const typeGrid = document.getElementById('addTypeGrid');
+          if (typeGrid) typeGrid.innerHTML = `<div class="inline-notice">${detail}</div>`;
+          return;
+        }
         const data = await r.json();
         const sources = (data.sources || []).filter(s => !AGENT_OWNED_SOURCE_TYPES.has(s.source_type));
         _sources = {};
@@ -6137,13 +6172,13 @@
           try {
             const body = await tokenR.json();
             if (body && body.required && body.granted) {
-              detail = `Your current API token can’t list keys. It needs the <code style="font-family: var(--mono);">${body.required}</code> scope. Granted: <code style="font-family: var(--mono);">${(body.granted || []).join(', ') || 'none'}</code>. Mint a fully-scoped token (<code style="font-family: var(--mono);">addons/scripts/mint-key.sh</code>) and re-log-in.`;
+              detail = `Your current API token can’t list keys. It needs the <code>${body.required}</code> scope. Granted: <code>${(body.granted || []).join(', ') || 'none'}</code>. Mint a fully-scoped token (<code>addons/scripts/mint-key.sh</code>) and re-log-in.`;
             } else if (body && body.error) {
               detail = body.error;
             }
           } catch (e) { /* non-JSON body */ }
           if (!detail) detail = `Couldn’t load tokens (HTTP ${tokenR.status}).`;
-          tokenList.innerHTML = `<div style="color: var(--ink-soft); font-size: 14px; padding: 10px 12px; border: 1px solid var(--rule); border-radius: 8px; background: var(--surface); line-height: 1.5;">${detail}</div>`;
+          tokenList.innerHTML = `<div class="inline-notice">${detail}</div>`;
           return;
         }
         const tokens = await tokenR.json();
