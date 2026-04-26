@@ -54,6 +54,13 @@ logging.getLogger(__name__).setLevel(logging.INFO)
 CARD_TAG = "feed-card"
 CARD_SOURCE = "fathom-feed"
 
+# How many recent feed cards to inline into the per-card directive so
+# the model can dedup against what was already published and write
+# something that segues into the running narrative. Five is a balance
+# between useful context and prompt bloat — body excerpts cap at ~200
+# chars each, so 5 cards ≈ 1.5KB of context.
+_RECENT_CARDS_FOR_PROMPT = 5
+
 # Below this many real candidates for a slot, don't fire. The model's
 # text isn't grounded against candidates (only body_image + media
 # hashes are validated), so an empty or near-empty pool hands it
@@ -445,6 +452,85 @@ async def _do_run(contact_slug: str, reason: str, run_facts: dict) -> None:
     print(f"feed_loop[{contact_slug}]: run complete", flush=True)
 
 
+def _humanize_age(seconds: float) -> str:
+    if seconds < 60:
+        return "just now"
+    if seconds < 3600:
+        return f"{int(seconds // 60)}m ago"
+    if seconds < 86400:
+        return f"{int(seconds // 3600)}h ago"
+    return f"{int(seconds // 86400)}d ago"
+
+
+async def _recent_feed_cards_block(
+    contact_slug: str, limit: int = _RECENT_CARDS_FOR_PROMPT
+) -> str:
+    """Prompt block listing recent feed cards already shown to this contact.
+
+    Sibling to messages.dm_context_block. Both prepend to card-production
+    directives so the model writes against a visible history rather than
+    re-deriving from candidates alone. Without this, drift and volunteered
+    passes can repeat themselves across runs because the candidate pool
+    re-surfaces similar deltas.
+
+    Each entry includes title + body excerpt + relative timestamp so the
+    model dedupes against what was *said*, not just what was titled.
+    """
+    if not contact_slug:
+        return ""
+    try:
+        results = await delta_client.query(
+            tags_include=[CARD_TAG, _contact_tag(contact_slug)],
+            limit=limit,
+        )
+    except Exception:
+        return ""
+    if not results:
+        return (
+            "=== RECENT FEED CARDS ===\n"
+            "(no feed cards published yet)"
+        )
+
+    now = datetime.now()
+    if now.tzinfo is None:
+        from datetime import UTC as _UTC
+        now = datetime.now(_UTC)
+
+    lines = [
+        "=== RECENT FEED CARDS ===",
+        (
+            "Cards you've already published to the feed (newest first). "
+            "Avoid repeating points or images the reader has just seen; "
+            "instead, extend, contrast, or move to fresh ground. If a new "
+            "output would meaningfully cover the same territory, prefer "
+            "to skip or to set `direct: true` and route it as a DM "
+            "rather than re-publishing."
+        ),
+        "",
+    ]
+    for d in results:
+        try:
+            payload = json.loads(d.get("content") or "{}")
+        except Exception:
+            payload = {}
+        title = (payload.get("title") or payload.get("kicker") or "").strip()
+        body = (payload.get("body") or "").strip().replace("\n", " ")
+        if len(body) > 200:
+            body = body[:200] + "…"
+        ts = d.get("timestamp") or ""
+        try:
+            dt = datetime.fromisoformat(ts.replace("Z", "+00:00"))
+            age = _humanize_age((now - dt).total_seconds())
+        except Exception:
+            age = ts or "unknown"
+        if title and body:
+            lines.append(f"  [{age}] {title}")
+            lines.append(f"           {body}")
+        elif title or body:
+            lines.append(f"  [{age}] {title or body}")
+    return "\n".join(lines)
+
+
 _CARD_OUTPUT_INSTRUCTIONS = (
     "Respond with ONLY a JSON object — no markdown fences, no commentary.\n"
     "Schema:\n"
@@ -640,14 +726,16 @@ async def _produce_card(
 
     line_id = (line or {}).get("id") or "(cold-start)"
 
-    # Prepend the DM-routing context block. The model sees recent direct
-    # messages it sent to this contact, the cadence note, and the option
-    # to set direct=true on its output to send this synthesis as a DM
-    # instead of publishing it as a feed card. Empty when contact_slug
-    # is absent — silently noop.
+    # Prepend the DM-routing and recent-feed-card context blocks. The
+    # model sees recent DMs (for cadence + dedup of direct messages),
+    # recent published feed cards (for narrative continuity + dedup of
+    # what was already shown), and learns it can route output as a DM
+    # by setting `direct: true`. Empty blocks are silent noops.
     dm_block = await messages_mod.dm_context_block(contact_slug)
-    if dm_block:
-        directive = dm_block + "\n\n" + directive
+    feed_block = await _recent_feed_cards_block(contact_slug)
+    prelude = "\n\n".join(b for b in (dm_block, feed_block) if b)
+    if prelude:
+        directive = prelude + "\n\n" + directive
 
     user_message = "Produce the card for the slot described above."
     last_failed_excerpt: str | None = None
@@ -844,12 +932,16 @@ async def _produce_cards(
     tally_format = f"{kind}_format_failed"
     tally_direct_sent = f"{kind}_direct_sent"
 
-    # See _produce_card — same DM-routing context block, inserted into
-    # the directive so the model knows it can route individual cards as
-    # direct messages and sees the recent thread + cadence pressure.
+    # Same prelude as _produce_card — DM cadence + recent feed cards.
+    # Drift and volunteered passes especially benefit from the feed
+    # block: they generate 0-N cards from a wide candidate pool, and
+    # without seeing what's already been published they tend to circle
+    # the same anchors across runs.
     dm_block = await messages_mod.dm_context_block(contact_slug)
-    if dm_block:
-        directive = dm_block + "\n\n" + directive
+    feed_block = await _recent_feed_cards_block(contact_slug)
+    prelude = "\n\n".join(b for b in (dm_block, feed_block) if b)
+    if prelude:
+        directive = prelude + "\n\n" + directive
 
     user_message = (
         "Produce the cards for the pass described above. Respond with the JSON "
