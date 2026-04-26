@@ -29,6 +29,12 @@ jobs:
           python -m pip install --upgrade pip
           pip install -e ".[dev]"
           pip install -r api/requirements.txt
+          # delta-store and source-runner each ship their own requirements.txt
+          # (the docker images install from them). Pytest collects tests from
+          # all three trees, so without these the suite can't import asyncpg /
+          # source-runner producers and fails at collection time.
+          pip install -r delta-store/requirements.txt
+          pip install -r source-runner/requirements.txt
 
       - name: ruff check
         run: ruff check .
