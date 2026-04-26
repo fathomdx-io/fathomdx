@@ -22,6 +22,16 @@ dev = [
   "pytest-httpx>=0.34,<1.0",
 ]
 
+# This project is a tooling-config holder (ruff + pytest extras), not a
+# distributable package — the runtime code lives in api/, delta-store/,
+# and source-runner/, each with their own requirements.txt that the
+# Docker images install from. Telling setuptools `packages = []`
+# stops its flat-layout auto-discovery from erroring out on the
+# multiple top-level dirs (ui/, api/, addons/, …) when CI does
+# `pip install -e ".[dev]"`.
+[tool.setuptools]
+packages = []
+
 # ── ruff ────────────────────────────────────────────────────────────────────
 
 [tool.ruff]
