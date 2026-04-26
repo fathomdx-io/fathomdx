@@ -281,6 +281,14 @@ async def add_message(
         tags.append(participant_tag)
     if contact_slug:
         tags.append(f"contact:{contact_slug}")
+        # Addressing tag for header alerts: any assistant delta in this
+        # session is something the contact will want to know landed. The
+        # alerts query keys on for:<viewer>, so without this tag a chat
+        # reply from Fathom is invisible to the bell. User-written deltas
+        # don't get for:<self> — you don't alert someone about their own
+        # message.
+        if role == "assistant":
+            tags.append(f"for:{contact_slug}")
     if extra_tags:
         tags.extend(extra_tags)
     result = await delta_client.write(

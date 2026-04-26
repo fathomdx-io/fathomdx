@@ -452,6 +452,53 @@ LAKE_TOOLS = [
         "surfaces": ["chat", "mcp", "cli"],
         "response_kind": "json",
     },
+    {
+        "name": "send_message",
+        "description": (
+            "Send a message to a contact. The message lands in the contact's "
+            "direct thread with you and surfaces in their header alerts the "
+            "next time they look at their dashboard. Use this whenever you "
+            "want to reach out to someone — alerts, updates, reminders, "
+            "anything you'd otherwise say 'I'll let them know about X'. "
+            "When `to` is omitted the message goes to the requestor (the "
+            "person you're currently talking to or whose api key triggered "
+            "this call) — that's the common case for 'remind me' / 'alert "
+            "me' / 'tell me when' instructions."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "to": {
+                    "type": "string",
+                    "description": (
+                        "Recipient contact slug (e.g. 'myra'). Optional — "
+                        "defaults to the requestor's own contact, which is "
+                        "almost always what you want for self-directed "
+                        "alerts and reminders."
+                    ),
+                },
+                "body": {
+                    "type": "string",
+                    "description": "The message text. Plain prose, can include markdown.",
+                },
+                "session": {
+                    "type": "string",
+                    "description": (
+                        "Optional session slug to also tag the delta with — "
+                        "use when this message is a follow-up to an existing "
+                        "topic thread. Default behavior (omit) writes only "
+                        "into the direct thread, which is correct for cold "
+                        "reach-outs."
+                    ),
+                },
+            },
+            "required": ["body"],
+        },
+        "endpoint": {"method": "POST", "path": "/v1/messages"},
+        "scope": "chat",
+        "surfaces": ["chat", "mcp", "cli"],
+        "response_kind": "json",
+    },
 ]
 
 

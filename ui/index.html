@@ -67,6 +67,59 @@
     .icon-btn:hover { border-color: var(--ink-faint); color: var(--ink); }
     .topbar-left, .topbar-right { display: flex; gap: 8px; align-items: center; }
 
+    /* ── Header alerts ───────────────────────────────
+       Driven by /v1/alerts. The bell icon sits among the other icon
+       buttons in the topbar; the badge surfaces only when there's
+       unread mail addressed to the current viewer. The dropdown is
+       a thin panel that lists each unread session — clicking one
+       opens it and the alert clears. */
+    .alerts-wrap { position: relative; }
+    .alerts-btn { position: relative; }
+    .alerts-btn .alerts-dot {
+      position: absolute; top: 6px; right: 7px;
+      width: 8px; height: 8px; border-radius: 50%;
+      background: var(--accent);
+      box-shadow: 0 0 0 2px var(--surface), 0 0 8px var(--accent);
+      display: none;
+    }
+    .alerts-btn[data-has-unread="true"] .alerts-dot { display: block; }
+    .alerts-panel {
+      position: absolute; top: calc(100% + 8px); right: 0;
+      min-width: 320px; max-width: 420px;
+      background: var(--surface); border: 1px solid var(--rule);
+      border-radius: var(--radius);
+      box-shadow: 0 8px 24px rgba(0,0,0,0.18);
+      padding: 6px; z-index: 20;
+      display: none;
+    }
+    .alerts-panel[data-open="true"] { display: block; }
+    .alerts-empty {
+      padding: 18px 14px; text-align: center;
+      font-size: 13px; color: var(--ink-faint);
+      font-family: var(--mono); letter-spacing: 0.04em;
+    }
+    .alerts-item {
+      display: block; width: 100%; text-align: left;
+      padding: 10px 12px; border: 0; background: transparent;
+      border-radius: 8px; cursor: pointer; color: var(--ink);
+      transition: background 120ms;
+    }
+    .alerts-item:hover { background: var(--surface-2); }
+    .alerts-item .title {
+      font-family: var(--serif); font-size: 15px; line-height: 1.3;
+      margin-bottom: 2px;
+    }
+    .alerts-item .preview {
+      font-size: 12.5px; color: var(--ink-soft); line-height: 1.45;
+      display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
+      overflow: hidden;
+    }
+    .alerts-item .stamp {
+      font-family: var(--mono); font-size: 10.5px;
+      letter-spacing: 0.05em; color: var(--ink-faint);
+      margin-top: 4px;
+    }
+
     /* ── Main scroll area ────────────────────────── */
     main {
       flex: 1;
@@ -2390,6 +2443,15 @@
       <div class="brand">fathom<span class="brand-mark"><svg class="ph-triangle" viewBox="0 0 340 256" fill="currentColor"><g transform="rotate(20.4 128 150)" opacity="0.28"><path d="M236.8,188.09,149.35,36.22a24.76,24.76,0,0,0-42.7,0L19.2,188.09a23.51,23.51,0,0,0,0,23.72A24.35,24.35,0,0,0,40.55,224h174.9a24.35,24.35,0,0,0,21.33-12.19A23.51,23.51,0,0,0,236.8,188.09ZM222.93,203.8a8.5,8.5,0,0,1-7.48,4.2H40.55a8.5,8.5,0,0,1-7.48-4.2,7.59,7.59,0,0,1,0-7.72L120.52,44.21a8.75,8.75,0,0,1,15,0l87.45,151.87A7.59,7.59,0,0,1,222.93,203.8Z"/></g><g transform="translate(41 0) rotate(-17.2 128 150)" opacity="0.58"><path d="M236.8,188.09,149.35,36.22a24.76,24.76,0,0,0-42.7,0L19.2,188.09a23.51,23.51,0,0,0,0,23.72A24.35,24.35,0,0,0,40.55,224h174.9a24.35,24.35,0,0,0,21.33-12.19A23.51,23.51,0,0,0,236.8,188.09ZM222.93,203.8a8.5,8.5,0,0,1-7.48,4.2H40.55a8.5,8.5,0,0,1-7.48-4.2,7.59,7.59,0,0,1,0-7.72L120.52,44.21a8.75,8.75,0,0,1,15,0l87.45,151.87A7.59,7.59,0,0,1,222.93,203.8Z"/></g><g transform="translate(82 0) rotate(0.4 128 150)"><path d="M149.35,36.22a24.76,24.76,0,0,0-42.7,0L19.2,188.09a23.51,23.51,0,0,0,0,23.72A24.35,24.35,0,0,0,40.55,224h174.9a24.35,24.35,0,0,0,21.33-12.19,23.51,23.51,0,0,0,0-23.72Z"/></g></svg></span></div>
     </div>
     <div class="topbar-right">
+      <div class="alerts-wrap">
+        <button class="icon-btn alerts-btn" id="alertsBtn" aria-label="Alerts" title="Alerts">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8a6 6 0 1 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
+          <span class="alerts-dot" aria-hidden="true"></span>
+        </button>
+        <div class="alerts-panel" id="alertsPanel" role="menu">
+          <div class="alerts-empty" id="alertsEmpty">Nothing new</div>
+        </div>
+      </div>
       <button class="icon-btn" id="jumpToTechBtn" aria-label="Jump to technical section" title="Jump to technical section">
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><circle cx="4" cy="6" r="1"/><circle cx="4" cy="12" r="1"/><circle cx="4" cy="18" r="1"/></svg>
       </button>
@@ -6956,7 +7018,14 @@ GET  /v1/usage               Usage stats`,
         // they're a completion signal.
         _maybeRemoveTyping(m);
       }
-      if (rendered) loadSessions();
+      if (rendered) {
+        loadSessions();
+        // The user is actively sitting in this session — bump their
+        // last_seen_at so the bell doesn't light for messages they're
+        // watching land in real time. The next /v1/alerts poll will
+        // see the chat-view delta and exclude this session.
+        _markSessionRead(currentSessionId);
+      }
     }
 
     // Pull a single <recalled>...</recalled> preamble out of a Fathom
@@ -7142,6 +7211,7 @@ GET  /v1/usage               Usage stats`,
       }
       if (session.project) chatTitle.title = session.project;
       currentSessionId = sessionId;
+      _markSessionRead(sessionId);
       chatStream.innerHTML = '<div class="session-stamp">Loading…</div>';
       hideMainOpenChat();
       // Claude-code sessions can't be driven from the browser — flip the
@@ -7411,6 +7481,96 @@ GET  /v1/usage               Usage stats`,
 
     // Load sessions on startup
     loadSessions();
+
+    // ── Header alerts ────────────────────────────────
+    // Polls /v1/alerts every ~10s for unread sessions addressed to the
+    // current viewer. The bell icon's dot lights when there's anything;
+    // clicking it opens the dropdown. Clicking an item opens the
+    // session, which fires mark-read and clears the alert.
+    const alertsBtn = document.getElementById('alertsBtn');
+    const alertsPanel = document.getElementById('alertsPanel');
+    const alertsEmpty = document.getElementById('alertsEmpty');
+    let _lastAlerts = [];
+
+    function _alertsRelative(iso) {
+      if (!iso) return '';
+      const t = new Date(iso).getTime();
+      if (!t) return '';
+      const ago = Math.floor((Date.now() - t) / 1000);
+      if (ago < 60) return 'just now';
+      if (ago < 3600) return `${Math.floor(ago / 60)}m ago`;
+      if (ago < 86400) return `${Math.floor(ago / 3600)}h ago`;
+      return `${Math.floor(ago / 86400)}d ago`;
+    }
+
+    function _renderAlerts(alerts) {
+      _lastAlerts = alerts || [];
+      const has = _lastAlerts.length > 0;
+      alertsBtn.dataset.hasUnread = has ? 'true' : 'false';
+      alertsPanel.innerHTML = '';
+      if (!has) {
+        const empty = document.createElement('div');
+        empty.className = 'alerts-empty';
+        empty.textContent = 'Nothing new';
+        alertsPanel.appendChild(empty);
+        return;
+      }
+      for (const a of _lastAlerts) {
+        const btn = document.createElement('button');
+        btn.className = 'alerts-item';
+        btn.type = 'button';
+        const title = document.createElement('div');
+        title.className = 'title';
+        title.textContent = a.title || a.session_id;
+        const preview = document.createElement('div');
+        preview.className = 'preview';
+        preview.textContent = a.preview || '';
+        const stamp = document.createElement('div');
+        stamp.className = 'stamp';
+        stamp.textContent = _alertsRelative(a.unread_since);
+        btn.append(title, preview, stamp);
+        btn.addEventListener('click', () => {
+          alertsPanel.dataset.open = 'false';
+          openChatWithSession({ id: a.session_id, title: a.title }, false);
+        });
+        alertsPanel.appendChild(btn);
+      }
+    }
+
+    async function _pollAlerts() {
+      try {
+        const data = await api('/v1/alerts');
+        _renderAlerts((data && data.alerts) || []);
+      } catch (e) {
+        // Silent — header polling shouldn't yell on transient network blips.
+      }
+    }
+
+    if (alertsBtn) {
+      alertsBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const open = alertsPanel.dataset.open === 'true';
+        alertsPanel.dataset.open = open ? 'false' : 'true';
+        if (!open) _pollAlerts();
+      });
+      document.addEventListener('click', (e) => {
+        if (alertsPanel.dataset.open !== 'true') return;
+        if (alertsPanel.contains(e.target) || alertsBtn.contains(e.target)) return;
+        alertsPanel.dataset.open = 'false';
+      });
+      _pollAlerts();
+      setInterval(_pollAlerts, 10000);
+    }
+
+    async function _markSessionRead(sessionId) {
+      if (!sessionId) return;
+      try {
+        await api('/v1/alerts', { method: 'POST', body: JSON.stringify({ session: sessionId }) });
+      } catch (e) {
+        // Best-effort; the next poll will reconcile.
+      }
+      _pollAlerts();
+    }
 
     // Composer send — real streaming API call
     async function sendFromComposer() {

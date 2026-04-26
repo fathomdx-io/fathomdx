@@ -7,6 +7,7 @@ import json
 from datetime import UTC, datetime, timedelta
 
 from . import delta_client
+from . import messages as messages_mod
 from . import routines as routines_mod
 from ._engagement import build_engagement_payload
 from ._tags import tag_suffix
@@ -47,6 +48,27 @@ def heartbeat_is_fresh(delta: dict) -> bool:
 
 
 # ── Tool execution ──────────────────────────────
+
+
+async def _session_contact_slug(session_id: str) -> str | None:
+    """Return the contact slug associated with a chat session, or None.
+
+    Reads the contact: tag off any participant:user delta in the
+    session — every chat turn is stamped with one. Used by send_message
+    to default `to` to the session's human when the LLM omits it.
+    """
+    try:
+        results = await delta_client.query(
+            tags_include=[f"chat:{session_id}", "participant:user"],
+            limit=1,
+        )
+    except Exception:
+        return None
+    for d in results:
+        slug = tag_suffix(d.get("tags") or [], "contact:")
+        if slug:
+            return slug
+    return None
 
 
 def _slim_search_results(raw: dict) -> dict:
@@ -208,6 +230,36 @@ async def execute(name: str, arguments: dict, session_id: str | None = None) -> 
                     "target_id": target_id,
                 }
             )
+
+        if name == "send_message":
+            recipient = (arguments.get("to") or "").strip()
+            if not recipient and session_id:
+                # Default-to-requestor: read the session's contact: tag from
+                # any user delta in the thread. This is the LLM-in-chat
+                # path; the human in the session is the natural recipient
+                # for "alert me" / "remind me" instructions.
+                recipient = await _session_contact_slug(session_id) or ""
+            if not recipient:
+                return json.dumps(
+                    {
+                        "error": (
+                            "no recipient — pass `to` with a contact slug, or "
+                            "call this tool inside a chat session so the "
+                            "requestor can be inferred"
+                        ),
+                    }
+                )
+            body = arguments.get("body") or ""
+            try:
+                result = await messages_mod.send_message(
+                    recipient_slug=recipient,
+                    body=body,
+                    writer_slug="fathom",
+                    session_slug=arguments.get("session") or None,
+                )
+            except ValueError as e:
+                return json.dumps({"error": str(e)})
+            return json.dumps(result)
 
         if name == "rename_session":
             if not session_id:

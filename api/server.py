@@ -150,11 +150,13 @@ app.add_middleware(auth.TokenAuthMiddleware)
 # ── Routers (one file per resource cluster under api/routes/) ───
 from .routes import agent_instructions as _agent_instructions_routes  # noqa: E402
 from .routes import agents as _agents_routes  # noqa: E402
+from .routes import alerts as _alerts_routes  # noqa: E402
 from .routes import auth as _auth_routes  # noqa: E402
 from .routes import contacts as _contacts_routes  # noqa: E402
 from .routes import feed as _feed_routes  # noqa: E402
 from .routes import lake as _lake_routes  # noqa: E402
 from .routes import media as _media_routes  # noqa: E402
+from .routes import messages as _messages_routes  # noqa: E402
 from .routes import routines as _routines_routes  # noqa: E402
 from .routes import sessions as _sessions_routes  # noqa: E402
 from .routes import sources as _sources_routes  # noqa: E402
@@ -162,11 +164,13 @@ from .routes import vitals as _vitals_routes  # noqa: E402
 
 app.include_router(_agent_instructions_routes.router)
 app.include_router(_agents_routes.router)
+app.include_router(_alerts_routes.router)
 app.include_router(_auth_routes.router)
 app.include_router(_contacts_routes.router)
 app.include_router(_feed_routes.router)
 app.include_router(_lake_routes.router)
 app.include_router(_media_routes.router)
+app.include_router(_messages_routes.router)
 app.include_router(_routines_routes.router)
 app.include_router(_sessions_routes.router)
 app.include_router(_sources_routes.router)

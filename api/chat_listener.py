@@ -73,7 +73,7 @@ IGNORED_SOURCES = {
 # can't catch them — they'd otherwise be treated as fresh user messages
 # and trigger a spurious turn whose "user text" is the session title.
 # db.get_messages already skips these same tags as metadata.
-METADATA_TAGS = {"chat-name", "chat-deleted"}
+METADATA_TAGS = {"chat-name", "chat-deleted", "chat-view"}
 
 # Memory-tool events no longer surface as chat-event deltas — the model's
 # own <recalled>...</recalled> preamble on its reply is the durable
