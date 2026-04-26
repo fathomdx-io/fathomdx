@@ -55,6 +55,11 @@ export const CONFIG_SHAPE = {
     required: false,
     help: "'true' to auto-submit prompts after injection, anything else to wait. Default: true.",
   },
+  inject_ready_timeout_ms: {
+    type: "number",
+    required: false,
+    help: "Max ms to wait for claude's TUI input field to render before injecting the prompt anyway. Plugin polls the screen and injects the moment the input box appears; this is the fallback ceiling. Default: 20000.",
+  },
   allowed_permission_modes: {
     type: "string[]",
     required: false,
@@ -189,7 +194,7 @@ export function spawnClaudeInKitty({
   kittyBin = "kitty",
   kittyBackground = "#17303a",
   autoSubmit = true,
-  injectDelayMs = 3000,
+  injectReadyTimeoutMs = 20000,
   pusher, // optional — for logging a launch receipt
   receiptExpiresAt, // optional ISO; receipt delta TTL
 }) {
@@ -217,12 +222,64 @@ export function spawnClaudeInKitty({
   child.unref();
   child.on("error", (e) => console.error(`  kitty spawn failed: ${e.message}`));
 
-  setTimeout(
-    () => injectPrompt(socket, prompt, sessionLabel, null, pusher, autoSubmit, receiptExpiresAt),
-    injectDelayMs
-  );
+  // Wait until claude's TUI input field has actually rendered before we inject.
+  // A fixed sleep was racy on cold starts (MCP servers + hooks can push first
+  // paint past 5s); polling kitty's screen text catches it the moment it lands.
+  (async () => {
+    const ready = await waitForClaudeReady(socket, { maxWaitMs: injectReadyTimeoutMs });
+    if (!ready) {
+      console.warn(
+        `  ⚠ kitty: claude readiness not detected within ${injectReadyTimeoutMs}ms — injecting anyway (${sessionLabel})`
+      );
+    }
+    injectPrompt(socket, prompt, sessionLabel, null, pusher, autoSubmit, receiptExpiresAt);
+  })();
 
   return { socket, title, spawnedAt: stamp };
+}
+
+// Read the current visible screen of the kitty window. Used to detect when
+// claude's input field has rendered and is accepting keys.
+function getKittyScreenText(socket) {
+  return new Promise((resolve) => {
+    if (!existsSync(socket)) return resolve("");
+    const child = spawn("kitten", ["@", "--to", `unix:${socket}`, "get-text", "--extent", "screen"], {
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+    let out = "";
+    child.stdout.on("data", (b) => (out += b.toString()));
+    child.on("close", (code) => resolve(code === 0 ? out : ""));
+    child.on("error", () => resolve(""));
+  });
+}
+
+// Claude-code's TUI mounts an input row once the model's ready for input.
+// We watch for two markers, either of which means the field will accept keys:
+//   ❯  — prompt-cursor character at the start of the input row
+//   ⏵⏵ — the bottom-line mode indicator ("⏵⏵ auto mode on ...")
+// Both appear together when the TUI hits its idle/ready state. Older Ink
+// banners can include `│ >` in chrome, so we keep that as a defensive fallback.
+function looksLikeClaudeInput(text) {
+  if (!text) return false;
+  if (text.includes("❯")) return true;
+  if (text.includes("⏵⏵")) return true;
+  return /[│|]\s+>\s/.test(text);
+}
+
+async function waitForClaudeReady(socket, { maxWaitMs = 20000, pollMs = 400 } = {}) {
+  const start = Date.now();
+  // Poll for both kitty's listener appearing AND claude's input field rendering.
+  // The socket file is created by kitty after spawn (a beat or two), then claude
+  // boots inside the window and mounts its TUI. Either step can lag on cold
+  // starts, so we wait for the full chain rather than bailing on socket-missing.
+  while (Date.now() - start < maxWaitMs) {
+    if (existsSync(socket)) {
+      const text = await getKittyScreenText(socket);
+      if (looksLikeClaudeInput(text)) return true;
+    }
+    await new Promise((r) => setTimeout(r, pollMs));
+  }
+  return false;
 }
 
 /**
@@ -351,7 +408,7 @@ function fire(delta, config, pusher) {
     kittyBin: config.kitty_command,
     kittyBackground: config.kitty_background,
     autoSubmit: config.auto_submit !== false,
-    injectDelayMs: config.inject_delay_ms,
+    injectReadyTimeoutMs: config.inject_ready_timeout_ms,
     pusher,
     receiptExpiresAt,
   });
@@ -440,7 +497,12 @@ export default {
     // claude-code still has to run somewhere.
     default_workspace: "",
     poll_interval_ms: 3000,
-    inject_delay_ms: 3000,
+    // Ceiling for how long we'll wait for claude's TUI to become input-ready
+    // before injecting the prompt anyway. Kitty plugin polls the screen text
+    // and injects the moment it sees the input field — this is just the
+    // fallback if the marker never appears. Bump if you have very slow cold
+    // starts (lots of MCP servers, hooks, etc).
+    inject_ready_timeout_ms: 20000,
     auto_submit: true,
     claude_command: "claude",
     kitty_command: "kitty",
