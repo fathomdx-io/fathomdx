@@ -162,8 +162,18 @@ elif [[ -e "${FATHOM_DIR}" ]]; then
 else
   step "Cloning repository"
   info "${FATHOM_REPO} → ${FATHOM_DIR}"
-  git clone --depth 1 --branch "${FATHOM_REF}" "${FATHOM_REPO}" "${FATHOM_DIR}" --quiet
-  cd "${FATHOM_DIR}"
+  # `git clone --branch` only accepts branch/tag names, not commit SHAs.
+  # CI's install-smoke workflow passes ${{ github.sha }} so it tests THIS
+  # exact commit; for that path we clone bare then fetch the SHA directly.
+  if [[ "${FATHOM_REF}" =~ ^[0-9a-f]{7,40}$ ]]; then
+    git clone --filter=blob:none --no-checkout "${FATHOM_REPO}" "${FATHOM_DIR}" --quiet
+    cd "${FATHOM_DIR}"
+    git fetch --depth 1 origin "${FATHOM_REF}" --quiet
+    git checkout --quiet FETCH_HEAD
+  else
+    git clone --depth 1 --branch "${FATHOM_REF}" "${FATHOM_REPO}" "${FATHOM_DIR}" --quiet
+    cd "${FATHOM_DIR}"
+  fi
   ok "Cloned at $(git rev-parse --short HEAD)"
 fi
 
