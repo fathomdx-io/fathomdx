@@ -6723,7 +6723,7 @@ schtasks /run /tn "FathomAgent"`,
         steps: [
           {
             title: 'Get the repo',
-            code: 'git clone https://github.com/myrakrusemark/consumer-fathom.git',
+            code: 'git clone https://github.com/fathomdx-io/fathomdx.git',
             hint: 'If you already have a clone, skip this. The extension lives at addons/browser-extension/ inside the repo — no build step, no install.',
           },
           {
@@ -6743,7 +6743,7 @@ schtasks /run /tn "FathomAgent"`,
           },
           {
             title: 'Update later',
-            code: `cd path/to/consumer-fathom && git pull
+            code: `cd path/to/fathomdx && git pull
 # then in chrome://extensions: click the reload (↻) icon on Follow Me`,
             hint: 'Unpacked extensions don\'t auto-update. After pulling, reload from the extensions page.',
           },
