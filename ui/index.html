@@ -7009,9 +7009,26 @@ GET  /v1/usage               Usage stats`,
       let rendered = 0;
       for (const m of data.messages || []) {
         if (!m.id || _renderedMessageIds.has(m.id)) continue;
+        // Silent reconciles (e.g. post-send sweep that swallows the user's
+        // own message) just need to mark the ID so a later non-silent
+        // poll skips it. Don't try to render.
+        if (silent.has(m.role)) {
+          _renderedMessageIds.add(m.id);
+          continue;
+        }
+        // Render BEFORE marking the ID. If the render throws — bad
+        // markdown, a missing field on a new event kind, anything — we
+        // don't want to poison the set. Without this, one render error
+        // locks the message out forever on this tab and the user sees
+        // the typing indicator hang until they refresh (which rebuilds
+        // _renderedMessageIds from scratch).
+        try {
+          _renderMessageToStream(m);
+        } catch (e) {
+          console.error('chat: render failed for message', m && m.id, e);
+          continue;  // try again next poll
+        }
         _renderedMessageIds.add(m.id);
-        if (silent.has(m.role)) continue;
-        _renderMessageToStream(m);
         rendered++;
         // Remove any pending "typing" indicator — Fathom or a body has
         // spoken, so the wait is over. Agent-signoff messages count too;
@@ -7587,7 +7604,19 @@ GET  /v1/usage               Usage stats`,
 
       // Pause polling while the stream is in flight so we don't double-render
       // the user's message or interleave partial output with a poll result.
+      // Wrapped in try/finally below so an unexpected throw (image upload
+      // edge case, a missing element, anything before the network try
+      // block at the `fetch /v1/chat/completions` call) can't leave
+      // paused stuck at true — that would silently freeze chat polling
+      // until refresh.
       _chatPollPaused = true;
+      let _resumed = false;
+      const _resume = () => {
+        if (_resumed) return;
+        _resumed = true;
+        _chatPollPaused = false;
+        if (currentSessionId && !_chatPollTimer) _startChatPoll();
+      };
 
       const now = new Date();
       const timeStr = now.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
@@ -7639,8 +7668,7 @@ GET  /v1/usage               Usage stats`,
           composerTa.value = text;
           composerTa.dispatchEvent(new Event('input'));
         }
-        _chatPollPaused = false;
-        if (currentSessionId && !_chatPollTimer) _startChatPoll();
+        _resume();
         return;
       }
 
@@ -7714,9 +7742,6 @@ GET  /v1/usage               Usage stats`,
         // and any agent deltas triggered by its turn, will arrive via
         // that poll cycle and the typing indicator clears with them.
         await _reconcileChatMessages(['user', 'assistant']);
-        if (!_chatPollTimer) _startChatPoll();
-        _chatPollPaused = false;
-
       } catch (err) {
         typing.remove();
         chatStream.appendChild(renderTurn({
@@ -7724,10 +7749,11 @@ GET  /v1/usage               Usage stats`,
           html: `<p style="color: var(--danger);">Connection error: ${_esc(err.message)}</p>`,
         }));
         scrollToBottomOfChat();
-        // Resume polling even on error — the server may still process
-        // the write, and Fathom might still reply via the listener.
-        _chatPollPaused = false;
-        if (currentSessionId && !_chatPollTimer) _startChatPoll();
+      } finally {
+        // ALWAYS resume — guarantees paused doesn't get stuck at true,
+        // which would silently freeze chat polling for this session
+        // until the user refreshes.
+        _resume();
       }
     }
 
