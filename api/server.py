@@ -1128,8 +1128,17 @@ def _split_facets(text: str) -> list[dict]:
 _UI_DIR = Path(__file__).resolve().parent.parent / "ui"
 if _UI_DIR.is_dir():
 
+    # The UI is a single self-contained index.html (CSS+JS inline). It
+    # changes every rebuild, so any browser cache means stale dashboards
+    # after `docker compose up --build`. Force revalidation on every load.
+    _NO_CACHE_HEADERS = {
+        "Cache-Control": "no-cache, no-store, must-revalidate",
+        "Pragma": "no-cache",
+        "Expires": "0",
+    }
+
     @app.get("/")
     async def ui_root():
-        return FileResponse(_UI_DIR / "index.html")
+        return FileResponse(_UI_DIR / "index.html", headers=_NO_CACHE_HEADERS)
 
     app.mount("/ui", StaticFiles(directory=str(_UI_DIR), html=True), name="ui")
