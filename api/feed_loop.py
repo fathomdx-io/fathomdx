@@ -29,6 +29,7 @@ from datetime import datetime, timedelta
 from typing import Any
 
 from . import delta_client, feed_crystal
+from . import messages as messages_mod
 from ._bgtasks import spawn as _spawn_task
 from ._feed_candidates import (
     _fetch_line_candidates,
@@ -448,14 +449,15 @@ _CARD_OUTPUT_INSTRUCTIONS = (
     "Respond with ONLY a JSON object — no markdown fences, no commentary.\n"
     "Schema:\n"
     "  {\n"
-    '    "title": string                       // one-sentence headline (≤120 chars)\n'
-    '    "body":  string                       // 2-4 sentences of plain prose\n'
+    '    "title": string                       // one-sentence headline (≤120 chars). Required for feed cards; ignored when direct=true.\n'
+    '    "body":  string                       // For feed cards: 2-4 sentences of plain prose. For direct messages: the message text.\n'
     '    "tail":  string?                      // ≤8 words. Source citation, timestamp, stat, or next step. SKIP if you have nothing concrete — empty is better than restating the title.\n'
     '    "body_image": string?                 // media_hash or URL\n'
     '    "body_image_layout": "hero" | "thumb" // default "hero"\n'
     '    "media": string[]?                    // additional images\n'
     '    "link": string?                       // primary source URL — must start with http(s)\n'
     '    "links": [{title: string, url: string}]?  // additional related links (bundling)\n'
+    '    "direct": boolean?                    // OPTIONAL. true = route this output as a direct message to the contact instead of publishing it as a feed card. Use rarely — see the DIRECT MESSAGES block at the top of this prompt for the cadence rules. When direct=true, only `body` is used; the other fields are ignored.\n'
     "  }\n"
     "\n"
     "IMAGES — if the deltas you searched contain images (a media_hash on a "
@@ -638,6 +640,15 @@ async def _produce_card(
 
     line_id = (line or {}).get("id") or "(cold-start)"
 
+    # Prepend the DM-routing context block. The model sees recent direct
+    # messages it sent to this contact, the cadence note, and the option
+    # to set direct=true on its output to send this synthesis as a DM
+    # instead of publishing it as a feed card. Empty when contact_slug
+    # is absent — silently noop.
+    dm_block = await messages_mod.dm_context_block(contact_slug)
+    if dm_block:
+        directive = dm_block + "\n\n" + directive
+
     user_message = "Produce the card for the slot described above."
     last_failed_excerpt: str | None = None
     payload: dict | None = None
@@ -702,6 +713,33 @@ async def _produce_card(
     if payload.get("skip"):
         print(f"feed_loop: line {line_id} — model skipped: {payload.get('reason')}", flush=True)
         _tally_inc(contact_slug, "lines_model_skipped")
+        return
+    # Direct-route fork — model decided this synthesis output is worth
+    # sending to the contact as a DM rather than publishing as a feed
+    # card. Body is the message text; other card fields (title, image,
+    # links) are ignored on this path.
+    if payload.get("direct"):
+        body = str(payload.get("body") or "").strip()
+        if not body:
+            print(
+                f"feed_loop: line {line_id} — direct=true but body empty; skipping",
+                flush=True,
+            )
+            _tally_inc(contact_slug, "lines_direct_empty")
+            return
+        try:
+            await messages_mod.send_message(
+                recipient_slug=contact_slug,
+                body=body,
+                writer_slug="fathom",
+            )
+            print(
+                f"feed_loop[{contact_slug}]: line {line_id} routed as direct message ({len(body)} chars)",
+                flush=True,
+            )
+            _tally_inc(contact_slug, "lines_direct_sent")
+        except Exception:
+            log.exception("feed_loop: line %s direct send failed", line_id)
         return
     if not payload.get("title") or not payload.get("body"):
         print(
@@ -804,6 +842,14 @@ async def _produce_cards(
     tally_written = f"{kind}_cards_written"
     tally_silent = f"{kind}_silent"
     tally_format = f"{kind}_format_failed"
+    tally_direct_sent = f"{kind}_direct_sent"
+
+    # See _produce_card — same DM-routing context block, inserted into
+    # the directive so the model knows it can route individual cards as
+    # direct messages and sees the recent thread + cadence pressure.
+    dm_block = await messages_mod.dm_context_block(contact_slug)
+    if dm_block:
+        directive = dm_block + "\n\n" + directive
 
     user_message = (
         "Produce the cards for the pass described above. Respond with the JSON "
@@ -884,6 +930,30 @@ async def _produce_cards(
     written = 0
     for idx, entry in enumerate(cards_list):
         if not isinstance(entry, dict):
+            continue
+        # Direct-route fork — entry-level. The pass can mix feed cards
+        # and direct messages in the same response; each entry decides.
+        if entry.get("direct"):
+            body = str(entry.get("body") or "").strip()
+            if not body:
+                print(
+                    f"feed_loop[{kind}]: card {idx} direct=true with empty body; skipping",
+                    flush=True,
+                )
+                continue
+            try:
+                await messages_mod.send_message(
+                    recipient_slug=contact_slug,
+                    body=body,
+                    writer_slug="fathom",
+                )
+                print(
+                    f"feed_loop[{kind}]: card {idx} routed as direct message ({len(body)} chars)",
+                    flush=True,
+                )
+                _tally_inc(contact_slug, tally_direct_sent)
+            except Exception:
+                log.exception("feed_loop: %s card %d direct send failed", kind, idx)
             continue
         if not entry.get("title") or not entry.get("body"):
             print(
