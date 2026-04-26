@@ -55,9 +55,7 @@ async def fetch_volunteer_candidates(limit: int = 20) -> list[dict]:
     a shift in RSS volume) and the model benefits from seeing those
     clusters intact rather than shuffled apart.
     """
-    cutoff = (_now() - timedelta(hours=_VOLUNTEERED_WINDOW_HOURS)).strftime(
-        "%Y-%m-%dT%H:%M:%SZ"
-    )
+    cutoff = (_now() - timedelta(hours=_VOLUNTEERED_WINDOW_HOURS)).strftime("%Y-%m-%dT%H:%M:%SZ")
     try:
         results = await delta_client.query(
             tags_exclude=_EXCLUDE_TAGS,
@@ -151,9 +149,7 @@ async def anchor_crystal_context(contact_slug: str) -> str:
 
     lines = crystal.get("directive_lines") or []
     if lines:
-        topic_slugs = [
-            (ln.get("topic") or ln.get("id") or "?").strip() for ln in lines if ln
-        ]
+        topic_slugs = [(ln.get("topic") or ln.get("id") or "?").strip() for ln in lines if ln]
         if topic_slugs:
             parts.append(
                 "Directive lines (these topics are already getting slotted cards, "

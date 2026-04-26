@@ -41,8 +41,6 @@ import logging
 
 from . import delta_client
 from .prompt import SEARCH_PLANNER_PROMPT
-from .providers import llm
-from .settings import settings
 
 log = logging.getLogger(__name__)
 

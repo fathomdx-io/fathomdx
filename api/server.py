@@ -772,6 +772,7 @@ async def chat_completions(req: ChatRequest, request: Request):
     # empty completion rather than hanging on a poll that won't fire.
     if not persisted_user and not req.image_uploaded:
         if req.stream:
+
             async def _empty_stream():
                 chunk_id = f"chatcmpl-{uuid.uuid4().hex}"
                 payload = {
@@ -883,9 +884,7 @@ async def _record_rejected_candidate(text: str, reason: str) -> None:
     later to diagnose what the LLM produced. Short TTL — this is a
     debug breadcrumb, not memory.
     """
-    expires_at = (
-        datetime.now(UTC) + timedelta(seconds=CRYSTAL_REJECT_TTL_SECONDS)
-    ).isoformat()
+    expires_at = (datetime.now(UTC) + timedelta(seconds=CRYSTAL_REJECT_TTL_SECONDS)).isoformat()
     try:
         await delta_client.write(
             content=(text or "(empty)")[:4000] + f"\n\n[rejected: {reason}]",
@@ -1003,15 +1002,17 @@ async def settings_models():
         ("medium", "Standard tasks", "Search planning, mood synthesis, feed crystal"),
     ):
         config = await llm_config.get_tier_config(tier_id)
-        tiers.append({
-            "id": tier_id,
-            "label": label,
-            "uses": uses,
-            "current": {
-                "provider": config.get("provider", ""),
-                "model": config.get("model", ""),
-            },
-        })
+        tiers.append(
+            {
+                "id": tier_id,
+                "label": label,
+                "uses": uses,
+                "current": {
+                    "provider": config.get("provider", ""),
+                    "model": config.get("model", ""),
+                },
+            }
+        )
     return {
         "providers": configured,
         "provider_defaults": provider_defaults,
@@ -1036,8 +1037,14 @@ async def settings_models_put(tier: str, body: _TierPick):
     try:
         written = await llm_config.set_tier_config(tier, body.provider, body.model)
     except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
-    return {"ok": True, "tier": tier, "provider": body.provider, "model": body.model, "id": written.get("id")}
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    return {
+        "ok": True,
+        "tier": tier,
+        "provider": body.provider,
+        "model": body.model,
+        "id": written.get("id"),
+    }
 
 
 @app.get("/v1/settings/providers/{provider}/models")
@@ -1058,7 +1065,9 @@ async def settings_provider_models(provider: str):
         client = get_client(provider)
         resp = await client.models.list()
     except Exception as e:
-        raise HTTPException(status_code=502, detail=f"provider {provider} models list failed: {e}")
+        raise HTTPException(
+            status_code=502, detail=f"provider {provider} models list failed: {e}"
+        ) from e
 
     # Normalize to [{"id": ...}, ...] — different providers decorate
     # the response differently, but the id field is the one we want.
@@ -1127,7 +1136,6 @@ def _split_facets(text: str) -> list[dict]:
 
 _UI_DIR = Path(__file__).resolve().parent.parent / "ui"
 if _UI_DIR.is_dir():
-
     # The UI is a single self-contained index.html (CSS+JS inline). It
     # changes every rebuild, so any browser cache means stale dashboards
     # after `docker compose up --build`. Force revalidation on every load.

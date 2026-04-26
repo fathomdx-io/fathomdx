@@ -61,8 +61,8 @@ async def cmd_list_keys(args: argparse.Namespace) -> int:
     print("id\tcontact_slug\tname\tscopes")
     for t in tokens:
         print(
-            f"{t.get('id','')}\t{t.get('contact_slug','')}\t"
-            f"{t.get('name','')}\t{','.join(t.get('scopes') or [])}"
+            f"{t.get('id', '')}\t{t.get('contact_slug', '')}\t"
+            f"{t.get('name', '')}\t{','.join(t.get('scopes') or [])}"
         )
     return 0
 
@@ -112,15 +112,19 @@ async def cmd_mint_key(args: argparse.Namespace) -> int:
         slug = await _pick_contact_interactively(rows)
 
     if not any(row.get("slug") == slug for row in rows):
-        _fail(f"No active contact with slug '{slug}'. Available: "
-              + ", ".join(r.get("slug", "") for r in rows))
+        _fail(
+            f"No active contact with slug '{slug}'. Available: "
+            + ", ".join(r.get("slug", "") for r in rows)
+        )
 
     # Figure out a sensible default token name based on the contact's
     # role — admin keys and member keys get different labels so list-keys
     # stays readable.
     contact = next(row for row in rows if row.get("slug") == slug)
     role = contact.get("role", "member")
-    default_name = f"Admin (recovery)" if role == "admin" else f"Member ({contact.get('display_name', slug)})"
+    default_name = (
+        "Admin (recovery)" if role == "admin" else f"Member ({contact.get('display_name', slug)})"
+    )
     name = args.name or default_name
 
     # Scope picking: admin contacts get full scopes; members get the
@@ -163,9 +167,16 @@ def _build_parser() -> argparse.ArgumentParser:
     sp.set_defaults(func=cmd_list_keys)
 
     sp = sub.add_parser("mint-key", help="Mint a new API key bound to a contact.")
-    sp.add_argument("--contact", help="Slug of the contact to bind the token to. Interactive if omitted.")
-    sp.add_argument("--name", help="Human-readable name for the token (shown in Settings → API Keys).")
-    sp.add_argument("--scopes", help="Comma-separated scope list. Defaults to full for admin, limited for member.")
+    sp.add_argument(
+        "--contact", help="Slug of the contact to bind the token to. Interactive if omitted."
+    )
+    sp.add_argument(
+        "--name", help="Human-readable name for the token (shown in Settings → API Keys)."
+    )
+    sp.add_argument(
+        "--scopes",
+        help="Comma-separated scope list. Defaults to full for admin, limited for member.",
+    )
     sp.set_defaults(func=cmd_mint_key)
 
     return p

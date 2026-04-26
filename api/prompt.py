@@ -506,5 +506,3 @@ etc. Be specific about what's been getting downvoted.
 
 Keep narrative grounded. Don't editorialize about Myra; describe what \
 she actually pulls toward."""
-
-

@@ -33,9 +33,9 @@ def _patched(monkeypatch):
     from api import db, delta_client
 
     recorded: dict[str, list] = {
-        "writes": [],       # delta_client.write calls
-        "add_messages": [], # db.add_message calls
-        "queries": [],      # delta_client.query calls
+        "writes": [],  # delta_client.write calls
+        "add_messages": [],  # db.add_message calls
+        "queries": [],  # delta_client.query calls
     }
 
     # Session resolution — every test uses a synthetic session.
@@ -76,7 +76,7 @@ def _patched(monkeypatch):
                 {
                     "id": "reply-delta",
                     "content": state["reply_text"],
-                    "tags": [f"chat:test-session-slug", "participant:fathom"],
+                    "tags": ["chat:test-session-slug", "participant:fathom"],
                     "timestamp": "9999-12-31T23:59:59.999Z",
                 }
             ]
@@ -220,8 +220,7 @@ async def test_empty_request_returns_empty_completion_without_waiting(_patched, 
     assert body["choices"][0]["finish_reason"] == "stop"
     # No fathom-reply query should have fired — dedup check yes, reply poll no.
     reply_queries = [
-        q for q in _patched["queries"]
-        if "participant:fathom" in (q.get("tags_include") or [])
+        q for q in _patched["queries"] if "participant:fathom" in (q.get("tags_include") or [])
     ]
     assert reply_queries == []
 
@@ -243,7 +242,7 @@ async def test_stream_returns_sse_with_done_terminator(_patched, client):
         line for line in body.splitlines() if line.startswith("data: ") and line != "data: [DONE]"
     ]
     # First chunk opens the assistant role; a later chunk carries content.
-    parsed = [json.loads(c[len("data: "):]) for c in content_chunks]
+    parsed = [json.loads(c[len("data: ") :]) for c in content_chunks]
     assert parsed[0]["choices"][0]["delta"].get("role") == "assistant"
     assert any(p["choices"][0]["delta"].get("content") == "hello from fathom" for p in parsed)
     assert parsed[-1]["choices"][0]["finish_reason"] == "stop"

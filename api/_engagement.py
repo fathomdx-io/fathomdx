@@ -73,15 +73,11 @@ async def build_engagement_payload(
         quoted = "\n".join(f"> {line}" if line else ">" for line in snapshot.splitlines())
         parts.append(quoted)
         media_marker = " · [image]" if media_hash else ""
-        parts.append(
-            f"> — {target_source} · {target_ts} · {target_id[:8]}{media_marker}"
-        )
+        parts.append(f"> — {target_source} · {target_ts} · {target_id[:8]}{media_marker}")
     elif fetch_ok and media_hash:
         # Image-only target with no text body — keep the footer so the
         # engagement still names what it pointed at.
-        parts.append(
-            f"> — {target_source} · {target_ts} · {target_id[:8]} · [image]"
-        )
+        parts.append(f"> — {target_source} · {target_ts} · {target_id[:8]} · [image]")
     elif not fetch_ok:
         # Target unreachable — record that the snapshot is unavailable so
         # a reader can tell "no snapshot" apart from "target had no text".

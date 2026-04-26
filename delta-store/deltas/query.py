@@ -596,7 +596,9 @@ class QueryEngine:
             distance = max(t_dist / max_r, s_dist / max_r, p_dist / max_r)
 
             if suppress_noise:
-                distance *= _noise_modifier(d.get("content"), d.get("embedding") or [], noise_centroid)
+                distance *= _noise_modifier(
+                    d.get("content"), d.get("embedding") or [], noise_centroid
+                )
 
             scored.append(
                 ScoredDelta(

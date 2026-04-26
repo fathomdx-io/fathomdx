@@ -42,7 +42,6 @@ from . import crystal_anchor, delta_client
 from ._time import now as _now
 from ._time import now_iso as _now_iso
 from .prompt import FEED_CRYSTAL_DIRECTIVE
-from .providers import llm
 from .settings import settings
 
 log = logging.getLogger(__name__)

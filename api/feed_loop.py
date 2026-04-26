@@ -141,7 +141,7 @@ def _tally_reset(contact_slug: str) -> None:
         # narrate them distinctly: "2 slotted + 1 drift + 0 notice" reads
         # differently from "3 cards."
         "drift_cards_written": 0,
-        "drift_silent": 0,       # model returned {"cards": []} by choice
+        "drift_silent": 0,  # model returned {"cards": []} by choice
         "drift_timed_out": 0,
         "drift_format_failed": 0,
         "volunteered_cards_written": 0,
@@ -462,9 +462,7 @@ def _humanize_age(seconds: float) -> str:
     return f"{int(seconds // 86400)}d ago"
 
 
-async def _recent_feed_cards_block(
-    contact_slug: str, limit: int = _RECENT_CARDS_FOR_PROMPT
-) -> str:
+async def _recent_feed_cards_block(contact_slug: str, limit: int = _RECENT_CARDS_FOR_PROMPT) -> str:
     """Prompt block listing recent feed cards already shown to this contact.
 
     Sibling to messages.dm_context_block. Both prepend to card-production
@@ -486,14 +484,12 @@ async def _recent_feed_cards_block(
     except Exception:
         return ""
     if not results:
-        return (
-            "=== RECENT FEED CARDS ===\n"
-            "(no feed cards published yet)"
-        )
+        return "=== RECENT FEED CARDS ===\n(no feed cards published yet)"
 
     now = datetime.now()
     if now.tzinfo is None:
         from datetime import UTC as _UTC
+
         now = datetime.now(_UTC)
 
     lines = [
@@ -1007,13 +1003,18 @@ async def _produce_cards(
 
     if len(cards_list) == 0:
         reason = (payload.get("reason") or "").strip()[:200]
-        print(f"feed_loop[{kind}]: model returned empty cards list — silent. reason: {reason!r}", flush=True)
+        print(
+            f"feed_loop[{kind}]: model returned empty cards list — silent. reason: {reason!r}",
+            flush=True,
+        )
         _tally_inc(contact_slug, tally_silent)
         return 0
 
     # Cap at 5 — the directive says 0-5, but defend against runaway output.
     if len(cards_list) > 5:
-        print(f"feed_loop[{kind}]: model returned {len(cards_list)} cards; clipping to 5", flush=True)
+        print(
+            f"feed_loop[{kind}]: model returned {len(cards_list)} cards; clipping to 5", flush=True
+        )
         cards_list = cards_list[:5]
 
     valid_hashes = _candidate_hashes(candidates)

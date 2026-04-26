@@ -110,8 +110,7 @@ async def recent_dm_thread(recipient_slug: str, *, limit: int = 3) -> list[dict]
     except Exception:
         return []
     return [
-        {"timestamp": d.get("timestamp") or "", "content": d.get("content") or ""}
-        for d in results
+        {"timestamp": d.get("timestamp") or "", "content": d.get("content") or ""} for d in results
     ]
 
 

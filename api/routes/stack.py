@@ -133,9 +133,7 @@ async def _gather_version() -> dict:
             payload["upstream_branch"] = upstream_branch
 
             if upstream_sha and upstream_sha != local_sha:
-                cmp_r = await c.get(
-                    f"{base}/compare/{local_sha}...{upstream_sha}", headers=headers
-                )
+                cmp_r = await c.get(f"{base}/compare/{local_sha}...{upstream_sha}", headers=headers)
                 if cmp_r.status_code == 200:
                     cmp = cmp_r.json()
                     payload["behind_by"] = cmp.get("behind_by", 0)
@@ -162,11 +160,7 @@ async def stack_version():
     """Return current stack SHA + how many commits behind origin/main it is."""
     now = _time.time()
     checked = _CACHE.get("checked_at")
-    if (
-        checked
-        and (now - checked) < _CACHE_TTL_SECONDS
-        and _CACHE.get("payload")
-    ):
+    if checked and (now - checked) < _CACHE_TTL_SECONDS and _CACHE.get("payload"):
         return {
             **_CACHE["payload"],
             "checked_at": datetime.fromtimestamp(checked, UTC).isoformat(),

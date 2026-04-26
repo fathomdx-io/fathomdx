@@ -16,8 +16,6 @@ from . import delta_client, pressure
 from . import search as search_module
 from ._time import now as _now
 from .prompt import MOOD_DIRECTIVE
-from .providers import llm
-from .settings import settings
 
 log = logging.getLogger(__name__)
 
