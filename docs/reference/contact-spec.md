@@ -76,7 +76,7 @@ Every delta that originates from a human gets `contact:<slug>` at write time, at
 
 - User sends a chat message on the dashboard → chat listener writes the delta with `chat:<session>`, `participant:user`, `contact:myra`.
 - Bob talks to Fathom via Telegram → Telegram bridge writes the delta with `contact:bob`.
-- Myra runs claude-code in `consumer-fathom/` → claude-code hook writes session deltas with `contact:myra`.
+- Myra runs claude-code in `fathomdx/` → claude-code hook writes session deltas with `contact:myra`.
 
 The rule splits two ways depending on whether a delta is **correspondence** or **reflection**:
 

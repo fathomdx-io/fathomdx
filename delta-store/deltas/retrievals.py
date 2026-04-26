@@ -7,9 +7,8 @@ to produce a "deltas retrieved per bucket" timeline — symmetric with
 the write-side usage counter that buckets actual delta writes.
 
 Stored as a rolling JSON event log, capped at EVENT_LIMIT. Mirrors the
-pattern used by consumer-fathom/api/recall.py, but lives at the lake
-itself so every client (consumer-api, loop-api, CLI, MCP) is counted
-uniformly.
+pattern used by fathomdx/api/recall.py, but lives at the lake itself so
+every client (consumer-api, loop-api, CLI, MCP) is counted uniformly.
 """
 
 from __future__ import annotations

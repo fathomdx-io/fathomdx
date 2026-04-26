@@ -86,7 +86,7 @@ The dashboard's Routines page does all of this through the `POST|PUT|DELETE /api
 ## Who reads what
 
 - **`loop-api/lake_scheduler.py` (`LakeScheduler`)** — reads spec deltas every 30s, writes fire deltas on cron.
-- **`consumer-fathom/addons/agent/plugins/kitty.js` (kitty plugin)** — polls for fire deltas, spawns kitty + claude, writes fire-receipt deltas. Claude itself writes the summary delta from inside the routine.
+- **`fathomdx/addons/agent/plugins/kitty.js` (kitty plugin)** — polls for fire deltas, spawns kitty + claude, writes fire-receipt deltas. Claude itself writes the summary delta from inside the routine.
 - **`loop-api/server.py` (`list_routines_from_lake`)** — reads spec, fire, and summary deltas; pairs them; returns enriched list for the dashboard.
 - **Dashboard `RoutinesPage`** — renders, and POSTs back to `loop-api` for CRUD.
 

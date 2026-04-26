@@ -51,7 +51,7 @@ is ever corrupt.
 ## Full teardown
 
 ```bash
-cd path/to/consumer-fathom
+cd path/to/fathomdx
 docker compose down -v          # stop containers + drop the named pg volume
 rm -rf ~/.fathom/mind/          # drop everything you see here
 ```

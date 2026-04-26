@@ -104,7 +104,7 @@ class SourceRunner:
 
     def _register_builtins(self) -> None:
         # HomeAssistant moved to a machine-source (fathom-agent plugin at
-        # consumer-fathom/addons/agent/plugins/homeassistant.js). Most HA installs
+        # fathomdx/addons/agent/plugins/homeassistant.js). Most HA installs
         # live on the user's LAN and the cloud runner can't reach them —
         # the agent polls from the same network as the thing it watches.
         from sources.mastodon import MastodonProducer

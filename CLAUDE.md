@@ -1,4 +1,4 @@
-# consumer-fathom — conventions
+# fathomdx — conventions
 
 Project-specific conventions and lake tag contracts. Read when working on
 chat, routines, or agent plumbing.

@@ -2,7 +2,7 @@
 //
 // Owns capture state, paints the toolbar badge to show the ring-light,
 // listens for navigation + content-script hints, and uploads screenshots
-// to the consumer-fathom api with an authoritative TTL.
+// to the fathomdx api with an authoritative TTL.
 
 import {
   DEFAULTS,

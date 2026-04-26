@@ -1,4 +1,4 @@
-// Screenshot capture + upload to consumer-fathom's /v1/media/upload.
+// Screenshot capture + upload to fathomdx's /v1/media/upload.
 
 import { hostnameOf } from "./config.js";
 

@@ -1,7 +1,10 @@
 #!/usr/bin/env bash
-# Migrate an existing consumer-fathom install from the old in-repo layout
-# (./data/ + auto-scoped postgres volume) to the canonical layout
-# (~/.fathom/<instance>/ + named postgres volume <instance>-pg).
+# Migrate an existing fathomdx install (formerly named consumer-fathom)
+# from the old in-repo layout (./data/ + auto-scoped postgres volume) to
+# the canonical layout (~/.fathom/<instance>/ + named postgres volume
+# <instance>-pg). The consumer-fathom_pgdata volume name is preserved in
+# the candidate list below — that's the actual on-disk volume name from
+# the rename era and removing it would strand existing old installs.
 #
 # Safe to rerun — checks for each step before acting.
 #

@@ -712,7 +712,7 @@ async def drift(req: DriftRequest):
 async def centroid(tags_include: str | None = None):
     """Return the raw decayed lake centroid vector.
 
-    Used by consumer-fathom to snapshot an "anchor" at crystal-write time —
+    Used by fathomdx to snapshot an "anchor" at crystal-write time —
     drift is then the distance this anchor has drifted from the current
     centroid, independent of the crystal's own text embedding.
 

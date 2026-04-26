@@ -77,7 +77,7 @@ def api_unreachable_block():
         f"situational awareness, and tool guide that normally appear here "
         f"are all unavailable for the same reason.\n\n"
         f"To check: `curl {API_URL}/health` should return 200. If it doesn't, "
-        f"the consumer-fathom api container probably needs to start "
+        f"the fathomdx api container probably needs to start "
         f"(`podman compose up -d api` from the fathomdx repo)."
     )
 

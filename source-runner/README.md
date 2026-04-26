@@ -72,7 +72,7 @@ Persisted in `DATA_DIR` (mounted as `data/source-runner/`):
 | `vault` | Obsidian vault watcher with chunking and diffs | `{"path": "/path/to/vault"}` |
 
 > Home Assistant used to live here. It moved to a machine-source
-> (fathom-agent plugin in consumer-fathom) because most HA installs
+> (fathom-agent plugin in fathomdx) because most HA installs
 > are LAN-local and the cloud runner can't see them.
 
 ## Adding a new source type
