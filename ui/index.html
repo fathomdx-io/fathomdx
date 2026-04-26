@@ -7737,11 +7737,16 @@ GET  /v1/usage               Usage stats`,
           } catch (err) { /* best-effort — drop silently */ }
         }
 
-        // Silently reconcile so the user's just-sent delta (now in the
-        // lake) doesn't double-render. Resume polling — Fathom's reply,
-        // and any agent deltas triggered by its turn, will arrive via
-        // that poll cycle and the typing indicator clears with them.
-        await _reconcileChatMessages(['user', 'assistant']);
+        // Silently consume the user's own delta — we already painted
+        // its bubble manually above, so the next poll mustn't double-
+        // render it. Crucially do NOT swallow 'assistant' here: by the
+        // time chat-completions returns, _await_fathom_reply has waited
+        // for the reply delta to land in the lake (server.py:797). If
+        // we silenced 'assistant' too, the very reply we want to show
+        // would get its id marked-but-not-rendered, leaving the typing
+        // indicator hanging forever until refresh wipes the rendered
+        // set. The reply paints through the normal poll path below.
+        await _reconcileChatMessages(['user']);
       } catch (err) {
         typing.remove();
         chatStream.appendChild(renderTurn({
