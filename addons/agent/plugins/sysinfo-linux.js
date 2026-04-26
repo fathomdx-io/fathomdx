@@ -33,6 +33,11 @@ export const CONFIG_SHAPE = {
   servers: { type: "string[]", required: false, help: "Server URLs to ping (one per line)." },
   tags: { type: "string[]", required: false, help: "Extra tags applied to every health snapshot." },
   expiry_days: { type: "number", required: false, help: "Delta expiry in days. Default: 1." },
+  top_processes: {
+    type: "number",
+    required: false,
+    help: "Include top-N processes by CPU and by RSS in each snapshot. 0 disables. Default: 0.",
+  },
 };
 
 export default {
@@ -49,6 +54,7 @@ export default {
     servers: [],
     source: "sysinfo",
     tags: ["health"],
+    top_processes: 0,
   },
 
   start(config, pusher) {
@@ -62,6 +68,7 @@ export default {
     const servers = config.servers || [];
     const source = config.source || "sysinfo";
     const baseTags = ["health", hostname(), ...(config.tags || [])];
+    const topN = Math.min(Math.max(parseInt(config.top_processes) || 0, 0), 50);
 
     async function poll() {
       const lines = [];
@@ -93,6 +100,11 @@ export default {
         );
       } catch {
         /* best-effort sysinfo; skip on read failure */
+      }
+
+      // Top processes
+      if (topN > 0) {
+        for (const line of readTopProcesses(topN)) lines.push(line);
       }
 
       // Disk
@@ -211,6 +223,42 @@ function readTemps() {
   }
 
   return temps;
+}
+
+function readTopProcesses(count) {
+  const n = parseInt(count) || 0;
+  if (n < 1) return [];
+
+  // `comm` only — never `args`, which can leak tokens passed as flags.
+  const out = [];
+  for (const [sortKey, label, fmt] of [
+    ["-%cpu", "Top CPU", (p) => `${p.comm} ${p.cpu}%`],
+    ["-rss", "Top RSS", (p) => `${p.comm} ${formatRss(p.rss)}`],
+  ]) {
+    try {
+      const raw = execSync(
+        `ps -eo %cpu,rss,comm --sort=${sortKey} --no-headers 2>/dev/null | head -${n}`,
+        { encoding: "utf8" }
+      );
+      const procs = raw
+        .trim()
+        .split("\n")
+        .map((line) => {
+          const parts = line.trim().split(/\s+/);
+          return { cpu: parts[0], rss: parseInt(parts[1]) || 0, comm: parts.slice(2).join(" ") };
+        })
+        .filter((p) => p.comm);
+      if (procs.length) out.push(`${label}: ${procs.map(fmt).join(", ")}`);
+    } catch {
+      /* best-effort sysinfo; skip on read failure */
+    }
+  }
+  return out;
+}
+
+function formatRss(kb) {
+  if (kb >= 1024 * 1024) return (kb / 1024 / 1024).toFixed(1) + "G";
+  return Math.round(kb / 1024) + "M";
 }
 
 function readBattery() {
