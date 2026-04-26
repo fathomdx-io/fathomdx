@@ -164,6 +164,11 @@ services:
       - "0.0.0.0:8201:8200"
     volumes:
       - ${LAKE_DIR}/api:/data
+      # Read-only mount of the host checkout's .git so the api can report
+      # the running stack version (commits behind origin/main) without
+      # baking git into the image. Missing on non-git installs (zip
+      # downloads); the version endpoint degrades gracefully in that case.
+      - ${PWD}/.git:/repo/.git:ro
     environment:
       TZ: ${TZ:-UTC}
       # Absolute host path of this checkout (where the operator ran

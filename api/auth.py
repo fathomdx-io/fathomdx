@@ -108,6 +108,9 @@ PUBLIC_PATHS = frozenset(
         # npm registry lookup; just public metadata. Dashboard calls this
         # before the user has a token.
         "/v1/agents/latest-version",
+        # GitHub lookup for "this checkout vs upstream main"; same shape
+        # as latest-version (public metadata, dashboard hits it on load).
+        "/v1/stack/version",
         # First-run bootstrap flow. Both endpoints are public; the POST is
         # one-shot (409 after an admin exists) and the GET is a simple
         # "does an admin exist yet?" probe used by the UI boot path.

@@ -160,6 +160,7 @@ from .routes import messages as _messages_routes  # noqa: E402
 from .routes import routines as _routines_routes  # noqa: E402
 from .routes import sessions as _sessions_routes  # noqa: E402
 from .routes import sources as _sources_routes  # noqa: E402
+from .routes import stack as _stack_routes  # noqa: E402
 from .routes import vitals as _vitals_routes  # noqa: E402
 
 app.include_router(_agent_instructions_routes.router)
@@ -174,6 +175,7 @@ app.include_router(_messages_routes.router)
 app.include_router(_routines_routes.router)
 app.include_router(_sessions_routes.router)
 app.include_router(_sources_routes.router)
+app.include_router(_stack_routes.router)
 app.include_router(_vitals_routes.router)
 
 
