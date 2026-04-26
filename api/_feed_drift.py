@@ -23,7 +23,7 @@ import random
 from datetime import timedelta
 
 from . import delta_client, feed_crystal, mood
-from ._feed_candidates import _extract_external_url
+from ._feed_candidates import _extract_external_url, _extract_source_link
 from ._time import now as _now
 
 # Sources that are overwhelmingly infra/sensor noise. No amount of filtering
@@ -189,6 +189,9 @@ def format_drift_pool(pool: list[dict]) -> str:
             ext = _extract_external_url(d.get("content") or "")
             if ext:
                 marks.append(f"🖼[url={ext}]")
+        link = _extract_source_link(d.get("content") or "")
+        if link:
+            marks.append(f"🔗[link={link}]")
         mark = " ".join(marks) if marks else "  "
         lines.append(f"  {mark} [{ts}] {src:24s} ({did}) {content}")
     return "\n".join(lines)
@@ -207,7 +210,8 @@ Respond with ONLY a JSON object — no markdown fences, no commentary:
         "body_image": string?,                    // media_hash from candidates, OR URL seen verbatim in candidates
         "body_image_layout": "hero" | "thumb",
         "media":  string[]?,                      // additional candidate hashes/URLs
-        "link":   string?                         // http(s) URL if applicable
+        "link":   string?,                        // primary source URL — must start with http(s)
+        "links":  [{"title": string, "url": string}]?  // additional related links (bundling)
       },
       ...
     ]
@@ -220,6 +224,13 @@ IMAGES — body_image and media entries must be media_hashes OR URLs that appear
 verbatim in the candidate pool. Anything invented is dropped by the validator;
 a card with a dropped body_image still ships, just imageless. So: copy exactly
 or omit.
+
+LINKS — if a candidate is marked 🔗[link=…], that's the canonical source URL
+(usually the article's permalink). When your card cites that candidate, copy
+the URL into `link` exactly. If you bundle multiple cited candidates, the
+strongest goes in `link` and the rest go into `links` with short descriptive
+titles. A card that names specific external articles without their URLs feels
+orphaned — always carry the link through when one is available.
 """
 
 
@@ -265,5 +276,9 @@ Card fields:
            it EXACTLY into body_image. Hashes preferred. Only use what's
            in the scatter — invented hashes and URLs get dropped.
   body_image_layout — "hero" for photos and scenes, "thumb" otherwise.
+  link / links — if any candidate you cite has a 🔗[link=…] marker, copy
+           that URL into `link` exactly. Bundle additional cited candidates
+           into `links` with short descriptive titles. A drift card naming
+           specific external articles should always carry their URLs.
 
 {MULTI_CARD_OUTPUT_SCHEMA}"""

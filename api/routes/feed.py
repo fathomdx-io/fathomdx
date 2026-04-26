@@ -25,11 +25,31 @@ router = APIRouter()
 
 
 class FeedEngagementRequest(BaseModel):
-    kind: str  # "more" | "less" | "chat"
+    # Six kinds today:
+    #   "more"        → +1 explicit interest (the + button)
+    #   "less"        → -1 explicit disinterest (the − button)
+    #   "chat"        → +1 (a message in a chat session opened from a card)
+    #   "dismiss"     → -1 explicit dismissal (× / hide)
+    #   "scroll-past" → soft -0.5 (rendered, scrolled past without engagement)
+    #   "dwell-low"   → soft -0.5 (rendered, viewer left fast)
+    kind: str
     card_id: str
     topic: str | None = None
     card_excerpt: str | None = None
     chat_session: str | None = None
+
+
+# Single source of truth for the kinds the engagement endpoint accepts +
+# the sign each one carries when it later feeds the confidence scorer.
+# Keep aligned with feed_crystal._engagement_sign.
+ENGAGEMENT_KINDS: dict[str, float] = {
+    "more": 1.0,
+    "less": -1.0,
+    "chat": 1.0,
+    "dismiss": -1.0,
+    "scroll-past": -0.5,
+    "dwell-low": -0.5,
+}
 
 
 @router.post("/v1/feed/refresh")
@@ -57,6 +77,39 @@ async def feed_status(request: Request):
     """Current loop state for the UI's "generating…" indicator."""
     slug = auth.current_contact_slug(request)
     return feed_loop.current_status(slug)
+
+
+@router.get("/v1/feed/regen/events")
+async def feed_regen_events(request: Request, limit: int = 100):
+    """Feed-loop regen history for the Weather Stats graph.
+
+    Each successful (or attempted) `_run_once` writes a `feed-regen-event`
+    delta tagged with the contact slug. This endpoint surfaces them as
+    timestamps the chart can mark.
+    """
+    slug = auth.current_contact_slug(request)
+    try:
+        results = await delta_client.query(
+            tags_include=["feed-regen-event", f"contact:{slug}"],
+            limit=limit,
+        )
+    except Exception:
+        return {"events": []}
+    events = []
+    for d in results:
+        body = d.get("content") or "{}"
+        try:
+            payload = json.loads(body)
+        except Exception:
+            payload = {}
+        events.append({
+            "id": d.get("id"),
+            "timestamp": d.get("timestamp"),
+            "reason": payload.get("reason"),
+            "outcome": payload.get("outcome"),
+        })
+    events.sort(key=lambda e: e.get("timestamp") or "")
+    return {"events": events[-limit:]}
 
 
 @router.get("/v1/feed/crystal")
@@ -151,11 +204,58 @@ async def feed_engagement_history(
                 break
         if not kind:
             continue
-        sign = 1 if kind in ("more", "chat") else -1 if kind == "less" else 0
+        sign = ENGAGEMENT_KINDS.get(kind, 0.0)
         if not sign:
             continue
         out.append({"t": d.get("timestamp"), "v": sign, "k": kind})
     return {"history": out}
+
+
+@router.get("/v1/feed/levels")
+async def feed_levels(request: Request, since_seconds: int = 7 * 24 * 3600):
+    """Counts of feed cards by level over the last N seconds.
+
+    Used by the UI verbosity dropdown to show "ALERT (3) · NOTICE (12) · …"
+    so the user can see at a glance how much is hidden behind the current
+    filter setting. The dropdown's default lands on `feed_default_visible_level`
+    from settings.
+    """
+    from .._feed_router import LEVEL_ORDER
+    from ..settings import settings as _s
+
+    slug = auth.current_contact_slug(request)
+    cutoff = (datetime.now(UTC) - timedelta(seconds=since_seconds)).isoformat()
+    try:
+        deltas = await delta_client.query(
+            tags_include=["feed-card", f"contact:{slug}"],
+            time_start=cutoff,
+            limit=500,
+        )
+    except Exception:
+        deltas = []
+
+    counts: dict[str, int] = {lvl: 0 for lvl in LEVEL_ORDER}
+    untagged = 0
+    for d in deltas:
+        level = ""
+        for t in d.get("tags") or []:
+            if isinstance(t, str) and t.startswith("level:"):
+                level = t.split(":", 1)[1]
+                break
+        if level in counts:
+            counts[level] += 1
+        else:
+            # Pre-rebuild cards that don't carry a level: tag yet.
+            # Treat them as NOTICE so existing feeds keep rendering on
+            # the default filter — backfilling is a separate concern.
+            untagged += 1
+
+    return {
+        "default_level": _s.feed_default_visible_level,
+        "order": list(LEVEL_ORDER),
+        "counts": counts,
+        "untagged": untagged,
+    }
 
 
 @router.get("/v1/feed/stories")
@@ -175,7 +275,7 @@ async def write_feed_engagement(req: FeedEngagementRequest, request: Request):
     docs/feed-spec.md.
     """
     kind = (req.kind or "").lower()
-    if kind not in ("more", "less", "chat"):
+    if kind not in ENGAGEMENT_KINDS:
         raise HTTPException(400, f"unknown engagement kind: {kind!r}")
     if not req.card_id:
         raise HTTPException(400, "card_id required")

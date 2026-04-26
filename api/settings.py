@@ -122,6 +122,17 @@ class Settings(BaseSettings):
     mood_decay_half_life_seconds: int = 14400  # 4 hours
     mood_contrast_wake_seconds: int = 21600  # 6 hours
 
+    # Feed-layer pressure — same primitive as mood, tuned for content
+    # synthesis. See api/feed_pressure.py for weights and rationale.
+    # Starting threshold is slightly above mood's because feed weights
+    # tilt heavier on content surfaces (RSS doubled, engagement at 1.5);
+    # the same lake-flow produces a higher feed-volume than mood-volume.
+    # Tune after a few days of real data.
+    feed_pressure_threshold: float = 30.0
+    feed_pressure_decay_half_life_seconds: int = 10800  # 3 hours
+    feed_pressure_contrast_wake_seconds: int = 28800  # 8 hours
+    feed_pressure_state_path: str = "/data/feed-pressure-state.json"
+
     # Crystal auto-regeneration.
     # Auto-regen fires when (drift / threshold) >= red_ratio AND the last
     # regen was at least cooldown_seconds ago (guard against runaway).
@@ -155,7 +166,6 @@ class Settings(BaseSettings):
     # "until satisfied" is a runaway-cost grenade.
     feed_loop_budget_tool_calls: int = 8
     feed_loop_budget_seconds: int = 90
-    feed_loop_visit_debounce_seconds: int = 600  # 10 min
 
     # Drift pass — the free-association card slot. Gets a bigger tool-call
     # ceiling than per-line because its whole shape is "follow the thread"
@@ -166,6 +176,38 @@ class Settings(BaseSettings):
     # Volunteered noticing — the present-salience off-crystal slot. Reuses
     # per-line budgets (feed_loop_budget_tool_calls + feed_loop_budget_seconds).
     # Its shape is closer to per-line than drift: "scan, pick, compose."
+
+    # Synthesis pass budgets — max items per cycle, per pass kind. These
+    # cap output independently of the LLM's own scoring; below the axis
+    # floor, items are dropped *before* hitting the budget. The budget is
+    # the upper end (no quota pressure) — a quiet pass producing zero is
+    # a healthy outcome, not a failure.
+    feed_pass_budget_alert: int = 5  # piercing tier; rare, uncapped on emergencies
+    feed_pass_budget_reflection: int = 2  # dense outputs; over-frequent reflection is noise
+    feed_pass_budget_bridging: int = 2  # cross-workspace; quality over quantity
+    feed_pass_budget_discrepancy: int = 1  # uncomfortable — don't pile on
+
+    # Drop floors — if an item's axis score falls below these, the router
+    # drops it entirely (throwaway as first-class destination). Items
+    # above the floor go to the level computation.
+    feed_axis_floor_salience: float = 0.20
+    feed_axis_floor_confidence: float = 0.30  # below this, the judge thinks it might be confabulated
+
+    # Level promotion thresholds. Composed by _feed_router.route() into
+    # ALERT > NOTICE > INFO > DEBUG > TRACE bands. ALERT auto-promotes
+    # when salience is very high AND comfort is low (the uncomfortable-
+    # truth gate) OR when the pass kind is "alert" itself (piercing).
+    feed_level_alert_salience: float = 0.92
+    feed_level_alert_comfort_max: float = 0.30
+    feed_level_notice_salience: float = 0.55
+    feed_level_notice_resonance: float = 0.50
+    feed_level_info_salience: float = 0.35
+
+    # Default level the dashboard shows when the user hasn't picked one
+    # in the verbosity dropdown. NOTICE means alerts pierce, the
+    # curated mid-tier is visible, and reflection/bridging/discrepancy
+    # stay in the lake until dialed up.
+    feed_default_visible_level: str = "NOTICE"
 
     # Server
     host: str = "0.0.0.0"

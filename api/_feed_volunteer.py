@@ -20,7 +20,7 @@ import random
 from datetime import timedelta
 
 from . import delta_client, feed_crystal
-from ._feed_candidates import _extract_external_url
+from ._feed_candidates import _extract_external_url, _extract_source_link
 from ._feed_drift import MULTI_CARD_OUTPUT_SCHEMA
 from ._time import now as _now
 
@@ -123,6 +123,9 @@ def format_volunteer_pool(pool: list[dict]) -> str:
             ext = _extract_external_url(d.get("content") or "")
             if ext:
                 marks.append(f"🖼[url={ext}]")
+        link = _extract_source_link(d.get("content") or "")
+        if link:
+            marks.append(f"🔗[link={link}]")
         mark = " ".join(marks) if marks else "  "
         lines.append(f"  {mark} [{ts}] {src:24s} ({did}) {content}")
     return "\n".join(lines)
@@ -211,5 +214,11 @@ Card fields:
   tail   — short citation or stat (≤8 words)
   body_image — copy exactly from a candidate, or omit.
   body_image_layout — "hero" or "thumb".
+  link / links — if any candidate you cite has a 🔗[link=…] marker, copy
+           that URL into `link` exactly. When the card bundles multiple
+           cited candidates (e.g. a thematic echo across two RSS items),
+           the strongest goes in `link` and the rest in `links` with short
+           descriptive titles. A volunteered card naming specific external
+           articles should always carry their URLs through.
 
 {MULTI_CARD_OUTPUT_SCHEMA}"""
