@@ -308,6 +308,57 @@ async def _resolve_tools(
 # ── Core loop ──────────────────────────────────
 
 
+# High-frequency tags that flood structured queries without adding signal.
+# These are filtered out of the recent-activity digest so the chat-LLM
+# sees what was *worked on*, not what the substrate emitted in the
+# background. Keep this list narrow — the digest is the answer to "what's
+# been going on", and being too aggressive cuts out real activity (e.g.
+# don't drop fathom-feed wholesale, just the per-card scroll-past chatter).
+_DIGEST_NOISE_TAGS = [
+    "agent-heartbeat",
+    "chat-event",
+    "feed-engagement",
+    "mood-tick",
+    "sysinfo",
+]
+
+
+async def _recent_activity_digest(hours: int = 12, max_per_source: int = 4) -> str:
+    """Compact digest of what's been landing in the lake recently.
+
+    Pre-turn context for fathom_think so the chat-LLM doesn't have to
+    formulate a `remember`/`recall` query to answer recap questions like
+    "what have we been working on today". Semantic search alone fails
+    here because "today" is a temporal axis the embedding doesn't carry.
+    """
+    since = (datetime.now(UTC) - timedelta(hours=hours)).isoformat()
+    try:
+        deltas = await delta_client.query(
+            time_start=since,
+            tags_exclude=_DIGEST_NOISE_TAGS,
+            limit=200,
+        )
+    except Exception:
+        return ""
+    if not deltas:
+        return ""
+    by_source: dict[str, list[dict]] = {}
+    for d in deltas:
+        src = d.get("source") or "unknown"
+        by_source.setdefault(src, []).append(d)
+    lines: list[str] = []
+    for src, ds in sorted(by_source.items(), key=lambda kv: -len(kv[1])):
+        ds.sort(key=lambda d: d.get("timestamp") or "", reverse=True)
+        lines.append(f"{src} ({len(ds)}):")
+        for d in ds[:max_per_source]:
+            ts = (d.get("timestamp") or "")[11:16]
+            content = (d.get("content") or "").strip().replace("\n", " ")
+            if len(content) > 140:
+                content = content[:140] + "…"
+            lines.append(f"  {ts} {content}")
+    return "\n".join(lines)
+
+
 async def fathom_think(
     user_message: str,
     directive: str = "",
@@ -457,7 +508,12 @@ async def fathom_think(
         messages.extend(history)
     messages.append({"role": "user", "content": user_message})
 
-    # 3. Recall — proactively surface memories before the main call
+    # 3. Recall — proactively surface memories before the main call.
+    # Two passes run concurrently:
+    #   - semantic: nl_search on the user message (catches topical recall)
+    #   - structured: time-windowed digest of recent lake activity (catches
+    #     "what have we been doing" / recap questions where semantic search
+    #     misses because "today" isn't an axis in embedding space)
     if recall:
         conv_context = ""
         if history:
@@ -466,12 +522,20 @@ async def fathom_think(
                 f"{m['role']}: {(m.get('content') or '')[:200]}" for m in recent
             )
 
-        recalled = await nl_search(
-            text=user_message,
-            depth="deep",
-            session_slug=session_slug,
-            conv_context=conv_context,
+        recalled, digest = await asyncio.gather(
+            nl_search(
+                text=user_message,
+                depth="deep",
+                session_slug=session_slug,
+                conv_context=conv_context,
+            ),
+            _recent_activity_digest(hours=12),
+            return_exceptions=True,
         )
+        if isinstance(recalled, BaseException):
+            recalled = {"as_prompt": "", "total_count": 0}
+        if isinstance(digest, BaseException):
+            digest = ""
 
         if recalled["as_prompt"]:
             inject_msg = {
@@ -484,6 +548,21 @@ async def fathom_think(
                 ),
             }
             messages.insert(-1, inject_msg)
+
+        if digest:
+            messages.insert(-1, {
+                "role": "system",
+                "content": (
+                    "Recent activity in the lake (last 12h, noise filtered, "
+                    "grouped by source):\n\n"
+                    f"{digest}\n\n"
+                    "This is your own footprint — what you've been processing "
+                    "across every surface (claude-code work sessions, feed "
+                    "synthesis, agent activity, sensors). When asked about "
+                    "what's been going on or what you've been doing, speak "
+                    "from this directly rather than searching for it."
+                ),
+            })
 
         if on_tool_event:
             on_tool_event("result", "recall", {"count": recalled["total_count"]})
