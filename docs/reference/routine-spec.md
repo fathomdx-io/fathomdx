@@ -39,7 +39,8 @@ Check the current gold spot price. Compare to the last 24h. Summarize in one sen
 | `interval_minutes` | int | — | Used only if `schedule` is absent. Not yet honored by LakeScheduler — prefer `schedule`. |
 | `enabled` | bool | `true` | When false, scheduler skips; dashboard shows greyed-out. |
 | `workspace` | string | `""` | Maps to a directory under `~/Dropbox/Work/`. The kitty plugin `cd`s there before launching claude. |
-| `permission_mode` | `auto` \| `normal` | `auto` | `auto` = claude runs with `--permission-mode auto` (classifier). `normal` = claude prompts for each tool (you approve in the kitty window). |
+| `host` | string | `""` | If set, only the agent whose `host` matches will spawn the kitty window; other agents silently ignore the fire. Empty = fleet-wide (any paired agent can pick it up). |
+| `permission_mode` | `auto` \| `normal` | `auto` | `auto` = claude runs with `--permission-mode auto` (classifier). `normal` = claude prompts for each tool (you approve in the kitty window). See "Per-host kill switch" in the [how-to](../how-to/set-up-a-routine.md) — agents can refuse modes locally via `allowed_permission_modes`. |
 | `single_fire` | bool | `false` | Planned: fire once then disable. Not yet honored by LakeScheduler. |
 | `deleted` | bool | `false` | Tombstone — scheduler and dashboard skip. History stays in the lake. |
 
