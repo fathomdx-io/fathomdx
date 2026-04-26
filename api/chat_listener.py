@@ -237,7 +237,10 @@ class ChatListener:
         # message" sent to the LLM. Full session history gives context.
         new_deltas_sorted = sorted(new_deltas, key=lambda d: d.get("timestamp") or "")
         latest = new_deltas_sorted[-1]
-        latest_content = (latest.get("content") or "").strip()
+        latest_content = _content_with_image_marker(
+            (latest.get("content") or "").strip(),
+            latest.get("media_hash"),
+        )
         if not latest_content:
             return
 
@@ -281,6 +284,7 @@ class ChatListener:
                 host = m.get("host") or "body"
                 role = "assistant"
                 content = f"[from body {host}]\n{content}"
+            content = _content_with_image_marker(content, m.get("media_hash"))
             if role in ("user", "assistant") and content:
                 history.append({"role": role, "content": content})
         # Trim to short-term window — fathom_think itself also trims, but
@@ -331,6 +335,21 @@ def _chat_slug(tags: list[str]) -> str | None:
 
 def _contact_slug(tags: list[str]) -> str | None:
     return tag_suffix(tags, "contact:")
+
+
+def _content_with_image_marker(content: str, media_hash: str | None) -> str:
+    # Lake deltas store the image bytes by media_hash on a column, with
+    # the user's caption (if any) in `content`. The chat LLM sees only
+    # text; the system prompt instructs it to call see_image whenever it
+    # encounters [Image attached: media_hash=<hash>]. Splice that marker
+    # in here so the model knows to load the actual attachment instead
+    # of confabulating from whatever images surfaced via recall.
+    if not media_hash:
+        return content
+    marker = f"[Image attached: media_hash={media_hash}]"
+    if marker in content:
+        return content
+    return f"{content}\n{marker}" if content else marker
 
 
 async def write_chat_event(

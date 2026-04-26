@@ -256,6 +256,7 @@ async def add_message(
     tool_call_id: str | None = None,
     extra_tags: list[str] | None = None,
     contact_slug: str | None = None,
+    media_hash: str | None = None,
 ) -> str:
     """Write a chat message as a delta.
 
@@ -295,6 +296,7 @@ async def add_message(
         content=content or "",
         tags=tags,
         source=LAKE_CHAT_SOURCE,
+        media_hash=media_hash,
     )
     return result.get("id", "")
 

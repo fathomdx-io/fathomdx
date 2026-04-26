@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import base64
 import json
+import re
 from datetime import UTC, datetime, timedelta
 
 from . import delta_client
@@ -475,6 +476,18 @@ async def _host_default_workspace(host: str) -> str:
     return ""
 
 
+def _slugify(name: str, max_len: int = 48) -> str:
+    """Lowercase, strip non-alphanumerics → hyphens, collapse runs.
+
+    Used as the routine-id fallback when the LLM names a routine but
+    forgets the slug. Keeps the result short enough to type and stable
+    enough to reference. Empty input returns an empty string — caller
+    decides whether that's a gap.
+    """
+    s = re.sub(r"[^a-z0-9]+", "-", name.lower()).strip("-")
+    return s[:max_len].rstrip("-")
+
+
 async def _gather_create_gaps(args: dict) -> dict:
     """Return {missing: [...], hint: '...'} describing what's incomplete.
 
@@ -636,6 +649,12 @@ async def _execute_routines(args: dict, session_id: str | None = None) -> str:
             _alive, agents = await _agent_alive()
             if len(agents) == 1:
                 args = {**args, "host": agents[0]["host"]}
+
+        # Slug fallback: the LLM almost always supplies a name but often
+        # forgets the id. Derive the id from the name so the proposal form
+        # arrives prefilled — the user can still edit it before saving.
+        if not (args.get("id") or "").strip() and (args.get("name") or "").strip():
+            args = {**args, "id": _slugify(args["name"])}
 
         confirm = bool(args.get("confirm"))
 

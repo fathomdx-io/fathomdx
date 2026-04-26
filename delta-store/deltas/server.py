@@ -621,6 +621,12 @@ async def feed_stories(
             data = json.loads(r["content"])
             data["id"] = r["id"]
             data["timestamp"] = r["timestamp"]
+            # Surface tags so the dashboard can read level:/kind:/axis:
+            # markers — the synthesis-rebuild verbosity dropdown filters
+            # by level: tag, the alert visual band keys off level:ALERT,
+            # and the per-card score axes ride along for any UI debug
+            # surface that wants them.
+            data["tags"] = list(r.get("tags") or [])
             stories.append(data)
         except (json.JSONDecodeError, TypeError):
             continue

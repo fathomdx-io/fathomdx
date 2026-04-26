@@ -144,6 +144,22 @@
       letter-spacing: 0.05em; color: var(--ink-faint);
       margin-top: 4px;
     }
+    /* "Mark all read" sits at the TOP of the alerts panel, separated
+       by a soft rule so it reads as a meta-action rather than another
+       alert row. Hidden when the alert list is empty. */
+    .alerts-mark-all {
+      display: block; width: 100%;
+      margin-bottom: 4px; padding: 8px 12px;
+      border: 0; background: transparent;
+      border-bottom: 1px dashed var(--rule);
+      border-radius: var(--radius) var(--radius) 0 0;
+      font-family: var(--mono); font-size: 11px;
+      letter-spacing: 0.05em;
+      color: var(--ink-faint); cursor: pointer; text-align: center;
+      transition: color 120ms ease, background 120ms ease;
+    }
+    .alerts-mark-all:hover { color: var(--ink); background: var(--surface-2); }
+    .alerts-mark-all:disabled { opacity: 0.5; cursor: progress; }
 
     /* ── Main scroll area ────────────────────────── */
     main {
@@ -261,6 +277,99 @@
     .card[data-engaged="less"] .engagement-btn[data-kind="less"] {
       color: var(--bg, #1a1a1a); background: var(--signal); border-color: var(--signal);
     }
+    /* Feed filter — a click-to-open dropdown panel of checkboxes for
+       the kinds of synthesis output the user wants to see. Each
+       checkbox toggles a bucket of card kinds (Default feed =
+       curated + drift + volunteered; Reflections, Bridges,
+       Discrepancies are their own buckets). ALERT-level cards always
+       pierce regardless of checkbox state — they get a non-
+       togglable pinned row at the top of the panel. */
+    .feed-filter { position: relative; display: inline-block; }
+    .feed-filter-toggle {
+      font-family: var(--mono); font-size: 11px;
+      padding: 2px 8px; border-radius: 10px;
+      border: 1px solid var(--rule); background: transparent;
+      color: var(--ink-faint); cursor: pointer;
+      transition: color 120ms ease, border-color 120ms ease;
+      display: inline-flex; align-items: center; gap: 4px;
+    }
+    .feed-filter-toggle:hover { color: var(--ink); border-color: var(--ink-faint); }
+    .feed-filter-toggle .feed-filter-caret {
+      font-size: 9px; opacity: 0.7;
+      transition: transform 120ms ease;
+    }
+    .feed-filter[data-open="true"] .feed-filter-caret { transform: rotate(180deg); }
+    .feed-filter-panel {
+      position: absolute; top: calc(100% + 6px); right: 0;
+      min-width: 200px;
+      padding: 10px 12px; border-radius: 8px;
+      background: var(--bg-card, var(--bg)); border: 1px solid var(--rule);
+      box-shadow: 0 4px 16px rgba(0,0,0,0.18);
+      display: flex; flex-direction: column; gap: 6px;
+      font-family: var(--mono); font-size: 12px;
+      color: var(--ink);
+      z-index: 50;
+    }
+    .feed-filter[data-open="false"] .feed-filter-panel,
+    .feed-filter:not([data-open]) .feed-filter-panel {
+      display: none;
+    }
+    .feed-filter-panel label {
+      display: flex; align-items: center; gap: 8px;
+      padding: 4px 4px;
+      cursor: pointer; user-select: none;
+    }
+    .feed-filter-panel label:hover { color: var(--ink); }
+    .feed-filter-panel input[type="checkbox"] {
+      margin: 0; accent-color: var(--accent, var(--ink-faint));
+      cursor: pointer;
+    }
+    .feed-filter-panel .always-on {
+      cursor: default; opacity: 0.85;
+      padding-bottom: 6px; margin-bottom: 4px;
+      border-bottom: 1px dashed var(--rule);
+    }
+    .feed-filter-panel .always-on:hover { color: var(--ink); }
+    .feed-filter-panel .always-on .pierce-mark {
+      color: #d4574a; font-weight: 600;
+    }
+    .feed-filter-panel .filter-note {
+      font-size: 10px; color: var(--ink-faint);
+      margin-top: 4px; padding-top: 4px;
+      border-top: 1px dashed var(--rule);
+      max-width: 220px; line-height: 1.4;
+    }
+    /* ALERT band — piercing tier. Always renders regardless of the
+       verbosity dropdown setting. Distinct kicker color so it's
+       immediately legible as deviation rather than default content. */
+    .card[data-level="ALERT"] .kicker {
+      color: #d4574a;
+      letter-spacing: 0.06em;
+      font-weight: 600;
+    }
+    .card[data-level="ALERT"] {
+      border-left: 2px solid #d4574a;
+    }
+    /* Hidden cards — applied client-side by the verbosity filter so
+       cards under the threshold leave the layout untouched but vanish
+       visually. ALERT cards override this with the !important above
+       (well, via specificity — the CSS cascade already prefers
+       data-level over data-hidden). */
+    .card[data-hidden="true"] { display: none; }
+    /* No-news empty state — distinct from the cold-start letter so
+       the user can tell "the system actively considered everything
+       and chose silence" apart from "nothing has happened yet." */
+    .feed-no-news {
+      text-align: center;
+      padding: 48px 20px;
+      font-family: var(--mono); font-size: 13px;
+      color: var(--ink-faint);
+      border: 1px dashed var(--rule);
+      border-radius: 8px;
+    }
+    .feed-no-news .feed-no-news-headline {
+      font-size: 15px; color: var(--ink); margin-bottom: 6px;
+    }
     .mood-threads {
       list-style: none; padding: 0; margin: 12px 0 0;
       font-family: var(--mono); font-size: 12px; color: var(--ink-soft, var(--ink-faint));
@@ -290,7 +399,7 @@
     }
 
     /* Card with horizontal thumbnail */
-    .card-horiz { display: flex; align-items: stretch; }
+    .card-horiz .card-horiz-row { display: flex; align-items: stretch; }
     .card-horiz .thumb {
       width: 120px; flex-shrink: 0;
       background-size: cover; background-position: center;
@@ -2519,6 +2628,23 @@
       <div class="section-head">
         <h2>What I noticed</h2>
         <span class="meta section-meta-group">
+          <span class="feed-filter" id="feedFilter" data-open="false">
+            <button type="button" class="feed-filter-toggle" id="feedFilterToggle" aria-haspopup="true" aria-expanded="false" aria-controls="feedFilterPanel" title="Pick what shows in the feed">
+              <span id="feedFilterToggleLabel">Filter</span>
+              <span class="feed-filter-caret" aria-hidden="true">▾</span>
+            </button>
+            <div class="feed-filter-panel" id="feedFilterPanel" role="group" aria-label="Filter what shows in the feed">
+              <label class="always-on" title="Alerts always pierce — they reach you whether or not you've checked them">
+                <span class="pierce-mark">⚠</span> Alerts <span style="margin-left:auto; font-size:10px; opacity:0.7;">always on</span>
+              </label>
+              <label><input type="checkbox" data-bucket="default" checked> Curated</label>
+              <label><input type="checkbox" data-bucket="reflection"> Reflections</label>
+              <label><input type="checkbox" data-bucket="bridging"> Bridges</label>
+              <label><input type="checkbox" data-bucket="discrepancy"> Discrepancies</label>
+              <div class="filter-note">Alerts always pierce. Toggle the rest to dial the feed up or down.</div>
+            </div>
+          </span>
+          <span class="feed-meta-sep"> · </span>
           <span class="feed-pulse" id="feedPulse" aria-hidden="true" hidden></span>
           <span class="feed-activity" id="feedActivityLabel" aria-live="polite" hidden></span>
           <span class="feed-meta-sep" id="feedMetaSep" hidden> · </span>
@@ -2639,6 +2765,10 @@
           <li class="legend-item">
             <span class="legend-key"><span class="dot" style="background:#b08cff;"></span>Mood</span>
             <span class="legend-desc">The weather of the moment. Each colored segment starts when Fathom checks in with itself — the same instant pressure resets to zero. Mood drives the drop you see in the orange line above.</span>
+          </li>
+          <li class="legend-item">
+            <span class="legend-key"><span class="ev" style="color:#b08cff;">✺</span>Feed regen</span>
+            <span class="legend-desc">A moment where the feed sat with everything that had built up and rewrote itself. Like the mood check-in, but for what's worth surfacing as cards.</span>
           </li>
         </ul>
       </div>
@@ -4887,8 +5017,9 @@
               <select class="form-input" data-f="host">${hostOptions.join('')}</select>
             </div>
             <div class="form-group">
-              <label>workspace</label>
-              <input class="form-input" data-f="workspace" type="text" value="${_esc(r.workspace || '')}" placeholder="fathom" />
+              <label>path (optional)</label>
+              <input class="form-input" data-f="workspace" type="text" value="${_esc(r.workspace || '')}" placeholder="agent default" />
+              <div class="form-hint">Directory the routine runs in. Defaults to the helper's <code>default_workspace</code> — change that in <code>agent.json</code> on the target machine. Override here only if this routine needs a different path.</div>
             </div>
           </div>
           <div>
@@ -7697,6 +7828,34 @@ GET  /v1/usage               Usage stats`,
         });
         alertsPanel.appendChild(btn);
       }
+      // Mark-all-read header — only when there's at least one alert.
+      // Sits at the top of the panel so the action is reachable
+      // immediately, before scrolling through 30+ rows. Writes one
+      // chat-view delta per unread session; bounded by session count,
+      // TTL'd, idempotent. See /v1/alerts/mark-all-read.
+      const markAll = document.createElement('button');
+      markAll.className = 'alerts-mark-all';
+      markAll.type = 'button';
+      markAll.textContent = `Mark all read (${_lastAlerts.length})`;
+      markAll.addEventListener('click', async (e) => {
+        e.stopPropagation();
+        markAll.disabled = true;
+        markAll.textContent = 'Marking…';
+        try {
+          await api('/v1/alerts/mark-all-read', { method: 'POST', body: '{}' });
+        } catch (err) {
+          // Re-enable so the user can retry; next poll will show what
+          // actually happened.
+          markAll.disabled = false;
+          markAll.textContent = 'Try again';
+          return;
+        }
+        // Empty the local list optimistically; the next poll will
+        // reconcile against the server.
+        _renderAlerts([]);
+        _pollAlerts();
+      });
+      alertsPanel.prepend(markAll);
     }
 
     async function _pollAlerts() {
@@ -7792,7 +7951,7 @@ GET  /v1/usage               Usage stats`,
       let uploadError = null;
       if (hasImage) {
         try {
-          uploadedMedia = await uploadPendingImage(currentSessionId);
+          uploadedMedia = await uploadPendingImage(currentSessionId, text);
           if (!uploadedMedia) uploadError = 'Upload failed. Your image is still attached — try Send again.';
         } catch (err) {
           uploadError = `Upload failed: ${err.message}. Your image is still attached.`;
@@ -7842,6 +8001,12 @@ GET  /v1/usage               Usage stats`,
       chatStream.appendChild(typing);
       scrollToBottomOfChat(true);
 
+      // Carry the seed-card id on the first send of a card-opened
+      // session. The server uses it to write Fathom's opening turn
+      // (the card, snapshotted as a normal assistant delta) BEFORE
+      // persisting the user message — so timestamps order it first.
+      const seedCardId = _seedCard ? _seedCard.id : null;
+
       try {
         const r = await fetch(API_BASE + '/v1/chat/completions', {
           method: 'POST',
@@ -7852,6 +8017,7 @@ GET  /v1/usage               Usage stats`,
               : text }],
             session_id: currentSessionId,
             image_uploaded: !!uploadedMedia,
+            seed_card_id: seedCardId,
           }),
         });
         const data = await r.json();
@@ -7862,9 +8028,32 @@ GET  /v1/usage               Usage stats`,
         // Refresh sidebar in case this created a new session
         loadSessions();
 
+        // Fathom's response carries the freshly-written seed message
+        // (id + content + media_hash). Replace the transient card clone
+        // with a normal Fathom bubble at the TOP of the stream, then
+        // mark the seed id so reconcile doesn't double-paint it. The
+        // seed timestamp is server-stamped earlier than the user
+        // message so reload-from-lake order matches paint order.
+        if (data.seed && data.seed.id) {
+          const stale = chatStream.querySelector('.msg-feed-seed-local');
+          const seedEl = renderTurn({
+            role: 'fathom',
+            time: timeStr,
+            html: renderMd(data.seed.content || ''),
+          });
+          if (data.seed.media_hash) {
+            const body = seedEl.querySelector('.msg-body');
+            if (body) body.appendChild(_lightboxChatImage(data.seed.media_hash, 'msg-thumb'));
+          }
+          if (stale) stale.replaceWith(seedEl);
+          else chatStream.insertBefore(seedEl, chatStream.firstChild);
+          _renderedMessageIds.add(data.seed.id);
+          refreshLightbox();
+        }
+
         // If this session was seeded by a feed card, the first user
-        // message in the session is the chat-engagement signal back
-        // toward the crystal. One write per seed; clear after firing.
+        // message is also the chat-engagement signal back toward the
+        // crystal. One signal per seed; clear after firing.
         if (_seedCard && currentSessionId) {
           const seed = _seedCard;
           _seedCard = null;
@@ -7947,12 +8136,16 @@ GET  /v1/usage               Usage stats`,
       if (attachThumb.src.startsWith('blob:')) URL.revokeObjectURL(attachThumb.src);
     });
 
-    async function uploadPendingImage(sessionSlug) {
+    async function uploadPendingImage(sessionSlug, captionText) {
       if (!pendingFile) return null;
       const form = new FormData();
       form.append('file', pendingFile);
       form.append('session_id', sessionSlug || '');
-      form.append('content', composerTa.value.trim() || '');
+      // Caller passes the caption explicitly — sendFromComposer clears
+      // the textarea before this runs, so reading composerTa.value here
+      // would always be empty and the delta-store would fall back to
+      // its `[image:<hash>]` placeholder, dropping the user's text.
+      form.append('content', (captionText || '').trim());
       const r = await fetch(API_BASE + '/v1/media/upload', { method: 'POST', body: form, headers: _authToken ? { 'Authorization': 'Bearer ' + _authToken } : {} });
       if (!r.ok) return null;
       const data = await r.json();
@@ -8212,10 +8405,126 @@ GET  /v1/usage               Usage stats`,
       }
     }
 
+    // Kind filter — feed cards carry kind: and level: tags set by the
+    // synthesis-rebuild router. The user picks which buckets they want
+    // to see by checking boxes; ALERT-level cards ALWAYS pierce
+    // regardless of checkbox state, so they're not in the toggle set
+    // (rendered as a non-interactive ⚠ Alerts label instead).
+    //
+    // Bucket → kind mapping: keep the user-facing labels small.
+    const KIND_BUCKETS = {
+      'default':     ['per_line', 'drift', 'volunteered', 'cold_start', ''],  // '' = pre-rebuild untagged
+      'reflection':  ['reflection'],
+      'bridging':    ['bridging'],
+      'discrepancy': ['discrepancy'],
+      // 'alert' bucket exists only conceptually — ALERT cards are
+      // always visible, so they don't need a checkbox.
+    };
+    const BUCKET_DEFAULTS = { default: true, reflection: false, bridging: false, discrepancy: false };
+
+    function _extractLevelFromTags(tags) {
+      if (!Array.isArray(tags)) return '';
+      for (const t of tags) {
+        if (typeof t === 'string' && t.startsWith('level:')) return t.slice('level:'.length);
+      }
+      return '';
+    }
+    function _extractKindFromTags(tags) {
+      if (!Array.isArray(tags)) return '';
+      for (const t of tags) {
+        if (typeof t === 'string' && t.startsWith('kind:')) return t.slice('kind:'.length);
+      }
+      return '';
+    }
+    function getEnabledBuckets() {
+      // Persisted as a JSON object {bucket: bool}. Migrate from the
+      // old single-string `feedVerbosity` (the dropdown era) by
+      // mapping its level to the closest checkbox set on first load.
+      const raw = localStorage.getItem('feedFilterBuckets');
+      if (raw) {
+        try {
+          const parsed = JSON.parse(raw);
+          if (parsed && typeof parsed === 'object') {
+            return { ...BUCKET_DEFAULTS, ...parsed };
+          }
+        } catch (e) { /* fall through to defaults */ }
+      }
+      // One-time migration from the old dropdown.
+      const oldVerbosity = localStorage.getItem('feedVerbosity');
+      if (oldVerbosity) {
+        const migrated = { ...BUCKET_DEFAULTS };
+        if (oldVerbosity === 'INFO' || oldVerbosity === 'DEBUG' || oldVerbosity === 'TRACE') {
+          migrated.reflection = true;
+        }
+        if (oldVerbosity === 'TRACE') {
+          migrated.bridging = true;
+          migrated.discrepancy = true;
+        }
+        localStorage.setItem('feedFilterBuckets', JSON.stringify(migrated));
+        localStorage.removeItem('feedVerbosity');
+        return migrated;
+      }
+      return { ...BUCKET_DEFAULTS };
+    }
+    function setEnabledBucket(bucket, enabled) {
+      const current = getEnabledBuckets();
+      current[bucket] = !!enabled;
+      localStorage.setItem('feedFilterBuckets', JSON.stringify(current));
+    }
+    // Backward-compat alias — older code paths still call this.
+    function applyVerbosityFilter() { applyKindFilter(); }
+
+    function applyKindFilter() {
+      const enabled = getEnabledBuckets();
+      // Build a set of accepted kind values from the enabled buckets.
+      const accepted = new Set();
+      Object.keys(enabled).forEach(bucket => {
+        if (enabled[bucket] && KIND_BUCKETS[bucket]) {
+          KIND_BUCKETS[bucket].forEach(k => accepted.add(k));
+        }
+      });
+      const cards = document.querySelectorAll('.feed .card');
+      let visibleCount = 0;
+      cards.forEach(card => {
+        const lvl = card.dataset.level || '';
+        const kind = card.dataset.kind || '';
+        // ALERT pierces — always visible, regardless of checkbox state.
+        const passes = (lvl === 'ALERT') || accepted.has(kind);
+        card.dataset.hidden = passes ? 'false' : 'true';
+        if (passes) visibleCount += 1;
+      });
+      _maybeShowNoNewsForFilter(cards.length, visibleCount);
+    }
+    function _maybeShowNoNewsForFilter(total, visible) {
+      const feed = document.querySelector('.feed');
+      if (!feed) return;
+      let banner = feed.querySelector('.feed-no-news[data-source="filter"]');
+      if (total > 0 && visible === 0) {
+        if (!banner) {
+          banner = document.createElement('div');
+          banner.className = 'feed-no-news';
+          banner.dataset.source = 'filter';
+          banner.innerHTML = `
+            <div class="feed-no-news-headline">Nothing matches your current filter.</div>
+            <div>Tick more boxes to see reflections, bridges, or discrepancies.</div>`;
+          feed.prepend(banner);
+        }
+      } else if (banner) {
+        banner.remove();
+      }
+    }
+
     function renderStoryCard(s, delay) {
       const card = document.createElement('article');
       card.className = 'card surfacing';
       if (delay) card.style.animationDelay = delay + 's';
+
+      // Level + kind from the synthesis-rebuild routing layer. Both
+      // ride along on the delta tags — extract once per card.
+      const level = _extractLevelFromTags(s.tags);
+      const kind = _extractKindFromTags(s.tags);
+      if (level) card.dataset.level = level;
+      if (kind) card.dataset.kind = kind;
 
       const kicker = s.kicker || s.layer || '';
       const title = s.title || s.content?.substring(0, 60) || 'Untitled';
@@ -8287,7 +8596,7 @@ GET  /v1/usage               Usage stats`,
         // events, so no fallback cascade is possible here. If the URL
         // 404s, we just see an empty tile. Rare enough to leave as-is.
         card.classList.add('card-horiz');
-        card.innerHTML = `<a href="${imgSrc}" class="glightbox thumb" data-gallery="feed" style="background-image: url('${imgSrc}')"></a>${bodyHtml}${mediaHtml}`;
+        card.innerHTML = `<div class="card-horiz-row"><a href="${imgSrc}" class="glightbox thumb" data-gallery="feed" style="background-image: url('${imgSrc}')"></a>${bodyHtml}</div>${mediaHtml}`;
       } else if (imgSrc) {
         card.innerHTML = `<a href="${imgSrc}" class="glightbox card-img-hero" data-gallery="feed"><img src="${imgSrc}" alt="" style="width:100%;height:100%;object-fit:cover;" loading="lazy"${fbAttr} /></a>${bodyHtml}${mediaHtml}`;
       } else {
@@ -8295,6 +8604,10 @@ GET  /v1/usage               Usage stats`,
       }
       // Background capture: archive story images to the lake
       captureStoryImages(card, s);
+      // Hook passive-engagement tracking — emits scroll-past /
+      // dwell-low when the card leaves the viewport without an
+      // explicit thumbs / chat engagement.
+      _watchCardForPassiveEngagement(card);
       return card;
     }
 
@@ -8373,6 +8686,10 @@ GET  /v1/usage               Usage stats`,
           if (typeof _updateFeedMetaSep === 'function') _updateFeedMetaSep();
         }
         refreshLightbox();
+        // Apply verbosity filter to anything just rendered. ALERT cards
+        // pierce; below-threshold cards get data-hidden=true so they
+        // vanish without disturbing the layout above them.
+        applyVerbosityFilter();
       } catch (err) {
         // API down — static cards remain as fallback
       }
@@ -8391,6 +8708,10 @@ GET  /v1/usage               Usage stats`,
       const cardId = card.dataset.cardId || '';
       if (!cardId) return;
       const kind = btn.dataset.kind === 'less' ? 'less' : 'more';
+      // Mark this card as explicitly engaged so the passive-engagement
+      // observer doesn't ALSO fire a scroll-past / dwell-low when it
+      // eventually leaves the viewport.
+      _markEngaged(cardId);
       // Optimistic — flip the data-engaged attribute first; revert if the
       // write fails. The active state is exclusive: a "more" overrides a
       // prior "less" on the same card and vice versa.
@@ -8422,6 +8743,9 @@ GET  /v1/usage               Usage stats`,
       if (!card) return;
       const h3 = card.querySelector('h3');
       if (!h3) return;
+      // Click-to-chat counts as explicit engagement intent — exclude
+      // this card from passive scroll-past / dwell-low signaling.
+      if (card.dataset.cardId) _markEngaged(card.dataset.cardId);
 
       // Stash the seed-card metadata so the first message in this fresh
       // session can land an `engagement:chat` delta tied back to the card.
@@ -8454,7 +8778,10 @@ GET  /v1/usage               Usage stats`,
       const now = new Date();
       const timeStr = now.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
       const turn = document.createElement('div');
-      turn.className = 'msg msg-fathom';
+      // `msg-feed-seed-local` marks this as the transient pre-first-send
+      // clone — once the seed delta lands in the lake on first send the
+      // clone is removed and the canonical seed paints through reconcile.
+      turn.className = 'msg msg-fathom msg-feed-seed-local';
       turn.innerHTML = `<div class="msg-meta">Fathom · ${timeStr}</div>`;
       const body = document.createElement('div');
       body.className = 'msg-body';
@@ -8466,6 +8793,148 @@ GET  /v1/usage               Usage stats`,
     });
 
     showMoreBtn.addEventListener('click', () => loadFeedStories(true));
+
+    // ── Passive-engagement tracking ─────────────────────────────────
+    // Counterpart to the explicit + / − buttons. The synthesis layer's
+    // crystal regen only sees signal when a card is engaged, so a card
+    // the reader scrolls past without acting is invisible to learning.
+    // This block emits soft-negative signals — `scroll-past` (visible
+    // briefly, no engagement) and `dwell-low` (looked but didn't act) —
+    // so the engagement scorer in feed_crystal can downweight the
+    // topics those cards represented.
+    //
+    // Each card fires at most one passive-negative signal per page-view
+    // session. Cards that get an explicit engagement (more / less /
+    // chat) are excluded from passive tracking via the _passiveSent
+    // set.
+    const _passiveSent = new Set();
+    const _cardSeenAt = new Map();  // cardId -> timestamp first became visible
+
+    function _markEngaged(cardId) {
+      // Called from the explicit-engagement handler so a card that
+      // was thumbs'd doesn't ALSO fire scroll-past on its way out.
+      if (cardId) _passiveSent.add(cardId);
+    }
+
+    async function _emitPassiveEngagement(cardId, kind, card) {
+      if (!cardId || _passiveSent.has(cardId)) return;
+      _passiveSent.add(cardId);
+      try {
+        await api('/v1/feed/engagement', {
+          method: 'POST',
+          body: JSON.stringify({
+            kind,
+            card_id: cardId,
+            topic: card.dataset.topic || '',
+            card_excerpt: card.dataset.excerpt || '',
+          }),
+        });
+      } catch (e) { /* best-effort */ }
+    }
+
+    const _passiveObserver = ('IntersectionObserver' in window) ? new IntersectionObserver(entries => {
+      const now = Date.now();
+      entries.forEach(entry => {
+        const card = entry.target;
+        if (!(card instanceof HTMLElement)) return;
+        const cardId = card.dataset.cardId || '';
+        if (!cardId || _passiveSent.has(cardId)) return;
+        if (entry.isIntersecting && entry.intersectionRatio >= 0.5) {
+          // Becoming visible — start the clock.
+          if (!_cardSeenAt.has(cardId)) _cardSeenAt.set(cardId, now);
+        } else {
+          // Leaving the viewport. If we have a start time, decide
+          // which passive signal (if any) to emit.
+          const seenAt = _cardSeenAt.get(cardId);
+          if (seenAt) {
+            const dwellMs = now - seenAt;
+            _cardSeenAt.delete(cardId);
+            if (dwellMs >= 4000) {
+              // Genuine read. No negative signal.
+              return;
+            }
+            const kind = dwellMs < 1500 ? 'scroll-past' : 'dwell-low';
+            _emitPassiveEngagement(cardId, kind, card);
+          }
+        }
+      });
+    }, { threshold: [0, 0.5, 1.0] }) : null;
+
+    function _watchCardForPassiveEngagement(card) {
+      if (!_passiveObserver || !card || !card.dataset.cardId) return;
+      _passiveObserver.observe(card);
+    }
+
+    // ── Feed-filter dropdown panel ──────────────────────────────────
+    // Click-to-open dropdown of bucket checkboxes (default / reflection
+    // / bridging / discrepancy). ALERT-level cards always pierce — no
+    // checkbox controls them, by design. Selection persists in
+    // localStorage and is restored on load. Toggle label summarizes
+    // the active set so the user can see at a glance what's on
+    // without opening the panel.
+    const _feedFilterEl = document.getElementById('feedFilter');
+    const _feedFilterToggle = document.getElementById('feedFilterToggle');
+    const _feedFilterPanel = document.getElementById('feedFilterPanel');
+    const _feedFilterToggleLabel = document.getElementById('feedFilterToggleLabel');
+
+    function _bucketLabel(bucket) {
+      return { default: 'Curated', reflection: 'Reflections', bridging: 'Bridges', discrepancy: 'Discrepancies' }[bucket] || bucket;
+    }
+    function _refreshFilterToggleLabel() {
+      if (!_feedFilterToggleLabel) return;
+      const enabled = getEnabledBuckets();
+      const on = Object.keys(enabled).filter(k => enabled[k]);
+      let text;
+      if (on.length === 0) text = 'Alerts only';
+      else if (on.length === 1) text = _bucketLabel(on[0]);
+      else if (on.length === 4) text = 'All kinds';
+      else text = `${on.length} kinds`;
+      _feedFilterToggleLabel.textContent = text;
+    }
+
+    function _setFilterOpen(open) {
+      if (!_feedFilterEl || !_feedFilterToggle) return;
+      _feedFilterEl.dataset.open = open ? 'true' : 'false';
+      _feedFilterToggle.setAttribute('aria-expanded', open ? 'true' : 'false');
+    }
+
+    if (_feedFilterEl && _feedFilterToggle && _feedFilterPanel) {
+      // Restore checkbox state from localStorage on load.
+      const stored = getEnabledBuckets();
+      _feedFilterPanel.querySelectorAll('input[type="checkbox"][data-bucket]').forEach(cb => {
+        const bucket = cb.dataset.bucket;
+        cb.checked = !!stored[bucket];
+        cb.addEventListener('change', () => {
+          setEnabledBucket(bucket, cb.checked);
+          applyKindFilter();
+          _refreshFilterToggleLabel();
+        });
+      });
+      _refreshFilterToggleLabel();
+
+      // Toggle the panel.
+      _feedFilterToggle.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const open = _feedFilterEl.dataset.open !== 'true';
+        _setFilterOpen(open);
+      });
+
+      // Click outside the panel closes it. Capture-phase so a click
+      // on a chat / feed card doesn't race with the panel's own
+      // change-handler (which lives on the inputs).
+      document.addEventListener('click', (e) => {
+        if (_feedFilterEl.dataset.open !== 'true') return;
+        if (!_feedFilterEl.contains(e.target)) _setFilterOpen(false);
+      });
+
+      // Escape closes the panel.
+      document.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape' && _feedFilterEl.dataset.open === 'true') {
+          _setFilterOpen(false);
+          _feedFilterToggle.focus();
+        }
+      });
+    }
 
     // ── Feed loop status indicator ──────────────
     // Poll /v1/feed/status while the page is visible. The pulse appears
@@ -8516,7 +8985,40 @@ GET  /v1/usage               Usage stats`,
           _feedPulse.title = '';
           _setActivityLabel('feed zen');
         }
+        // Great-no-news outcome: passes ran, candidates were produced,
+        // but the judge+router decided nothing was worth surfacing.
+        // Distinct from a cold-start lake (which renders the welcome
+        // letter) and from "all_fresh" (cards exist, just still warm).
+        const outcome = s && s.last_outcome;
+        if (outcome && outcome.summary === 'great_no_news') {
+          _showNoNewsBanner(outcome.detail || "It's a great no-news day.");
+        } else {
+          _hideNoNewsBanner();
+        }
       } catch (e) { /* best-effort */ }
+    }
+
+    function _showNoNewsBanner(detail) {
+      const feed = document.querySelector('.feed');
+      if (!feed) return;
+      // Don't show alongside the cold-start letter.
+      if (feed.querySelector('.feed-empty')) return;
+      let banner = feed.querySelector('.feed-no-news[data-source="server"]');
+      if (!banner) {
+        banner = document.createElement('div');
+        banner.className = 'feed-no-news';
+        banner.dataset.source = 'server';
+        banner.innerHTML = `
+          <div class="feed-no-news-headline">It's a great no-news day.</div>
+          <div class="feed-no-news-detail"></div>`;
+        feed.prepend(banner);
+      }
+      const det = banner.querySelector('.feed-no-news-detail');
+      if (det) det.textContent = detail;
+    }
+    function _hideNoNewsBanner() {
+      const banner = document.querySelector('.feed .feed-no-news[data-source="server"]');
+      if (banner) banner.remove();
     }
     function _startFeedStatusPoll() {
       if (_feedStatusTimer || document.hidden) return;
@@ -8557,6 +9059,7 @@ GET  /v1/usage               Usage stats`,
           feed.insertBefore(card, feed.firstChild);
         }
         refreshLightbox();
+        applyVerbosityFilter();
       } catch (e) { /* best-effort */ }
     }
     function _startFeedLivePoll() {
@@ -8773,6 +9276,7 @@ GET  /v1/usage               Usage stats`,
       let feedConfHist = { history: [] };
       let feedEngagementHist = { history: [] };
       let feedCrystalEvents = { events: [] };
+      let feedRegenEvents = { events: [] };
 
       // Pass the chosen window length to the history endpoints so they
       // return data covering the visible span (pressure default is 36h).
@@ -8780,7 +9284,7 @@ GET  /v1/usage               Usage stats`,
 
       try {
         [usageTotal, usageHist, recallHist, pressureHist, driftHist, moodHist, crystalEvents,
-         feedDriftHist, feedConfHist, feedEngagementHist, feedCrystalEvents] = await Promise.all([
+         feedDriftHist, feedConfHist, feedEngagementHist, feedCrystalEvents, feedRegenEvents] = await Promise.all([
           api('/v1/usage').catch(() => ({ days: [], total: 0 })),
           api(`/v1/usage/history?since_seconds=${sinceSeconds}&buckets=60`).catch(() => ({ history: [] })),
           api(`/v1/recall/history?since_seconds=${sinceSeconds}&buckets=60`).catch(() => ({ history: [] })),
@@ -8792,6 +9296,7 @@ GET  /v1/usage               Usage stats`,
           api('/v1/feed/confidence/history').catch(() => ({ history: [] })),
           api(`/v1/feed/engagement/history?since_seconds=${sinceSeconds}`).catch(() => ({ history: [] })),
           api('/v1/feed/crystal/events').catch(() => ({ events: [] })),
+          api('/v1/feed/regen/events').catch(() => ({ events: [] })),
         ]);
       } catch (e) { /* noop */ }
       const usage = usageTotal;  // total + days array still come from /v1/usage
@@ -8823,7 +9328,7 @@ GET  /v1/usage               Usage stats`,
       }
 
       renderActivityCard({ usage, usageHist, recallHist, crystalEvents });
-      renderPressureMoodCard({ pressureHist, moodHist, crystalEvents });
+      renderPressureMoodCard({ pressureHist, moodHist, crystalEvents, feedRegenEvents });
       renderDriftCard({ driftHist, crystalEvents });
       renderFeedOrientCard({ feedDriftHist, feedConfHist, feedEngagementHist, feedCrystalEvents });
 
@@ -9119,7 +9624,7 @@ GET  /v1/usage               Usage stats`,
       _drawXLabels(ctx, ticks);
     }
 
-    function renderPressureMoodCard({ pressureHist, moodHist, crystalEvents }) {
+    function renderPressureMoodCard({ pressureHist, moodHist, crystalEvents, feedRegenEvents }) {
       const svg = document.getElementById('svgPressureMood');
       if (!svg) return;
       const ctx = _chartCtx(svg, 200);
@@ -9184,6 +9689,43 @@ GET  /v1/usage               Usage stats`,
       }
 
       _drawCrystalEvents(ctx, crystalEvents.events);
+
+      // Feed-regen markers — each successful feed-loop fire writes a
+      // `feed-regen-event` delta; surface them on this chart since
+      // synthesis is the act of "sitting with" the same pressure the
+      // line plots. Small ✺ at the bottom rule, with a soft vertical
+      // tick. Uses a feed-orient color so the user can tell mood-synth
+      // (color wash transitions) from feed-synth (these markers).
+      const regen = (feedRegenEvents && feedRegenEvents.events) || [];
+      for (const ev of regen) {
+        const t = ev.timestamp ? new Date(ev.timestamp).getTime() : 0;
+        if (!t || t < ctx.tStart || t > ctx.now) continue;
+        const x = ctx.xForT(t);
+        ctx.svg.appendChild(ecgSvgNS('line', {
+          x1: x, x2: x,
+          y1: plotTop, y2: plotBot,
+          stroke: 'var(--accent, #b08cff)',
+          'stroke-width': 0.7,
+          'stroke-opacity': 0.45,
+          'stroke-dasharray': '2 3',
+        }));
+        const icon = ecgSvgNS('text', {
+          x: x, y: plotBot + 9,
+          'text-anchor': 'middle',
+          'font-family': 'var(--mono)', 'font-size': '10px',
+          fill: 'var(--accent, #b08cff)',
+          opacity: 0.85,
+        });
+        icon.textContent = '✺';
+        const title = ecgSvgNS('title');
+        const tStr = new Date(t).toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
+        const reasonStr = ev.reason ? ` · ${ev.reason}` : '';
+        const summaryStr = (ev.outcome && ev.outcome.summary) ? ` · ${ev.outcome.summary}` : '';
+        title.textContent = `feed regen · ${tStr}${reasonStr}${summaryStr}`;
+        icon.appendChild(title);
+        ctx.svg.appendChild(icon);
+      }
+
       _drawFreeTierBlackout(ctx, {
         headline: "Unlock Fathom's entire history right now.",
       });

@@ -447,13 +447,24 @@ async def synthesize(contact_slug: str) -> dict | None:
 # ── Confidence scorer ────────────────────────────────────────────────────
 
 
-def _engagement_sign(kind: str) -> int:
-    """+1 for positive engagement, -1 for negative."""
+def _engagement_sign(kind: str) -> float:
+    """Engagement sign + magnitude for confidence scoring.
+
+    Hard signals (explicit thumbs / chat / dismiss) carry full weight at
+    ±1. Soft signals (scroll-past, dwell-low) carry half weight — the
+    user didn't *say* they disliked it; they just didn't engage. Soft
+    negatives are still informative (Fathom shouldn't keep showing
+    cards Myra silently scrolls past) but shouldn't outweigh a real
+    thumbs-down. Returns 0.0 for unknown kinds; callers treat that as
+    "skip, no signal."
+    """
     if kind in ("more", "chat"):
-        return 1
-    if kind == "less":
-        return -1
-    return 0
+        return 1.0
+    if kind in ("less", "dismiss"):
+        return -1.0
+    if kind in ("scroll-past", "dwell-low"):
+        return -0.5
+    return 0.0
 
 
 def _engagement_recency_weight(engagement_ts: str | None) -> float:
@@ -519,10 +530,17 @@ async def score_confidence(
         if abs(weight) < 0.05:
             continue  # indeterminate prediction — skip
         recency = _engagement_recency_weight(d.get("timestamp"))
+        # Soft signals (scroll-past, dwell-low) return ±0.5 from
+        # _engagement_sign; hard signals (more/less/chat/dismiss) return
+        # ±1.0. Multiply through so a silent scroll-past doesn't count
+        # the same as an explicit thumbs-down — the magnitude conveys
+        # how confidently we trust that the user actually meant the
+        # signal.
+        contribution = recency * abs(sign)
         if (weight > 0 and sign > 0) or (weight < 0 and sign < 0):
-            hits += recency
+            hits += contribution
         else:
-            misses += recency
+            misses += contribution
     return round((hits + 1) / (hits + misses + 2), 4)
 
 

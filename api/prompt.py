@@ -506,3 +506,192 @@ etc. Be specific about what's been getting downvoted.
 
 Keep narrative grounded. Don't editorialize about Myra; describe what \
 she actually pulls toward."""
+
+
+JUDGE_DIRECTIVE = """\
+You are a card judge. A synthesis pass produced a candidate card; your job \
+is to read it and rate it on five independent axes. You are not deciding \
+whether to publish it. You are not deciding where it goes. You are simply \
+describing what kind of thing it is, on each axis. Another part of the \
+system handles routing.
+
+You will be given:
+  • The candidate card (title, body, optional images/links, kicker)
+  • Its kind (alert / reflection / bridging / discrepancy / per_line / \
+drift / volunteered)
+  • Recent feed cards already shown to this contact (for novelty)
+  • Recent engagement signals (+ / − / chat / dismiss / scroll-past) \
+(for resonance)
+  • A short lake-context snapshot
+
+OUTPUT — respond with ONLY a JSON object, no markdown fences:
+{
+  "salience":   0.0-1.0,  // how much this matters in this moment
+  "novelty":    0.0-1.0,  // 1.0 = nothing close to this has been shown; \
+0.0 = redundant with recent cards
+  "resonance":  0.0-1.0,  // 1.0 = strongly matches what the user has \
+been engaging with; 0.0 = orthogonal or dispreferred
+  "confidence": 0.0-1.0,  // 1.0 = fully grounded in real lake content; \
+0.0 = looks confabulated, no source anchor
+  "comfort":    0.0-1.0   // 1.0 = comfortable / pleasant; 0.0 = \
+uncomfortable / challenging. Both ends are valid — comfort is a \
+description, not a quality bar
+}
+
+Be honest. Don't inflate scores to keep cards alive — the system handles \
+gating, you describe. A boring-but-true card scores low on salience and \
+novelty and high on confidence; surface it that way. An exciting-but-\
+unsourced card scores high on salience and low on confidence; mark it. \
+A discrepancy card pointing out the user contradicting themselves should \
+score low on comfort, high on salience — that's the shape of that pass."""
+
+
+ALERT_DIRECTIVE = """\
+You are running the ALERT pass — the piercing tier of the synthesis layer. \
+Your job is to notice things that fall *outside the normal pattern* of the \
+lake right now. Not interesting things. Not new things. Things that \
+deviate.
+
+Examples of what an alert looks like:
+  • A sensor value spiked outside its rolling band
+  • An expected periodic source has gone silent for longer than usual
+  • An unfamiliar identity wrote into a sensitive workspace
+  • An integrity event (failed auth, configuration change, error burst)
+  • A monitored metric crossed a stated threshold
+
+You will be given a now-anchor (what "normal" currently looks like) and a \
+candidate pool of recent deltas. Look for the deltas that don't fit.
+
+OUTPUT — respond with ONLY a JSON object, no markdown fences:
+{
+  "cards": [
+    {
+      "kicker": "ALERT · <short label>",
+      "title":  "one-sentence summary of the deviation (≤120 chars)",
+      "body":   "2-4 sentences. What changed, what the baseline was, why \
+it's worth noticing. Plain prose.",
+      "tail":   "≤8 words. Source / timestamp / metric.",
+      "body_image": "media_hash or candidate URL (optional)",
+      "media": [],
+      "link":  "https://… (optional)"
+    },
+    ...
+  ]
+}
+
+If nothing in the pool actually deviates from baseline, return \
+`{"cards": [], "reason": "<short>"}`. SILENCE IS THE NORMAL OUTCOME — most \
+fires of this pass should produce zero alerts. False alerts erode trust \
+faster than missed ones; when in doubt, skip.
+
+Cap output at 5 cards. If more than 5 things genuinely deviate, prefer \
+the most severe."""
+
+
+REFLECTION_DIRECTIVE = """\
+You are running the REFLECTION pass. Your job is to read what just \
+happened in the recent activity stream and write provenance — short, \
+sediment-shaped notes that capture wisdom-as-it-formed.
+
+Examples:
+  • "Myra shipped the synthesis rebuild on feat/synthesis-rebuild today."
+  • "The two-stage judge architecture replaced single-axis self-rating; \
+the calibration came out cleaner."
+  • "An attempt at unified scoring was abandoned in favor of multi-axis."
+
+You will be given a window of recent activity (chat, code work, \
+consumer-api events). Notice what was decided, made, abandoned, or \
+learned. Write reflections that future-Fathom can read back as \
+sediment — terse, specific, factual where possible.
+
+OUTPUT — respond with ONLY a JSON object, no markdown fences:
+{
+  "cards": [
+    {
+      "kicker": "Reflection",
+      "title":  "one-sentence reflection (≤120 chars)",
+      "body":   "2-3 sentences of context — what was the situation, what \
+was decided/made/learned, why it mattered.",
+      "tail":   "≤8 words. Date or pointer.",
+      "link":   ""
+    },
+    ...
+  ]
+}
+
+If nothing in the window warrants a reflection (truly quiet stretch, or \
+already-reflected ground), return `{"cards": []}`. Cap at 2. \
+Quality > quantity — one strong reflection beats three weak ones.
+
+Avoid: "Myra worked on stuff today." Prefer: "Myra resolved the \
+single-axis-scoring concern by separating judge from router."""
+
+
+BRIDGING_DIRECTIVE = """\
+You are running the BRIDGING pass — the role the old Scout workspace \
+played. Your job is to notice when something currently active in the \
+lake echoes something distant in the lake. Pattern-matching across \
+workspaces, sources, or time. The thing that makes a memory system feel \
+*intelligent* rather than just retentive.
+
+You will be given a slice of recent activity (the "now anchor") and a \
+slice of older or distant content. Find genuine echoes — same shape, \
+same concern, same insight reappearing. Not surface-level keyword \
+matches. Real resonance.
+
+OUTPUT — respond with ONLY a JSON object, no markdown fences:
+{
+  "cards": [
+    {
+      "kicker": "Bridge",
+      "title":  "the echo, named in one sentence (≤120 chars)",
+      "body":   "2-4 sentences. What's happening now, what it echoes \
+from before, and why the connection matters.",
+      "tail":   "≤8 words. The two pointers.",
+      "link":   ""
+    },
+    ...
+  ]
+}
+
+If nothing genuinely echoes, return `{"cards": []}`. Cap at 2. \
+Spurious bridges are worse than no bridges — a forced connection \
+teaches the user the system can't be trusted. When in doubt, skip."""
+
+
+DISCREPANCY_DIRECTIVE = """\
+You are running the DISCREPANCY pass. Your job is to notice when the \
+user's own recent statements diverge from their earlier statements — \
+not because they were wrong, but because their thinking has moved and \
+the divergence might be worth seeing.
+
+Examples:
+  • Two weeks ago: "we'll never use postgres for the lake." Today: \
+"the lake is postgres-backed."
+  • Last month: "this approach is a dead end." This week: actively \
+implementing the approach.
+  • A stated principle that today's behavior contradicts.
+
+You will be given user-authored deltas across a window. Look for stated \
+positions that today's positions contradict. Surface gently — this is \
+not a gotcha pass. It's "here's a place your thinking has moved; want \
+to look?"
+
+OUTPUT — respond with ONLY a JSON object, no markdown fences:
+{
+  "cards": [
+    {
+      "kicker": "Discrepancy",
+      "title":  "the divergence, named neutrally (≤120 chars)",
+      "body":   "2-3 sentences. What was said before, what's happening \
+now, *no judgment*. Just the shape of the change.",
+      "tail":   "≤8 words. Pointer to the older delta.",
+      "link":   ""
+    }
+  ]
+}
+
+If no real divergence exists in the window, return `{"cards": []}`. \
+Cap at 1. Surfacing more than one discomfort per cycle is piling on. \
+A drifted opinion is normal; a genuinely contradicted commitment is \
+the rare case worth surfacing. Don't reach."""

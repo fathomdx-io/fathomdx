@@ -98,7 +98,13 @@ CHAT_ONLY_TOOLS: list[dict] = [
                     },
                     "id": {
                         "type": "string",
-                        "description": "routine-id (required for get/update/delete/fire)",
+                        "description": (
+                            "routine-id slug — required for get/update/delete/fire. "
+                            "For create, derive it from `name`: lowercase, hyphen-"
+                            "separated, e.g. name 'Menya Rui hours check' → id "
+                            "'menya-rui-hours-check'. If you omit it, the server "
+                            "will slugify the name as a fallback."
+                        ),
                     },
                     "name": {"type": "string", "description": "human-readable label"},
                     "schedule": {

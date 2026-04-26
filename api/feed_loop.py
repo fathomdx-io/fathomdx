@@ -24,11 +24,10 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-import time
 from datetime import datetime, timedelta
 from typing import Any
 
-from . import delta_client, feed_crystal
+from . import delta_client, feed_crystal, feed_pressure
 from . import messages as messages_mod
 from ._bgtasks import spawn as _spawn_task
 from ._feed_candidates import (
@@ -148,6 +147,29 @@ def _tally_reset(contact_slug: str) -> None:
         "volunteered_silent": 0,
         "volunteered_timed_out": 0,
         "volunteered_format_failed": 0,
+        # New synthesis-rebuild passes. Same tally shape as drift /
+        # volunteered — written / silent / timed-out / format-failed.
+        "alert_cards_written": 0,
+        "alert_silent": 0,
+        "alert_timed_out": 0,
+        "alert_format_failed": 0,
+        "reflection_cards_written": 0,
+        "reflection_silent": 0,
+        "reflection_timed_out": 0,
+        "reflection_format_failed": 0,
+        "bridging_cards_written": 0,
+        "bridging_silent": 0,
+        "bridging_timed_out": 0,
+        "bridging_format_failed": 0,
+        "discrepancy_cards_written": 0,
+        "discrepancy_silent": 0,
+        "discrepancy_timed_out": 0,
+        "discrepancy_format_failed": 0,
+        # Router-level drop counter. Distinct from the per-pass silent
+        # counters: silent = the pass itself returned no cards; dropped
+        # = the pass returned a card but the judge+router decided it
+        # wasn't worth writing.
+        "dropped_by_router": 0,
     }
 
 
@@ -223,6 +245,26 @@ def _summarize_outcome(contact_slug: str, had_crystal: bool, had_lines: bool) ->
     #     "fresh": nothing was written because nothing was warranted.
     failures = timeouts + format_fail + missing
     all_acquitted = fresh + skipped  # nothing actually went wrong
+    dropped = t.get("dropped_by_router", 0)
+    if failures == 0 and dropped > 0 and all_acquitted == 0:
+        # Great no-news day: every pass ran, candidates were produced,
+        # but the judge+router decided nothing was worth surfacing. This
+        # is a healthy state by design — the synthesis layer is allowed
+        # to stay quiet. UI renders this distinctly from "all_fresh"
+        # (which means cards exist but are still warm) so the user can
+        # tell the difference between "nothing happened" and "the system
+        # actively considered everything and chose silence."
+        plural = "s" if dropped != 1 else ""
+        return {
+            "summary": "great_no_news",
+            "detail": (
+                f"It's a great no-news day. The lake is steady — "
+                f"{dropped} candidate{plural} considered, none crossed the "
+                f"surface threshold."
+            ),
+            "cards_written": 0,
+            "at": at,
+        }
     if failures == 0 and all_acquitted > 0:
         # Calm zero-card outcome. Narrate the mix so the tooltip still
         # informs, but classify as all_fresh so the UI stays gray.
@@ -232,6 +274,9 @@ def _summarize_outcome(contact_slug: str, had_crystal: bool, had_lines: bool) ->
         if skipped:
             plural = "s" if skipped != 1 else ""
             parts.append(f"{skipped} model-pass{'es' if skipped != 1 else ''}")
+        if dropped:
+            plural = "s" if dropped != 1 else ""
+            parts.append(f"{dropped} dropped-by-judge")
         return {
             "summary": "all_fresh",
             "detail": (f"Nothing needed generating ({', '.join(parts)}) — the feed is caught up."),
@@ -266,10 +311,10 @@ _run_locks: dict[str, asyncio.Lock] = {}
 # indicator, written atomically inside the matching lock.
 _status: dict[str, dict[str, Any]] = {}
 
-# Per-contact visit-debounce state. Each call to mark_visit(slug) may
-# schedule a fire, but only if enough time has passed since that contact's
-# last one.
-_last_fire_at: dict[str, float] = {}  # monotonic seconds, keyed by slug
+# Per-contact pending-fire tasks. mark_visit() spawns one of these when
+# pressure says fire; we hold the handle so a flurry of visits inside the
+# same fire don't pile up duplicate tasks. Cadence itself comes from
+# feed_pressure.should_synthesize() — there is no wall-clock debounce.
 _pending_visits: dict[str, asyncio.Task] = {}
 
 
@@ -295,25 +340,29 @@ def _set_status(contact_slug: str, **kwargs) -> None:
 
 
 async def mark_visit(contact_slug: str) -> dict:
-    """Called when the dashboard loads. Schedules a fire if cooldown allows.
+    """Called when the dashboard loads. Fires the loop if pressure says so.
 
-    Each contact has its own debouncer, lock, and pending-fire task — a
-    visit from Bob never blocks Myra's feed from firing.
+    The trigger model is the same primitive as mood synthesis (see
+    api/pressure.py + api/feed_pressure.py): pressure builds in the lake
+    as authored content arrives; the act of synthesizing resets it.
+    The Stats legend names the same intuition — "what's been building up
+    since the last check-in."
 
-    Returns a small dict describing what happened — the UI doesn't strictly
-    need it, but it's useful for debugging without watching server logs.
+    Each contact has its own pressure state, lock, and pending-fire task,
+    so a visit from Bob never blocks Myra's feed from firing.
     """
-    elapsed = time.monotonic() - _last_fire_at.get(contact_slug, 0.0)
-    debounce = settings.feed_loop_visit_debounce_seconds
-    if elapsed < debounce:
-        return {"scheduled": False, "reason": f"debounced({int(elapsed)}s/{debounce}s)"}
     if _lock_for(contact_slug).locked():
         return {"scheduled": False, "reason": "already-running"}
     pending = _pending_visits.get(contact_slug)
     if pending and not pending.done():
         return {"scheduled": False, "reason": "already-pending"}
-    _pending_visits[contact_slug] = asyncio.create_task(_run_once(contact_slug, reason="visit"))
-    return {"scheduled": True}
+    should, reason = await feed_pressure.should_synthesize()
+    if not should:
+        return {"scheduled": False, "reason": reason}
+    _pending_visits[contact_slug] = asyncio.create_task(
+        _run_once(contact_slug, reason=reason)
+    )
+    return {"scheduled": True, "reason": reason}
 
 
 async def force_fire(contact_slug: str, reason: str = "manual") -> dict:
@@ -336,7 +385,6 @@ async def _run_once(contact_slug: str, reason: str = "unspecified") -> None:
     if lock.locked():
         return
     async with lock:
-        _last_fire_at[contact_slug] = time.monotonic()
         started = _now().isoformat()
         _tally_reset(contact_slug)
         _set_status(
@@ -363,6 +411,31 @@ async def _run_once(contact_slug: str, reason: str = "unspecified") -> None:
             _set_status(
                 contact_slug, generating=False, finished_at=_now().isoformat(), last_outcome=outcome
             )
+            # Synthesis sat with what had built up — reset the pressure
+            # meter so the next "newly calmed" can fire. We mark even on
+            # exception: a partial run still consumed the lake material it
+            # was going to consume.
+            try:
+                await feed_pressure.mark_synthesis()
+            except Exception:
+                log.exception("feed_loop: feed_pressure.mark_synthesis failed")
+            # Stamp the regen as a queryable delta so the Weather Stats
+            # graph (and anything else timeline-shaped) can show "the
+            # feed sat with itself here." Best-effort — chart markers
+            # aren't worth failing a run over.
+            try:
+                await delta_client.write(
+                    content=json.dumps({
+                        "reason": reason,
+                        "started_at": started,
+                        "finished_at": _now().isoformat(),
+                        "outcome": outcome,
+                    }),
+                    tags=["feed-regen-event", _contact_tag(contact_slug)],
+                    source="fathom-feed",
+                )
+            except Exception:
+                log.exception("feed_loop: failed to write feed-regen-event delta")
 
 
 async def _do_run(contact_slug: str, reason: str, run_facts: dict) -> None:
@@ -393,6 +466,26 @@ async def _do_run(contact_slug: str, reason: str, run_facts: dict) -> None:
             _llm_active_exit(contact_slug)
 
     crystal = await feed_crystal.latest(contact_slug, force=True)
+
+    # New synthesis-rebuild passes. These run regardless of crystal state
+    # — alerts especially must fire on a bare-install lake. Order is
+    # priority: alert (piercing) → reflection → bridging → discrepancy.
+    # Each pass self-silences when nothing meaningful is there; the
+    # judge+router gates each candidate before it lands.
+    for pass_name, pass_fn in (
+        ("alert", _fire_alert),
+        ("reflection", _fire_reflection),
+        ("bridging", _fire_bridging),
+        ("discrepancy", _fire_discrepancy),
+    ):
+        try:
+            await pass_fn(contact_slug, crystal)
+        except Exception as e:
+            print(
+                f"feed_loop[{contact_slug}]: {pass_name} pass failed: {type(e).__name__}: {e}",
+                flush=True,
+            )
+
     if not crystal:
         # Cold-start path — no crystal yet, no signal yet either. Run a
         # broadly-curious single fire so the lake gets some sediment we
@@ -707,6 +800,7 @@ async def _produce_card(
     crystal: dict | None,
     directive: str,
     candidates: list[dict] | None = None,
+    kind: str = "per_line",
 ) -> None:
     """Run fathom_think; parse the JSON-shaped final assistant message; write a card.
 
@@ -833,6 +927,22 @@ async def _produce_card(
         _tally_inc(contact_slug, "lines_missing_fields")
         return
 
+    # Judge + router stage. The judge rates the card on five axes
+    # without seeing the routing rules; the router maps axes → level
+    # (or DROP). Architecturally separated so the judge cannot
+    # calibrate toward "stay surfaced" — see api/_feed_judge.py.
+    from . import _feed_judge, _feed_router  # lazy — avoid bootstrap cycles
+
+    axes = await _feed_judge.judge(payload, contact_slug, kind=kind)
+    level = _feed_router.route(kind, axes)
+    if level is None:
+        print(
+            f"feed_loop: line {line_id} dropped by router (kind={kind}, axes={axes})",
+            flush=True,
+        )
+        _tally_inc(contact_slug, "dropped_by_router")
+        return
+
     valid_hashes = _candidate_hashes(candidates)
     valid_urls = _candidate_image_urls(candidates)
     raw_body_image = str(payload.get("body_image", "") or "")
@@ -881,7 +991,11 @@ async def _produce_card(
         CARD_TAG,
         "feed-story",  # back-compat with existing UI reader
         _contact_tag(contact_slug),
+        f"kind:{kind}",
+        f"level:{level}",
     ]
+    for axis_name, axis_value in axes.items():
+        tags.append(f"axis:{axis_name}:{round(axis_value, 3)}")
     if line and line.get("id"):
         tags.append(f"directive-line:{line['id']}")
     if line and line.get("topic"):
@@ -895,6 +1009,10 @@ async def _produce_card(
             source=CARD_SOURCE,
         )
         _tally_inc(contact_slug, "cards_written")
+        # ALERT pierces — also DM the contact so a user who isn't
+        # watching the dashboard still gets the signal.
+        if level == "ALERT":
+            await _send_alert_dm(contact_slug, card, kind)
     except Exception:
         log.exception("feed_loop: card delta write failed")
 
@@ -906,6 +1024,7 @@ async def _produce_cards(
     candidates: list[dict],
     crystal: dict | None,
     max_rounds: int,
+    max_cards: int = 5,
 ) -> int:
     """Multi-card sibling to _produce_card. Handles the 0-N output shape
     used by drift + volunteered passes.
@@ -1010,12 +1129,16 @@ async def _produce_cards(
         _tally_inc(contact_slug, tally_silent)
         return 0
 
-    # Cap at 5 — the directive says 0-5, but defend against runaway output.
-    if len(cards_list) > 5:
+    # Per-kind cap. Caller passes max_cards from settings (alert: 5,
+    # reflection: 2, bridging: 2, discrepancy: 1, drift/volunteered: 5).
+    # Defends against the model returning more than its directive asked
+    # for; the judge+router still gates each individually below.
+    if len(cards_list) > max_cards:
         print(
-            f"feed_loop[{kind}]: model returned {len(cards_list)} cards; clipping to 5", flush=True
+            f"feed_loop[{kind}]: model returned {len(cards_list)} cards; clipping to {max_cards}",
+            flush=True,
         )
-        cards_list = cards_list[:5]
+        cards_list = cards_list[:max_cards]
 
     valid_hashes = _candidate_hashes(candidates)
     valid_urls = _candidate_image_urls(candidates)
@@ -1055,6 +1178,20 @@ async def _produce_cards(
             )
             continue
 
+        # Judge + router stage. Same independent-LLM scoring as the
+        # per-line path; router maps axes → level (or DROP).
+        from . import _feed_judge, _feed_router  # lazy — avoid bootstrap cycles
+
+        axes = await _feed_judge.judge(entry, contact_slug, kind=kind)
+        level = _feed_router.route(kind, axes)
+        if level is None:
+            print(
+                f"feed_loop[{kind}]: card {idx} dropped by router (axes={axes})",
+                flush=True,
+            )
+            _tally_inc(contact_slug, "dropped_by_router")
+            continue
+
         raw_body_image = str(entry.get("body_image", "") or "")
         body_image = _validate_body_image(raw_body_image, valid_hashes, valid_urls)
         if raw_body_image and not body_image:
@@ -1092,9 +1229,13 @@ async def _produce_cards(
         tags = [
             CARD_TAG,
             "feed-story",  # back-compat with existing UI reader
-            kind,  # "drift" or "volunteered"
+            kind,  # legacy bare-kind tag — kept for back-compat
+            f"kind:{kind}",
+            f"level:{level}",
             _contact_tag(contact_slug),
         ]
+        for axis_name, axis_value in axes.items():
+            tags.append(f"axis:{axis_name}:{round(axis_value, 3)}")
         if crystal and crystal.get("id"):
             tags.append(f"crystal:{crystal['id']}")
         try:
@@ -1105,6 +1246,10 @@ async def _produce_cards(
             )
             _tally_inc(contact_slug, tally_written)
             written += 1
+            # ALERT pierces — also DM the contact so the signal reaches
+            # them whether or not they're watching the dashboard.
+            if level == "ALERT":
+                await _send_alert_dm(contact_slug, card, kind)
         except Exception:
             log.exception("feed_loop: %s card delta write failed (idx=%d)", kind, idx)
     return written
@@ -1200,6 +1345,222 @@ async def _fire_volunteered(contact_slug: str, crystal: dict | None) -> None:
         _llm_active_exit(contact_slug)
 
 
+# ── New synthesis-rebuild passes ─────────────────────────────────────────
+#
+# Alert / reflection / bridging / discrepancy. Same shape as drift +
+# volunteered: assemble pass-specific context, fetch candidates, hand
+# both to _produce_cards via the kind-tagged directive. Each pass
+# self-silences when nothing meaningful surfaces — the empty-cards
+# response is healthy. Per-kind caps live in settings.
+#
+# All four run regardless of crystal state, before the per-line/drift/
+# volunteered passes — the alert pass especially needs to fire even on
+# a bare-install lake where no crystal has formed yet.
+
+
+async def _fire_alert(contact_slug: str, crystal: dict | None) -> None:
+    """Alert pass — piercing tier. Looks for things outside the normal
+    pattern of the lake right now."""
+    from ._feed_alert import (
+        build_alert_directive,
+        fetch_baseline_window,
+        fetch_recent_window,
+        format_recent_for_alert,
+        _format_source_counts,
+    )
+
+    recent = await fetch_recent_window()
+    baseline = await fetch_baseline_window()
+    print(
+        f"feed_loop[alert]: recent={len(recent)}, baseline={len(baseline)}",
+        flush=True,
+    )
+
+    if not recent:
+        # Nothing recent to scan. Truly quiet lake. Silence is correct.
+        print("feed_loop[alert]: empty recent window; skipping", flush=True)
+        _tally_inc(contact_slug, "alert_silent")
+        return
+
+    directive = build_alert_directive(
+        recent_window_text=format_recent_for_alert(recent),
+        recent_summary=_format_source_counts(recent),
+        baseline_summary=_format_source_counts(baseline),
+    )
+
+    _llm_active_enter(contact_slug, label="Alert pass — scanning for deviations")
+    try:
+        await asyncio.wait_for(
+            _produce_cards(
+                contact_slug,
+                kind="alert",
+                directive=directive,
+                candidates=recent,
+                crystal=crystal,
+                max_rounds=settings.feed_loop_budget_tool_calls,
+                max_cards=settings.feed_pass_budget_alert,
+            ),
+            timeout=settings.feed_loop_budget_seconds,
+        )
+    except TimeoutError:
+        print("feed_loop[alert]: timed out", flush=True)
+        _tally_inc(contact_slug, "alert_timed_out")
+    finally:
+        _llm_active_exit(contact_slug)
+
+
+async def _fire_reflection(contact_slug: str, crystal: dict | None) -> None:
+    """Reflection pass — provenance / wisdom-as-sediment generation."""
+    from ._feed_reflection import (
+        build_reflection_directive,
+        fetch_recent_reflections,
+        fetch_reflection_candidates,
+        format_activity_pool,
+        format_recent_reflections,
+    )
+
+    activity = await fetch_reflection_candidates()
+    print(f"feed_loop[reflection]: activity={len(activity)}", flush=True)
+
+    if len(activity) < 3:
+        print("feed_loop[reflection]: <3 reflectable items; skipping", flush=True)
+        _tally_inc(contact_slug, "reflection_silent")
+        return
+
+    recent_reflections = await fetch_recent_reflections()
+    directive = build_reflection_directive(
+        activity_pool_text=format_activity_pool(activity),
+        recent_reflections_text=format_recent_reflections(recent_reflections),
+    )
+
+    _llm_active_enter(contact_slug, label="Reflection pass — sediment of recent work")
+    try:
+        await asyncio.wait_for(
+            _produce_cards(
+                contact_slug,
+                kind="reflection",
+                directive=directive,
+                candidates=activity,
+                crystal=crystal,
+                max_rounds=settings.feed_loop_budget_tool_calls,
+                max_cards=settings.feed_pass_budget_reflection,
+            ),
+            timeout=settings.feed_loop_budget_seconds,
+        )
+    except TimeoutError:
+        print("feed_loop[reflection]: timed out", flush=True)
+        _tally_inc(contact_slug, "reflection_timed_out")
+    finally:
+        _llm_active_exit(contact_slug)
+
+
+async def _fire_bridging(contact_slug: str, crystal: dict | None) -> None:
+    """Bridging pass — cross-workspace structural pattern matching."""
+    from ._feed_bridging import (
+        build_bridging_directive,
+        fetch_deep_pool,
+        fetch_recent_by_source,
+        format_deep_pool,
+        format_recent_by_source,
+    )
+
+    recent_by_source = await fetch_recent_by_source()
+    deep_pool = await fetch_deep_pool()
+    print(
+        f"feed_loop[bridging]: recent_sources={len(recent_by_source)}, deep={len(deep_pool)}",
+        flush=True,
+    )
+
+    # Bridging needs material on both sides of the bridge.
+    if len(recent_by_source) < 2 and len(deep_pool) < 5:
+        print("feed_loop[bridging]: insufficient material to bridge; skipping", flush=True)
+        _tally_inc(contact_slug, "bridging_silent")
+        return
+
+    directive = build_bridging_directive(
+        recent_by_source=format_recent_by_source(recent_by_source),
+        deep_pool=format_deep_pool(deep_pool),
+    )
+
+    # Flatten recent_by_source to a single list for candidate validation.
+    flat_recent: list[dict] = []
+    for items in recent_by_source.values():
+        flat_recent.extend(items)
+    candidates = flat_recent + deep_pool
+
+    _llm_active_enter(contact_slug, label="Bridging pass — cross-workspace echoes")
+    try:
+        await asyncio.wait_for(
+            _produce_cards(
+                contact_slug,
+                kind="bridging",
+                directive=directive,
+                candidates=candidates,
+                crystal=crystal,
+                max_rounds=settings.feed_loop_budget_tool_calls,
+                max_cards=settings.feed_pass_budget_bridging,
+            ),
+            timeout=settings.feed_loop_budget_seconds,
+        )
+    except TimeoutError:
+        print("feed_loop[bridging]: timed out", flush=True)
+        _tally_inc(contact_slug, "bridging_timed_out")
+    finally:
+        _llm_active_exit(contact_slug)
+
+
+async def _fire_discrepancy(contact_slug: str, crystal: dict | None) -> None:
+    """Discrepancy pass — internal-contradiction detection (the
+    uncomfortable-truth lane that prevents flattery drift)."""
+    from ._feed_discrepancy import (
+        build_discrepancy_directive,
+        fetch_older_user_positions,
+        fetch_recent_user_positions,
+        format_user_positions,
+    )
+
+    recent = await fetch_recent_user_positions()
+    older = await fetch_older_user_positions()
+    print(
+        f"feed_loop[discrepancy]: recent={len(recent)}, older={len(older)}",
+        flush=True,
+    )
+
+    # Need genuine corpus on both sides.
+    if len(recent) < 3 or len(older) < 3:
+        print(
+            "feed_loop[discrepancy]: not enough user positions to compare; skipping",
+            flush=True,
+        )
+        _tally_inc(contact_slug, "discrepancy_silent")
+        return
+
+    directive = build_discrepancy_directive(
+        recent_text=format_user_positions(recent, ""),
+        older_text=format_user_positions(older, ""),
+    )
+
+    _llm_active_enter(contact_slug, label="Discrepancy pass — checking for moved positions")
+    try:
+        await asyncio.wait_for(
+            _produce_cards(
+                contact_slug,
+                kind="discrepancy",
+                directive=directive,
+                candidates=recent + older,
+                crystal=crystal,
+                max_rounds=settings.feed_loop_budget_tool_calls,
+                max_cards=settings.feed_pass_budget_discrepancy,
+            ),
+            timeout=settings.feed_loop_budget_seconds,
+        )
+    except TimeoutError:
+        print("feed_loop[discrepancy]: timed out", flush=True)
+        _tally_inc(contact_slug, "discrepancy_timed_out")
+    finally:
+        _llm_active_exit(contact_slug)
+
+
 async def _has_fresh_card(contact_slug: str, line_id: str, freshness_hours: float) -> bool:
     """True if this contact already has a card for this line newer than the window.
 
@@ -1268,3 +1629,52 @@ def _is_fresh_from_map(freshness_map: dict[str, str], line_id: str, freshness_ho
     except Exception:
         return False
     return (_now() - dt) < timedelta(hours=freshness_hours)
+
+
+def _alert_dm_body(card: dict, kind: str) -> str:
+    """Format an ALERT-level card as a chat DM body.
+
+    The ALERT level is *piercing* by definition — if the user isn't
+    actively watching the feed, the alert needs to reach them another
+    way. We mirror the card content into a direct message: short,
+    legible at a glance, with the link inline if there is one.
+    """
+    title = (card.get("title") or "").strip()
+    body = (card.get("body") or "").strip()
+    tail = (card.get("tail") or "").strip()
+    link = (card.get("link") or "").strip()
+    label = "Alert" if kind == "alert" else kind.capitalize()
+    parts: list[str] = []
+    if title:
+        parts.append(f"⚠ {label} · {title}")
+    elif body:
+        parts.append(f"⚠ {label}")
+    if body:
+        parts.append(body)
+    if tail:
+        parts.append(f"— {tail}")
+    if link.startswith(("http://", "https://")):
+        parts.append(link)
+    return "\n\n".join(p for p in parts if p)
+
+
+async def _send_alert_dm(contact_slug: str, card: dict, kind: str) -> None:
+    """Best-effort DM send for an ALERT-level card. The card is already
+    on the feed by this point — a failure here means the user only sees
+    it on the dashboard, not in chat. Logged but never raised, so a
+    chat-listener hiccup never blocks card production."""
+    body = _alert_dm_body(card, kind)
+    if not body:
+        return
+    try:
+        await messages_mod.send_message(
+            recipient_slug=contact_slug,
+            body=body,
+            writer_slug="fathom",
+        )
+        print(
+            f"feed_loop[{contact_slug}]: ALERT-level {kind} card mirrored as DM ({len(body)} chars)",
+            flush=True,
+        )
+    except Exception:
+        log.exception("feed_loop: ALERT DM send failed (kind=%s)", kind)

@@ -22,6 +22,8 @@ Three delta families compose the feed lifecycle:
 | **crystal** | `crystal:feed-orient` | `confidence:<float>` | `consumer-api` | durable, latest-wins |
 | **card** | `feed-card` | `topic:<slug>`, `directive-line:<id>` | `fathom-feed` | durable |
 
+A click on a card opens a chat session as if Fathom had just spoken: the card content (title, body, link, image) is snapshotted into the session as Fathom's opening turn — a normal `participant:fathom` chat-message delta carrying `seed-card:<card_id>` for back-pointer. Written by `chat_completions` on first turn, BEFORE persisting the user message, so timestamps order it first in history. Snapshots rather than references because the source feed-card may decay, re-rank, or shift body between engagement and reopen — what matters is what was actually seen. Idempotent per session.
+
 The `engages:<id>` tag on an engagement delta points at the card that provoked it — the same pointer primitive used everywhere else in the lake (sediment cites sources via `from:<id>`, rejections via `refutes:<id>`, etc.). Confidence scoring today reads topic directly off the engagement payload, so the card join isn't actually needed — but the pointer is there for any future path that wants it.
 
 ## Engagement deltas
@@ -204,3 +206,121 @@ Each phase ends with: works in isolation, can be merged independently, doesn't b
 - **Sentiment grading on `engagement:chat`.** Is "this card is wrong, here's why" a positive (Myra cared enough to correct) or negative (the card was bad)? Probably a small classifier turn at engagement-write time, but v1 can treat all chat-engagement as positive and refine later.
 - **Topic taxonomy.** `topic:weather`, `topic:stl-events` — who maintains this? Free-form (whatever the LLM emits per card, drifting over time) or constrained (a fixed enum)? Free-form is more Fathom-shaped; constrained is more measurable. Lean free-form.
 - **Multi-contact futures.** When Nova or Bob gets dashboard access (per `contact-spec.md`), each contact gets their own crystal. The `crystal:feed-orient` tag becomes `crystal:feed-orient` + `contact:<slug>`. Out of scope for v1 (Myra-only) but the tag shape leaves room.
+
+---
+
+## Synthesis Rebuild (2026-04-26)
+
+The feed loop's role expanded: it is now the **routing & judgment center** of Fathom, not just a feed generator. Each fire runs a fixed-order pipeline of synthesis passes; each candidate output passes through an independent judge stage that scores it on five axes; a router maps `(kind, axes)` to a log level (or DROP). The level travels along on each card delta as a tag, and the dashboard's verbosity dropdown filters by it.
+
+### Pass types
+
+Eight passes today, in priority order. Each pass self-silences when nothing meaningful is there — silence is a healthy outcome.
+
+| Pass | Module | Default cap | Purpose |
+|---|---|---|---|
+| `alert` | `_feed_alert.py` | `feed_pass_budget_alert` (5) | Piercing tier — anomalies, source-silent gaps, integrity events. |
+| `reflection` | `_feed_reflection.py` | `feed_pass_budget_reflection` (2) | Provenance / wisdom-as-sediment. "Myra shipped X today." |
+| `bridging` | `_feed_bridging.py` | `feed_pass_budget_bridging` (2) | Cross-workspace structural pattern matching. The old Scout role. |
+| `discrepancy` | `_feed_discrepancy.py` | `feed_pass_budget_discrepancy` (1) | Internal contradiction — "you said X, then ~X." Uncomfortable-truth lane. |
+| `per_line` | `feed_loop.py:_fire_line` | per-crystal | Existing — directive-line cards from the feed-orient crystal. |
+| `drift` | `_feed_drift.py` | 5 | Existing — free-association across old material. |
+| `volunteered` | `_feed_volunteer.py` | 5 | Existing — present-salience noticing. |
+| `cold_start` | `feed_loop.py:_cold_start_fire` | 1 | Existing — broad-curiosity card when no crystal exists yet. |
+
+Cards from any pass carry `kind:<pass>` as a tag. Drift / volunteered also carry the legacy bare-kind tag (`drift` / `volunteered`) for back-compat with existing UI checks.
+
+### Judge stage (`_feed_judge.py`)
+
+Independent LLM call. Sees: the candidate card payload, kind, recent feed cards (for novelty), recent engagement (for resonance). Does **not** see: the router code, level thresholds, per-pass budgets, the calling pass's directive. Architecturally separated so the judge cannot calibrate toward "stay surfaced."
+
+Returns five axes, each in `[0.0, 1.0]`:
+
+| Axis | Description |
+|---|---|
+| `salience` | How much this matters in the moment. |
+| `novelty` | 1.0 = nothing close has been shown; 0.0 = redundant with recent cards. |
+| `resonance` | Match against the user's recent attention/sentiment. |
+| `confidence` | How grounded vs. confabulated. Low scores route the card to DROP. |
+| `comfort` | 1.0 = comfortable/pleasant; 0.0 = challenging. Discrepancy and alert routinely score low here — comfort is *informational*, not a quality bar. |
+
+On any failure path (LLM unreachable, malformed output) the judge returns fallback scores tilted toward low confidence. The router treats those as low-tier rather than auto-promoting.
+
+Scores ride on each card delta as `axis:<name>:<value>` tags.
+
+### Router stage (`_feed_router.py`)
+
+Pure function mapping `(kind, axes) → level | None`. Tagged on the delta as `level:<NAME>`.
+
+| Level | Source | Default-visible? |
+|---|---|---|
+| `ALERT` | `kind=alert` OR `(salience ≥ feed_level_alert_salience AND comfort ≤ feed_level_alert_comfort_max)` | Always — pierces the verbosity filter. |
+| `NOTICE` | `salience ≥ feed_level_notice_salience AND resonance ≥ feed_level_notice_resonance` | Yes (default dropdown setting). |
+| `INFO` | `salience ≥ feed_level_info_salience` | No. |
+| `DEBUG` | `kind=reflection` (above floors) | No. |
+| `TRACE` | Above floors but quiet. | No. |
+| DROP | `salience < feed_axis_floor_salience` OR `confidence < feed_axis_floor_confidence` | — never written to lake. |
+
+Throwaway is a first-class destination. Below-floor candidates are dropped before write — the lake doesn't accumulate noise sediment from passes that produced unconvincing output.
+
+### Per-pass budgets
+
+Each pass has its own max-cards-per-cycle and minimum scoring thresholds. **No quotas.** Items below threshold are DROPPED, not promoted to fill a slot. A pass producing zero cards on a quiet cycle is healthy.
+
+Settings (in `api/settings.py`):
+
+- `feed_pass_budget_alert: 5`
+- `feed_pass_budget_reflection: 2`
+- `feed_pass_budget_bridging: 2`
+- `feed_pass_budget_discrepancy: 1`
+- `feed_axis_floor_salience: 0.20`
+- `feed_axis_floor_confidence: 0.30`
+- `feed_level_alert_salience: 0.92`
+- `feed_level_alert_comfort_max: 0.30`
+- `feed_level_notice_salience: 0.55`
+- `feed_level_notice_resonance: 0.50`
+- `feed_level_info_salience: 0.35`
+- `feed_default_visible_level: "NOTICE"`
+
+### New engagement kinds
+
+The `+` / `−` / `chat` triad expanded with three more — explicit dismissal and two soft-negative passive signals captured by the dashboard's IntersectionObserver.
+
+| Kind | Source | Sign | Notes |
+|---|---|---|---|
+| `more` | + button | +1.0 | (existing) |
+| `chat` | message in seeded chat | +1.0 | (existing) |
+| `less` | − button | -1.0 | (existing) |
+| `dismiss` | × button (future) | -1.0 | Explicit dismissal. |
+| `scroll-past` | observer: card visible <1.5s, no engagement | -0.5 | Soft negative. The user blew past it. |
+| `dwell-low` | observer: card visible 1.5-4s, no engagement | -0.5 | Soft negative. Looked but didn't act. |
+
+Soft negatives multiply through the recency-weighted `score_confidence` calculation by their absolute magnitude — a silent scroll-past contributes half what a thumbs-down contributes, so the user's explicit voice always outweighs their implicit one.
+
+### Great no-news day
+
+When all passes ran but the judge+router decided nothing crossed thresholds, `_summarize_outcome` returns `summary: "great_no_news"` and the dashboard surfaces a distinct empty-state banner: *"It's a great no-news day. The lake is steady."* Distinct from the cold-start letter (which means *nothing has happened yet*) and from `all_fresh` (cards exist, just still warm). This is what makes "the system actively considered everything and chose silence" a legible state rather than a blank-feed bug.
+
+### Verbosity dropdown
+
+A select element next to the "What I noticed" header, options ALERT / NOTICE / INFO / DEBUG / TRACE. Default NOTICE. Choice persists in `localStorage.feedVerbosity`. Filter is monotonic: "show level ≥ selected." ALERT cards always render regardless. Untagged cards (pre-rebuild content) are treated as NOTICE so existing feeds keep rendering on the default setting.
+
+### New endpoints
+
+| Method | Path | Purpose |
+|---|---|---|
+| `GET` | `/v1/feed/levels` | Counts of feed cards per level over the last N seconds (for dropdown badges). |
+
+### Tag inventory (post-rebuild)
+
+A feed-card delta now carries:
+
+- `feed-card`, `feed-story` (existing)
+- `contact:<slug>` (existing)
+- `kind:<pass>` — canonical pass type
+- `level:<NAME>` — log level from the router
+- `axis:salience:<value>`, `axis:novelty:<value>`, `axis:resonance:<value>`, `axis:confidence:<value>`, `axis:comfort:<value>` — judge scores
+- `directive-line:<id>` — when from per_line (existing)
+- `topic:<slug>` — when from per_line (existing)
+- `crystal:<id>` — links back to the crystal that drove generation (existing)
+- `drift` / `volunteered` — legacy bare tags for back-compat (drift/volunteered passes only)
