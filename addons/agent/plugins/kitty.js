@@ -243,9 +243,13 @@ export function spawnClaudeInKitty({
 function getKittyScreenText(socket) {
   return new Promise((resolve) => {
     if (!existsSync(socket)) return resolve("");
-    const child = spawn("kitten", ["@", "--to", `unix:${socket}`, "get-text", "--extent", "screen"], {
-      stdio: ["ignore", "pipe", "pipe"],
-    });
+    const child = spawn(
+      "kitten",
+      ["@", "--to", `unix:${socket}`, "get-text", "--extent", "screen"],
+      {
+        stdio: ["ignore", "pipe", "pipe"],
+      }
+    );
     let out = "";
     child.stdout.on("data", (b) => (out += b.toString()));
     child.on("close", (code) => resolve(code === 0 ? out : ""));
@@ -360,9 +364,7 @@ function fire(delta, config, pusher) {
   // surface it.
   const allowed = config.allowed_permission_modes || ["auto", "normal"];
   const receiptExpiryDays =
-    config.receipt_expiry_days != null
-      ? config.receipt_expiry_days
-      : DEFAULT_RECEIPT_EXPIRY_DAYS;
+    config.receipt_expiry_days != null ? config.receipt_expiry_days : DEFAULT_RECEIPT_EXPIRY_DAYS;
   const receiptExpiresAt = receiptExpiryDays
     ? new Date(Date.now() + receiptExpiryDays * 86400000).toISOString()
     : null;
