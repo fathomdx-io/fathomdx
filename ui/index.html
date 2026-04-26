@@ -3077,7 +3077,6 @@
       <div class="settings-tabs" role="tablist">
         <button class="settings-tab active" data-tab="account" role="tab">Account</button>
         <button class="settings-tab" data-tab="keys" role="tab" data-admin-only>API Keys</button>
-        <button class="settings-tab" data-tab="models" role="tab" data-admin-only>Models</button>
         <button class="settings-tab" data-tab="admin" role="tab" data-admin-only>Admin</button>
       </div>
 
@@ -3190,25 +3189,6 @@
         </section>
       </div><!-- /account panel -->
 
-      <!-- ═══ MODELS TAB (admin-only) ═══════════════════ -->
-      <div class="settings-panel" data-panel="models" data-admin-only hidden>
-        <section class="section">
-          <div class="section-head">
-            <h2>Models</h2>
-            <span class="meta">which LLM runs which task</span>
-          </div>
-          <p style="font-size: 14px; color: var(--ink-soft); line-height: 1.55; margin: 0 0 18px;">
-            Fathom's call-sites are grouped by difficulty. The hard tier handles the chat loop and crystal regeneration — tool use, structured output, voice. The medium tier handles search planning, mood, and feed crystal; a cheaper model is fine here. Picks are live — changes take effect on the next turn. Add providers by setting their API key (e.g. <code>GEMINI_API_KEY</code>, <code>OPENAI_API_KEY</code>, <code>OLLAMA_BASE_URL</code>) in <code>.env</code> and restarting.
-          </p>
-          <div id="modelsProviders" class="model-provider-row" style="margin-bottom: 18px;">
-            <div class="meta">Configured providers</div>
-            <div class="mono" id="modelsProvidersValue">…</div>
-          </div>
-          <div id="modelsTiers"></div>
-          <div id="modelsStatus" class="meta" style="margin-top: 10px; font-size: 12px;"></div>
-        </section>
-      </div><!-- /models panel -->
-
       <!-- ═══ API KEYS TAB (admin-only) ═════════════════ -->
       <div class="settings-panel" data-panel="keys" data-admin-only hidden>
         <section class="section">
@@ -3239,6 +3219,22 @@
 
       <!-- ═══ ADMIN TAB ═════════════════════════════════ -->
       <div class="settings-panel" data-panel="admin" data-admin-only hidden>
+        <section class="section">
+          <div class="section-head">
+            <h2>Models</h2>
+            <span class="meta">which LLM runs which task — affects all users</span>
+          </div>
+          <p style="font-size: 14px; color: var(--ink-soft); line-height: 1.55; margin: 0 0 18px;">
+            Fathom's call-sites are grouped by difficulty. The hard tier handles the chat loop and crystal regeneration — tool use, structured output, voice. The medium tier handles search planning, mood, and feed crystal; a cheaper model is fine here. Picks are live — changes take effect on the next turn. Add providers by setting their API key (e.g. <code>GEMINI_API_KEY</code>, <code>OPENAI_API_KEY</code>, <code>OLLAMA_BASE_URL</code>) in <code>.env</code> and restarting.
+          </p>
+          <div id="modelsProviders" class="model-provider-row" style="margin-bottom: 18px;">
+            <div class="meta">Configured providers</div>
+            <div class="mono" id="modelsProvidersValue">…</div>
+          </div>
+          <div id="modelsTiers"></div>
+          <div id="modelsStatus" class="meta" style="margin-top: 10px; font-size: 12px;"></div>
+        </section>
+
         <section class="section" id="contactsSection">
           <div class="section-head">
             <h2>Contacts</h2>
@@ -5608,8 +5604,10 @@
       });
       // Lazy-load when switching into tabs that pull heavier data.
       if (which === 'keys') loadTokens();
-      if (which === 'admin') loadContacts();
-      if (which === 'models') loadModelsSettings();
+      if (which === 'admin') {
+        loadContacts();
+        loadModelsSettings();
+      }
     }
 
     // ── Models settings (live-editable) ──────────

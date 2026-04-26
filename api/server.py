@@ -13,7 +13,7 @@ from contextlib import asynccontextmanager
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
@@ -977,7 +977,7 @@ async def list_models():
     }
 
 
-@app.get("/v1/settings/models")
+@app.get("/v1/settings/models", dependencies=[Depends(auth.require_admin)])
 async def settings_models():
     """Tier-aware model config for the Settings → Models UI.
 
@@ -1025,7 +1025,7 @@ class _TierPick(BaseModel):
     model: str
 
 
-@app.put("/v1/settings/models/{tier}")
+@app.put("/v1/settings/models/{tier}", dependencies=[Depends(auth.require_admin)])
 async def settings_models_put(tier: str, body: _TierPick):
     """Persist a tier's (provider, model) pick as a lake config delta.
 
@@ -1047,7 +1047,7 @@ async def settings_models_put(tier: str, body: _TierPick):
     }
 
 
-@app.get("/v1/settings/providers/{provider}/models")
+@app.get("/v1/settings/providers/{provider}/models", dependencies=[Depends(auth.require_admin)])
 async def settings_provider_models(provider: str):
     """Proxy a provider's /v1/models so the UI can populate dropdowns.
 
