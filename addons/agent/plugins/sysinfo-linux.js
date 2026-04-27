@@ -36,7 +36,7 @@ export const CONFIG_SHAPE = {
   top_processes: {
     type: "number",
     required: false,
-    help: "Include top-N processes by CPU and by RSS in each snapshot. 0 disables. Default: 0.",
+    help: "Include top-N processes by CPU and by RSS in each snapshot. 0 disables. Default: 5.",
   },
 };
 
@@ -54,7 +54,7 @@ export default {
     servers: [],
     source: "sysinfo",
     tags: ["health"],
-    top_processes: 0,
+    top_processes: 5,
   },
 
   start(config, pusher) {
