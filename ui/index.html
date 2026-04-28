@@ -9180,11 +9180,16 @@ GET  /v1/usage               Usage stats`,
       const skipIds = new Set();
       const engagementByCardId = new Map();  // lake_id_short → kind
 
-      for (const it of items) {
-        const tags = (it && it.tags) || [];
-        if (!tags.includes('feed-engagement')) continue;
+      // Pull markers out and walk them oldest → newest so Map.set
+      // gives the latest click the final word. items come back from
+      // get_feed sorted newest-first, which is the wrong order for
+      // this overwrite pattern.
+      const markers = items.filter(it => ((it && it.tags) || []).includes('feed-engagement'));
+      markers.sort((a, b) => (a.timestamp || '').localeCompare(b.timestamp || ''));
+      for (const it of markers) {
         // Engagement markers don't render — they modify the card.
         skipIds.add(it.id);
+        const tags = it.tags || [];
         let kind = null;
         let target = '';
         for (const t of tags) {
@@ -9195,6 +9200,11 @@ GET  /v1/usage               Usage stats`,
         if (kind && target) engagementByCardId.set(target.slice(0, 24), kind);
       }
 
+      // Tag inbound items with their engagement state for the
+      // renderer, AND project onto already-rendered DOM nodes so a
+      // mid-session click updates the existing card immediately on
+      // poll-back without waiting for a full refresh.
+      const idToCardShort = new Map();  // puddle item id → card short id
       for (const it of items) {
         if (skipIds.has(it.id)) continue;
         const tags = (it && it.tags) || [];
@@ -9210,10 +9220,26 @@ GET  /v1/usage               Usage stats`,
             cardShort = t.slice('recalled-id:'.length).slice(0, 24);
           }
         }
-        if (cardShort && engagementByCardId.has(cardShort)) {
+        if (!cardShort) continue;
+        idToCardShort.set(it.id, cardShort);
+        if (engagementByCardId.has(cardShort)) {
           it.engagement = engagementByCardId.get(cardShort);
         }
       }
+
+      // Apply to any already-rendered DOM nodes for cards in this
+      // batch. Removes stale state and adds fresh state in one pass —
+      // a card whose engagement was retracted (no marker matches)
+      // loses its data-engaged attribute.
+      idToCardShort.forEach((cardShort, itemId) => {
+        const node = document.querySelector(
+          `.feed [data-puddle-id="${CSS.escape(itemId)}"]`
+        );
+        if (!node) return;
+        const kind = engagementByCardId.get(cardShort);
+        if (kind) node.dataset.engaged = kind;
+        else delete node.dataset.engaged;
+      });
 
       return items.filter(it => !skipIds.has(it.id));
     }

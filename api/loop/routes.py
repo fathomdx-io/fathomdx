@@ -303,6 +303,25 @@ def get_feed(
         # change. They TTL out on their own.
         if "process-event" in tags or "metric" in tags:
             continue
+        # Permissive fallthrough — anything else with content surfaces
+        # as a generic delta carrying its tags. The puddle is a
+        # passive substrate; the frontend dispatches on tags. Critical
+        # for items like feed-engagement markers that get dual-written
+        # directly to the puddle (no telepathy "lake-delta" stamp) and
+        # need to round-trip through the feed so _projectEngagement
+        # can read them. The frontend renderer falls back to the
+        # lake-delta gray row for unknown kinds, but _projectEngagement
+        # filters feed-engagement markers out before rendering.
+        from_source = next(
+            (t.split(":", 1)[1] for t in tags if t.startswith("from-source:")),
+            None,
+        )
+        items.append({
+            "kind": "lake-delta",
+            "from_source": from_source or d.get("source") or "unknown",
+            "content": d.get("content") or "",
+            **common,
+        })
 
     items.sort(key=lambda it: it.get("timestamp") or "", reverse=True)
     # has_more is true if the puddle holds anything older than the
@@ -486,15 +505,22 @@ async def engage_card(card_id: str, req: EngageRequest) -> dict:
     except Exception:
         payload = {"body": card.get("content") or ""}
 
-    # The card's lake-id tag is what we'll point at via `engages:`.
-    # That's stable across telepathy round-trips: a freshly-written
-    # puddle card has `lake-id:<full>`, and a telepathy-restored card
-    # has `recalled-id:<short>` (which the frontend matches by prefix).
+    # The card's lake-id is what we'll point at via `engages:`.
+    # Fresh Phase-1 puddle writes carry `lake-id:<id>`; telepathy-
+    # restored puddle items only carry `recalled-id:<id>` (which IS
+    # the full lake id — store.new_id() emits 12-char ids and the
+    # 24-char slice is effectively a no-op). Prefer lake-id when
+    # present; fall back to recalled-id so engagement still works
+    # post-cold-start.
     card_lake_id = ""
+    fallback_lake_id = ""
     for t in card.get("tags") or []:
         if t.startswith("lake-id:"):
             card_lake_id = t.split(":", 1)[1]
             break
+        if t.startswith("recalled-id:") and not fallback_lake_id:
+            fallback_lake_id = t.split(":", 1)[1]
+    card_lake_id = card_lake_id or fallback_lake_id
 
     # Engagement marker — short content for context, the full pointer
     # carried by the `engages:` tag. via:loop preserves the legacy
