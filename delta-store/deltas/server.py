@@ -481,6 +481,25 @@ async def get_delta(delta_id: str):
     return result
 
 
+class _ExpiresIn(_BaseModel):
+    expires_at: str | None = None
+
+
+@app.patch("/deltas/{delta_id}/expires_at")
+async def patch_expires_at(delta_id: str, body: _ExpiresIn):
+    """Update an existing delta's expires_at. None makes it durable.
+
+    Grand Loop engagement uses this to lift a TTL'd witness card into
+    durability without writing a duplicate delta; in principle any
+    caller that wants to extend or shorten a TTL on a known delta can
+    use it.
+    """
+    ok = await store.set_expires_at(delta_id, body.expires_at)
+    if not ok:
+        raise HTTPException(status_code=404, detail="Delta not found")
+    return {"ok": True}
+
+
 @app.get("/deltas", response_model=list[DeltaOut])
 async def query_deltas(
     time_start: str | None = None,

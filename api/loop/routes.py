@@ -402,13 +402,22 @@ class EngageRequest(BaseModel):
 
 @router.post("/v1/puddle/cards/{card_id}/engage")
 async def engage_card(card_id: str, req: EngageRequest) -> dict:
-    """Engagement promotes an ephemeral puddle card to the durable lake.
+    """Engagement authors a puddle card into the lake durably.
 
-    The grand-loop output is short-lived by design — anything not engaged
-    with TTL-fades into nothing. Engagement is the "authoring" act: the
-    user signals this card is worth keeping, and we re-emit its content
-    to the lake as a durable `feed-card` delta with the engagement kind
-    attached. No engagement → the card disappears with the puddle.
+    Since witness dual-writes (puddle + lake with TTL) landed, the
+    card is already in the lake when engagement runs. Engagement
+    lifts the TTL in place rather than writing a duplicate:
+      * `auto-authored` cards are already durable — only the
+        engagement marker gets written.
+      * Otherwise we PATCH the lake delta's expires_at to NULL.
+      * Cards without a `lake-id` tag (legacy fallback / lake write
+        failed at fire time) keep the old promote-by-duplicate path
+        so engagement still has something durable to point at.
+
+    The engagement marker is written either way so crystal-regen and
+    confidence scoring keep their signal. Addressed intents still get
+    promoted as durable seeds — Phase 5 will move that to write-time
+    so engagement only needs to lift their TTLs too.
     """
     kind = req.kind.strip().lower()
     if kind not in ("more", "less", "chat"):
@@ -421,45 +430,69 @@ async def engage_card(card_id: str, req: EngageRequest) -> dict:
         # silently succeed.
         raise HTTPException(status_code=404, detail="card not in puddle (expired or unknown)")
 
+    card_tags = card.get("tags") or []
+
     try:
         payload = json.loads(card.get("content") or "{}")
     except Exception:
         payload = {"body": card.get("content") or ""}
 
-    # Resurrect the route from the puddle card's tags so the durable
-    # feed-card carries the same routing intent (chat-reply / drift /
-    # bridging / reflection / alert).
     route = "chat-reply"
-    for t in card.get("tags") or []:
+    lake_id = ""
+    for t in card_tags:
         if t.startswith("route:"):
             route = t.split(":", 1)[1]
-            break
+        elif t.startswith("lake-id:"):
+            lake_id = t.split(":", 1)[1]
+    auto_authored = "auto-authored" in card_tags
 
-    # Write content + structure as a durable lake feed-card delta. No
-    # expires_at — engagement IS the persistence signal.
-    durable_tags = [
-        "feed-card",
-        "promoted-from-puddle",
-        f"route:{route}",
-        f"engagement:{kind}",
-        f"source-card:{card_id}",
-    ]
-    durable_content = json.dumps(payload, ensure_ascii=False)
-    promoted = await delta_client.write(
-        content=durable_content,
-        tags=durable_tags,
-        source="loop-engagement",
-    )
+    promoted_id = ""
+    promoted_via = ""  # "already-durable" | "ttl-lifted" | "duplicate-write"
 
-    # Mirror the engagement delta in the same shape the existing
-    # /v1/feed/engagement endpoint writes, so confidence-scoring and
-    # crystal regen still see the signal even though the card came
-    # from the loop rather than the old feed pipeline.
-    promoted_id = (
-        promoted.get("id")
-        if isinstance(promoted, dict)
-        else (promoted if isinstance(promoted, str) else "")
-    )
+    if lake_id:
+        if auto_authored:
+            # Card was born durable; nothing to update.
+            promoted_id = lake_id
+            promoted_via = "already-durable"
+        else:
+            try:
+                await delta_client.update_expires_at(lake_id, None)
+                promoted_id = lake_id
+                promoted_via = "ttl-lifted"
+            except Exception as e:
+                print(
+                    f"[engage] update_expires_at({lake_id[:24]}) failed: "
+                    f"{type(e).__name__}: {e} — falling back to duplicate write"
+                )
+                lake_id = ""  # fall through to legacy path
+
+    if not lake_id:
+        # Legacy fallback: no lake counterpart known (witness predates
+        # dual-write or the lake write failed at fire time). Write a
+        # fresh durable delta from the puddle content.
+        durable_tags = [
+            "feed-card",
+            "promoted-from-puddle",
+            f"route:{route}",
+            f"engagement:{kind}",
+            f"source-card:{card_id}",
+        ]
+        durable_content = json.dumps(payload, ensure_ascii=False)
+        promoted = await delta_client.write(
+            content=durable_content,
+            tags=durable_tags,
+            source="loop-engagement",
+        )
+        promoted_id = (
+            promoted.get("id")
+            if isinstance(promoted, dict)
+            else (promoted if isinstance(promoted, str) else "")
+        )
+        promoted_via = "duplicate-write"
+
+    # Engagement marker — written on every path so confidence-scoring
+    # and crystal regen still see the signal (preserves the shape the
+    # legacy /v1/feed/engagement endpoint produced).
     await delta_client.write(
         content=(payload.get("body") or "")[:200],
         tags=[
@@ -471,16 +504,15 @@ async def engage_card(card_id: str, req: EngageRequest) -> dict:
         source="loop-engagement",
     )
 
-    # Promote the addressed seeds to the lake too — engaging the reply
-    # means "this thread mattered." Without this, the seed TTLs out of
-    # the puddle and the durable record shows an answer with no question.
-    # Each addressed intent that's still alive in the puddle gets a
-    # paired durable lake delta tagged `promoted-from-puddle` +
-    # `kind:question` + `paired-with:<promoted_card_id>`.
+    # Addressed seeds — Phase 5 will land these in the lake at write
+    # time; until then engagement is what authors them. Each addressed
+    # intent that's still alive in the puddle gets a paired durable
+    # lake delta tagged `promoted-from-puddle` + `kind:question` +
+    # `paired-with:<promoted_card_id>`.
     promoted_seed_ids: list[str] = []
     addressed = [
         t.split(":", 1)[1]
-        for t in card.get("tags") or []
+        for t in card_tags
         if t.startswith("addresses:")
     ]
     for intent_id in addressed:
@@ -512,6 +544,7 @@ async def engage_card(card_id: str, req: EngageRequest) -> dict:
         "ok": True,
         "promoted_card_id": promoted_id,
         "promoted_seed_ids": promoted_seed_ids,
+        "promoted_via": promoted_via,
         "route": route,
         "kind": kind,
     }

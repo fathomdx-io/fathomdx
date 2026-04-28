@@ -609,6 +609,27 @@ class DeltaStore:
                     stats["errors"] += 1
         return stats
 
+    # ── Update ───────────────────────────────────────────────────────────
+
+    async def set_expires_at(
+        self, delta_id: str, expires_at: str | None
+    ) -> bool:
+        """Update a delta's expires_at in place. None makes it durable
+        (sets the column to NULL). Returns True if the row was updated.
+
+        Used by Grand Loop engagement: a witness card lands in the lake
+        with a TTL; engaging on it removes the TTL rather than writing
+        a duplicate durable delta. Short-id prefix matching isn't
+        offered here — callers should pass the full id (engagement
+        carries it via the puddle card's lake-id tag).
+        """
+        exp = _parse_ts(expires_at) if expires_at else None
+        result = await self._pool.execute(
+            "UPDATE deltas SET expires_at = $1 WHERE id = $2",
+            exp, delta_id,
+        )
+        return result == "UPDATE 1"
+
     # ── Delete ───────────────────────────────────────────────────────────
 
     async def delete(self, delta_id: str) -> bool:
