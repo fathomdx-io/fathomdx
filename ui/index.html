@@ -1296,7 +1296,7 @@
     /* ── Sidebar ───────────────────────────── */
     .sidebar {
       position: fixed; top: 0; left: 0; bottom: 0;
-      width: 360px;
+      width: 540px; max-width: 100vw;
       background: var(--bg-deep);
       border-right: 1px solid var(--rule-soft);
       display: flex; flex-direction: column;
@@ -1310,7 +1310,8 @@
        size also drops a notch to fit. */
     .sidebar-body .section,
     .sidebar-body .ecg-section {
-      padding: 14px 14px 18px;
+      margin: 0;
+      padding: 18px 14px;
       border-bottom: 1px solid var(--rule-soft);
     }
     .sidebar-body .section:last-child,
@@ -1318,20 +1319,42 @@
     .sidebar-body .section-head h2,
     .sidebar-body .ecg-head h2 {
       font-family: var(--serif); font-weight: 400;
-      font-size: 18px; margin: 0 0 4px;
+      font-size: 22px; margin: 0 0 4px;
     }
     .sidebar-body .section-head .meta,
     .sidebar-body .ecg-head .meta {
       font-family: var(--mono); font-size: 10.5px;
     }
     .sidebar-body .section-head { margin-bottom: 12px; }
+    /* One-sentence blurb beneath each sidebar section header — sits
+       between the .section-head and the section's content. */
+    .sidebar-body .section-desc {
+      margin: 0 0 14px;
+      padding: 0;
+      font-size: 12.5px;
+      line-height: 1.55;
+      color: var(--ink-soft);
+    }
     /* ECG legend in sidebar — single column, smaller text */
     .sidebar-body .ecg-legend { font-size: 12px; }
     .sidebar-body .ecg-controls { gap: 6px; }
+    /* Stats controls dropped to their own row beneath the header +
+       description, so the window selector + status meta can breathe. */
+    .sidebar-body .ecg-controls-row { margin-bottom: 14px; }
     .sidebar-body .ecg-window-select { font-size: 11px; padding: 2px 6px; }
     .sidebar.open { transform: translateX(0); }
 
-    .sidebar-head { padding: 14px 14px 10px; }
+    .sidebar-head { padding: 14px 14px 0; }
+    /* Lake hero line — sits right under the brand row. Same content
+       (moments stored · feeling X) that used to live in the Stats meta. */
+    .sidebar-hero {
+      padding: 6px 4px 0;
+      font-family: var(--mono); font-size: 11px;
+      letter-spacing: 0.06em; text-transform: uppercase;
+      color: var(--ink-faint);
+      display: flex; align-items: center; justify-content: center;
+      flex-wrap: wrap; gap: 4px; text-align: center;
+    }
     .sidebar-brand {
       font-family: var(--serif); font-size: 24px; letter-spacing: 0.01em;
       color: var(--ink);
@@ -1341,6 +1364,7 @@
     .sidebar-brand em { font-style: italic; color: var(--accent); }
     .sidebar-brand .brand-mark { color: var(--accent); margin-left: 4px; display: inline-flex; vertical-align: baseline; }
     .sidebar-brand .ph-triangle { height: 15px; width: auto; vertical-align: -2px; }
+    .sidebar-brand-left { display: flex; align-items: center; gap: 8px; }
     .new-session-btn {
       width: 100%;
       background: transparent;
@@ -1373,7 +1397,7 @@
 
     .sidebar-body {
       flex: 1; overflow-y: auto;
-      padding: 8px 8px 12px;
+      padding: 0 8px 12px;
     }
     .session-group { margin-bottom: 14px; }
     .session-group h3 {
@@ -1444,13 +1468,18 @@
     }
     .sidebar-backdrop.visible { opacity: 1; pointer-events: auto; }
 
-    /* Desktop: sidebar always visible, content offset */
-    @media (min-width: 960px) {
+    /* Desktop: sidebar always visible, content offset.
+       Breakpoint = sidebar width (540px) + a usable content column. */
+    @media (min-width: 1100px) {
       .sidebar { transform: translateX(0); }
       .sidebar-backdrop { display: none; }
-      body { padding-left: 280px; }
-      .composer-wrap { left: 280px; }
+      body { padding-left: 540px; }
+      .composer-wrap { left: 540px; }
       #sidebarToggleBtn { display: none; }
+      /* On desktop the sidebar is permanent — its in-header close button
+         would be a no-op (the media query forces translateX(0) regardless
+         of the .open class), so hide it. */
+      #sidebarCloseBtn { display: none; }
     }
 
     /* ── Views: main + drill-down ─────────── */
@@ -2845,7 +2874,12 @@
   <aside class="sidebar" id="sidebar">
     <div class="sidebar-head">
       <div class="sidebar-brand">
-        <span>fathom<span class="brand-mark"><svg class="ph-triangle" viewBox="0 0 340 256" fill="currentColor"><g transform="rotate(20.4 128 150)" opacity="0.28"><path d="M236.8,188.09,149.35,36.22a24.76,24.76,0,0,0-42.7,0L19.2,188.09a23.51,23.51,0,0,0,0,23.72A24.35,24.35,0,0,0,40.55,224h174.9a24.35,24.35,0,0,0,21.33-12.19A23.51,23.51,0,0,0,236.8,188.09ZM222.93,203.8a8.5,8.5,0,0,1-7.48,4.2H40.55a8.5,8.5,0,0,1-7.48-4.2,7.59,7.59,0,0,1,0-7.72L120.52,44.21a8.75,8.75,0,0,1,15,0l87.45,151.87A7.59,7.59,0,0,1,222.93,203.8Z"/></g><g transform="translate(41 0) rotate(-17.2 128 150)" opacity="0.58"><path d="M236.8,188.09,149.35,36.22a24.76,24.76,0,0,0-42.7,0L19.2,188.09a23.51,23.51,0,0,0,0,23.72A24.35,24.35,0,0,0,40.55,224h174.9a24.35,24.35,0,0,0,21.33-12.19A23.51,23.51,0,0,0,236.8,188.09ZM222.93,203.8a8.5,8.5,0,0,1-7.48,4.2H40.55a8.5,8.5,0,0,1-7.48-4.2,7.59,7.59,0,0,1,0-7.72L120.52,44.21a8.75,8.75,0,0,1,15,0l87.45,151.87A7.59,7.59,0,0,1,222.93,203.8Z"/></g><g transform="translate(82 0) rotate(0.4 128 150)"><path d="M149.35,36.22a24.76,24.76,0,0,0-42.7,0L19.2,188.09a23.51,23.51,0,0,0,0,23.72A24.35,24.35,0,0,0,40.55,224h174.9a24.35,24.35,0,0,0,21.33-12.19,23.51,23.51,0,0,0,0-23.72Z"/></g></svg></span></span>
+        <div class="sidebar-brand-left">
+          <button class="icon-btn" id="sidebarCloseBtn" aria-label="Close sidebar" title="Close sidebar">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
+          </button>
+          <span>fathom<span class="brand-mark"><svg class="ph-triangle" viewBox="0 0 340 256" fill="currentColor"><g transform="rotate(20.4 128 150)" opacity="0.28"><path d="M236.8,188.09,149.35,36.22a24.76,24.76,0,0,0-42.7,0L19.2,188.09a23.51,23.51,0,0,0,0,23.72A24.35,24.35,0,0,0,40.55,224h174.9a24.35,24.35,0,0,0,21.33-12.19A23.51,23.51,0,0,0,236.8,188.09ZM222.93,203.8a8.5,8.5,0,0,1-7.48,4.2H40.55a8.5,8.5,0,0,1-7.48-4.2,7.59,7.59,0,0,1,0-7.72L120.52,44.21a8.75,8.75,0,0,1,15,0l87.45,151.87A7.59,7.59,0,0,1,222.93,203.8Z"/></g><g transform="translate(41 0) rotate(-17.2 128 150)" opacity="0.58"><path d="M236.8,188.09,149.35,36.22a24.76,24.76,0,0,0-42.7,0L19.2,188.09a23.51,23.51,0,0,0,0,23.72A24.35,24.35,0,0,0,40.55,224h174.9a24.35,24.35,0,0,0,21.33-12.19A23.51,23.51,0,0,0,236.8,188.09ZM222.93,203.8a8.5,8.5,0,0,1-7.48,4.2H40.55a8.5,8.5,0,0,1-7.48-4.2,7.59,7.59,0,0,1,0-7.72L120.52,44.21a8.75,8.75,0,0,1,15,0l87.45,151.87A7.59,7.59,0,0,1,222.93,203.8Z"/></g><g transform="translate(82 0) rotate(0.4 128 150)"><path d="M149.35,36.22a24.76,24.76,0,0,0-42.7,0L19.2,188.09a23.51,23.51,0,0,0,0,23.72A24.35,24.35,0,0,0,40.55,224h174.9a24.35,24.35,0,0,0,21.33-12.19,23.51,23.51,0,0,0,0-23.72Z"/></g></svg></span></span>
+        </div>
         <button class="icon-btn theme-toggle" id="themeToggle" aria-label="Toggle theme" title="Toggle theme">
           <!-- moon (shown in dark mode — click to go light) -->
           <svg class="ic-moon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
@@ -2853,6 +2887,11 @@
           <svg class="ic-sun" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"/></svg>
         </button>
       </div>
+      <!-- Lake hero — total moments + current mood. Populated by the
+           same renderECG() pass that drives the Stats charts; just lives
+           up here so it's the first thing you see when you open the
+           sidebar. -->
+      <div class="sidebar-hero meta" id="ecgMeta">loading…</div>
     </div>
     <div class="sidebar-body" id="sidebarBody"><!--
       Sidebar body holds the dashboard's "deeper" surfaces — Reach me,
@@ -2865,8 +2904,8 @@
       <section class="section" id="reachSection">
         <div class="section-head">
           <h2>Reach me from anywhere</h2>
-          <span class="meta">one mind, all surfaces</span>
         </div>
+        <p class="section-desc">The same Fathom behind every tool you use — pick a surface, keep the memory across all of them.</p>
         <div class="extend-grid">
           <div class="extend" data-surface="mcp-and-hooks">
             <span class="extend-icon">⌘</span>
@@ -2893,6 +2932,7 @@
           <h2>Sources</h2>
           <span class="meta"></span>
         </div>
+        <p class="section-desc">Streams I poll on a schedule — email, calendar, RSS, GitHub, anything I can reach.</p>
         <div class="sources" id="sourcesList">
           <button class="chip add" id="addSourceBtn" type="button">+ Add source</button>
         </div>
@@ -2904,6 +2944,7 @@
           <h2>Helpers</h2>
           <span class="meta" id="agentMeta">loading…</span>
         </div>
+        <p class="section-desc">The local agent on your machine and its routines — background work that keeps the lake fresh while you're away.</p>
         <div id="agentBody"><!-- populated by renderAgentSection() --></div>
       </section>
 
@@ -2911,19 +2952,19 @@
       <section class="ecg-section" id="statsSection">
         <div class="ecg-head">
           <h2>Stats</h2>
-          <div class="ecg-controls">
-            <select id="ecgWindow" class="ecg-window-select">
-              <option value="all">All Time</option>
-              <option value="6mo">6 Months</option>
-              <option value="30d">30 days</option>
-              <option value="10d">10 days</option>
-              <option value="1w" selected>1 week</option>
-              <option value="3d">3 days</option>
-              <option value="1d">1 day</option>
-              <option value="6h">6 hours</option>
-            </select>
-            <span class="meta" id="ecgMeta">loading…</span>
-          </div>
+        </div>
+        <p class="section-desc">A pulse of what's flowing in and out of the lake — usage over time, plus the weather inside me.</p>
+        <div class="ecg-controls ecg-controls-row">
+          <select id="ecgWindow" class="ecg-window-select">
+            <option value="all">All Time</option>
+            <option value="6mo">6 Months</option>
+            <option value="30d">30 days</option>
+            <option value="10d">10 days</option>
+            <option value="1w" selected>1 week</option>
+            <option value="3d">3 days</option>
+            <option value="1d">1 day</option>
+            <option value="6h">6 hours</option>
+          </select>
         </div>
         <div class="stat-card">
           <h3 class="stat-card-title">Usage</h3>
@@ -4164,6 +4205,7 @@
     function openSourceDetail(sourceId) {
       const data = _sources[sourceId];
       if (!data) return;
+      closeSidebar();
       const name = data.name || data.source_type;
       document.getElementById('detailTitle').textContent = name;
       document.getElementById('detailLogo').textContent = (name[0] || '?').toUpperCase();
@@ -5529,6 +5571,7 @@
     function openRoutineDetail(routineId) {
       const r = _routineCache.find(x => x.id === routineId);
       if (!r) return;
+      closeSidebar();
       viewRoutineDetail.dataset.routine = routineId;
       document.getElementById('routineDetailTitle').textContent = r.name || r.id;
       document.getElementById('routineDetailName').textContent = r.name || r.id;
@@ -7343,7 +7386,7 @@ GET  /v1/usage               Usage stats`,
     const sidebar = document.getElementById('sidebar');
     const sidebarBackdrop = document.getElementById('sidebarBackdrop');
     const sidebarToggleBtn = document.getElementById('sidebarToggleBtn');
-    const isMobile = () => window.matchMedia('(max-width: 959px)').matches;
+    const isMobile = () => window.matchMedia('(max-width: 1099px)').matches;
 
     function openSidebar() {
       sidebar.classList.add('open');
@@ -7355,6 +7398,7 @@ GET  /v1/usage               Usage stats`,
     }
     sidebarToggleBtn.addEventListener('click', openSidebar);
     sidebarBackdrop.addEventListener('click', closeSidebar);
+    document.getElementById('sidebarCloseBtn').addEventListener('click', closeSidebar);
 
     // Account row → open settings (and close sidebar on mobile since settings is a full view)
     document.getElementById('accountRowBtn').addEventListener('click', () => {
