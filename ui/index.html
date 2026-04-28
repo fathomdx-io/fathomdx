@@ -9150,13 +9150,77 @@ GET  /v1/usage               Usage stats`,
       if (_feedLiveTimer) { clearInterval(_feedLiveTimer); _feedLiveTimer = null; }
     }
 
+    // ── Grand Loop puddle poll ─────────────────────
+    // Witness outputs land in the in-memory puddle as ephemeral feed cards
+    // with TTLs. We poll the same cadence as the lake feed, dedupe by id
+    // against _renderedFeedIds (shared with the lake loop), and surface
+    // through renderStoryCard so puddle cards are visually indistinct
+    // from lake-fed cards. Promotion-to-lake (engagement) flows through
+    // the existing feed engagement path because the promoted delta has
+    // the same `feed-card` shape.
+    let _puddleLiveTimer = null;
+    function _puddleCardToStory(c) {
+      // Adapt the puddle's witness payload into the story shape that
+      // renderStoryCard expects. Tags are synthesized from the route so
+      // _extractKindFromTags / _extractLevelFromTags still resolve.
+      const tags = ['feed-card', 'from-puddle'];
+      if (c.route) tags.push('route:' + c.route);
+      return {
+        id: c.id,
+        timestamp: c.timestamp,
+        kicker: c.kicker || '',
+        title: c.title || '',
+        body: c.body || '',
+        tail: c.tail || '',
+        link: c.link || '',
+        links: c.links || [],
+        media_hash: c.body_image || '',
+        media: c.body_image ? [c.body_image] : [],
+        tags,
+        // Visible TTL hint — how close this card is to fading.
+        _ttl_fraction: (c.expires_at && c.timestamp)
+          ? Math.max(0, Math.min(1, (Date.now() - new Date(c.timestamp).getTime()) / (new Date(c.expires_at).getTime() - new Date(c.timestamp).getTime())))
+          : 0,
+      };
+    }
+    async function _pollPuddleLive() {
+      try {
+        const r = await fetch(API_BASE + '/v1/puddle/cards', { headers: authHeaders() });
+        if (!r.ok) return;
+        const data = await r.json();
+        const cards = (data.cards || []);
+        const fresh = cards.filter(c => c && c.id && !_renderedFeedIds.has(c.id));
+        if (!fresh.length) return;
+        if (feed.querySelector('.feed-empty')) feed.innerHTML = '';
+        for (let i = fresh.length - 1; i >= 0; i--) {
+          const story = _puddleCardToStory(fresh[i]);
+          _renderedFeedIds.add(story.id);
+          const card = renderStoryCard(story, 0);
+          if (story._ttl_fraction > 0.6) card.style.opacity = '0.55';
+          feed.insertBefore(card, feed.firstChild);
+        }
+        refreshLightbox();
+        applyVerbosityFilter();
+      } catch (e) { /* best-effort */ }
+    }
+    function _startPuddleLivePoll() {
+      if (_puddleLiveTimer || document.hidden) return;
+      _pollPuddleLive();  // immediate first call
+      _puddleLiveTimer = setInterval(_pollPuddleLive, 3000);
+    }
+    function _stopPuddleLivePoll() {
+      if (_puddleLiveTimer) { clearInterval(_puddleLiveTimer); _puddleLiveTimer = null; }
+    }
+
     document.addEventListener('visibilitychange', () => {
       if (document.hidden) {
         _stopFeedStatusPoll();
         _stopFeedLivePoll();
+        _stopPuddleLivePoll();
       } else {
         _startFeedStatusPoll();
         _startFeedLivePoll();
+        _startPuddleLivePoll();
       }
     });
 
@@ -9173,6 +9237,7 @@ GET  /v1/usage               Usage stats`,
     loadHeroMood();
     _startFeedStatusPoll();
     _startFeedLivePoll();
+    _startPuddleLivePoll();
     api('/v1/feed/visit', { method: 'POST' }).catch(() => {});
 
     // ── Image handling: fallback cascade + hide + lightbox ────
