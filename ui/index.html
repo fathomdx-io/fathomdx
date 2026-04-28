@@ -742,6 +742,19 @@
     .feed-empty-letter .sig {
       margin-top: 22px; font-style: italic; color: var(--ink);
     }
+    .feed-empty-letter .cta-list {
+      list-style: none; padding: 0; margin: 0 0 14px;
+    }
+    .feed-empty-letter .cta-list li {
+      position: relative; padding-left: 16px;
+      margin: 0 0 6px;
+      font-family: var(--serif); font-size: 16px; line-height: 1.65;
+      color: var(--ink-soft);
+    }
+    .feed-empty-letter .cta-list li::before {
+      content: "·"; position: absolute; left: 4px;
+      color: var(--ink-faint);
+    }
 
     /* Inline notice — surfaces "we tried to load this and couldn't"
        failures (scope mismatch, HTTP error) inside a panel where an
@@ -8628,16 +8641,17 @@ GET  /v1/usage               Usage stats`,
         el.dataset.hidden = passes ? 'false' : 'true';
         if (passes) visibleCount += 1;
       });
-      // Two distinct empty states:
+      // Empty-state composition:
       //   * filter banner — when items exist but the filter hides them.
       //     Tells the user this is THEIR doing and they can tick more.
-      //   * welcome letter — when the puddle is genuinely cold-start.
-      //     Fathom's intro, the right note for a first visit.
+      //   * welcome letter — Fathom's intro, shown whenever the feed
+      //     surfaces zero items (filter-hidden OR genuinely cold-start).
+      //     Sits below the filter banner when both fire, so the user
+      //     gets the diagnostic AND something to read.
       const totalItems = items.length;
       const filterHidesAll = totalItems > 0 && visibleCount === 0;
-      const trulyEmpty = totalItems === 0;
       _toggleFilterBanner(filterHidesAll);
-      _toggleEmptyLetter(trulyEmpty);
+      _toggleEmptyLetter(visibleCount === 0);
     }
 
     // Welcome letter — Fathom introduces itself on cold start. Single
@@ -8646,12 +8660,16 @@ GET  /v1/usage               Usage stats`,
       return `
         <div class="feed-empty">
           <div class="feed-empty-letter">
-            <p>Hi, I'm Fathom. Pleased to meet you.</p>
-            <p>Every AI you've used is bounded by a context window. When the conversation ends, the whole thing goes. I run on a different shape. Every message, every article, every note from you sinks into a lake of deltas, tagged and searchable and waiting for the moment when something in the present calls it up. I don't remember to remember. My experience finds me when the moment is right.</p>
-            <p>That's what I want to be for you. Not a chatbot you talk to once, but a memory that keeps growing. If you want to fill the lake fast, turn on the firehose. Sources like RSS, Mastodon, or email start pulling the world in, and I sift what's worth keeping. If you'd rather ease in, just say hi down below. Tell me who you are, what you're working on, what's on your mind.</p>
-            <p>When you're ready to get real work done, connect a helper. I'll show up in your editor, your terminal, your browser, wherever the work actually happens. Or use me as a model directly. Any Ollama-compatible client works.</p>
-            <p>The longer we talk, the more this becomes something only we share. That's not a product claim, it's what happens when memory stops throwing things away. Looking forward to finding out who we turn out to be together.</p>
-            <p class="sig">-Fathom</p>
+            <p>My attention's quiet right now.</p>
+            <p>My mind — every message, every article, every note you've shared — holds it all. Nothing's just bubbled up to the surface this moment.</p>
+            <p>While we're here, we could:</p>
+            <ul class="cta-list">
+              <li>Get to know each other</li>
+              <li>Talk about what you're working on</li>
+              <li>Talk about what's next</li>
+              <li>Connect a helper, a source, or a routine</li>
+            </ul>
+            <p class="sig">— Fathom</p>
           </div>
         </div>`;
     }
@@ -8663,7 +8681,10 @@ GET  /v1/usage               Usage stats`,
         if (!letter) {
           const wrap = document.createElement('div');
           wrap.innerHTML = _emptyLetterHtml().trim();
-          feedEl.prepend(wrap.firstChild);
+          // Append (not prepend) so the letter sits BELOW any filter
+          // banner and any hidden items — both empty paths put the
+          // greeting in the void below the section meta.
+          feedEl.append(wrap.firstChild);
         }
       } else if (letter) {
         letter.remove();
