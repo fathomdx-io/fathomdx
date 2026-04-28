@@ -252,11 +252,19 @@ async def mirror_recent_activity() -> int:
         if any(t == CONVO_TAG for t in src_tags):
             continue
 
-        # Preserve the original tags. Stamp CONVO_TAG so puddle queries
-        # scope correctly, and recalled-id:<short> so subsequent ticks
-        # (and other dual-write paths) dedup. No other rewriting — the
-        # renderer reads the surviving tag set to decide rendering.
-        new_tags = src_tags + [CONVO_TAG, f"recalled-id:{short}"]
+        # Preserve the original tags. Stamp CONVO_TAG (puddle scoping),
+        # recalled-id:<short> (the dedup contract), `lake-delta` and
+        # `from-source:<src>` (telepathy markers — let the renderer's
+        # fallthrough surface anything that didn't match a more
+        # specific kind branch as a generic raw-lake row, while
+        # specific shapes like feed-card or user-seed still render
+        # via their own branches based on the preserved original tags).
+        new_tags = src_tags + [
+            CONVO_TAG,
+            "lake-delta",
+            f"from-source:{src or 'unknown'}",
+            f"recalled-id:{short}",
+        ]
 
         await puddle.write(
             content=content,
