@@ -17,6 +17,7 @@ import asyncio
 import time
 import uuid
 
+from . import feed_orient
 from .intents import pending_intents
 from .metric import (
     SETTLE_WINDOW,
@@ -194,8 +195,8 @@ async def _supervisor() -> None:
 
 
 def start() -> None:
-    """Start supervisor + reaper + telepathy + pressure-watcher.
-    Idempotent."""
+    """Start supervisor + reaper + telepathy + pressure-watcher +
+    feed-orient regen. Idempotent."""
     global _supervisor_task, _reaper_task, _telepathy_task, _pressure_task, _boot_iso
     if _supervisor_task is not None:
         return
@@ -204,11 +205,13 @@ def start() -> None:
     _reaper_task = asyncio.create_task(_reaper(), name="loop/reaper")
     _telepathy_task = asyncio.create_task(telepathy_loop(), name="loop/telepathy")
     _pressure_task = asyncio.create_task(pressure_watcher(), name="loop/pressure")
+    feed_orient.start()
 
 
 async def stop() -> None:
     """Cancel all background tasks. Idempotent."""
     global _supervisor_task, _reaper_task, _telepathy_task, _pressure_task
+    await feed_orient.stop()
     for task in (_supervisor_task, _reaper_task, _telepathy_task, _pressure_task):
         if task is None:
             continue

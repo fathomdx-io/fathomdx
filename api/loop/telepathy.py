@@ -75,6 +75,7 @@ MIRROR_NOISE_SOURCES = frozenset({
     "intent-detector",   # default intent source (puddle-only)
     "mood-crystal",      # would re-pull our own anchor write
     "crystal",           # ditto
+    "feed-orient",       # pulled as a facet via pull_feed_orient
 })
 
 
@@ -147,6 +148,54 @@ async def pull_crystal() -> int:
         )
         written += 1
     return written
+
+
+async def pull_feed_orient() -> bool:
+    """Pull the latest `crystal:feed-orient` delta and surface its
+    narrative as a `facet:feed-orient` puddle delta so the witness's
+    anchors_block reads it alongside the identity crystal facets.
+
+    The lake delta carries the full JSON (narrative + directive_lines
+    + topic_weights + skip_rules) per FEED_CRYSTAL_DIRECTIVE. The
+    witness only needs the narrative — the rest stays durable in the
+    lake for downstream consumers (ranking, audit, future filtering).
+    Content-deduped: if the puddle's existing facet:feed-orient text
+    matches what we'd write, no-op."""
+    try:
+        items = await delta_client.query(
+            tags_include=["crystal:feed-orient"],
+            limit=1,
+        )
+    except Exception as e:
+        print(f"[telepathy] feed-orient fetch failed: {type(e).__name__}: {e}")
+        return False
+    if not items:
+        return False
+
+    delta = items[0]
+    try:
+        payload = json.loads(delta.get("content") or "{}")
+    except Exception:
+        return False
+    narrative = (payload.get("narrative") or "").strip()
+    if not narrative:
+        return False
+    body = f"## What you want in your feed right now\n\n{narrative}".strip()
+
+    existing = puddle.query(
+        tags_include=[CONVO_TAG, "crystal", "facet:feed-orient"],
+        limit=1,
+    )
+    if existing and (existing[0].get("content") or "").strip() == body:
+        return False
+
+    await puddle.write(
+        content=body,
+        tags=[CONVO_TAG, "crystal", "facet:feed-orient"],
+        source="crystal",
+        ttl_seconds=ANCHOR_TTL_S,
+    )
+    return True
 
 
 async def pull_mood() -> bool:
@@ -283,15 +332,20 @@ async def mirror_recent_activity() -> int:
 
 
 async def refresh_anchors() -> None:
-    """One refresh pass — pull crystal + mood + recent activity. Used
-    on boot and on interval. Logs but never raises; a transient lake
-    hiccup must not take down the loop."""
+    """One refresh pass — pull crystal + mood + feed-orient + recent
+    activity. Used on boot and on interval. Logs but never raises; a
+    transient lake hiccup must not take down the loop."""
     try:
         n = await pull_crystal()
         if n:
             print(f"[telepathy] refreshed {n} crystal facet(s) in the puddle")
     except Exception as e:
         print(f"[telepathy] crystal refresh crashed: {type(e).__name__}: {e}")
+    try:
+        if await pull_feed_orient():
+            print("[telepathy] refreshed feed-orient facet in the puddle")
+    except Exception as e:
+        print(f"[telepathy] feed-orient refresh crashed: {type(e).__name__}: {e}")
     try:
         if await pull_mood():
             print("[telepathy] refreshed mood in the puddle")
