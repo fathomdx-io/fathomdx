@@ -24,6 +24,12 @@ EPHEMERAL_TTL_S = 48 * 60 * 60  # spawn/die markers — match the rolling horizo
 
 SESSION_TAG_PREFIX = "session:"
 
+# Total deltas to feed the voice as substrate. Matches the experiment's
+# LOOP_INPUT_SAMPLE_K=8: 3 voice anchors + ~5 resonant items. Voice anchors
+# are always retained; later categories (recall-results, lake-mirrors,
+# crystal, mood) compete for the remainder budget in priority order.
+INPUT_SAMPLE_K = 8
+
 
 def _render_seed_block(pending: list[dict]) -> str:
     """Format the open-question(s) the chorus is thinking about."""
@@ -39,16 +45,77 @@ def _render_seed_block(pending: list[dict]) -> str:
     return "\n".join(lines)
 
 
-def _recent_voice_takes(session_tag: str, per_voice: int = 1) -> list[dict]:
-    """Most recent thought from each voice in this session."""
-    out: list[dict] = []
+def _gather_substrate(session_tag: str) -> list[dict]:
+    """Build the voice's substrate from the puddle.
+
+    Mirrors the experiment's `sample_inputs(K=8)` shape — voice anchors
+    first, then resonant material — but uses recency-by-tag instead of
+    semantic search since the puddle has no embeddings. Categories below
+    fill remaining slots in priority order until INPUT_SAMPLE_K is hit:
+
+      1. Voice anchors — most recent take from each voice in this session.
+         Always retained; this is how voices read each other.
+      2. Recall-results — lake hits the searcher tick wrote into THIS
+         session's puddle slice. These are why the searcher exists.
+      3. Lake-mirrors — vampire-tap copies of recent lake activity,
+         convo-wide. Ambient context — what's been happening elsewhere.
+      4. Crystal facets — identity anchors, convo-wide.
+      5. Mood — current felt-sense, convo-wide.
+
+    Returns deltas as dicts; caller renders them in the standard
+    [source · ts · tags] format alongside the seed.
+    """
+    picks: list[dict] = []
+    seen_ids: set[str] = set()
+
+    def _add(d: dict) -> None:
+        did = d.get("id")
+        if did and did not in seen_ids:
+            picks.append(d)
+            seen_ids.add(did)
+
     for v in VOICES:
-        takes = puddle.query(
+        for d in puddle.query(
             tags_include=[session_tag, "thought", f"voice:{v['name']}"],
-            limit=per_voice,
-        )
-        out.extend(takes)
-    return out
+            limit=1,
+        ):
+            _add(d)
+
+    remaining = max(0, INPUT_SAMPLE_K - len(picks))
+    if remaining > 0:
+        for d in puddle.query(
+            tags_include=[session_tag, "recall-result"],
+            limit=remaining,
+        ):
+            if len(picks) >= INPUT_SAMPLE_K:
+                break
+            _add(d)
+
+    remaining = max(0, INPUT_SAMPLE_K - len(picks))
+    if remaining > 0:
+        for d in puddle.query(
+            tags_include=[CONVO_TAG, "lake-delta"],
+            limit=remaining,
+        ):
+            if len(picks) >= INPUT_SAMPLE_K:
+                break
+            _add(d)
+
+    remaining = max(0, INPUT_SAMPLE_K - len(picks))
+    if remaining > 0:
+        for d in puddle.query(
+            tags_include=[CONVO_TAG, "crystal"],
+            limit=remaining,
+        ):
+            if len(picks) >= INPUT_SAMPLE_K:
+                break
+            _add(d)
+
+    if len(picks) < INPUT_SAMPLE_K:
+        for d in puddle.query(tags_include=[CONVO_TAG, "mood"], limit=1):
+            _add(d)
+
+    return picks
 
 
 def _render_context(deltas: list[dict]) -> str:
@@ -85,12 +152,9 @@ async def run_process(
     is kept as a constant in case something later does want to record
     deliberation lifecycle markers.
     """
-    # Context: pending intents + each voice's most-recent take. v1 keeps
-    # this small; the experiment also pulled resonant material from the
-    # vampire tap, which we'll add when that module lands.
-    voice_anchors = _recent_voice_takes(session_tag, per_voice=1)
+    substrate = _gather_substrate(session_tag)
     seed_block = _render_seed_block(pending)
-    recent = _render_context(voice_anchors)
+    recent = _render_context(substrate)
 
     prompt = VOICE_PROMPT.format(
         seed_block=seed_block,

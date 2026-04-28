@@ -36,9 +36,12 @@ from .puddle import puddle
 RECALL_TTL_S = 48 * 60 * 60
 
 # How many recall results to keep per searcher fire. The experiment
-# used 5; same value here. Each becomes its own `recall-result` delta
-# in the puddle so accordions can group them.
-RECALL_LIMIT = 5
+# used 5, but voices in our setup actually read recall-results as part
+# of their substrate (process._gather_substrate), so a fatter pull gives
+# the deliberation more material to draw from across rounds. K=10 is a
+# moderate increase — the voice's INPUT_SAMPLE_K=8 budget caps how much
+# actually lands in any one prompt, so this just widens the pool.
+RECALL_LIMIT = 10
 
 # Skip a query that's identical (post-normalize) to the last one fired
 # in this process. Saves a redundant search when two voices in one
