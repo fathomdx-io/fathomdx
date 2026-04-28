@@ -50,9 +50,16 @@ ANCHOR_TTL_S = 48 * 60 * 60  # 48h rolling horizon
 REFRESH_INTERVAL_S = 5 * 60  # re-pull every 5 minutes
 
 # Mirror window — how far back to look in the lake on each tick. Each
-# telepathy pass asks for any new lake delta written in the last
-# MIRROR_WINDOW_S seconds; previously-mirrored ids get deduped.
-MIRROR_WINDOW_S = 5 * 60
+# telepathy pass asks for the newest deltas written in the last
+# MIRROR_WINDOW_S seconds, capped at MIRROR_LIMIT items, whichever
+# bound hits first. Previously-mirrored ids get deduped via the
+# `recalled-id:` tag, so steady-state writes are quiet — only deltas
+# the puddle hasn't seen actually land. The wider 24h window means
+# a fresh boot pulls a day of ambient context instead of just the
+# last 5 minutes; the limit caps total volume so a busy day doesn't
+# flood the puddle.
+MIRROR_WINDOW_S = 24 * 60 * 60
+MIRROR_LIMIT = 200
 
 # Sources we never mirror — output-side noise that would echo back into
 # the puddle as "new" activity and feed the loop its own footprint.
@@ -202,7 +209,7 @@ async def mirror_recent_activity() -> int:
     from datetime import datetime, timedelta, UTC
     cutoff = (datetime.now(UTC) - timedelta(seconds=MIRROR_WINDOW_S)).isoformat()
     try:
-        items = await delta_client.query(time_start=cutoff, limit=200)
+        items = await delta_client.query(time_start=cutoff, limit=MIRROR_LIMIT)
     except Exception as e:
         print(f"[telepathy] activity fetch failed: {type(e).__name__}: {e}")
         return 0
