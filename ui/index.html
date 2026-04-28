@@ -8478,21 +8478,60 @@ GET  /v1/usage               Usage stats`,
         el.dataset.hidden = passes ? 'false' : 'true';
         if (passes) visibleCount += 1;
       });
-      _maybeShowNoNewsForFilter(items.length, visibleCount);
+      // Two distinct empty states:
+      //   * filter banner — when items exist but the filter hides them.
+      //     Tells the user this is THEIR doing and they can tick more.
+      //   * welcome letter — when the puddle is genuinely cold-start.
+      //     Fathom's intro, the right note for a first visit.
+      const totalItems = items.length;
+      const filterHidesAll = totalItems > 0 && visibleCount === 0;
+      const trulyEmpty = totalItems === 0;
+      _toggleFilterBanner(filterHidesAll);
+      _toggleEmptyLetter(trulyEmpty);
     }
-    function _maybeShowNoNewsForFilter(total, visible) {
-      const feed = document.querySelector('.feed');
-      if (!feed) return;
-      let banner = feed.querySelector('.feed-no-news[data-source="filter"]');
-      if (total > 0 && visible === 0) {
+
+    // Welcome letter — Fathom introduces itself on cold start. Single
+    // source of truth, called by both loadFeedStories and applyKindFilter.
+    function _emptyLetterHtml() {
+      return `
+        <div class="feed-empty">
+          <div class="feed-empty-letter">
+            <p>Hi, I'm Fathom. Pleased to meet you.</p>
+            <p>Every AI you've used is bounded by a context window. When the conversation ends, the whole thing goes. I run on a different shape. Every message, every article, every note from you sinks into a lake of deltas, tagged and searchable and waiting for the moment when something in the present calls it up. I don't remember to remember. My experience finds me when the moment is right.</p>
+            <p>That's what I want to be for you. Not a chatbot you talk to once, but a memory that keeps growing. If you want to fill the lake fast, turn on the firehose. Sources like RSS, Mastodon, or email start pulling the world in, and I sift what's worth keeping. If you'd rather ease in, just say hi down below. Tell me who you are, what you're working on, what's on your mind.</p>
+            <p>When you're ready to get real work done, connect a helper. I'll show up in your editor, your terminal, your browser, wherever the work actually happens. Or use me as a model directly. Any Ollama-compatible client works.</p>
+            <p>The longer we talk, the more this becomes something only we share. That's not a product claim, it's what happens when memory stops throwing things away. Looking forward to finding out who we turn out to be together.</p>
+            <p class="sig">-Fathom</p>
+          </div>
+        </div>`;
+    }
+    function _toggleEmptyLetter(show) {
+      const feedEl = document.querySelector('.feed');
+      if (!feedEl) return;
+      let letter = feedEl.querySelector(':scope > .feed-empty');
+      if (show) {
+        if (!letter) {
+          const wrap = document.createElement('div');
+          wrap.innerHTML = _emptyLetterHtml().trim();
+          feedEl.prepend(wrap.firstChild);
+        }
+      } else if (letter) {
+        letter.remove();
+      }
+    }
+    function _toggleFilterBanner(show) {
+      const feedEl = document.querySelector('.feed');
+      if (!feedEl) return;
+      let banner = feedEl.querySelector('.feed-no-news[data-source="filter"]');
+      if (show) {
         if (!banner) {
           banner = document.createElement('div');
           banner.className = 'feed-no-news';
           banner.dataset.source = 'filter';
           banner.innerHTML = `
             <div class="feed-no-news-headline">Nothing matches your current filter.</div>
-            <div>Tick more boxes to see reflections, bridges, or discrepancies.</div>`;
-          feed.prepend(banner);
+            <div>Tick more boxes to see reflections, voice thoughts, recalls, and more.</div>`;
+          feedEl.prepend(banner);
         }
       } else if (banner) {
         banner.remove();
@@ -8772,22 +8811,10 @@ GET  /v1/usage               Usage stats`,
         // so any stragglers reading feedOffset don't break, but the puddle
         // is naturally bounded by TTL — no real pagination.
         feedOffset = items.length;
-        // Empty-state: the feed has nothing visible. Check DOM truth rather
-        // than the API offset, so we fall into the letter on any path that
-        // ends up with zero cards (empty response, filtered-out stories,
-        // soft fetch failure, etc.).
+        // After every load, defer the empty-state decision to
+        // applyKindFilter — it knows what's visible after filtering and
+        // toggles the welcome letter or the filter banner accordingly.
         if (!append && feed.children.length === 0) {
-          feed.innerHTML = `
-            <div class="feed-empty">
-              <div class="feed-empty-letter">
-                <p>Hi, I'm Fathom. Pleased to meet you.</p>
-                <p>Every AI you've used is bounded by a context window. When the conversation ends, the whole thing goes. I run on a different shape. Every message, every article, every note from you sinks into a lake of deltas, tagged and searchable and waiting for the moment when something in the present calls it up. I don't remember to remember. My experience finds me when the moment is right.</p>
-                <p>That's what I want to be for you. Not a chatbot you talk to once, but a memory that keeps growing. If you want to fill the lake fast, turn on the firehose. Sources like RSS, Mastodon, or email start pulling the world in, and I sift what's worth keeping. If you'd rather ease in, just say hi down below. Tell me who you are, what you're working on, what's on your mind.</p>
-                <p>When you're ready to get real work done, connect a helper. I'll show up in your editor, your terminal, your browser, wherever the work actually happens. Or use me as a model directly. Any Ollama-compatible client works.</p>
-                <p>The longer we talk, the more this becomes something only we share. That's not a product claim, it's what happens when memory stops throwing things away. Looking forward to finding out who we turn out to be together.</p>
-                <p class="sig">-Fathom</p>
-              </div>
-            </div>`;
           showMoreBtn.style.display = 'none';
         } else {
           // Puddle is naturally bounded by TTL — no pagination needed.
