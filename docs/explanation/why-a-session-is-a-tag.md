@@ -23,7 +23,7 @@ This looks like a shortcut until you see what it buys.
 
 **Extensibility without schema migration.** When a new kind of writer joins, nothing in the schema changes. A new plugin that wants to participate in `chat:home-automation` just adds the tag. The session absorbs it automatically. No new `plugin_session_access` table, no new foreign key, no migration.
 
-**Sessions compose with everything else.** Because a session is just a tag filter, any other filter composes with it. "Everything in `chat:fluid-ideas` from this week" is a tag filter plus a time filter. "Everything in `chat:fluid-ideas` written by Myra" is a tag filter plus a contact filter. "Everything in `chat:fluid-ideas` semantically similar to 'singularities'" is a tag filter plus a semantic query. No API surface has to exist for each combination; they all fall out of the same recall primitives.
+**Sessions compose with everything else.** Because a session is just a tag filter, any other filter composes with it. "Everything in `chat:fluid-ideas` from this week" is a tag filter plus a time filter. "Everything in `chat:fluid-ideas` written by the admin" is a tag filter plus a contact filter. "Everything in `chat:fluid-ideas` semantically similar to 'singularities'" is a tag filter plus a semantic query. No API surface has to exist for each combination; they all fall out of the same recall primitives.
 
 **History is the session.** There is no separate log to keep in sync. The session and the list of deltas tagged `chat:<slug>` are literally the same thing. You can't have a "session exists but messages got purged" inconsistency, because the session's existence is the existence of its deltas.
 
@@ -43,7 +43,7 @@ A chat turn written by a user lands in the lake with tags like:
 
 ```
 ["chat", "fathom-chat", "chat:jovial-exhausted-rabbit",
- "participant:user", "contact:myra"]
+ "participant:user", "contact:admin"]
 ```
 
 An assistant reply from the same session:

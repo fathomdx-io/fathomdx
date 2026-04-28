@@ -271,8 +271,8 @@ PROPOSAL_TAG = "contact-proposal"
 PROPOSAL_RESOLVED_TAG = "contact-proposal-resolved"
 
 # Unresolved proposals auto-expire so the admin UI doesn't accrete
-# stale entries forever. 30d is long enough that Myra can sit with a
-# proposal across a travel trip or a deep-work stretch; short enough
+# stale entries forever. 30d is long enough that the admin can sit with
+# a proposal across a travel trip or a deep-work stretch; short enough
 # that forgotten proposals don't ossify.
 PROPOSAL_TTL_SECONDS = 30 * 24 * 3600
 

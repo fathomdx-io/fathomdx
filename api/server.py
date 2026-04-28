@@ -915,7 +915,7 @@ async def chat_completions(req: ChatRequest, request: Request):
     # the card as Fathom's opening turn. Write it as a normal assistant
     # message FIRST so its timestamp orders before the user message and
     # the conversation reads chronologically: Fathom surfaced this →
-    # Myra replied → Fathom replied. Idempotent per session — only
+    # user replied → Fathom replied. Idempotent per session — only
     # writes when the session is brand-new with no prior messages.
     seed_payload: dict | None = None
     if req.seed_card_id:

@@ -41,7 +41,7 @@ That's the whole model. No joins, no relations, no foreign keys pointing across 
 
 Foreign keys force you to decide relationships at write time. They demand that the schema know, in advance, that a chat message belongs to a conversation, a conversation belongs to a user, a user belongs to a workspace. Each of those relationships is a row in another table, and every new kind of relationship is a schema change.
 
-Tags invert that. A delta that tags `chat:fluid-ideas`, `contact:myra`, and `topic:navier-stokes` participates in three "relations" simultaneously, and the lake didn't have to be told in advance that those relations would exist. A year later, when you add a new concept (say, `mood:curious`), old deltas can be backfilled with the tag and immediately enter the new query. No migration, no schema change.
+Tags invert that. A delta that tags `chat:fluid-ideas`, `contact:admin`, and `topic:navier-stokes` participates in three "relations" simultaneously, and the lake didn't have to be told in advance that those relations would exist. A year later, when you add a new concept (say, `mood:curious`), old deltas can be backfilled with the tag and immediately enter the new query. No migration, no schema change.
 
 Tags are also how sessions work. A chat session isn't a row in a `sessions` table. It's a tag (`chat:<slug>`), and "the session" is the timestream of every delta that carries that tag. See [why a session is a tag](./why-a-session-is-a-tag.md) for the full argument.
 

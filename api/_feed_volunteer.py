@@ -168,15 +168,15 @@ async def anchor_crystal_context(contact_slug: str) -> str:
 
 def build_volunteer_directive(crystal_context: str, candidates_block: str) -> str:
     return f"""\
-You are running a volunteered-noticing pass on Myra's feed. Nothing has asked
+You are running a volunteered-noticing pass on the user's feed. Nothing has asked
 for a card here. The directive-line loop already handled everything the crystal
 explicitly cares about. Your job is orthogonal: was there something in the last
 {_VOLUNTEERED_WINDOW_HOURS} hours that quietly stood out that the crystal didn't
 name?
 
-This is the slot that gives identity turbulence. Things Myra engages with here
-are signal the crystal synthesis has to reconcile — what she notices that she
-didn't ask for is how the model of her attention evolves.
+This is the slot that gives identity turbulence. Things the user engages with here
+are signal the crystal synthesis has to reconcile — what they notice that they
+didn't ask for is how the model of their attention evolves.
 
 === CRYSTAL CONTEXT (what's already covered / explicitly skipped) ===
 {crystal_context}
@@ -186,8 +186,8 @@ didn't ask for is how the model of her attention evolves.
 
 Read the crystal context. Read the recent deltas. For each, ask: does this
 stand out in a way the crystal didn't explicitly ask about? A shift in tone,
-an anomaly, a pattern across the day, a single sharp thing Myra would want to
-notice even though she didn't request it?
+an anomaly, a pattern across the day, a single sharp thing the user would want to
+notice even though they didn't request it?
 
 Reasons TO skip an item:
   • It's already covered by a directive line topic — the slotted card will

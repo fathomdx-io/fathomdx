@@ -471,7 +471,7 @@ LAKE_TOOLS = [
                 "to": {
                     "type": "string",
                     "description": (
-                        "Recipient contact slug (e.g. 'myra'). Optional — "
+                        "Recipient contact slug (e.g. 'admin'). Optional — "
                         "defaults to the requestor's own contact, which is "
                         "almost always what you want for self-directed "
                         "alerts and reminders."

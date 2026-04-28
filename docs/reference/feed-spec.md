@@ -1,16 +1,16 @@
 # Feed Spec
 
-The feed is what Fathom shows Myra on the dashboard — short cards distilled from the lake, the web, and Fathom's own work on her behalf. It is not a recommender. It is a **provenance generator**: Fathom goes out, finds what Myra cares about, writes it as sediment, and renders the most recent layer.
+The feed is what Fathom shows the user on the dashboard — short cards distilled from the lake, the web, and Fathom's own work on their behalf. It is not a recommender. It is a **provenance generator**: Fathom goes out, finds what the user cares about, writes it as sediment, and renders the most recent layer.
 
-The feed orients on a `crystal:feed-orient` delta — a task-shaped distillation of "what Myra wants to see right now," regenerated from her engagement over time. The crystal IS the directive; Myra never writes one.
+The feed orients on a `crystal:feed-orient` delta — a task-shaped distillation of "what the user wants to see right now," regenerated from their engagement over time. The crystal IS the directive; the user never writes one.
 
 ## Why this shape
 
 Three observations drive the design:
 
 1. **Routines require an agent that's not installed by default.** The feed must work out-of-the-box. The fire path lives inside `consumer-api` (Python, in-process), not in a routine on the agent host.
-2. **Click is not engagement.** A click opens a chat. The signal is whatever Myra *says* in that chat, plus explicit `more`/`less` reactions. No viewport time, no scroll depth, no implicit scoring.
-3. **The directive is not for Myra to write.** Asking Myra to maintain a list of interests is asking her to do Fathom's job. Fathom distills it from her engagement and her conversation. If the model is wrong, Myra corrects it the way she corrects anything else — by talking.
+2. **Click is not engagement.** A click opens a chat. The signal is whatever the user *says* in that chat, plus explicit `more`/`less` reactions. No viewport time, no scroll depth, no implicit scoring.
+3. **The directive is not for the user to write.** Asking the user to maintain a list of interests is asking them to do Fathom's job. Fathom distills it from their engagement and their conversation. If the model is wrong, the user corrects it the way they correct anything else — by talking.
 
 ## Anatomy
 
@@ -32,11 +32,11 @@ The only signals captured:
 
 | Kind | Trigger | Strength |
 |---|---|---|
-| `engagement:more` | Myra hits the `+` button on a card | strong positive |
-| `engagement:less` | Myra hits the `−` button on a card | strong negative |
-| `engagement:chat` | Myra sends a message in a chat session opened from a card | positive (sentiment-graded by content) |
+| `engagement:more` | The user hits the `+` button on a card | strong positive |
+| `engagement:less` | The user hits the `−` button on a card | strong negative |
+| `engagement:chat` | The user sends a message in a chat session opened from a card | positive (sentiment-graded by content) |
 
-Both `+` and `−` ship together. One alone is a dial; both make a *shape* — Myra can disagree as legibly as she can agree.
+Both `+` and `−` ship together. One alone is a dial; both make a *shape* — the user can disagree as legibly as they can agree.
 
 Engagement delta content is JSON:
 
@@ -53,14 +53,14 @@ Chat-engagement deltas are written by the chat listener when a chat session was 
 
 ## The crystal
 
-A `crystal:feed-orient` delta is Fathom's current model of "what to put in Myra's feed." Latest wins.
+A `crystal:feed-orient` delta is Fathom's current model of "what to put in the user's feed." Latest wins.
 
 Content is structured JSON so the confidence scorer has something to check:
 
 ```json
 {
   "version": 1,
-  "narrative": "Myra wants weather (rainy/stormy preferred), local-STL things to do with Nova on weekends, AI/tech news with a skeptical lens, home-assistant signals worth surfacing, occasional wardrobe finds. Skip routine-completion noise and anything Fathom said yesterday.",
+  "narrative": "The user wants weather (rainy/stormy preferred), local-STL things to do with Nova on weekends, AI/tech news with a skeptical lens, home-assistant signals worth surfacing, occasional wardrobe finds. Skip routine-completion noise and anything Fathom said yesterday.",
   "directive_lines": [
     {"id": "weather", "topic": "weather", "freshness_hours": 12, "weight": 0.9, "skip_if": "no precipitation"},
     {"id": "local-nova", "topic": "stl-events", "freshness_hours": 48, "weight": 0.8, "skip_if": "weekday-only events"},
@@ -203,9 +203,9 @@ Each phase ends with: works in isolation, can be merged independently, doesn't b
 ## Open questions
 
 - **Engagement decay.** How fast should an `engagement:more` from 30 days ago lose weight against one from yesterday? Probably the same half-life as the existing pressure system, but worth measuring before fixing.
-- **Sentiment grading on `engagement:chat`.** Is "this card is wrong, here's why" a positive (Myra cared enough to correct) or negative (the card was bad)? Probably a small classifier turn at engagement-write time, but v1 can treat all chat-engagement as positive and refine later.
+- **Sentiment grading on `engagement:chat`.** Is "this card is wrong, here's why" a positive (the user cared enough to correct) or negative (the card was bad)? Probably a small classifier turn at engagement-write time, but v1 can treat all chat-engagement as positive and refine later.
 - **Topic taxonomy.** `topic:weather`, `topic:stl-events` — who maintains this? Free-form (whatever the LLM emits per card, drifting over time) or constrained (a fixed enum)? Free-form is more Fathom-shaped; constrained is more measurable. Lean free-form.
-- **Multi-contact futures.** When Nova or Bob gets dashboard access (per `contact-spec.md`), each contact gets their own crystal. The `crystal:feed-orient` tag becomes `crystal:feed-orient` + `contact:<slug>`. Out of scope for v1 (Myra-only) but the tag shape leaves room.
+- **Multi-contact futures.** When Nova or Bob gets dashboard access (per `contact-spec.md`), each contact gets their own crystal. The `crystal:feed-orient` tag becomes `crystal:feed-orient` + `contact:<slug>`. Out of scope for v1 (admin-only) but the tag shape leaves room.
 
 ---
 
@@ -220,7 +220,7 @@ Eight passes today, in priority order. Each pass self-silences when nothing mean
 | Pass | Module | Default cap | Purpose |
 |---|---|---|---|
 | `alert` | `_feed_alert.py` | `feed_pass_budget_alert` (5) | Piercing tier — anomalies, source-silent gaps, integrity events. |
-| `reflection` | `_feed_reflection.py` | `feed_pass_budget_reflection` (2) | Provenance / wisdom-as-sediment. "Myra shipped X today." |
+| `reflection` | `_feed_reflection.py` | `feed_pass_budget_reflection` (2) | Provenance / wisdom-as-sediment. "The user shipped X today." |
 | `bridging` | `_feed_bridging.py` | `feed_pass_budget_bridging` (2) | Cross-workspace structural pattern matching. The old Scout role. |
 | `discrepancy` | `_feed_discrepancy.py` | `feed_pass_budget_discrepancy` (1) | Internal contradiction — "you said X, then ~X." Uncomfortable-truth lane. |
 | `per_line` | `feed_loop.py:_fire_line` | per-crystal | Existing — directive-line cards from the feed-orient crystal. |

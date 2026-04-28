@@ -4,10 +4,10 @@ Fathom is one memory. The lake is append-only, latest-wins. Most of what the lak
 
 ## Why this matters
 
-Any authenticated caller with `lake:write` scope can write arbitrary deltas with arbitrary tags. That's fine when the lake is Myra's own notebook. It stops being fine the moment there's a second contact:
+Any authenticated caller with `lake:write` scope can write arbitrary deltas with arbitrary tags. That's fine when the lake is the admin's own notebook. It stops being fine the moment there's a second contact:
 
 - Bob writes `profile + contact:bob` with `{"role": "admin"}`. Latest-wins resolves him to admin.
-- Bob writes `handle:telegram:<myra-telegram-id> + contact:bob`. Now Myra's telegram hijacks to him on the next resolve.
+- Bob writes `handle:telegram:<admin-telegram-id> + contact:bob`. Now the admin's telegram hijacks to him on the next resolve.
 - Bob writes `routine-fire + routine-id:X`. The agent on a trusted host executes X's prompt.
 - Bob writes `crystal:identity` with a drifted description. Fathom's self-understanding pivots on the next regen check.
 
@@ -76,7 +76,7 @@ Plugins (browser extension, CLI, claude-code hooks, agent plugins) authenticate 
 **Plugins cannot register their own reserved tags.** This is deliberate:
 
 - Letting untrusted code extend the registry turns the protection into a race. A malicious plugin could reserve `chat-message` and then selectively reject other callers. Authority must never be delegable to code outside the trust boundary.
-- A compromised plugin registering `reply-as-myra` would silently re-label authority and break the invariant that the registry is the one place to read and reason about it.
+- A compromised plugin registering `reply-as-admin` would silently re-label authority and break the invariant that the registry is the one place to read and reason about it.
 
 If a plugin needs a structured write that feels like it deserves authority, the path is:
 
@@ -161,7 +161,7 @@ Strip-and-re-stamp adds `contact:bob`. Reservation scan: `chat-name` is reserved
 
 ```
 POST /v1/contacts/nova    (named admin endpoint, gated by Depends(require_admin))
-Authorization: Bearer <myra's admin token>
+Authorization: Bearer <admin token>
 X-HTTP-Method-Override: DELETE
 ```
 

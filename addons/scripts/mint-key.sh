@@ -7,14 +7,14 @@
 #
 # Usage:
 #   addons/scripts/mint-key.sh                    # interactive: pick a contact
-#   addons/scripts/mint-key.sh --contact myra     # non-interactive
+#   addons/scripts/mint-key.sh --contact admin    # non-interactive
 #   addons/scripts/mint-key.sh list-contacts      # just show who's here
 #   addons/scripts/mint-key.sh list-keys          # existing tokens (no raw values)
 #
 # The raw token prints on stdout; metadata (id, scopes) prints on
 # stderr. That lets you pipe:
 #
-#     KEY=$(addons/scripts/mint-key.sh --contact myra 2>/dev/null)
+#     KEY=$(addons/scripts/mint-key.sh --contact admin 2>/dev/null)
 
 set -euo pipefail
 

@@ -1,5 +1,5 @@
 """Feed-orient crystal — Fathom's task-shaped model of "what to put in
-Myra's feed right now."
+the user's feed right now."
 
 Borrows the **mood pattern**, not the identity-crystal pattern: cheap
 focused synthesis, in-process, no background poller. Wake-gated regen
@@ -233,9 +233,9 @@ async def _fetch_recent_cards(contact_slug: str, limit: int = 50) -> list[dict]:
 async def _fetch_lake_topic_summary(window_hours: int = 72) -> str:
     """A compact survey of what content is *available* to the loop right now.
 
-    Without this, the crystal designs directive lines purely from Myra's
+    Without this, the crystal designs directive lines purely from the user's
     engagement signals — which means new sources (NASA images, fresh RSS
-    feeds, etc.) never make it into the rotation because she's never had
+    feeds, etc.) never make it into the rotation because they've never had
     a chance to engage with them. Including a recency snapshot lets the
     crystal propose lines that the loop can actually fulfill.
     """
@@ -454,7 +454,7 @@ def _engagement_sign(kind: str) -> float:
     ±1. Soft signals (scroll-past, dwell-low) carry half weight — the
     user didn't *say* they disliked it; they just didn't engage. Soft
     negatives are still informative (Fathom shouldn't keep showing
-    cards Myra silently scrolls past) but shouldn't outweigh a real
+    cards the user silently scrolls past) but shouldn't outweigh a real
     thumbs-down. Returns 0.0 for unknown kinds; callers treat that as
     "skip, no signal."
     """

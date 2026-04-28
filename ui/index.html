@@ -264,10 +264,10 @@
       transition: color 120ms ease, border-color 120ms ease;
     }
     .card-extra-link:hover { color: var(--ink); border-color: var(--ink-faint); }
-    /* Engagement buttons — Myra's only explicit signal into the feed-orient
-       crystal. Subtle on rest, lift on hover, persist on press. The card's
-       data-engaged attribute records the last kind ("more" or "less") so a
-       reopen of the page reflects what was already said. */
+    /* Engagement buttons — the user's only explicit signal into the
+       feed-orient crystal. Subtle on rest, lift on hover, persist on press.
+       The card's data-engaged attribute records the last kind ("more" or
+       "less") so a reopen of the page reflects what was already said. */
     .card .tail .engagement-spacer { flex: 1; }
     .card .tail .engagement-btn {
       font-family: var(--mono); font-size: 13px; line-height: 1;
@@ -2571,10 +2571,10 @@
     </div>
     <div class="sidebar-foot">
       <button class="account-row" id="accountRowBtn" type="button">
-        <div class="avatar-sm" id="accountAvatar">MK</div>
+        <div class="avatar-sm" id="accountAvatar">…</div>
         <div class="account-row-info">
-          <div class="name" id="accountName">Myra Krusemark</div>
-          <div class="email" id="accountRole">myrakrusemark@gmail.com</div>
+          <div class="name" id="accountName">…</div>
+          <div class="email" id="accountRole">…</div>
         </div>
       </button>
     </div>
@@ -2806,15 +2806,15 @@
         <ul class="ecg-legend">
           <li class="legend-item">
             <span class="legend-key"><span class="dot" style="background:#b08cff;"></span>Engagement drift</span>
-            <span class="legend-desc">How far Myra's signals (more, less, chats from cards) have moved since the last feed-orient crystal. Anchored at acceptance — drift reads zero immediately after a fresh crystal.</span>
+            <span class="legend-desc">How far your signals (more, less, chats from cards) have moved since the last feed-orient crystal. Anchored at acceptance — drift reads zero immediately after a fresh crystal.</span>
           </li>
           <li class="legend-item">
             <span class="legend-key"><span class="dot" style="background:#d8b14a;"></span>Confidence</span>
-            <span class="legend-desc">How well the previous crystal predicted Myra's reactions to the cards it generated. Each new crystal is tagged with the score it earned over its lifetime.</span>
+            <span class="legend-desc">How well the previous crystal predicted your reactions to the cards it generated. Each new crystal is tagged with the score it earned over its lifetime.</span>
           </li>
           <li class="legend-item">
             <span class="legend-key"><span class="ev crystal">◆</span>Feed-orient crystal regeneration</span>
-            <span class="legend-desc">A moment Fathom rewrote its model of "what to put in Myra's feed." Triggered by drift or low confidence, gated by cooldown and a min-signal cold-start guard.</span>
+            <span class="legend-desc">A moment Fathom rewrote its model of "what to put in your feed." Triggered by drift or low confidence, gated by cooldown and a min-signal cold-start guard.</span>
           </li>
         </ul>
       </div>
@@ -3578,8 +3578,8 @@
     // no admin yet is not something the dashboard can render — there's
     // no contact, no profile, no feed scope. Redirect to the onboarding
     // page so the first user introduces themselves and mints the admin
-    // token. Post-bootstrap installs (incl. Myra's box) short-circuit
-    // to false and this costs one public GET per page load.
+    // token. Post-bootstrap installs short-circuit to false and this
+    // costs one public GET per page load.
     async function _enforceBootstrapGate() {
       try {
         const r = await fetch(API_BASE + '/v1/auth/bootstrap-status');
@@ -4103,7 +4103,7 @@
         form.innerHTML = `
           <div class="form-group">
             <label>Vault path</label>
-            <input class="form-input" id="addFieldPath" type="text" placeholder="/home/myra/Dropbox/Work/fathom/vault" autocomplete="off"/>
+            <input class="form-input" id="addFieldPath" type="text" placeholder="/path/to/your/vault" autocomplete="off"/>
           </div>
           <div class="form-group">
             <label>Display name <span style="color: var(--ink-faint); font-weight: 400;">(optional)</span></label>
@@ -8829,7 +8829,7 @@ GET  /v1/usage               Usage stats`,
 
       // Stash the seed-card metadata so the first message in this fresh
       // session can land an `engagement:chat` delta tied back to the card.
-      // The chat-from-card pairing is what makes "Myra clicked, then said
+      // The chat-from-card pairing is what makes "user clicked, then said
       // X" a measurable confidence signal — see docs/feed-spec.md.
       _seedCard = card.dataset.cardId
         ? {

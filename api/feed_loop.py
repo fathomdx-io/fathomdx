@@ -1,7 +1,7 @@
 """Feed loop — page-view-debounced consumer of the feed-orient crystal.
 
 The crystal lives in api/feed_crystal.py and answers "what to put in
-Myra's feed right now." This module answers "when, and what cards
+the user's feed right now." This module answers "when, and what cards
 land." It runs in-process inside consumer-api — no agent, no routine,
 no external scheduler. The dashboard load is the wake event.
 
@@ -303,8 +303,8 @@ def _summarize_outcome(contact_slug: str, had_crystal: bool, had_lines: bool) ->
     }
 
 
-# Per-contact single-flight locks. Myra's feed fire shouldn't block Bob's —
-# each contact gets its own asyncio.Lock, minted lazily on first use.
+# Per-contact single-flight locks. One contact's feed fire shouldn't block
+# another's — each contact gets its own asyncio.Lock, minted lazily on first use.
 _run_locks: dict[str, asyncio.Lock] = {}
 
 # Per-contact UI status. Read by /v1/feed/status for the "generating…"
@@ -349,7 +349,7 @@ async def mark_visit(contact_slug: str) -> dict:
     since the last check-in."
 
     Each contact has its own pressure state, lock, and pending-fire task,
-    so a visit from Bob never blocks Myra's feed from firing.
+    so a visit from one contact never blocks another's feed from firing.
     """
     if _lock_for(contact_slug).locked():
         return {"scheduled": False, "reason": "already-running"}
@@ -744,7 +744,7 @@ async def _fire_line(
     skip_block = ("\nGENERAL SKIP RULES:\n  - " + "\n  - ".join(skip_rules)) if skip_rules else ""
 
     directive = (
-        f"You are filling one slot in Myra's feed.\n\n"
+        f"You are filling one slot in the user's feed.\n\n"
         f"OVERALL FEED ORIENTATION (from the crystal):\n{crystal.get('narrative') or '(none)'}\n\n"
         f"THIS SLOT:\n"
         f"  id:      {line_id}\n"

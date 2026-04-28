@@ -64,7 +64,7 @@ async def anchor_now_text(contact_slug: str) -> str:
     telepathy between sibling sessions:
       • Mood carrier-wave — the reflective register right now.
       • Feed crystal narrative — the deliberate axis of current attention.
-      • Recent user chat (last 24h) — what Myra's actually been saying.
+      • Recent user chat (last 24h) — what the user has actually been saying.
 
     Each layer fails open: if the load errors, the block is just omitted.
     The drift pass survives a missing mood or no-crystal-yet.
@@ -106,7 +106,7 @@ async def anchor_now_text(contact_slug: str) -> str:
             if len(lines) >= 10:
                 break
         if lines:
-            parts.append("=== RECENT CHAT (last 24h, Myra's turns) ===\n" + "\n".join(lines))
+            parts.append("=== RECENT CHAT (last 24h, the user's turns) ===\n" + "\n".join(lines))
     except Exception:
         pass
 
@@ -236,7 +236,7 @@ orphaned — always carry the link through when one is available.
 
 def build_drift_directive(anchor_text: str, candidates_block: str) -> str:
     return f"""\
-You are running a drift pass on Myra's feed. Nothing has asked for a card here.
+You are running a drift pass on the user's feed. Nothing has asked for a card here.
 This is the free-association slot — the counterpart to the directive lines.
 You are looking for resonances the crystal wouldn't find because they sit OFF
 its axis of attention.

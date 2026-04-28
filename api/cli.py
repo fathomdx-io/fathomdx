@@ -10,8 +10,8 @@ is the same trust boundary that protects tokens.json.
     python -m api.cli list-contacts
     python -m api.cli list-keys
     python -m api.cli mint-key                     # interactive: pick from list
-    python -m api.cli mint-key --contact myra       # non-interactive
-    python -m api.cli mint-key --contact myra --name "Recovery key"
+    python -m api.cli mint-key --contact admin      # non-interactive
+    python -m api.cli mint-key --contact admin --name "Recovery key"
 
 Meant to be invoked via `addons/scripts/mint-key.sh` on the host,
 which wraps `docker compose exec api python -m api.cli …`. The

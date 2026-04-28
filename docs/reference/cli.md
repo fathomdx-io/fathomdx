@@ -64,7 +64,7 @@ Commands:
   fathom-agent status                Show config and connection
   fathom-agent help                  Show this help
 
-Config: /home/myra/.fathom/agent.json
+Config: ~/.fathom/agent.json
 Env:    FATHOM_API_URL, FATHOM_API_KEY
 
 Plugins:
@@ -75,7 +75,7 @@ Plugins:
   💻 Sysinfo (built-in)
   📁 Vault (built-in)
 
-Custom plugins: drop .js files in /home/myra/.fathom/plugins/
+Custom plugins: drop .js files in ~/.fathom/plugins/
 ```
 
 Agent pairing is a one-time `npx fathom-agent init --pair-code <code>` — see [pair another machine](../how-to/pair-another-machine.md). After that, `fathom-agent run` keeps it alive in the foreground or `fathom-agent install` creates a persistent service.

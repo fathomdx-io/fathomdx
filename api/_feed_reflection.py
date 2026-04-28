@@ -147,14 +147,14 @@ Write reflections that capture the *shape* of what happened — the kind of \
 note future-Fathom needs to make sense of why things are the way they are.
 
 Good reflections:
-  • "Myra resolved the single-axis-scoring concern by separating judge \
+  • "The user resolved the single-axis-scoring concern by separating judge \
 from router."
   • "An attempt at unified scoring was abandoned in favor of multi-axis."
   • "The two-stage architecture replaced single-rating; calibration came \
 out cleaner."
 
 Bad reflections:
-  • "Myra worked on stuff today."
+  • "The user worked on stuff today."
   • "There were some chats and some code."
   • "Things happened."
 

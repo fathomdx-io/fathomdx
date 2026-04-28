@@ -14,7 +14,7 @@
 5. ✅ No file in `api/` exceeds 800 lines (max: 773)
 6. ✅ Coverage matrix: every in-scope cell DONE; UX cells N/A
 
-Nothing remaining to drive. If Myra wants more iterations, add new
+Nothing remaining to drive. If the user wants more iterations, add new
 perspectives to the matrix or relax the §Completion bar in the PRD.
 
 ## Coverage matrix
@@ -94,7 +94,7 @@ Two plausible shapes for the split (pick one before next iteration):
    `api/routes/` for handlers, `api/lifespan.py` for startup.
    Smaller per-file diffs but the feed cluster still ends up large.
 
-Myra to choose. Once chosen, the split itself is ~45 minutes of
+The user to choose. Once chosen, the split itself is ~45 minutes of
 mechanical moves + one `pytest` + a `curl /v1/*` smoke.
 
 ## Iteration log
@@ -555,8 +555,8 @@ it. Two failure modes in one idiom.
 **New helper**: `api/_bgtasks.py:spawn(coro, *, name=...)` — adds the
 task to a module-level set, drops it in a done_callback, AND logs any
 exception on completion. Commit `7745ef3` introduced it. Accidentally
-bundled with some unstaged hook.sh edits Myra had in her working
-tree; Myra explicitly OK'd the bundle for this cleanup-pass iteration.
+bundled with some unstaged hook.sh edits the user had in their working
+tree; the user explicitly OK'd the bundle for this cleanup-pass iteration.
 
 **Commits (one fix per site/cluster)**
 - `7745ef3` — add `api/_bgtasks.py` helper
@@ -600,7 +600,7 @@ Ten commits on `ralph`. api/server.py 2 417 → 688 LOC (-1 729) —
 under the 800-line ceiling for the first time since the baseline.
 Tests stayed green (1/1) throughout. Every URL path unchanged.
 
-Myra picked Option A (split by resource) after the prior iteration's
+The user picked Option A (split by resource) after the prior iteration's
 write-up. Nine new router files under `api/routes/`:
 
 | file | routes | purpose |

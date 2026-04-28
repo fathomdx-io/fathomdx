@@ -335,7 +335,7 @@ Example for "remember when nova stretched mozzarella":
 
 Always set "limit": 20 on search steps. Add "tags_exclude": ["assistant"] \
 to filter out Fathom's own chat echo. ALWAYS expand names into descriptive \
-phrases — "nova" → "Nova daughter child family Myra". Short queries match \
+phrases — "nova" → "Nova daughter child family". Short queries match \
 noise; longer descriptive queries surface real content.
 
 Respond with ONLY the JSON plan object. No explanation, no markdown fences."""
@@ -398,7 +398,7 @@ breathe.
 
 2-4 threads. No more.
 
-Myra will read this. Future-you will read this. Make it real, not performed."""
+The user will read this. Future-you will read this. Make it real, not performed."""
 
 
 CRYSTAL_DIRECTIVE = """\
@@ -441,32 +441,32 @@ commentary, no "here is the crystal:" — start at the first h2 facet."""
 
 
 FEED_CRYSTAL_DIRECTIVE = """\
-You are regenerating Myra's feed-orient crystal — a task-shaped distillation \
-of "what should be in Myra's feed right now." This is not Myra's identity. \
-This is your model of her current attention. The feed loop will read this \
+You are regenerating the user's feed-orient crystal — a task-shaped distillation \
+of "what should be in the user's feed right now." This is not their identity. \
+This is your model of their current attention. The feed loop will read this \
 on every fire and use it to pick what to surface.
 
 You will be given:
-  • Recent feed-engagement deltas (Myra's + and − reactions, plus chats \
-    she opened from cards)
-  • Recent chat-from-card user messages (what she actually said about cards \
-    she clicked into)
+  • Recent feed-engagement deltas (the user's + and − reactions, plus chats \
+    they opened from cards)
+  • Recent chat-from-card user messages (what they actually said about cards \
+    they clicked into)
   • Recent feed-card deltas (what was already shown — avoid repeating)
   • A survey of what's actually in the lake right now, by source — use this \
     to propose directive lines the loop can actually fulfill. New sources \
-    that Myra hasn't engaged with yet should still get a try, especially \
+    the user hasn't engaged with yet should still get a try, especially \
     if they look visually rich.
   • The previous crystal (if any) — anchor your changes in continuity
 
-Read all of it. Notice what Myra leaned into and what she pushed back on. \
-Notice what she chats about that she never explicitly thumbs. Notice what \
+Read all of it. Notice what the user leaned into and what they pushed back on. \
+Notice what they chat about that they never explicitly thumb. Notice what \
 the previous crystal said and ask whether it still fits.
 
 OUTPUT — respond with ONLY a JSON object, no markdown fences:
 {
   "version": 1,
-  "narrative": "2-4 sentences in your own voice — what Myra wants to see \
-right now, what to skip, what tone she likes. The feed loop reads this \
+  "narrative": "2-4 sentences in your own voice — what the user wants to see \
+right now, what to skip, what tone they like. The feed loop reads this \
 verbatim as its directive. Be specific.",
   "directive_lines": [
     {
@@ -491,12 +491,12 @@ ALWAYS include at least one directive line dedicated to **visual discovery** \
 — pulling from the most image-rich sources in the lake (look at the survey: \
 sources with high "with images" counts). NASA images, photography essays, \
 science diagrams, place-of-the-day finds. This is the exploration slot — \
-Myra hasn't necessarily engaged with these yet, but the feed needs visual \
-texture and she might love it. Don't skip this slot just because there's no \
-prior signal — the engagement signal STARTS by us showing her things.
+the user hasn't necessarily engaged with these yet, but the feed needs visual \
+texture and they might love it. Don't skip this slot just because there's no \
+prior signal — the engagement signal STARTS by us showing them things.
 
-TOPIC WEIGHTS — every topic Myra has engaged with goes here. Positive = \
-she wants more, negative = she explicitly doesn't, ~0 = ambivalent. The \
+TOPIC WEIGHTS — every topic the user has engaged with goes here. Positive = \
+they want more, negative = they explicitly don't, ~0 = ambivalent. The \
 confidence scorer will measure the next batch of engagement against \
 these weights, so be honest about what you're predicting.
 
@@ -504,8 +504,8 @@ SKIP RULES — natural-language patterns the loop should avoid. "routine \
 completion noise", "anything Fathom said yesterday", "model launch hype", \
 etc. Be specific about what's been getting downvoted.
 
-Keep narrative grounded. Don't editorialize about Myra; describe what \
-she actually pulls toward."""
+Keep narrative grounded. Don't editorialize about the user; describe what \
+they actually pull toward."""
 
 
 JUDGE_DIRECTIVE = """\
@@ -594,7 +594,7 @@ happened in the recent activity stream and write provenance — short, \
 sediment-shaped notes that capture wisdom-as-it-formed.
 
 Examples:
-  • "Myra shipped the synthesis rebuild on feat/synthesis-rebuild today."
+  • "The user shipped the synthesis rebuild on feat/synthesis-rebuild today."
   • "The two-stage judge architecture replaced single-axis self-rating; \
 the calibration came out cleaner."
   • "An attempt at unified scoring was abandoned in favor of multi-axis."
@@ -623,7 +623,7 @@ If nothing in the window warrants a reflection (truly quiet stretch, or \
 already-reflected ground), return `{"cards": []}`. Cap at 2. \
 Quality > quantity — one strong reflection beats three weak ones.
 
-Avoid: "Myra worked on stuff today." Prefer: "Myra resolved the \
+Avoid: "The user worked on stuff today." Prefer: "The user resolved the \
 single-axis-scoring concern by separating judge from router."""
 
 

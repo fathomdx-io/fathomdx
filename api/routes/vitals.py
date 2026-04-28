@@ -24,8 +24,8 @@ router = APIRouter()
 async def get_latest_mood():
     """Return the most recent mood (carrier wave) plus current pressure state.
 
-    The UI surfaces this as a feed-style card so Myra can see what Fathom
-    is carrying right now.
+    The UI surfaces this as a feed-style card so the user can see what
+    Fathom is carrying right now.
     """
     latest = await mood.latest_mood()
     pressure_state = await pressure.read_pressure()

@@ -47,7 +47,7 @@ _EXCLUDE_TAGS = [
 
 async def fetch_recent_user_positions(window_days: int = _RECENT_DAYS) -> list[dict]:
     """Recent user-authored content. Tagged participant:user are chat
-    turns; we also include claude-code work (Myra's own typing) since
+    turns; we also include claude-code work (the user's own typing) since
     code-side decisions and chat-side opinions form one consistent
     voice."""
     cutoff = (_now() - timedelta(days=window_days)).isoformat()
