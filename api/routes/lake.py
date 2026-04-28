@@ -414,45 +414,6 @@ LAKE_TOOLS = [
         "response_kind": "tags",
     },
     {
-        "name": "rename_session",
-        "description": (
-            "Rename the current chat session — the name you pass becomes "
-            "the title shown in the dashboard sidebar. Use this when the "
-            "session is still showing its raw slug / UUID and needs a "
-            "readable title, or when the user asks to rename the "
-            "conversation. For the claude-code surface, session_id is "
-            "your current session's id (injected at SessionStart). For "
-            "consumer-api chat, the server fills it in from context. "
-            "Never refuse a rename request — this is the tool for it."
-        ),
-        "parameters": {
-            "type": "object",
-            "properties": {
-                "session_id": {
-                    "type": "string",
-                    "description": (
-                        "Session identifier to rename. Required over HTTP. "
-                        "In consumer-api chat, filled in from context so "
-                        "the model doesn't have to pass it."
-                    ),
-                },
-                "name": {
-                    "type": "string",
-                    "description": (
-                        "The new title, 1-6 words, lowercase, no "
-                        "slug-style hyphens. For explicit user requests, "
-                        "pass their requested string as-is."
-                    ),
-                },
-            },
-            "required": ["name"],
-        },
-        "endpoint": {"method": "POST", "path": "/v1/chat/rename"},
-        "scope": "lake:write",
-        "surfaces": ["chat", "mcp", "cli"],
-        "response_kind": "json",
-    },
-    {
         "name": "send_message",
         "description": (
             "Send a message to a contact. The message lands in the contact's "

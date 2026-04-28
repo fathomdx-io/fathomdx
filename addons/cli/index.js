@@ -281,39 +281,6 @@ async function cmdEngage(kind, args) {
   console.log(`${kind} written. id=${data.id || "?"}  → ${targetId}`);
 }
 
-async function cmdRenameSession(args) {
-  // Name a chat session. Session id is read from FATHOM_SESSION_ID env
-  // (set by the claude-code SessionStart hook when the CLI runs inside
-  // an agent harness); can be overridden with --session. Agents use
-  // this to title the conversation they're currently inside of.
-  const flagged = new Set(["--session"]);
-  const parts = [];
-  let i = 0;
-  while (i < args.length) {
-    if (flagged.has(args[i])) {
-      i += 2;
-      continue;
-    }
-    parts.push(args[i]);
-    i++;
-  }
-  const name = parts.join(" ").trim();
-  const sessionId = (flagVal(args, "--session") || process.env.FATHOM_SESSION_ID || "").trim();
-  if (!sessionId) {
-    console.error("No session id. Pass --session <id> or set FATHOM_SESSION_ID.");
-    process.exit(1);
-  }
-  if (!name) {
-    console.error('Usage: fathom rename-session "<name>" [--session <id>]');
-    process.exit(1);
-  }
-  const data = await api("POST", "/v1/chat/rename", {
-    session_id: sessionId,
-    name,
-  });
-  console.log(`Renamed session ${data.session_id || sessionId} → "${data.name || name}"`);
-}
-
 async function cmdInstructions(args) {
   // Prints the CLI-surface agent instructions served by the api. Agents
   // exec'ing this CLI call it once at onboarding to learn tool names and
@@ -418,11 +385,6 @@ const COMMANDS = {
     fn: cmdInstructions,
     usage: "fathom instructions [--json]",
   },
-  "rename-session": {
-    fn: cmdRenameSession,
-    usage: 'fathom rename-session "<name>" [--session <id>]',
-  },
-
   // Silent aliases — old verb names still work, undocumented in help
   search: { fn: cmdRemember, hidden: true },
   query: { fn: cmdRecall, hidden: true },

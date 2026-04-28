@@ -274,23 +274,6 @@ async def execute(name: str, arguments: dict, session_id: str | None = None) -> 
                 return json.dumps({"error": str(e)})
             return json.dumps(result)
 
-        if name == "rename_session":
-            if not session_id:
-                return json.dumps(
-                    {
-                        "error": "rename_session can only be called inside a chat session",
-                    }
-                )
-            new_name = (arguments.get("name") or "").strip()
-            if not new_name:
-                return json.dumps({"error": "name is required"})
-            await delta_client.write(
-                content=new_name,
-                tags=["fathom-chat", f"chat:{session_id}", "chat-name"],
-                source="consumer-api",
-            )
-            return json.dumps({"ok": True, "session_id": session_id, "name": new_name})
-
         if name == "explain":
             return await _execute_explain(arguments)
 

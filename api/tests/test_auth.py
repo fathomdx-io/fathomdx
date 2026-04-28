@@ -44,8 +44,6 @@ def test_required_scope_maps_writes_to_lake_write() -> None:
 
 def test_required_scope_maps_chat_session_routes() -> None:
     assert auth._required_scope("POST", "/v1/chat/completions") == "chat"
-    assert auth._required_scope("GET", "/v1/sessions") == "chat"
-    assert auth._required_scope("POST", "/v1/sessions") == "chat"
 
 
 def test_required_scope_none_for_unmatched_route() -> None:

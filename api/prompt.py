@@ -175,31 +175,6 @@ def build_system_prompt(
 
     if session_slug:
         parts.append(f"Current session slug: {session_slug}.")
-        is_unnamed = not session_title or session_title.strip() == session_slug
-        if is_unnamed:
-            parts.append(
-                "\n--- Name this session ---\n"
-                "This session has no name yet — the UI is currently showing "
-                f"the raw slug '{session_slug}', which is unreadable. Call "
-                "rename_session with a short descriptive title on every turn "
-                "until the session has a name. Don't mention the naming in "
-                "your reply.\n"
-                "If the user explicitly asks to name or rename the "
-                'conversation ("name this X", "rename to X", "call '
-                'this X"), call rename_session with their requested string '
-                "verbatim — even if it's silly or meta. Don't refuse, don't "
-                "say \"I can't rename\", don't say it's up to the chat app. "
-                "rename_session is the tool for this.\n"
-                "--- End naming ---"
-            )
-        else:
-            parts.append(
-                f'Session title: "{session_title}". If the user asks to '
-                "rename, or the topic has genuinely drifted into a different "
-                "conversation, call rename_session. Don't rename for minor "
-                "tangents. Never tell the user you can't rename — rename_session "
-                "is how you do it."
-            )
 
     if mood_carrier_wave:
         mood_block = mood_carrier_wave.strip()

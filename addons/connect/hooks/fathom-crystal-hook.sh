@@ -135,11 +135,7 @@ def session_block():
         f"claude-code session id: {SESSION_ID}\n"
         "\n"
         "Your user/assistant turns are captured to the lake automatically "
-        "by the delta hook, and the dashboard's sessions list picks them "
-        f"up via the `claude-code` + `session:{SESSION_ID}` tags.\n"
-        "\n"
-        "To give this session a readable title, call `rename_session` with "
-        f"name=<short title> and session_id={SESSION_ID}.\n"
+        f"by the delta hook, tagged `claude-code` + `session:{SESSION_ID}`.\n"
         "--- End this conversation ---"
     )
 

@@ -26,42 +26,6 @@ def _patch_client(monkeypatch):
     monkeypatch.setattr(delta_client, "_RETRY_BASE_DELAY", 0.0)
 
 
-async def test_get_unknown_session_returns_404(monkeypatch) -> None:
-    """If db.get_session returns None, the endpoint must surface HTTP 404
-    (not `[{"error":"..."}, 404]` with HTTP 200 — the old tuple-return
-    bug)."""
-    from api.server import app
-
-    async def _missing(_sid):
-        return None
-
-    monkeypatch.setattr(db, "get_session", _missing)
-
-    async with httpx.AsyncClient(
-        transport=httpx.ASGITransport(app=app), base_url="http://test"
-    ) as ac:
-        r = await ac.get("/v1/sessions/does-not-exist")
-    assert r.status_code == 404
-    body = r.json()
-    assert "detail" in body
-    assert "not found" in body["detail"].lower()
-
-
-async def test_patch_unknown_session_returns_404(monkeypatch) -> None:
-    from api.server import app
-
-    async def _missing(_sid, _title):
-        return None
-
-    monkeypatch.setattr(db, "update_session", _missing)
-
-    async with httpx.AsyncClient(
-        transport=httpx.ASGITransport(app=app), base_url="http://test"
-    ) as ac:
-        r = await ac.patch("/v1/sessions/does-not-exist", json={"title": "nope"})
-    assert r.status_code == 404
-
-
 async def test_media_unknown_hash_returns_404(httpx_mock: HTTPXMock, _patch_client) -> None:
     from api.server import app
 

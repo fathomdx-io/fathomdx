@@ -183,7 +183,7 @@ async function fetchInstructions() {
 
 async function main() {
   // Load tool definitions from the API, scoped to the MCP surface so
-  // chat-only tools (rename_session, routines, explain) never appear here.
+  // chat-only tools (routines, explain) never appear here.
   let tools = [];
   try {
     const r = await fetch(`${API_URL}/v1/tools?surface=${encodeURIComponent(MCP_SURFACE)}`, {

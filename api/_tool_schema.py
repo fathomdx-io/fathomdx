@@ -6,9 +6,16 @@ see_image, mind_stats, mind_tags, propose_contact, engage) lives in
 `api/routes/lake.py` as `LAKE_TOOLS`. We convert each chat-scoped entry
 to OpenAI shape here with `to_openai_schema()`.
 
-Chat-only tools (routines, rename_session, explain) have no lake HTTP
-endpoint — their execution is inline in `api/tools.py`. They stay
-defined here in `CHAT_ONLY_TOOLS` in OAI shape directly.
+Chat-only tools (routines, explain) have no lake HTTP endpoint — their
+execution is inline in `api/tools.py`. They stay defined here in
+`CHAT_ONLY_TOOLS` in OAI shape directly.
+
+Note (Grand Loop migration): the `routines` tool's create-action schema
+is the canonical shape for routine creation and should be re-used when
+the Grand Loop's witness gains the ability to mint routines from intent
+deltas. Don't drop the schema even if /n is later retired — it captures
+the contract (id, name, schedule, prompt, host, workspace) that the
+agent's kitty plugin already reads from `routine-fire` deltas.
 
 The final exported `TOOLS` list is the union, filtered to the chat
 surface. One source of truth; chat and MCP/CLI no longer drift because
