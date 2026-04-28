@@ -252,6 +252,23 @@ def get_feed(
                 **common,
             })
             continue
+        # Routine activity — fires (the trigger) and summaries (the
+        # writeup the routine produced). Both surface under one kind so
+        # the filter can toggle them independently of generic lake-delta
+        # noise; the `summary` field lets the renderer tell them apart.
+        if "routine-fire" in tags or "routine-summary" in tags:
+            routine_id = next(
+                (t.split(":", 1)[1] for t in tags if t.startswith("routine-id:")),
+                None,
+            )
+            items.append({
+                "kind": "routine",
+                "routine_id": routine_id,
+                "summary": "routine-summary" in tags,
+                "content": d.get("content") or "",
+                **common,
+            })
+            continue
         # Lake delta — telepathy mirror of recent durable lake activity
         # (RSS arrivals, claude-code session deltas, anything new in the
         # lake that isn't loop-output noise). Surfaced under its own kind

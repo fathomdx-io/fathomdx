@@ -3135,6 +3135,7 @@
               <label><input type="checkbox" data-kind="recall"> Recalls</label>
               <label><input type="checkbox" data-kind="crystal"> Crystal</label>
               <label><input type="checkbox" data-kind="mood"> Mood</label>
+              <label><input type="checkbox" data-kind="routine"> Routines</label>
               <div class="filter-note">Default = clean. Check anything to surface it inline. Most types render as compact <code>.delta</code> rows below cards.</div>
             </div>
           </span>
@@ -8633,6 +8634,7 @@ GET  /v1/usage               Usage stats`,
       'lake-delta':     true,   // telepathy mirror of fresh durable lake activity
       'crystal':        true,   // identity facets refreshed by telepathy
       'mood':           true,   // current felt-sense
+      'routine':        true,   // routine fires + their summaries
       'pass-intent':    false,
       'voice-thought':  false,
       'recall':         false,
@@ -8988,6 +8990,20 @@ GET  /v1/usage               Usage stats`,
         el.dataset.fromPuddle = '1';
         el.dataset.puddleId = it.id || '';
         const label = it.feeling ? `mood · ${it.feeling}` : 'mood';
+        el.innerHTML = `<header class="d-head"><span class="d-kind">${_esc(label)}</span><span class="d-ts">${timeStr}</span></header><div class="d-body">${_esc(it.content || '')}</div>`;
+        return el;
+      }
+      // Routine — fire (trigger) or summary (writeup). Both surface
+      // under one kind; the summary boolean differentiates the visual.
+      if (it.kind === 'routine') {
+        const el = document.createElement('article');
+        el.className = `delta routine ${it.summary ? 'routine-summary' : 'routine-fire'}`;
+        el.dataset.kind = 'routine';
+        el.dataset.fromPuddle = '1';
+        el.dataset.puddleId = it.id || '';
+        const variant = it.summary ? 'summary' : 'fire';
+        const rid = it.routine_id ? ` · ${it.routine_id}` : '';
+        const label = `routine · ${variant}${rid}`;
         el.innerHTML = `<header class="d-head"><span class="d-kind">${_esc(label)}</span><span class="d-ts">${timeStr}</span></header><div class="d-body">${_esc(it.content || '')}</div>`;
         return el;
       }
