@@ -37,6 +37,27 @@ from .puddle import puddle
 ANCHOR_TTL_S = 48 * 60 * 60  # 48h rolling horizon
 REFRESH_INTERVAL_S = 5 * 60  # re-pull every 5 minutes
 
+# Mirror window — how far back to look in the lake on each tick. Each
+# vampire-tap pull asks for any new lake delta written in the last
+# MIRROR_WINDOW_S seconds; previously-mirrored ids get deduped.
+MIRROR_WINDOW_S = 5 * 60
+
+# Sources we never mirror — output-side noise that would echo back into
+# the puddle as "new" activity and feed the loop its own footprint.
+MIRROR_NOISE_SOURCES = frozenset({
+    "fathom-feed",       # legacy feed-card writer
+    "loop-engagement",   # the puddle's own promote-to-lake writes
+    "controller",        # process spawn/die markers (already in puddle)
+    "voice",             # voice-thought writes (already in puddle)
+    "witness",           # witness output writes (already in puddle)
+    "intent-detector",   # intent writes (already in puddle)
+    "composer",          # composer seed writes (already in puddle)
+    "mood-crystal",      # would re-pull our own anchor write
+    "crystal",           # ditto
+})
+
+_mirrored_lake_ids: set[str] = set()
+
 
 def _slug(text: str, max_len: int = 40) -> str:
     s = re.sub(r"[^a-z0-9]+", "-", (text or "").lower()).strip("-")
@@ -159,6 +180,63 @@ async def pull_mood() -> bool:
     return True
 
 
+async def mirror_recent_activity() -> int:
+    """Pull recent lake deltas and mirror them into the puddle as
+    `lake-delta` items. Mirrors are TTL'd copies; the originals stay
+    durable in the lake forever. Sources that are themselves loop-
+    output (witness writes, voice thoughts, the puddle's own promotes)
+    are filtered out so the loop doesn't echo on its own footprint.
+
+    Idempotent across ticks — `_mirrored_lake_ids` remembers what's
+    already landed so the same lake delta isn't re-mirrored each pull.
+    Returns the count of mirrors written this tick.
+    """
+    from datetime import datetime, timedelta, UTC
+    cutoff = (datetime.now(UTC) - timedelta(seconds=MIRROR_WINDOW_S)).isoformat()
+    try:
+        items = await delta_client.query(time_start=cutoff, limit=200)
+    except Exception as e:
+        print(f"[vampire] activity fetch failed: {type(e).__name__}: {e}")
+        return 0
+
+    written = 0
+    for d in items:
+        did = d.get("id") or ""
+        if not did or did in _mirrored_lake_ids:
+            continue
+        src = (d.get("source") or "").strip()
+        if src in MIRROR_NOISE_SOURCES:
+            _mirrored_lake_ids.add(did)
+            continue
+        content = (d.get("content") or "").strip()
+        if not content or len(content) < 8:
+            _mirrored_lake_ids.add(did)
+            continue
+        # Skip echoes — anything that already landed in the convo via
+        # another path (rare, but possible if a contact slug overlap
+        # makes the contact-tag scope a delta into our convo).
+        src_tags = d.get("tags") or []
+        if any(t == CONVO_TAG for t in src_tags):
+            _mirrored_lake_ids.add(did)
+            continue
+
+        await puddle.write(
+            content=content,
+            tags=[
+                CONVO_TAG,
+                "mirror",
+                "lake-delta",
+                f"from-source:{src or 'unknown'}",
+                f"recalled-id:{did[:24]}",
+            ],
+            source=f"mirror:{src or 'unknown'}",
+            ttl_seconds=ANCHOR_TTL_S,
+        )
+        _mirrored_lake_ids.add(did)
+        written += 1
+    return written
+
+
 async def refresh_anchors() -> None:
     """One refresh pass — pull crystal + mood. Used on boot and on
     interval. Logs but never raises; a transient lake hiccup must not
@@ -174,6 +252,12 @@ async def refresh_anchors() -> None:
             print("[vampire] refreshed mood in the puddle")
     except Exception as e:
         print(f"[vampire] mood refresh crashed: {type(e).__name__}: {e}")
+    try:
+        n = await mirror_recent_activity()
+        if n:
+            print(f"[vampire] mirrored {n} new lake delta(s) into the puddle")
+    except Exception as e:
+        print(f"[vampire] activity mirror crashed: {type(e).__name__}: {e}")
 
 
 async def vampire_loop() -> None:

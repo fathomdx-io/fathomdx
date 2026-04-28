@@ -209,7 +209,25 @@ def get_feed(
                 **common,
             })
             continue
-        # Recall / mirror / vampire-tap landings.
+        # Lake delta — vampire-tap mirror of recent durable lake activity
+        # (RSS arrivals, claude-code session deltas, anything new in the
+        # lake that isn't loop-output noise). Surfaced under its own kind
+        # so the filter can show "raw lake" separately from model-driven
+        # recall results.
+        if "lake-delta" in tags:
+            from_source = next(
+                (t.split(":", 1)[1] for t in tags if t.startswith("from-source:")),
+                None,
+            )
+            items.append({
+                "kind": "lake-delta",
+                "from_source": from_source,
+                "content": d.get("content") or "",
+                **common,
+            })
+            continue
+        # Compositional recall results — present and future model-driven
+        # recall pulls (separate from the continuous mirror above).
         if "recall-result" in tags or "mirror" in tags:
             items.append({
                 "kind": "recall",

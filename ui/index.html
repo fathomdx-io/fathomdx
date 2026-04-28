@@ -2933,6 +2933,7 @@
               <div class="filter-group-head">Substrate</div>
               <label><input type="checkbox" data-kind="pass-intent"> Pass intents</label>
               <label><input type="checkbox" data-kind="voice-thought"> Voice thoughts</label>
+              <label><input type="checkbox" data-kind="lake-delta"> Deltas</label>
               <label><input type="checkbox" data-kind="recall"> Recalls</label>
               <label><input type="checkbox" data-kind="crystal"> Crystal</label>
               <label><input type="checkbox" data-kind="mood"> Mood</label>
@@ -8424,6 +8425,7 @@ GET  /v1/usage               Usage stats`,
       'discrepancy':    false,
       'pass-intent':    false,
       'voice-thought':  false,
+      'lake-delta':     false,
       'recall':         false,
       'crystal':        false,
       'mood':           false,
@@ -8748,7 +8750,7 @@ GET  /v1/usage               Usage stats`,
           : 'pass-intent';
         el.dataset.fromPuddle = '1';
         el.dataset.puddleId = it.id || '';
-        el.innerHTML = `<header class="d-head"><span class="d-kind">${_esc(passKind)}</span><span class="d-ts">${timeStr}</span></header><div class="d-body">${_esc((it.content || '').slice(0, 220))}…</div>`;
+        el.innerHTML = `<header class="d-head"><span class="d-kind">${_esc(passKind)}</span><span class="d-ts">${timeStr}</span></header><div class="d-body">${_esc(it.content || '')}</div>`;
         return el;
       }
       // Crystal facet
@@ -8773,14 +8775,28 @@ GET  /v1/usage               Usage stats`,
         el.innerHTML = `<header class="d-head"><span class="d-kind">${_esc(label)}</span><span class="d-ts">${timeStr}</span></header><div class="d-body">${_esc(it.content || '')}</div>`;
         return el;
       }
-      // Recall / mirror landings from vampire-tap
+      // Lake delta — vampire-tap mirror of fresh durable lake activity.
+      // Tinted with the source name so RSS / claude-code / mood / etc.
+      // are legible at a glance.
+      if (it.kind === 'lake-delta') {
+        const el = document.createElement('article');
+        el.className = 'delta lake-delta';
+        el.dataset.kind = 'lake-delta';
+        el.dataset.fromPuddle = '1';
+        el.dataset.puddleId = it.id || '';
+        const label = it.from_source ? `delta · ${it.from_source}` : 'delta';
+        el.innerHTML = `<header class="d-head"><span class="d-kind">${_esc(label)}</span><span class="d-ts">${timeStr}</span></header><div class="d-body">${_esc(it.content || '')}</div>`;
+        return el;
+      }
+      // Compositional recall result (model-driven, distinct from the
+      // vampire-tap continuous mirror above).
       if (it.kind === 'recall') {
         const el = document.createElement('article');
         el.className = 'delta recall';
         el.dataset.kind = 'recall';
         el.dataset.fromPuddle = '1';
         el.dataset.puddleId = it.id || '';
-        el.innerHTML = `<header class="d-head"><span class="d-kind">recall</span><span class="d-ts">${timeStr}</span></header><div class="d-body">${_esc((it.content || '').slice(0, 320))}</div>`;
+        el.innerHTML = `<header class="d-head"><span class="d-kind">recall</span><span class="d-ts">${timeStr}</span></header><div class="d-body">${_esc(it.content || '')}</div>`;
         return el;
       }
       // Process spawn/die — minimal, mostly background noise
@@ -9071,6 +9087,7 @@ GET  /v1/usage               Usage stats`,
         discrepancy: 'Discrepancies',
         'pass-intent': 'Pass intents',
         'voice-thought': 'Voice thoughts',
+        'lake-delta': 'Deltas',
         recall: 'Recalls',
         crystal: 'Crystal',
         mood: 'Mood',
