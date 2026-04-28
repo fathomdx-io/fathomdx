@@ -179,6 +179,58 @@ input[type="text"]::placeholder { color: var(--ink-faint); }
   padding: 2rem 1rem;
 }
 
+/* Welcome letter — Fathom introduces itself in the lake column on a
+   cold start, before any deltas land. Hidden by the same toggle the
+   plain .empty placeholder used ($lakeEmpty.style.display = "none"
+   in app.js once content arrives). Typography mirrors the previous
+   dashboard cold-start letter: serif body, oversized first line,
+   italic sig. */
+.empty.welcome-letter {
+  max-width: 520px;
+  margin: 0 auto;
+  text-align: left;
+  font-style: normal;
+  font-family: var(--serif);
+  font-size: 16px;
+  line-height: 1.65;
+  color: var(--ink-soft);
+  padding: 2rem 1rem;
+}
+.empty.welcome-letter p { margin: 0 0 14px; }
+.empty.welcome-letter p:last-child { margin-bottom: 0; }
+.empty.welcome-letter p:first-child {
+  font-size: 20px;
+  color: var(--ink);
+  font-weight: 500;
+  letter-spacing: 0.01em;
+  margin-bottom: 18px;
+}
+.empty.welcome-letter .sig {
+  margin-top: 22px;
+  font-style: italic;
+  color: var(--ink);
+}
+.empty.welcome-letter .cta-list {
+  list-style: none;
+  padding: 0;
+  margin: 0 0 14px;
+}
+.empty.welcome-letter .cta-list li {
+  position: relative;
+  padding-left: 16px;
+  margin: 0 0 6px;
+  font-family: var(--serif);
+  font-size: 16px;
+  line-height: 1.65;
+  color: var(--ink-soft);
+}
+.empty.welcome-letter .cta-list li::before {
+  content: "·";
+  position: absolute;
+  left: 4px;
+  color: var(--ink-faint);
+}
+
 /* Status strip — slim row between the lake and the composer. Holds the
    convergence dots (the thinking/settled indicator) and phase chips.
    No graph — the convergence dots are the visualization. */
