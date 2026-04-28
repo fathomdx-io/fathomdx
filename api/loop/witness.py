@@ -29,6 +29,7 @@ import re
 from collections import OrderedDict
 
 from .. import delta_client
+from . import resonance
 from .intents import CONVO_TAG, intent_kind
 from .llm import loop_generate
 from .prompts import JUDGE_PROMPT, WITNESS_PROMPT, VOICES
@@ -97,16 +98,83 @@ def _render_anchors() -> str:
     return block + "\n\n" if block else ""
 
 
+RESONANCE_BUDGET = 8
+
+
+async def _gather_witness_resonance(
+    session_tag: str,
+    voice_blocks: str,
+    intent_text: str,
+) -> list[dict]:
+    """Build the witness's resonance pool — puddle items most aligned
+    with the parliament's collective take + the user's intent.
+
+    Same architecture as voice substrate: candidate union of recall-
+    results and lake-mirrors, ranked by similarity to a signal text.
+    Witness signal is the integrated voice block (where the parliament
+    has gone) plus the intent (the durable anchor) — what the witness
+    is integrating, against the lake material that bears on it.
+    """
+    candidates: list[dict] = []
+    seen_ids: set[str] = set()
+    for d in puddle.query(
+        tags_include=[session_tag, "recall-result"],
+        limit=80,
+    ):
+        did = d.get("id") or ""
+        if did and did not in seen_ids:
+            candidates.append(d)
+            seen_ids.add(did)
+    for d in puddle.query(
+        tags_include=[CONVO_TAG, "lake-delta"],
+        limit=80,
+    ):
+        did = d.get("id") or ""
+        if did and did not in seen_ids:
+            candidates.append(d)
+            seen_ids.add(did)
+    if not candidates:
+        return []
+
+    signal = (intent_text or "").strip()
+    if voice_blocks:
+        signal = f"{signal}\n\n{voice_blocks}".strip()
+    if not signal:
+        return []
+
+    return await resonance.rank(signal, candidates, top_k=RESONANCE_BUDGET)
+
+
+def _render_resonance_block(items: list[dict]) -> str:
+    if not items:
+        return "  (no resonant material in the puddle this fire)"
+    blocks: list[str] = []
+    for d in items:
+        content = (d.get("content") or "").strip()
+        if not content:
+            continue
+        from_source = "lake"
+        for t in (d.get("tags") or []):
+            if t.startswith("from-source:"):
+                from_source = t.split(":", 1)[1]
+                break
+        snippet = content[:600] + ("…" if len(content) > 600 else "")
+        blocks.append(f"  [{from_source}] {snippet}")
+    return "\n\n".join(blocks) if blocks else "  (no resonant material in the puddle this fire)"
+
+
 async def _call_witness(
     *,
     intent_block: str,
     voice_blocks: str,
     anchors_block: str,
+    resonance_block: str,
 ) -> dict | None:
     prompt = WITNESS_PROMPT.format(
         intent_block=intent_block,
         voice_blocks=voice_blocks,
         anchors_block=anchors_block,
+        resonance_block=resonance_block,
         settled_status="deliberated",
         settled_descriptor=(
             "The voices took their turns — speak from the integrated take "
@@ -230,14 +298,60 @@ async def run_witness(
         text = (it.get("content") or "").strip().replace("\n", " ")
         if len(text) > 280:
             text = text[:280] + "…"
+
+        # Reply-to anchor — when the user clicks a specific delta and
+        # types a response, the intent carries `reply-to:<id>` pointing
+        # at exactly what they're responding to. Surface that target
+        # inline next to the intent so the witness has an unambiguous
+        # "this is what they're replying to" pointer, not just resonance
+        # signal mixed in with other recalls.
+        reply_to_id: str | None = None
+        for t in (it.get("tags") or []):
+            if t.startswith("reply-to:"):
+                reply_to_id = t.split(":", 1)[1].strip() or None
+                break
+        if reply_to_id:
+            target = puddle.get(reply_to_id)
+            if target is None:
+                try:
+                    target = await delta_client.get_delta(reply_to_id)
+                except Exception:
+                    target = None
+            if target:
+                tgt_content = (target.get("content") or "").strip().replace("\n", " ")
+                # Witness cards are JSON payloads; pull the body field
+                # so the preview reads as prose, not a serialized blob.
+                if tgt_content.startswith("{"):
+                    try:
+                        parsed = json.loads(tgt_content)
+                        if isinstance(parsed, dict):
+                            tgt_content = (parsed.get("body") or parsed.get("title") or tgt_content).strip().replace("\n", " ")
+                    except Exception:
+                        pass
+                if len(tgt_content) > 280:
+                    tgt_content = tgt_content[:280] + "…"
+                tgt_source = target.get("source") or "lake"
+                intent_lines.append(
+                    f"  ↩ replying to [{tgt_source}]: \"{tgt_content}\""
+                )
+
         intent_lines.append(f"  [intent-id: {iid_short} · kind: {kind}] {text}")
     intent_block = "\n".join(intent_lines)
     primary_intent = (pending[0].get("content") or "").strip()
+    primary_intent_clean = primary_intent.split("\n\n[intent-payload]", 1)[0].strip()
+
+    resonant = await _gather_witness_resonance(
+        session_tag=session_tag,
+        voice_blocks=voice_blocks,
+        intent_text=primary_intent_clean,
+    )
+    resonance_block = _render_resonance_block(resonant)
 
     witness = await _call_witness(
         intent_block=intent_block,
         voice_blocks=voice_blocks,
         anchors_block=_render_anchors(),
+        resonance_block=resonance_block,
     )
     if witness is None:
         print("[witness] produced nothing")

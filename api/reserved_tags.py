@@ -32,12 +32,6 @@ GATE_HINTS = {
     "routine-fire": "Writable via POST /v1/routines/<id>/fire (admin).",
     "routine-definition": "Writable via POST /v1/routines (admin).",
     "resonance-allowed": "Writable via POST /hooks/activation/sources (admin).",
-    # Legacy chat-session tags. The endpoints that used to write them
-    # (DELETE/PATCH /v1/sessions/<id>) are retired with the chat
-    # cleanup; entries kept so historical lake data is still recognized
-    # and external /v1/deltas writes of these names stay blocked.
-    "chat-deleted": "Legacy — chat sessions retired; tag is read-only.",
-    "chat-name": "Legacy — chat sessions retired; tag is read-only.",
     # Gate-side defaults for tags whose gate is admin_or_self via /v1/deltas:
     "agent-heartbeat": "Must be tagged with the authenticated caller's own contact.",
     "routine-summary": "Must be tagged with the authenticated caller's own contact.",
@@ -67,8 +61,6 @@ _EXACT: dict[str, str] = {
     "routine-fire": GATE_INTERNAL,  # POST /v1/routines/<id>/fire
     "routine-definition": GATE_INTERNAL,  # POST /v1/routines
     "resonance-allowed": GATE_INTERNAL,  # POST /hooks/activation/sources
-    "chat-deleted": GATE_INTERNAL,  # legacy — chat sessions retired
-    "chat-name": GATE_INTERNAL,  # legacy — chat sessions retired
     # Tags external callers legitimately produce via /v1/deltas, bound to
     # the caller's own contact by strip-and-re-stamp. admin_or_self reads
     # "the tag's contact:<slug> must equal the caller" which is always

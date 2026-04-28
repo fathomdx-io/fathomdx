@@ -69,14 +69,6 @@ class ChatRequest(BaseModel):
     max_tokens: int | None = None
     temperature: float | None = None
     image_uploaded: bool = False  # Skip user message persist — image upload already wrote it
-    # Set to a feed-card delta id when the chat session is being opened
-    # from a feed click. On the first turn (fresh session), the card is
-    # snapshotted into the lake as a `participant:fathom` chat message —
-    # Fathom's opening turn — so reopening the session later shows the
-    # card the conversation was about, not just the conversation. The
-    # snapshot is written BEFORE the user message persists so timestamps
-    # order it first in history. Ignored on subsequent turns.
-    seed_card_id: str | None = None
 
 
 # ── App ─────────────────────────────────────────
@@ -641,86 +633,6 @@ async def _persist_client_system_once(
     return True
 
 
-async def _seed_chat_from_card(
-    session_id: str,
-    card_id: str,
-    contact_slug: str | None,
-) -> dict | None:
-    """Snapshot a feed-card delta as Fathom's opening turn in a chat session.
-
-    Treats the click on a feed card as Fathom starting the conversation:
-    fetches the source feed-card, formats its title/body/link as markdown,
-    and writes a normal `participant:fathom` chat-message delta carrying
-    the card's image via media_hash. Returns the rendered seed for the
-    UI to paint immediately (the alternative is waiting for the next
-    poll, which would leave a flash of nothing where the locally-cloned
-    card used to be).
-
-    Idempotent per session: if any prior message already exists, the seed
-    is skipped — reopening or replaying a session must not double-seed.
-    Tagged `seed-card:<id>` for back-pointer; otherwise an ordinary
-    assistant message that flows through the standard render path.
-    """
-    existing = await delta_client.query(
-        tags_include=[f"chat:{session_id}"],
-        limit=1,
-    )
-    if existing:
-        return None
-
-    try:
-        original = await delta_client.get_delta(card_id)
-    except Exception:
-        return None
-    if not original:
-        return None
-
-    raw = original.get("content") or ""
-    card_payload: dict = {}
-    if raw:
-        try:
-            parsed = json.loads(raw)
-            if isinstance(parsed, dict):
-                card_payload = parsed
-        except Exception:
-            card_payload = {}
-
-    title = (card_payload.get("title") or "").strip()
-    body = (card_payload.get("body") or "").strip()
-    kicker = (card_payload.get("kicker") or "").strip()
-    link = (card_payload.get("link") or "").strip()
-
-    parts: list[str] = []
-    if kicker:
-        parts.append(f"*{kicker}*")
-    if title:
-        parts.append(f"**{title}**")
-    if body:
-        parts.append(body)
-    if link.startswith("http://") or link.startswith("https://"):
-        parts.append(f"[↗ source]({link})")
-    content = "\n\n".join(parts) or title or body or "(card)"
-
-    body_image = card_payload.get("body_image")
-    media_hash = original.get("media_hash") or card_payload.get("media_hash")
-    if not media_hash and isinstance(body_image, str) and re.fullmatch(r"[0-9a-f]+", body_image):
-        media_hash = body_image
-
-    seed_id = await db.add_message(
-        session_id=session_id,
-        role="assistant",
-        content=content,
-        contact_slug=contact_slug,
-        extra_tags=[f"seed-card:{card_id}"],
-        media_hash=media_hash,
-    )
-    return {
-        "id": seed_id,
-        "content": content,
-        "media_hash": media_hash,
-    }
-
-
 async def _await_fathom_reply(
     session_id: str,
     after_iso: str,
@@ -914,20 +826,6 @@ async def chat_completions(req: ChatRequest, request: Request):
     contact = getattr(request.state, "contact", None)
     contact_slug = (contact or {}).get("slug")
 
-    # Seed-card snapshot: when a chat is opened from a feed card, treat
-    # the card as Fathom's opening turn. Write it as a normal assistant
-    # message FIRST so its timestamp orders before the user message and
-    # the conversation reads chronologically: Fathom surfaced this →
-    # user replied → Fathom replied. Idempotent per session — only
-    # writes when the session is brand-new with no prior messages.
-    seed_payload: dict | None = None
-    if req.seed_card_id:
-        seed_payload = await _seed_chat_from_card(
-            session_id=session_id,
-            card_id=req.seed_card_id,
-            contact_slug=contact_slug,
-        )
-
     # Snapshot the wall clock BEFORE any delta writes so the reply-poller
     # ignores deltas that predate this request (including our own user
     # write). Lake timestamps are server-assigned ISO-8601.
@@ -982,13 +880,7 @@ async def chat_completions(req: ChatRequest, request: Request):
         )
 
     finish_reason, reply_text = await _await_fathom_reply(session_id, request_start_iso)
-    response = _openai_completion_response(reply_text, session_id, model_label, finish_reason)
-    if seed_payload:
-        # Fathom extension carrying the freshly-written feed-seed message
-        # so the dashboard can paint it at the top of the new session
-        # without a separate fetch. OpenAI clients ignore unknown keys.
-        response["seed"] = seed_payload
-    return response
+    return _openai_completion_response(reply_text, session_id, model_label, finish_reason)
 
 
 @app.get("/v1/crystal")

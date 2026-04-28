@@ -29,7 +29,7 @@ from .pressure import pressure_watcher
 from .process import run_process
 from .prompts import VOICES
 from .puddle import puddle
-from .recall import run_searcher_tick
+from .recall import run_intent_searcher_tick, run_voice_followup_tick
 from .telepathy import telepathy_loop
 from .witness import run_witness
 
@@ -98,14 +98,28 @@ async def _run_one_fire() -> bool:
     settle_level: float | None = None
     rounds_run = 0
 
+    # Ground voices on the user's literal intent BEFORE round 0 so they
+    # don't speculate in a vacuum. The voice-driven searcher inside the
+    # round loop reads voice thoughts; without this seed, round 0 has no
+    # recall-results at all and round 1+ searches paraphrase whatever
+    # the voices already guessed. See recall.run_intent_searcher_tick.
+    try:
+        await run_intent_searcher_tick(
+            session_tag=session_tag,
+            event_id=f"{session_tag.split(':', 1)[1]}-intent-seed",
+            intents=pending,
+        )
+    except Exception as e:
+        print(f"[loop fire] intent-searcher seed crashed: {type(e).__name__}: {e}")
+
     for round_idx in range(MAX_ROUNDS_PER_FIRE):
         rounds_run = round_idx + 1
         # Fire all voices + recall in parallel for this round. Each
         # voice reads the puddle as it stands at round-start (the prior
-        # round's takes plus any telepathy mirrors), composes its
-        # thought, and writes back. Recall reads the latest pre-round
-        # voice thought (or the seed on round 0) and pulls hits in
-        # parallel — so by the time witness fires, the substrate has
+        # round's takes plus telepathy mirrors plus any recall-results
+        # already landed — round 0 sees the intent-seed pull above).
+        # The followup searcher then re-anchors on the original intent
+        # and refines, so by the time witness fires the substrate has
         # been enriched by both voices and recall together.
         voice_coros = [
             run_process(
@@ -116,23 +130,40 @@ async def _run_one_fire() -> bool:
             )
             for v in VOICES
         ]
-        recall_coro = run_searcher_tick(
-            session_tag=session_tag,
-            event_id=f"{session_tag.split(':', 1)[1]}-r{round_idx}",
+        # Per-voice followup searchers — one per voice, each composing
+        # its own query from its own most recent thought. On round 0
+        # each voice has no prior thought, so these all skip; the
+        # intent-searcher seed above is the round-0 grounding. From
+        # round 1 onward each voice fires its own search; cross-
+        # pollination happens at sample-time via resonance ranking.
+        voice_searcher_coros = [
+            run_voice_followup_tick(
+                session_tag=session_tag,
+                event_id=f"{session_tag.split(':', 1)[1]}-r{round_idx}-{v['name']}",
+                voice_name=v["name"],
+                voice_stance=v["stance"],
+                intents=pending,
+            )
+            for v in VOICES
+        ]
+        results = await asyncio.gather(
+            *voice_coros, *voice_searcher_coros, return_exceptions=True
         )
-        results = await asyncio.gather(*voice_coros, recall_coro, return_exceptions=True)
 
-        # Map results back to voices for the convergence sample. Recall
-        # is the trailing element (None on success, ignored otherwise).
+        # First len(VOICES) results are voice thoughts; remaining are
+        # per-voice searcher results (ints or exceptions).
         voice_thoughts: list[tuple[str, str]] = []
-        for v, res in zip(VOICES, results[:-1]):
+        for v, res in zip(VOICES, results[: len(VOICES)]):
             if isinstance(res, Exception):
                 print(f"[loop fire] {v['name']} crashed: {type(res).__name__}: {res}")
                 continue
             voice_thoughts.append((v["name"], res or ""))
-        recall_res = results[-1]
-        if isinstance(recall_res, Exception):
-            print(f"[loop fire] searcher crashed: {type(recall_res).__name__}: {recall_res}")
+        for v, res in zip(VOICES, results[len(VOICES):]):
+            if isinstance(res, Exception):
+                print(
+                    f"[loop fire] voice-searcher:{v['name']} crashed: "
+                    f"{type(res).__name__}: {res}"
+                )
 
         # Per-voice convergence sample — measured against the OTHER
         # voices' takes (now that all three are written for this round

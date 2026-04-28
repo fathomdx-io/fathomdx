@@ -676,11 +676,8 @@
     /* Dynamically appended cards */
     .card.surfacing { animation: surface 1s cubic-bezier(0.16, 1, 0.3, 1) both; }
 
-    /* Chat messages surface the same way — both inside the chat-stream
-       (legacy chat detail view) and inline in the main feed (Grand Loop
-       cutover, where user seeds + fathom replies render alongside cards). */
-    .chat-stream .msg,
-    .chat-stream .tool-strip,
+    /* Feed messages surface the same way cards do — user seeds + fathom
+       replies render inline in the main feed alongside cards. */
     .feed .msg {
       animation: surface 0.8s cubic-bezier(0.16, 1, 0.3, 1) both;
     }
@@ -697,8 +694,7 @@
       .feed .card,
       .card.surfacing,
       .opener .surfacing,
-      .chat-stream .msg,
-      .chat-stream .tool-strip { animation: none; }
+      .feed .msg { animation: none; }
     }
 
     /* Show more feed button */
@@ -1225,6 +1221,32 @@
       box-shadow: var(--composer-shadow);
     }
     .composer:focus-within { border-color: var(--accent); }
+    /* Reply-to context bar — sits above .composer inside .composer-wrap.
+       Shown only when the user has tapped a feed item to reply to. The
+       next send POSTs with `extra_tags: [reply-to:<delta_id>]`. */
+    .reply-context {
+      max-width: 720px; margin: 0 auto 6px;
+      display: flex; align-items: center; gap: 8px;
+      padding: 8px 12px;
+      background: var(--surface-elev1, var(--surface-2));
+      border: 1px solid var(--rule);
+      border-radius: 12px;
+      font-family: var(--sans); font-size: 13px;
+      color: var(--text-muted, var(--ink-faint));
+    }
+    .reply-context[hidden] { display: none; }
+    .reply-context-text {
+      flex: 1; min-width: 0;
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    }
+    .reply-context-prefix { color: var(--ink-faint); margin-right: 4px; }
+    .reply-context-clear {
+      background: transparent; border: 0; color: var(--ink-faint);
+      cursor: pointer; padding: 2px 6px; border-radius: 6px;
+      font-size: 13px; line-height: 1;
+      transition: background 120ms, color 120ms;
+    }
+    .reply-context-clear:hover { background: var(--surface); color: var(--ink); }
     .composer textarea {
       flex: 1; border: 0; outline: 0; resize: none;
       font-family: var(--sans); font-size: 15.5px; line-height: 1.4;
@@ -1345,10 +1367,11 @@
     .sidebar.open { transform: translateX(0); }
 
     .sidebar-head { padding: 14px 14px 0; }
-    /* Lake hero line — sits right under the brand row. Same content
+    /* Lake hero line — sits at the top of the sidebar body, above the
+       Reach me / Sources / Helpers / Stats sections. Same content
        (moments stored · feeling X) that used to live in the Stats meta. */
     .sidebar-hero {
-      padding: 6px 4px 0;
+      padding: 14px 4px 12px;
       font-family: var(--mono); font-size: 11px;
       letter-spacing: 0.06em; text-transform: uppercase;
       color: var(--ink-faint);
@@ -1365,66 +1388,12 @@
     .sidebar-brand .brand-mark { color: var(--accent); margin-left: 4px; display: inline-flex; vertical-align: baseline; }
     .sidebar-brand .ph-triangle { height: 15px; width: auto; vertical-align: -2px; }
     .sidebar-brand-left { display: flex; align-items: center; gap: 8px; }
-    .new-session-btn {
-      width: 100%;
-      background: transparent;
-      border: 1px solid var(--rule); border-style: dashed;
-      border-radius: 10px; padding: 10px 12px;
-      font-family: var(--sans); font-size: 13.5px; color: var(--ink);
-      display: flex; align-items: center; gap: 8px;
-      cursor: pointer;
-      transition: border-color 120ms, background 120ms, color 120ms;
-    }
-    .new-session-btn:hover { border-color: var(--accent); color: var(--accent); }
-
-    /* Source filter toggle below the new-session button. Lets users
-       include kitty-window claude-code sessions in the sidebar. Off by
-       default — claude-code can be chatty and most users want the
-       dashboard's chat view uncluttered. Reuses the global .switch
-       component; this wrapper just handles label alignment + spacing. */
-    .sidebar-filter {
-      margin: 10px 2px 0;
-      display: flex; align-items: center; justify-content: space-between;
-      gap: 10px;
-      font-family: var(--sans); font-size: 12px;
-      color: var(--ink-faint);
-      cursor: pointer; user-select: none;
-    }
-    .sidebar-filter:hover { color: var(--ink-soft); }
-    .sidebar-filter .switch { width: 34px; height: 20px; }
-    .sidebar-filter .switch .slider::before { width: 14px; height: 14px; }
-    .sidebar-filter .switch input:checked + .slider::before { transform: translateX(14px); }
-
     .sidebar-body {
       flex: 1; overflow-y: auto;
       padding: 0 8px 12px;
+      scrollbar-width: none;
     }
-    .session-group { margin-bottom: 14px; }
-    .session-group h3 {
-      font-family: var(--mono); font-size: 10px; letter-spacing: 0.09em;
-      text-transform: uppercase; color: var(--ink-faint);
-      margin: 10px 0 4px; padding: 0 10px; font-weight: 400;
-    }
-    .session-group:first-child h3 { margin-top: 4px; }
-    .session-list { list-style: none; margin: 0; padding: 0; }
-    .session-item {
-      display: block; width: 100%;
-      padding: 7px 10px; margin: 0;
-      background: transparent; border: 0;
-      text-align: left;
-      font-family: var(--sans); font-size: 13.5px;
-      color: var(--ink-soft);
-      border-radius: 8px;
-      cursor: pointer;
-      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-      transition: background 120ms, color 120ms;
-    }
-    .session-item:hover { background: var(--surface); color: var(--ink); }
-    .session-item.active { background: var(--surface-2); color: var(--ink); font-weight: 500; }
-    .session-item[data-source="claude-code"] { display: inline-flex; align-items: center; gap: 8px; }
-    .session-item[data-source="claude-code"] .session-icon { display: inline-flex; flex: 0 0 auto; color: var(--accent); }
-    .session-item[data-source="claude-code"] .session-title { overflow: hidden; text-overflow: ellipsis; min-width: 0; }
-    .host-os { display: inline-flex; align-items: center; flex: 0 0 auto; margin-right: 2px; color: var(--ink-soft); }
+    .sidebar-body::-webkit-scrollbar { width: 0; height: 0; }
 
     /* Admin-only surfaces: hidden for members. Annotate an element with
        `data-admin-only` to have it disappear when the current contact's
@@ -1501,12 +1470,6 @@
       margin-left: 8px;
       white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
     }
-    .chat-title-icon {
-      display: inline-flex; align-items: center;
-      margin-right: 8px; color: var(--accent);
-      vertical-align: -2px;
-    }
-
     /* ── Source detail content ──────────────── */
     .source-hero {
       display: flex; flex-direction: column; gap: 14px;
@@ -2140,22 +2103,7 @@
       margin-bottom: 20px;
     }
 
-    /* ── Chat view ─────────────────────────── */
-    .chat-stream {
-      display: flex; flex-direction: column; gap: 22px;
-      padding-bottom: 40px;
-    }
-    .chat-stream .session-stamp {
-      font-family: var(--mono); font-size: 10.5px;
-      letter-spacing: 0.1em; text-transform: uppercase;
-      color: var(--ink-faint);
-      text-align: center;
-      padding: 10px 0 4px;
-      border-top: 1px dashed var(--rule-soft);
-      margin-top: 8px;
-    }
-    .chat-stream .session-stamp:first-child { border-top: 0; margin-top: 0; }
-
+    /* ── Messages (used inline in feed) ──────── */
     .msg { display: flex; flex-direction: column; }
     .msg-meta {
       font-family: var(--mono); font-size: 10.5px;
@@ -2168,6 +2116,23 @@
       font-size: 13.5px; line-height: 1.5;
       color: var(--ink-faint);
       margin: -2px 0 10px;
+    }
+    .reply-mark {
+      font-family: var(--mono);
+      font-size: 11px;
+      letter-spacing: 0.04em;
+      color: var(--ink-faint);
+      margin: -3px 0 7px;
+      cursor: pointer;
+    }
+    .reply-mark:hover { color: var(--ink); }
+    .reply-mark-arrow { color: var(--ink-faintest, var(--ink-faint)); margin-right: 4px; }
+    .reply-target-flash {
+      animation: reply-target-flash 1.4s ease-out;
+    }
+    @keyframes reply-target-flash {
+      0%   { box-shadow: 0 0 0 2px var(--accent, #f6c469); }
+      100% { box-shadow: 0 0 0 2px transparent; }
     }
     .msg-recalled::before { content: "~ "; opacity: 0.7; }
     .msg-recalled::after { content: " ~"; opacity: 0.7; }
@@ -2887,19 +2852,18 @@
           <svg class="ic-sun" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"/></svg>
         </button>
       </div>
-      <!-- Lake hero — total moments + current mood. Populated by the
-           same renderECG() pass that drives the Stats charts; just lives
-           up here so it's the first thing you see when you open the
-           sidebar. -->
-      <div class="sidebar-hero meta" id="ecgMeta">loading…</div>
     </div>
     <div class="sidebar-body" id="sidebarBody"><!--
       Sidebar body holds the dashboard's "deeper" surfaces — Reach me,
       Sources, Helpers, Stats — moved here from the main view in the
       Grand Loop cutover. The main view is now feed-only (composer +
       cards). Account row stays affixed at the bottom in .sidebar-foot.
-      The legacy session list is gone; loadSessions() is a no-op stub.
     -->
+      <!-- Lake hero — total moments + current mood. Populated by the
+           same renderECG() pass that drives the Stats charts; sits at
+           the top of the sidebar body so it's the first thing you see
+           when scrolling into the deeper surfaces. -->
+      <div class="sidebar-hero meta" id="ecgMeta">loading…</div>
       <!-- ── Reach me from anywhere ───────────────── -->
       <section class="section" id="reachSection">
         <div class="section-head">
@@ -3064,7 +3028,7 @@
   <!-- ── Top bar ───────────────────────────────── -->
   <header class="topbar">
     <div class="topbar-left">
-      <button class="icon-btn" id="sidebarToggleBtn" aria-label="Sessions">
+      <button class="icon-btn" id="sidebarToggleBtn" aria-label="Menu">
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
       </button>
       <div class="brand">fathom<span class="brand-mark"><svg class="ph-triangle" viewBox="0 0 340 256" fill="currentColor"><g transform="rotate(20.4 128 150)" opacity="0.28"><path d="M236.8,188.09,149.35,36.22a24.76,24.76,0,0,0-42.7,0L19.2,188.09a23.51,23.51,0,0,0,0,23.72A24.35,24.35,0,0,0,40.55,224h174.9a24.35,24.35,0,0,0,21.33-12.19A23.51,23.51,0,0,0,236.8,188.09ZM222.93,203.8a8.5,8.5,0,0,1-7.48,4.2H40.55a8.5,8.5,0,0,1-7.48-4.2,7.59,7.59,0,0,1,0-7.72L120.52,44.21a8.75,8.75,0,0,1,15,0l87.45,151.87A7.59,7.59,0,0,1,222.93,203.8Z"/></g><g transform="translate(41 0) rotate(-17.2 128 150)" opacity="0.58"><path d="M236.8,188.09,149.35,36.22a24.76,24.76,0,0,0-42.7,0L19.2,188.09a23.51,23.51,0,0,0,0,23.72A24.35,24.35,0,0,0,40.55,224h174.9a24.35,24.35,0,0,0,21.33-12.19A23.51,23.51,0,0,0,236.8,188.09ZM222.93,203.8a8.5,8.5,0,0,1-7.48,4.2H40.55a8.5,8.5,0,0,1-7.48-4.2,7.59,7.59,0,0,1,0-7.72L120.52,44.21a8.75,8.75,0,0,1,15,0l87.45,151.87A7.59,7.59,0,0,1,222.93,203.8Z"/></g><g transform="translate(82 0) rotate(0.4 128 150)"><path d="M149.35,36.22a24.76,24.76,0,0,0-42.7,0L19.2,188.09a23.51,23.51,0,0,0,0,23.72A24.35,24.35,0,0,0,40.55,224h174.9a24.35,24.35,0,0,0,21.33-12.19,23.51,23.51,0,0,0,0-23.72Z"/></g></svg></span></div>
@@ -3810,27 +3774,16 @@
     </main>
   </div><!-- /view-surface-setup -->
 
-  <!-- ═══ VIEW: CHAT ═══════════════════════════════ -->
-  <div class="view view-chat" id="viewChat" hidden>
-    <header class="topbar">
-      <div class="topbar-left">
-        <button class="icon-btn" id="chatBackBtn" aria-label="Back">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/></svg>
-        </button>
-        <div class="topbar-title" id="chatTitle">New session</div>
-      </div>
-      <div class="topbar-right"></div>
-    </header>
-
-    <main>
-      <div class="chat-stream" id="chatStream">
-        <!-- Populated dynamically per session -->
-      </div>
-    </main>
-  </div><!-- /view-chat -->
-
   <!-- ── Composer (pinned bottom) ──────────────── -->
   <div class="composer-wrap" id="composerWrap">
+    <!-- Reply-to context bar. Visible whenever _replyTarget is non-null;
+         the next /v1/puddle/seed POST attaches `reply-to:<delta_id>`
+         to extra_tags so the witness can thread the answer to a
+         specific feed item. The ✕ clears the target without sending. -->
+    <div id="replyContext" class="reply-context" hidden>
+      <span class="reply-context-text"><span class="reply-context-prefix">↩ Replying to:</span> <span id="replyContextPreview"></span></span>
+      <button id="replyContextClear" class="reply-context-clear" type="button" aria-label="Clear reply target">✕</button>
+    </div>
     <div class="composer">
       <input type="file" id="fileInput" accept="image/*" hidden />
       <!-- Attach hidden post-cutover: the puddle's seed shape is
@@ -3865,11 +3818,11 @@
       } catch (e) {}
       return '';
     })();
-    let currentSessionId = null;
-    // Set when a chat session is opened from a feed card. The next user
-    // message in this session becomes a chat-engagement signal tied back
-    // to that card. Cleared after the first send (or on chat close).
-    let _seedCard = null;
+    // Reply-to target for the next /v1/puddle/seed send. Set when the user
+    // taps a feed item; the next POST attaches `reply-to:<delta_id>` via
+    // extra_tags. Shape: { id, preview } or null. Cleared on send and on
+    // explicit ✕ click.
+    let _replyTarget = null;
 
     // Auth token — persisted in localStorage, used by all fetch calls
     let _authToken = '';
@@ -4002,10 +3955,10 @@
       _enforceAuthGate();
     })();
 
-    // Composer visibility — only show on main + chat views
+    // Composer visibility — only show on the main feed view
     const composerWrap = document.getElementById('composerWrap');
     function syncComposer() {
-      const show = !viewMain.hidden || !document.getElementById('viewChat').hidden;
+      const show = !viewMain.hidden;
       composerWrap.classList.toggle('sunk', !show);
     }
 
@@ -7403,73 +7356,13 @@ GET  /v1/usage               Usage stats`,
       openSettings();
     });
 
-    // ── Chat view ────────────────────────────────
-    const viewChat = document.getElementById('viewChat');
-    const chatBackBtn = document.getElementById('chatBackBtn');
-    const chatStream = document.getElementById('chatStream');
-    const chatTitle = document.getElementById('chatTitle');
+    // ── Composer handles ─────────────────────────
     const composer = document.querySelector('.composer');
     const composerTa = composer.querySelector('textarea');
     const composerSend = composer.querySelector('.send');
+    composer.dataset.mode = 'send';
 
-    // Composer lives in two modes. "send" is the default: typed text
-    // goes to Fathom's chat listener via POST /chat. "resume" is for
-    // claude-code sessions, which run in the user's kitty window and
-    // can't be continued in-browser — we pre-fill a `claude --resume
-    // <uuid>` command and turn the send button into a copy affordance.
-    // Same DOM; just a data-mode flip on the composer element.
-    function setComposerMode(mode, opts = {}) {
-      const prev = composer.dataset.mode || 'send';
-      if (mode === 'resume') {
-        composer.dataset.mode = 'resume';
-        const sid = opts.sessionId || '';
-        const project = opts.project || '';
-        // `claude --resume <id>` only works from the project dir where
-        // the session was created — so we cd there first when we know
-        // the project (we do, from the delta's `project:<path>` tag).
-        const quoted = project.replace(/"/g, '\\"');
-        const cmd = sid
-          ? (project ? `cd "${quoted}" && claude --resume ${sid}` : `claude --resume ${sid}`)
-          : '';
-        composerTa.value = cmd;
-        composerTa.placeholder = '';
-        composerSend.setAttribute('aria-label', 'Copy command');
-        composerSend.removeAttribute('data-copied');
-      } else {
-        if (prev === 'resume') composerTa.value = '';
-        composer.dataset.mode = 'send';
-        composerTa.placeholder = 'Ask Fathom…';
-        composerSend.setAttribute('aria-label', 'Send');
-        composerSend.removeAttribute('data-copied');
-      }
-      // Re-run the auto-grow pass so the textarea height reflects the
-      // programmatic value change (the `input` listener only fires on
-      // user typing, not on .value = assignments).
-      composerTa.style.height = 'auto';
-      if (composerTa.value) {
-        composerTa.style.height = Math.min(composerTa.scrollHeight, 160) + 'px';
-      }
-    }
-    setComposerMode('send');
-
-    async function copyComposerCommand() {
-      const text = composerTa.value;
-      try {
-        await navigator.clipboard.writeText(text);
-      } catch {
-        // Clipboard denied (insecure context etc.) — fall back to select
-        composerTa.select();
-        return;
-      }
-      composerSend.dataset.copied = 'true';
-      setTimeout(() => {
-        if (composerSend.dataset.copied === 'true') {
-          composerSend.removeAttribute('data-copied');
-        }
-      }, 1400);
-    }
-
-    // ── Live session management ────────────────
+    // ── Feed rendering helpers ──────────────────
 
     const PH_TRIANGLE = '<svg class="ph-triangle" viewBox="0 0 340 256" fill="currentColor"><g transform="rotate(20.4 128 150)" opacity="0.28"><path d="M236.8,188.09,149.35,36.22a24.76,24.76,0,0,0-42.7,0L19.2,188.09a23.51,23.51,0,0,0,0,23.72A24.35,24.35,0,0,0,40.55,224h174.9a24.35,24.35,0,0,0,21.33-12.19A23.51,23.51,0,0,0,236.8,188.09ZM222.93,203.8a8.5,8.5,0,0,1-7.48,4.2H40.55a8.5,8.5,0,0,1-7.48-4.2,7.59,7.59,0,0,1,0-7.72L120.52,44.21a8.75,8.75,0,0,1,15,0l87.45,151.87A7.59,7.59,0,0,1,222.93,203.8Z"/></g><g transform="translate(41 0) rotate(-17.2 128 150)" opacity="0.58"><path d="M236.8,188.09,149.35,36.22a24.76,24.76,0,0,0-42.7,0L19.2,188.09a23.51,23.51,0,0,0,0,23.72A24.35,24.35,0,0,0,40.55,224h174.9a24.35,24.35,0,0,0,21.33-12.19A23.51,23.51,0,0,0,236.8,188.09ZM222.93,203.8a8.5,8.5,0,0,1-7.48,4.2H40.55a8.5,8.5,0,0,1-7.48-4.2,7.59,7.59,0,0,1,0-7.72L120.52,44.21a8.75,8.75,0,0,1,15,0l87.45,151.87A7.59,7.59,0,0,1,222.93,203.8Z"/></g><g transform="translate(82 0) rotate(0.4 128 150)"><path d="M149.35,36.22a24.76,24.76,0,0,0-42.7,0L19.2,188.09a23.51,23.51,0,0,0,0,23.72A24.35,24.35,0,0,0,40.55,224h174.9a24.35,24.35,0,0,0,21.33-12.19,23.51,23.51,0,0,0,0-23.72Z"/></g></svg>';
 
@@ -7534,22 +7427,6 @@ GET  /v1/usage               Usage stats`,
         .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
     }
 
-    // Wrap a chat thumbnail in a glightbox anchor so tap opens a lightbox
-    // just like feed cards. `cls` picks the existing size rule (msg-thumb
-    // for user uploads, tool-thumb for see_image events).
-    function _lightboxChatImage(mediaHash, cls) {
-      const a = document.createElement('a');
-      a.className = 'glightbox';
-      a.setAttribute('data-gallery', 'chat');
-      a.href = mediaUrl(mediaHash);
-      const img = document.createElement('img');
-      img.className = cls;
-      img.src = mediaUrl(mediaHash);
-      img.alt = '';
-      a.appendChild(img);
-      return a;
-    }
-
     // Customize marked: external links in new tab, images zoomable
     if (typeof marked !== 'undefined') {
       const renderer = new marked.Renderer();
@@ -7574,509 +7451,18 @@ GET  /v1/usage               Usage stats`,
       return text.replace(/\n/g, '<br>');
     }
 
-    function renderStream(session) {
-      chatStream.innerHTML = '';
-      if (session.stamp) {
-        const stamp = document.createElement('div');
-        stamp.className = 'session-stamp';
-        stamp.textContent = session.stamp;
-        chatStream.appendChild(stamp);
-      }
-      session.turns.forEach(t => chatStream.appendChild(renderTurn(t)));
-    }
-
-    // Chat message reconciliation state. `_renderedMessageIds` is the set of
-    // delta IDs already painted into the stream — any message returned by
-    // /v1/sessions/{id} whose ID is in this set is skipped on subsequent
-    // polls, so the same turn never renders twice. Cleared when the chat
-    // closes or switches to a different session.
-    let _renderedMessageIds = new Set();
-    let _chatPollTimer = null;
-    let _chatPollPaused = false;
-    const CHAT_POLL_MS = 3000;
-
-    function _renderMessageToStream(m) {
-      const time = m.created_at ? new Date(m.created_at).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }) : '';
-      let el;
-      if (m.role === 'event') {
-        el = _renderChatEvent(m);
-      } else if (m.role === 'user') {
-        el = renderTurn({ role: 'user', time, text: m.content || '' });
-      } else if (m.role === 'assistant') {
-        const { body, recalled } = _splitRecalled(m.content || '');
-        el = renderTurn({ role: 'fathom', time, html: renderMd(body), recalled });
-      } else if (m.role === 'agent') {
-        el = renderTurn({
-          role: 'agent', time,
-          text: m.content || '',
-          host: m.host,
-          signoff: !!m.signoff,
-        });
-      }
-      if (el && m.media_hash) {
-        const body = el.querySelector ? el.querySelector('.msg-body') : null;
-        if (body) body.appendChild(_lightboxChatImage(m.media_hash, 'msg-thumb'));
-      }
-      if (el) {
-        chatStream.appendChild(el);
-        scrollToBottomOfChat();
-        refreshLightbox();
-      }
-    }
-
-    // Pull fresh messages from the server and append any we haven't rendered.
-    // `silent_roles` is an escape hatch for the post-send reconcile pass:
-    // the local render already shows the user turn that just finished, but
-    // the server now has the authoritative ID. We want to "seal off" that
-    // ID (add to _renderedMessageIds) without re-rendering it, while
-    // still rendering any agent/fathom deltas that have landed.
-    async function _reconcileChatMessages(silent_roles) {
-      if (!currentSessionId) return;
-      let data;
-      try {
-        data = await api(`/v1/sessions/${currentSessionId}`);
-      } catch {
-        return;
-      }
-      const silent = new Set(silent_roles || []);
-      let rendered = 0;
-      for (const m of data.messages || []) {
-        if (!m.id || _renderedMessageIds.has(m.id)) continue;
-        // Silent reconciles (e.g. post-send sweep that swallows the user's
-        // own message) just need to mark the ID so a later non-silent
-        // poll skips it. Don't try to render.
-        if (silent.has(m.role)) {
-          _renderedMessageIds.add(m.id);
-          continue;
-        }
-        // Render BEFORE marking the ID. If the render throws — bad
-        // markdown, a missing field on a new event kind, anything — we
-        // don't want to poison the set. Without this, one render error
-        // locks the message out forever on this tab and the user sees
-        // the typing indicator hang until they refresh (which rebuilds
-        // _renderedMessageIds from scratch).
-        try {
-          _renderMessageToStream(m);
-        } catch (e) {
-          console.error('chat: render failed for message', m && m.id, e);
-          continue;  // try again next poll
-        }
-        _renderedMessageIds.add(m.id);
-        rendered++;
-        // Remove any pending "typing" indicator — Fathom or a body has
-        // spoken, so the wait is over. Agent-signoff messages count too;
-        // they're a completion signal.
-        _maybeRemoveTyping(m);
-      }
-      if (rendered) {
-        loadSessions();
-        // The user is actively sitting in this session — bump their
-        // last_seen_at so the bell doesn't light for messages they're
-        // watching land in real time. The next /v1/alerts poll will
-        // see the chat-view delta and exclude this session.
-        _markSessionRead(currentSessionId);
-      }
-    }
-
-    // Pull a single <recalled>...</recalled> preamble out of a Fathom
-    // reply. The tag is provenance — a short first-person reflection on
-    // what memories surfaced this turn — paired with the reply itself
-    // rather than a separate ephemeral chat-event. Renders as a muted
-    // subtitle above the bubble; stripped from the body so it doesn't
-    // double up in markdown. Case-insensitive and DOTALL-ish so wrapped
-    // prose works. We match the first tag only; extras stay in the body
-    // as-is (a stray tag is a model glitch, not worth special-casing).
-    const _RECALLED_RE = /<recalled>([\s\S]*?)<\/recalled>/i;
-    function _splitRecalled(content) {
-      const match = content.match(_RECALLED_RE);
-      if (!match) return { body: content, recalled: '' };
-      const recalled = (match[1] || '').trim();
-      const body = content.replace(_RECALLED_RE, '').trim();
-      return { body, recalled };
-    }
-
-    function _maybeRemoveTyping(m) {
-      // Any signal from Fathom (message, silence ack, or a body's
-      // signoff) ends the "typing" state. Tool-use events also count —
-      // they mean Fathom is actively thinking rather than just stuck.
-      const isFathomSignal =
-        m.role === 'assistant' ||
-        m.role === 'agent' ||
-        (m.role === 'event' && (m.kind === 'silence' || m.kind === 'remember' || m.kind === 'recall'));
-      if (isFathomSignal) {
-        const t = chatStream.querySelector('.typing');
-        if (t) t.remove();
-      }
-    }
-
-    // Render a chat-event delta as a subtle inline strip. Events are
-    // ephemeral (TTL'd in the lake) and mirror the old streamed
-    // tool-chips the UI showed before inference moved to the listener.
-    function _renderChatEvent(m) {
-      const kind = m.kind || 'event';
-      const data = m.data || {};
-
-      // Memory-tool events no longer render as their own strip — the
-      // paired <recalled> preamble on Fathom's reply carries that signal
-      // now. Old TTL'd events from before the switchover still land in
-      // polling results for a few minutes; drop them silently.
-      if (kind === 'remember' || kind === 'recall' || kind === 'deep_recall') {
-        return null;
-      }
-
-      if (kind === 'silence') {
-        // A silent ack renders as a compact Fathom meta-line with a
-        // checkmark — occupies the same slot a reply would (so you
-        // notice it on the same scan), but takes one line instead of
-        // a bubble. "FATHOM · 11:45 PM · ✓"
-        const time = m.created_at ? new Date(m.created_at).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }) : '';
-        const el = document.createElement('div');
-        el.className = 'msg msg-fathom msg-silence';
-        el.innerHTML = `<div class="msg-meta">Fathom · ${time} · <span class="silence-check" title="Fathom acknowledged and chose not to reply">✓</span></div>`;
-        return el;
-      }
-
-      if (kind === 'see_image' && data.media_hash) {
-        return renderTurn({
-          role: 'tool',
-          meta: 'viewed',
-          media_hash: data.media_hash,
-        });
-      }
-
-      if (kind === 'routine-proposal') {
-        return _renderRoutineProposal(m);
-      }
-
-      // Generic tool result — show a count or the bare name. Mirrors
-      // the old "37 deltas" style.
-      const label = _eventLabel(kind, data);
-      return renderTurn({ role: 'tool', meta: label });
-    }
-
-    // Fathom's `routines create` tool (without confirm=true) returns
-    // control to the UI by dropping a routine-proposal event carrying the
-    // composed fields. We paint the same editor the dashboard uses,
-    // prefilled, so the human reviews and saves inline. Save hits the
-    // normal POST /v1/routines; cancel just removes the card.
-    function _renderRoutineProposal(m) {
-      const data = m.data || {};
-      const proposal = data.proposal || {};
-      const time = m.created_at ? new Date(m.created_at).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }) : '';
-
-      const defaults = {
-        id: '', name: '', workspace: '', host: '', schedule: '0 * * * *', prompt: '',
-        permission_mode: 'auto', enabled: true, single_fire: false,
-        ...proposal,
-      };
-      // Empty workspace from the LLM → fall back to the target agent's
-      // advertised default. A proposal with workspace already set wins.
-      if (!defaults.workspace) {
-        defaults.workspace = _defaultWorkspaceForHost(defaults.host);
-      }
-
-      const el = document.createElement('div');
-      el.className = 'msg msg-fathom msg-routine-proposal';
-      el.innerHTML = `
-        <div class="msg-meta">Fathom · ${time} · proposed routine</div>
-        <div class="routine-proposal-card">
-          ${renderEditorHtml(defaults)}
-          <div class="routine-proposal-saved" hidden>Saved. Open the dashboard to tweak or fire.</div>
-        </div>`;
-
-      const editor = el.querySelector('.routine-editor');
-      editor.dataset.editing = '__new__';
-      const idInput = editor.querySelector('[data-f="id"]');
-      if (idInput) idInput.disabled = false;
-
-      const savedNote = el.querySelector('.routine-proposal-saved');
-      wireEditor(editor, {
-        onSave: () => {
-          editor.hidden = true;
-          savedNote.hidden = false;
-          loadRoutines?.();
-        },
-        onCancel: () => {
-          el.remove();
-        },
-      });
-
-      return el;
-    }
-
-    function _eventLabel(kind, data) {
-      if (data.count != null) {
-        const noun =
-          kind === 'remember' || kind === 'recall' ? 'deltas' :
-          kind === 'mind_tags' ? 'tags' :
-          'results';
-        return `${data.count} ${noun}`;
-      }
-      if (kind === 'write') return 'wrote a memory';
-      if (kind === 'explain') return `explained ${data.topic || ''}`.trim();
-      return kind;
-    }
-
-    function _startChatPoll() {
-      _stopChatPoll();
-      _chatPollTimer = setInterval(() => {
-        if (_chatPollPaused || document.hidden) return;
-        _reconcileChatMessages();
-      }, CHAT_POLL_MS);
-    }
-
-    function _stopChatPoll() {
-      if (_chatPollTimer) {
-        clearInterval(_chatPollTimer);
-        _chatPollTimer = null;
-      }
-    }
-
-    // Resume on tab becoming visible so an idle tab catches up quickly
-    // rather than waiting for the next setInterval tick.
-    document.addEventListener('visibilitychange', () => {
-      if (!document.hidden && _chatPollTimer && !_chatPollPaused) {
-        _reconcileChatMessages();
-      }
-    });
-
-    async function openChatWithSession(session, isClaudeCode = false) {
-      // Accept either a full session object (from the sidebar) or a
-      // bare id string (legacy callers). Normalize to an object so the
-      // rest of the function can work with `session.title`, `.project`.
-      if (typeof session === 'string') session = { id: session };
-      const sessionId = session.id;
-      _stopChatPoll();
-      _renderedMessageIds = new Set();
-      // Drop any pending seed-card pairing — the user navigated away from
-      // the fresh card-seeded session before sending. Chat engagement
-      // only fires when there's an actual message in the seeded session.
-      _seedCard = null;
-      const headerLabel = displayTitle(session);
-      if (isClaudeCode) {
-        chatTitle.innerHTML = `<span class="chat-title-icon">${iconHtml('claude-code', 14)}</span><span></span>`;
-        chatTitle.querySelector('span:last-child').textContent = headerLabel || 'Session';
-      } else {
-        chatTitle.textContent = headerLabel || 'Session';
-      }
-      if (session.project) chatTitle.title = session.project;
-      currentSessionId = sessionId;
-      _markSessionRead(sessionId);
-      chatStream.innerHTML = '<div class="session-stamp">Loading…</div>';
-      hideMainOpenChat();
-      // Claude-code sessions can't be driven from the browser — flip the
-      // composer into resume-command mode so the user can continue in
-      // their terminal. Consumer-api sessions stay in send mode. The
-      // project path comes with the session if the sidebar had it;
-      // otherwise it's filled in after the fetch lands below.
-      setComposerMode(isClaudeCode ? 'resume' : 'send', {
-        sessionId,
-        project: session.project,
-      });
-
-      try {
-        const data = await api(`/v1/sessions/${sessionId}`);
-        chatStream.innerHTML = '';
-        const stamp = document.createElement('div');
-        stamp.className = 'session-stamp';
-        let created = '';
-        if (data.session.created_at) {
-          const tz = _effectiveTimezone();
-          const opts = tz ? { timeZone: tz } : {};
-          const d = new Date(data.session.created_at);
-          const weekday = d.toLocaleDateString(undefined, { weekday: 'long', ...opts });
-          const time = d.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit', ...opts });
-          created = `${weekday} · ${time}`;
-        }
-        // Prefer the derived display title over the raw session id on
-        // the in-stream stamp, so unrenamed claude-code sessions read
-        // as `fathomdx · Thursday · 11:52 AM` instead of the UUID.
-        const stampLabel = displayTitle({
-          id: sessionId,
-          title: data.session.title,
-          project: data.session.project,
-        });
-        stamp.textContent = stampLabel + (created ? ` · ${created}` : '');
-        chatStream.appendChild(stamp);
-
-        // Now that the session payload has landed, if it came with a
-        // project path (claude-code only), rebuild the resume command
-        // with the cd prefix so it actually works when pasted.
-        if (isClaudeCode && data.session.project) {
-          setComposerMode('resume', { sessionId, project: data.session.project });
-        }
-
-        // Initial load: enter sticky mode and force a jump to the bottom,
-        // then again after the paint settles so images that lazy-load
-        // don't leave the view floating partway up.
-        _stickBottom = true;
-        for (const m of (data.messages || [])) {
-          if (m.id) _renderedMessageIds.add(m.id);
-          _renderMessageToStream(m);
-        }
-        scrollToBottomOfChat(true);
-        setTimeout(() => scrollToBottomOfChat(true), 120);
-        _startChatPoll();
-      } catch (err) {
-        chatStream.innerHTML = `<div class="session-stamp">Failed to load session</div>`;
-      }
-    }
-
-    function openChatFresh() {
-      _stopChatPoll();
-      _renderedMessageIds = new Set();
-      _stickBottom = true;
-      chatTitle.textContent = 'New session';
-      currentSessionId = null;
-      chatStream.innerHTML = '<div class="session-stamp">New session · just now</div>';
-      setComposerMode('send');
-      hideMainOpenChat();
-      setTimeout(() => composerTa && composerTa.focus(), 100);
-    }
-
-    function hideMainOpenChat() {
-      [viewMain, viewDetail, viewAdd, viewSettings, viewSurface].forEach(v => v && (v.hidden = true));
-      viewChat.hidden = false;
-      scrollToBottomOfChat();
-      syncComposer();
-    }
-
-    function closeChat() {
-      _stopChatPoll();
-      _renderedMessageIds = new Set();
-      // Drop the seed-card pairing if the user backed out without sending —
-      // the chat-engagement signal only fires on actual conversation.
-      _seedCard = null;
-      setComposerMode('send');
-      viewChat.hidden = true;
-      viewMain.hidden = false;
-      syncComposer();
-    }
-
-    // Sticky-bottom scrolling. The chat sticks to the bottom by default
-    // so new messages keep pushing into view; if the user scrolls up to
-    // read history, we stop auto-scrolling and only resume once they
-    // come back within AT_BOTTOM_TOLERANCE of the bottom. Session open
-    // forces an initial bottom-scroll (the `force` arg bypasses the
-    // stick check) with a follow-up pass to catch images that settle
-    // after the first rAF.
-    //
-    // The scroll container is the document (html), not the chat <main>:
-    // main is `flex: 1 overflow-y: auto` but nothing constrains its
-    // height, so it grows to fit content and the window becomes what
-    // actually scrolls. We target documentElement.scrollTop directly.
-    let _stickBottom = true;
-    const AT_BOTTOM_TOLERANCE = 40;
-
-    function _isAtBottom() {
-      const el = document.scrollingElement || document.documentElement;
-      return el.scrollHeight - el.scrollTop - window.innerHeight <= AT_BOTTOM_TOLERANCE;
-    }
-
-    function scrollToBottomOfChat(force = false) {
-      if (!force && !_stickBottom) return;
-      const el = document.scrollingElement || document.documentElement;
-      requestAnimationFrame(() => {
-        el.scrollTop = el.scrollHeight;
-      });
-    }
-
-    // Only track scroll intent while the chat view is the one showing —
-    // other views do their own scrolling and shouldn't affect the flag.
-    window.addEventListener('scroll', () => {
-      if (viewChat.hidden) return;
-      _stickBottom = _isAtBottom();
-    }, { passive: true });
-
-    chatBackBtn.addEventListener('click', () => {
-      closeChat();
-      currentSessionId = null;
-    });
-
-    // Sidebar session list — population is still wired (loadSessions
-    // below) so anything that calls it for side effects keeps working,
-    // but the body element is hidden post-cutover. The new-session
-    // button and the show-claude-code filter were removed entirely.
-    const sidebarBody = document.querySelector('.sidebar-body');
-
-    function isClaudeCodeSession(s) {
-      // Session sources come from the delta `source` field — claude-code
-      // hook writes with source="claude-code". A session is claude-code
-      // if ANY of its deltas carry that source, even if it was later
-      // renamed (which adds a fathom-chat source delta). Origin wins.
-      return (s.sources || []).includes('claude-code');
-    }
-
-    // A session's raw title falls back to its id when no `chat-name`
-    // delta has ever landed — which for claude-code is everything by
-    // default, so the sidebar ends up full of UUIDs. When we can, fall
-    // back to the project dir's basename instead (short, human, tied
-    // to the actual work). User-chosen titles (where title !== id) are
-    // preserved as-is.
-    function basenameOf(path) {
-      if (!path) return '';
-      const trimmed = String(path).replace(/\/+$/, '');
-      const i = trimmed.lastIndexOf('/');
-      return i >= 0 ? trimmed.slice(i + 1) : trimmed;
-    }
-    // Short relative timestamp for session labels. Sidebar already
-    // groups by recency, so "9:41 AM" and "Apr 21" are enough to tell
-    // two sessions in the same project apart.
-    function _relativeStamp(iso) {
-      if (!iso) return '';
-      const d = new Date(iso);
-      if (isNaN(d.getTime())) return '';
-      const now = new Date();
-      const sameDay = d.toDateString() === now.toDateString();
-      const opts = { timeZone: _effectiveTimezone() || undefined };
-      if (sameDay) {
-        return d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit', ...opts });
-      }
-      return d.toLocaleDateString([], { month: 'short', day: 'numeric', ...opts });
-    }
-
-    function displayTitle(s) {
-      if (!s) return '';
-      // Explicit rename always wins — chat-name delta overrides any
-      // auto-derived label, even across surfaces.
-      const named = s.title && s.title !== s.id;
-      if (named) return s.title;
-      const base = basenameOf(s.project);
-      const host = s.host || '';
-      if (host && base) return `${host} · ${base}`;
-      if (base) return base;
-      if (host) return host;
-      // Unrenamed consumer-api session slug (word-hyphen-word) is short
-      // enough to show; UUIDs we truncate for the sidebar.
-      if (/^[0-9a-f]{8}-[0-9a-f]{4}/i.test(s.id)) return s.id.slice(0, 8) + '…';
-      return s.id;
-    }
-
-    // Sidebar labels append a timestamp to auto-derived titles so
-    // multiple sessions in the same project/host don't collapse into
-    // identical entries. Renamed sessions skip the stamp — a chosen
-    // name is already distinctive, piling a timestamp on would read
-    // as noise.
-    function sidebarLabel(s) {
-      const base = displayTitle(s);
-      const renamed = s && s.title && s.title !== s.id;
-      if (renamed) return base;
-      const stamp = _relativeStamp(s && s.updated_at);
-      return stamp ? `${base} · ${stamp}` : base;
-    }
-
-    // loadSessions was the sidebar session-list populator. Removed in
-    // the Grand Loop cutover — the sidebar now holds Reach me / Sources
-    // / Helpers / Stats instead. Stubbed (rather than deleted) so the
-    // chat-detail-view reconcile path that still calls it doesn't
-    // crash. Its body's deliberately empty.
-    async function loadSessions() { /* no-op */ }
+    // Chat sessions and their dedicated detail view were removed in the
+    // Grand Loop cutover. The dashboard is now feed-only: seeds and
+    // replies render inline as .msg-user / .msg-fathom rows alongside
+    // cards. Click on any feed item arms _replyTarget so the next send
+    // threads via `extra_tags: [reply-to:<delta_id>]`.
 
     // ── Header alerts ────────────────────────────────
-    // Polls /v1/alerts every ~10s for unread sessions addressed to the
+    // Polls /v1/alerts every ~10s for unread items addressed to the
     // current viewer. The bell icon's dot lights when there's anything;
-    // clicking it opens the dropdown. Clicking an item opens the
-    // session, which fires mark-read and clears the alert.
+    // clicking it opens the dropdown. With the chat pane gone, clicking
+    // an alert dismisses the panel; mark-all-read still clears server
+    // state.
     const alertsBtn = document.getElementById('alertsBtn');
     const alertsPanel = document.getElementById('alertsPanel');
     const alertsEmpty = document.getElementById('alertsEmpty');
@@ -8120,14 +7506,18 @@ GET  /v1/usage               Usage stats`,
         _seenAlertKeys.add(k);
         if (!canNotify) continue;
         try {
-          const n = new Notification(a.title || 'New chat message', {
+          const n = new Notification(a.title || 'New activity', {
             body: a.preview || '',
-            tag: `chat:${a.session_id}`,
+            tag: `alert:${a.session_id}`,
             renotify: true,
           });
+          // Chat-pane is gone post-cutover; clicking the OS notification
+          // just refocuses the window. Future surface for threading
+          // alerts → reply-target armed in the feed lives here.
+          // TODO(reply-target): when alerts carry a delta_id, arm
+          // _replyTarget on click instead of just focusing.
           n.addEventListener('click', () => {
             window.focus();
-            openChatWithSession({ id: a.session_id, title: a.title }, false);
             n.close();
           });
         } catch (e) {
@@ -8175,15 +7565,20 @@ GET  /v1/usage               Usage stats`,
         stamp.textContent = _alertsRelative(a.unread_since);
         btn.append(title, preview, stamp);
         btn.addEventListener('click', () => {
+          // Chat-pane is gone post-cutover; clicking an alert just
+          // dismisses the panel. The bell still surfaces unread state
+          // from /v1/alerts; opening the threaded reply-target flow
+          // from here is a follow-up.
+          // TODO(reply-target): when alerts carry a delta_id, arm
+          // _replyTarget here so the user can reply inline.
           alertsPanel.dataset.open = 'false';
-          openChatWithSession({ id: a.session_id, title: a.title }, false);
         });
         alertsPanel.appendChild(btn);
       }
       // Mark-all-read header — only when there's at least one alert.
       // Sits at the top of the panel so the action is reachable
       // immediately, before scrolling through 30+ rows. Writes one
-      // chat-view delta per unread session; bounded by session count,
+      // mark-read delta per unread session; bounded by session count,
       // TTL'd, idempotent. See /v1/alerts/mark-all-read.
       const markAll = document.createElement('button');
       markAll.className = 'alerts-mark-all';
@@ -8239,17 +7634,7 @@ GET  /v1/usage               Usage stats`,
       setInterval(_pollAlerts, 10000);
     }
 
-    async function _markSessionRead(sessionId) {
-      if (!sessionId) return;
-      try {
-        await api('/v1/alerts', { method: 'POST', body: JSON.stringify({ session: sessionId }) });
-      } catch (e) {
-        // Best-effort; the next poll will reconcile.
-      }
-      _pollAlerts();
-    }
-
-    // Composer send — real streaming API call
+    // Composer send — drops a seed into the Grand Loop puddle.
     async function sendFromComposer() {
       const text = composerTa.value.trim();
       if (!text) return;
@@ -8262,11 +7647,19 @@ GET  /v1/usage               Usage stats`,
       // + reply both surface in the feed via _pollFeedLive. No chat
       // session is created; the conversation lives as ephemeral puddle
       // deltas until engagement promotes them to the durable lake.
+      //
+      // If _replyTarget is armed, we tag the seed `reply-to:<delta_id>`
+      // so the witness can thread the answer to whatever feed item the
+      // user tapped.
+      const body = { content: text };
+      if (_replyTarget && _replyTarget.id) {
+        body.extra_tags = [`reply-to:${_replyTarget.id}`];
+      }
       try {
         const r = await fetch(API_BASE + '/v1/puddle/seed', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', ...authHeaders() },
-          body: JSON.stringify({ content: text }),
+          body: JSON.stringify(body),
         });
         if (!r.ok) {
           // Surface the failure inline as a red fathom-style note in the
@@ -8281,6 +7674,9 @@ GET  /v1/usage               Usage stats`,
           feed.insertBefore(errEl, feed.firstChild);
           return;
         }
+        // Successful send — clear the reply target so the next message
+        // starts fresh, and hide the context bar.
+        clearReplyTarget();
         // Kick the live-poll right away so the seed appears as a
         // .msg-user immediately rather than waiting up to 3s.
         _pollFeedLive();
@@ -8295,19 +7691,11 @@ GET  /v1/usage               Usage stats`,
       }
     }
 
-    function composerAction() {
-      if (composer.dataset.mode === 'resume') {
-        copyComposerCommand();
-      } else {
-        sendFromComposer();
-      }
-    }
-
-    composerSend.addEventListener('click', composerAction);
+    composerSend.addEventListener('click', sendFromComposer);
     composerTa.addEventListener('keydown', (e) => {
       if (e.key === 'Enter' && !e.shiftKey) {
         e.preventDefault();
-        composerAction();
+        sendFromComposer();
       }
     });
 
@@ -8887,7 +8275,32 @@ GET  /v1/usage               Usage stats`,
         if (el) {
           el.dataset.fromPuddle = '1';
           el.dataset.puddleId = it.id || '';
+          if (it.id) el.dataset.deltaId = it.id;
           el.dataset.kind = 'chat';
+          // Reply-to chip — if this seed was sent with a reply target,
+          // show "↩ in reply to: <preview>" above the body. Preview is
+          // pulled from the target's already-rendered DOM (cards, msgs,
+          // etc. all carry data-delta-id); falls back to a generic
+          // pointer when the target's not in view.
+          const replyTag = (it.tags || []).find(t => t.startsWith('reply-to:'));
+          if (replyTag) {
+            const targetId = replyTag.slice('reply-to:'.length);
+            const target = document.querySelector(`[data-delta-id="${targetId}"]`);
+            let preview = '';
+            if (target) {
+              const h = target.querySelector('h3, .msg-body, .d-body');
+              preview = (h ? h.textContent : target.textContent || '').trim().replace(/\s+/g, ' ').slice(0, 80);
+            }
+            const mark = document.createElement('div');
+            mark.className = 'reply-mark';
+            mark.dataset.replyTo = targetId;
+            mark.innerHTML = preview
+              ? `<span class="reply-mark-arrow">↩</span> in reply to: ${_esc(preview)}${preview.length === 80 ? '…' : ''}`
+              : `<span class="reply-mark-arrow">↩</span> in reply to a prior moment`;
+            const meta = el.querySelector('.msg-meta');
+            if (meta) meta.insertAdjacentElement('afterend', mark);
+            else el.insertBefore(mark, el.firstChild);
+          }
         }
         return el;
       }
@@ -8898,6 +8311,7 @@ GET  /v1/usage               Usage stats`,
         if (el) {
           el.dataset.fromPuddle = '1';
           el.dataset.puddleId = it.id || '';
+          if (it.id) el.dataset.deltaId = it.id;
           el.dataset.kind = 'chat';
           if (it.engagement) el.dataset.engaged = it.engagement;
           const body = el.querySelector('.msg-body');
@@ -8932,6 +8346,7 @@ GET  /v1/usage               Usage stats`,
         if (card) {
           card.dataset.fromPuddle = '1';
           card.dataset.puddleId = it.id || '';
+          if (it.id) card.dataset.deltaId = it.id;
           card.dataset.kind = 'card';
           if (it.engagement) card.dataset.engaged = it.engagement;
         }
@@ -8946,6 +8361,7 @@ GET  /v1/usage               Usage stats`,
         el.dataset.kind = 'voice-thought';
         el.dataset.fromPuddle = '1';
         el.dataset.puddleId = it.id || '';
+        if (it.id) el.dataset.deltaId = it.id;
         el.innerHTML = `<header class="d-head"><span class="d-kind">${_esc(it.voice || 'voice')}</span><span class="d-ts">${timeStr}</span></header><div class="d-body">${_esc(it.content || '')}</div>`;
         return el;
       }
@@ -8965,6 +8381,7 @@ GET  /v1/usage               Usage stats`,
         el.dataset.passKind = passKind;
         el.dataset.fromPuddle = '1';
         el.dataset.puddleId = it.id || '';
+        if (it.id) el.dataset.deltaId = it.id;
         el.innerHTML = `<header class="d-head"><span class="d-kind">${_esc(passKind)}</span><span class="d-ts">${timeStr}</span></header><div class="d-body">${_esc(it.content || '')}</div>`;
         return el;
       }
@@ -8975,6 +8392,7 @@ GET  /v1/usage               Usage stats`,
         el.dataset.kind = 'crystal';
         el.dataset.fromPuddle = '1';
         el.dataset.puddleId = it.id || '';
+        if (it.id) el.dataset.deltaId = it.id;
         const label = it.facet ? `crystal · ${it.facet}` : 'crystal';
         el.innerHTML = `<header class="d-head"><span class="d-kind">${_esc(label)}</span><span class="d-ts">${timeStr}</span></header><div class="d-body">${_esc(it.content || '')}</div>`;
         return el;
@@ -8986,6 +8404,7 @@ GET  /v1/usage               Usage stats`,
         el.dataset.kind = 'mood';
         el.dataset.fromPuddle = '1';
         el.dataset.puddleId = it.id || '';
+        if (it.id) el.dataset.deltaId = it.id;
         const label = it.feeling ? `mood · ${it.feeling}` : 'mood';
         el.innerHTML = `<header class="d-head"><span class="d-kind">${_esc(label)}</span><span class="d-ts">${timeStr}</span></header><div class="d-body">${_esc(it.content || '')}</div>`;
         return el;
@@ -8998,6 +8417,7 @@ GET  /v1/usage               Usage stats`,
         el.dataset.kind = 'routine';
         el.dataset.fromPuddle = '1';
         el.dataset.puddleId = it.id || '';
+        if (it.id) el.dataset.deltaId = it.id;
         const variant = it.summary ? 'summary' : 'fire';
         const rid = it.routine_id ? ` · ${it.routine_id}` : '';
         const label = `routine · ${variant}${rid}`;
@@ -9015,6 +8435,7 @@ GET  /v1/usage               Usage stats`,
         el.dataset.kind = 'lake-delta';
         el.dataset.fromPuddle = '1';
         el.dataset.puddleId = it.id || '';
+        if (it.id) el.dataset.deltaId = it.id;
         const src = it.from_source || 'unknown';
         const raw = it.content || '';
         let isJson = false;
@@ -9044,6 +8465,7 @@ GET  /v1/usage               Usage stats`,
         el.dataset.kind = 'recall';
         el.dataset.fromPuddle = '1';
         el.dataset.puddleId = it.id || '';
+        if (it.id) el.dataset.deltaId = it.id;
         el.innerHTML = `<header class="d-head"><span class="d-kind">recall</span><span class="d-ts">${timeStr}</span></header><div class="d-body">${_esc(it.content || '')}</div>`;
         return el;
       }
@@ -9438,64 +8860,85 @@ GET  /v1/usage               Usage stats`,
         // to roll back; the next poll continues to reflect whatever's
         // actually in the puddle.
       }
-    }, true);  // capture phase so we beat the chat-opener delegate below
+    }, true);  // capture phase so we beat the reply-target delegate below
 
-    // Tap a feed story → open it as a new chat session
+    // ── Reply-to-feed-item wiring ──────────────────────────────
+    // Tapping any feed item with a delta-id arms _replyTarget so the
+    // next /v1/puddle/seed POST attaches `reply-to:<delta_id>` via
+    // extra_tags. The composer surfaces a small context bar with a
+    // ↩ preview + ✕ clear; on a successful send we drop the target.
+    const replyContextEl = document.getElementById('replyContext');
+    const replyContextPreview = document.getElementById('replyContextPreview');
+    const replyContextClear = document.getElementById('replyContextClear');
+
+    function _previewFromEl(el) {
+      // Prefer the title (h3) text on cards; fall back to first message
+      // body / generic textContent. Cap at 80 chars so the bar stays on
+      // one line — the textContent ellipsis CSS handles overflow but
+      // a hard cap keeps the underlying string short for the title attr.
+      let txt = '';
+      const h3 = el.querySelector ? el.querySelector('h3') : null;
+      if (h3 && h3.textContent) txt = h3.textContent;
+      if (!txt) {
+        const body = el.querySelector ? el.querySelector('.msg-body, .d-body') : null;
+        if (body && body.textContent) txt = body.textContent;
+      }
+      if (!txt) txt = (el.textContent || '').trim();
+      txt = (txt || '').replace(/\s+/g, ' ').trim();
+      if (txt.length > 80) txt = txt.slice(0, 79) + '…';
+      return txt;
+    }
+
+    function setReplyTarget(target) {
+      _replyTarget = target;
+      if (!target) {
+        replyContextEl.hidden = true;
+        replyContextPreview.textContent = '';
+        return;
+      }
+      replyContextPreview.textContent = target.preview || target.id;
+      replyContextEl.hidden = false;
+    }
+
+    function clearReplyTarget() {
+      setReplyTarget(null);
+    }
+
+    replyContextClear.addEventListener('click', clearReplyTarget);
+
+    // Delegated click handler — fires for any feed item that carries
+    // data-delta-id (cards, witness replies, recall blocks, voice-thoughts,
+    // crystals, moods, lake-deltas — see _renderPuddleItem). Skips the
+    // same in-card affordances the engagement handler skips, so + / − /
+    // image lightbox / external links don't accidentally arm reply.
     feed.addEventListener('click', (e) => {
-      // Don't hijack clicks on images, lightbox links, media strip,
-      // or engagement buttons (handled by the capture-phase listener above).
-      if (e.target.closest('.glightbox, .card-media, a[target], .engagement-btn')) return;
-      const card = e.target.closest('.card');
-      if (!card) return;
-      const h3 = card.querySelector('h3');
-      if (!h3) return;
-      // Click-to-chat counts as explicit engagement intent — exclude
-      // this card from passive scroll-past / dwell-low signaling.
-      if (card.dataset.cardId) _markEngaged(card.dataset.cardId);
-
-      // Stash the seed-card metadata so the first message in this fresh
-      // session can land an `engagement:chat` delta tied back to the card.
-      // The chat-from-card pairing is what makes "user clicked, then said
-      // X" a measurable confidence signal — see docs/feed-spec.md.
-      _seedCard = card.dataset.cardId
-        ? {
-            id: card.dataset.cardId,
-            topic: card.dataset.topic || '',
-            excerpt: card.dataset.excerpt || '',
-          }
-        : null;
-
-      const clone = card.cloneNode(true);
-      clone.querySelectorAll('.action, .engagement-btn, .engagement-spacer').forEach(a => a.remove());
-      clone.classList.remove('surfacing');
-      clone.style.animation = 'none';
-      clone.style.cursor = 'default';
-
-      const title = h3.textContent;
-      openChatFresh();
-      chatTitle.textContent = title;
-
-      chatStream.innerHTML = '';
-      const stamp = document.createElement('div');
-      stamp.className = 'session-stamp';
-      stamp.textContent = 'New session · just now';
-      chatStream.appendChild(stamp);
-
-      const now = new Date();
-      const timeStr = now.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
-      const turn = document.createElement('div');
-      // `msg-feed-seed-local` marks this as the transient pre-first-send
-      // clone — once the seed delta lands in the lake on first send the
-      // clone is removed and the canonical seed paints through reconcile.
-      turn.className = 'msg msg-fathom msg-feed-seed-local';
-      turn.innerHTML = `<div class="msg-meta">Fathom · ${timeStr}</div>`;
-      const body = document.createElement('div');
-      body.className = 'msg-body';
-      body.appendChild(clone);
-      turn.appendChild(body);
-      chatStream.appendChild(turn);
-      scrollToBottomOfChat();
-      setTimeout(() => composerTa && composerTa.focus(), 100);
+      if (e.target.closest('.glightbox, .card-media, a[target], .engagement-btn, .engagement-spacer')) return;
+      // Reply-mark click — scroll to and highlight the original target
+      // instead of arming a new reply-target on the user message itself.
+      const replyMark = e.target.closest('.reply-mark');
+      if (replyMark && replyMark.dataset.replyTo) {
+        e.stopPropagation();
+        const target = document.querySelector(`[data-delta-id="${replyMark.dataset.replyTo}"]`);
+        if (target) {
+          target.scrollIntoView({ behavior: 'smooth', block: 'center' });
+          target.classList.add('reply-target-flash');
+          setTimeout(() => target.classList.remove('reply-target-flash'), 1500);
+        }
+        return;
+      }
+      const el = e.target.closest('[data-delta-id]');
+      if (!el) return;
+      const id = el.dataset.deltaId;
+      if (!id) return;
+      // Tap counts as explicit engagement — exclude from passive
+      // scroll-past / dwell-low signaling for cards.
+      if (el.classList && el.classList.contains('card') && el.dataset.cardId) {
+        _markEngaged(el.dataset.cardId);
+      }
+      setReplyTarget({ id, preview: _previewFromEl(el) });
+      if (composerTa) {
+        setTimeout(() => composerTa.focus(), 0);
+      }
     });
 
     showMoreBtn.addEventListener('click', () => loadFeedStories(true));
@@ -9511,8 +8954,8 @@ GET  /v1/usage               Usage stats`,
     //
     // Each card fires at most one passive-negative signal per page-view
     // session. Cards that get an explicit engagement (more / less /
-    // chat) are excluded from passive tracking via the _passiveSent
-    // set.
+    // tap-to-reply) are excluded from passive tracking via the
+    // _passiveSent set.
     const _passiveSent = new Set();
     const _cardSeenAt = new Map();  // cardId -> timestamp first became visible
 

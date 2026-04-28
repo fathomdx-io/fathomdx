@@ -1,18 +1,18 @@
 """One process — the unit of thought.
 
 Spawn → produce one voice take → die. Each process picks the next voice
-in the rotation, reads the small recent-thought context, calls the LLM,
+in the rotation, reads its resonance-ranked substrate, calls the LLM,
 and writes a thought delta into the puddle tagged `voice:<name>` so
 later processes (and the witness) can find it.
 
-The experiment also runs a self-similarity metric and a cross-voice
-convergence metric here, used to detect when the parliament has
-"settled." For v1 we skip that — settle becomes "we ran N processes,
-that's enough." We can add metrics back when tuning calls for it.
+Cross-voice convergence is measured in `metric.measure_cross_voice_convergence`
+and drives the worker's settle check — voices stop deliberating when their
+takes converge below the rolling-window spread threshold.
 """
 
 from __future__ import annotations
 
+from . import resonance
 from .intents import CONVO_TAG
 from .llm import loop_generate
 from .prompts import VOICE_PROMPT, VOICES
@@ -20,7 +20,6 @@ from .puddle import puddle
 
 
 POEM_TTL_S = 48 * 60 * 60       # voice thoughts — 48h rolling horizon
-EPHEMERAL_TTL_S = 48 * 60 * 60  # spawn/die markers — match the rolling horizon
 
 SESSION_TAG_PREFIX = "session:"
 
@@ -45,22 +44,29 @@ def _render_seed_block(pending: list[dict]) -> str:
     return "\n".join(lines)
 
 
-def _gather_substrate(session_tag: str) -> list[dict]:
-    """Build the voice's substrate from the puddle.
+async def _gather_substrate(
+    session_tag: str,
+    voice_name: str,
+    pending: list[dict],
+) -> list[dict]:
+    """Build a voice's substrate from the puddle.
 
-    Mirrors the experiment's `sample_inputs(K=8)` shape — voice anchors
-    first, then resonant material — but uses recency-by-tag instead of
-    semantic search since the puddle has no embeddings. Categories below
-    fill remaining slots in priority order until INPUT_SAMPLE_K is hit:
+    Voice anchors first (peer awareness), then resonance-ranked
+    material from the puddle's broader pool. The resonance signal is
+    the voice's own prior thought when one exists, falling back to the
+    pending intent text — what this voice has been thinking about, or
+    what the user actually asked.
 
-      1. Voice anchors — most recent take from each voice in this session.
-         Always retained; this is how voices read each other.
-      2. Recall-results — lake hits the searcher tick wrote into THIS
-         session's puddle slice. These are why the searcher exists.
-      3. Lake-mirrors — telepathy copies of recent lake activity,
-         convo-wide. Ambient context — what's been happening elsewhere.
-      4. Crystal facets — identity anchors, convo-wide.
-      5. Mood — current felt-sense, convo-wide.
+    Order:
+      1. Voice anchors — most recent thought per voice (incl. self).
+         Always retained; this is how voices read each other across
+         rounds.
+      2. Resonance-ranked from {recall-results ∪ lake-mirrors}: the
+         top items most semantically aligned with the voice's signal.
+         A recall pulled by a sibling voice can land here when it
+         resonates — that's the cross-pollination point.
+      3. Crystal + mood — identity / felt-sense, convo-wide. Land
+         only if the resonance pool didn't fill the budget.
 
     Returns deltas as dicts; caller renders them in the standard
     [source · ts · tags] format alongside the seed.
@@ -74,6 +80,8 @@ def _gather_substrate(session_tag: str) -> list[dict]:
             picks.append(d)
             seen_ids.add(did)
 
+    # 1. Voice anchors — one most-recent thought per voice (including
+    # this one's own prior take, which the resonance signal also reads).
     for v in VOICES:
         for d in puddle.query(
             tags_include=[session_tag, "thought", f"voice:{v['name']}"],
@@ -81,26 +89,56 @@ def _gather_substrate(session_tag: str) -> list[dict]:
         ):
             _add(d)
 
+    # 2. Resonance pool. Signal = voice's own prior thought (preferred,
+    # because that's where the voice has been thinking) or the intent
+    # text (the original ask). On round 0 there's no prior thought, so
+    # the intent text grounds resonance against intent-recall content.
+    signal_text = ""
+    own_prior = puddle.query(
+        tags_include=[session_tag, "thought", f"voice:{voice_name}"],
+        limit=1,
+    )
+    if own_prior:
+        signal_text = (own_prior[0].get("content") or "").strip()
+    if not signal_text and pending:
+        signal_text = (
+            (pending[0].get("content") or "")
+            .split("\n\n[intent-payload]", 1)[0]
+            .strip()
+        )
+
     remaining = max(0, INPUT_SAMPLE_K - len(picks))
     if remaining > 0:
+        candidates: list[dict] = []
+        candidate_ids: set[str] = set()
+        # Recall-results from this session — fresh question-pulled
+        # material from any voice's searcher.
         for d in puddle.query(
             tags_include=[session_tag, "recall-result"],
-            limit=remaining,
+            limit=80,
         ):
-            if len(picks) >= INPUT_SAMPLE_K:
-                break
-            _add(d)
-
-    remaining = max(0, INPUT_SAMPLE_K - len(picks))
-    if remaining > 0:
+            did = d.get("id") or ""
+            if did and did not in seen_ids and did not in candidate_ids:
+                candidates.append(d)
+                candidate_ids.add(did)
+        # Lake-mirrors — convo-wide ambient lake activity. Resonance
+        # filters this hard; without ranking, the recency stream
+        # floods substrate with whatever's happening elsewhere.
         for d in puddle.query(
             tags_include=[CONVO_TAG, "lake-delta"],
-            limit=remaining,
+            limit=80,
         ):
-            if len(picks) >= INPUT_SAMPLE_K:
-                break
-            _add(d)
+            did = d.get("id") or ""
+            if did and did not in seen_ids and did not in candidate_ids:
+                candidates.append(d)
+                candidate_ids.add(did)
 
+        if candidates:
+            ranked = await resonance.rank(signal_text, candidates, top_k=remaining)
+            for d in ranked:
+                _add(d)
+
+    # 3. Identity fallbacks — only if resonance left budget.
     remaining = max(0, INPUT_SAMPLE_K - len(picks))
     if remaining > 0:
         for d in puddle.query(
@@ -143,16 +181,8 @@ async def run_process(
 ) -> str:
     """Run one voice tick. Writes a thought to the puddle. Returns the
     thought text so the caller can log it.
-
-    Process spawn/die events are deliberately not written — they
-    interleave between voice thoughts in the chronological feed and
-    prevent adjacent voice thoughts from clustering into a single
-    accordion. The witness only needs the thoughts themselves; the
-    experiment's left-column process viz isn't ported here. EPHEMERAL_TTL_S
-    is kept as a constant in case something later does want to record
-    deliberation lifecycle markers.
     """
-    substrate = _gather_substrate(session_tag)
+    substrate = await _gather_substrate(session_tag, voice["name"], pending)
     seed_block = _render_seed_block(pending)
     recent = _render_context(substrate)
 

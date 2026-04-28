@@ -738,6 +738,29 @@ async def centroid(tags_include: str | None = None):
     }
 
 
+class EmbedRequest(_BaseModel):
+    texts: list[str]
+
+
+class EmbedResult(_BaseModel):
+    embeddings: list[list[float]]
+
+
+@app.post("/embed", response_model=EmbedResult)
+async def embed(req: EmbedRequest):
+    """Embed one or more texts via the lake's CLIP encoder. Used by the
+    Grand Loop's resonance ranking — voices and witness need to score
+    puddle items against a query without bouncing through full /search.
+    Empty input list returns empty embeddings list.
+    """
+    from deltas.embedder import embed_texts
+
+    if not req.texts:
+        return {"embeddings": []}
+    embeddings = await asyncio.to_thread(embed_texts, req.texts)
+    return {"embeddings": embeddings}
+
+
 # ── Routes: Backup / Export / Import ─────────────────────────────────────────
 
 

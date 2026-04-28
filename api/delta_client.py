@@ -111,6 +111,24 @@ async def search(
     return r.json()
 
 
+# ── Embed ───────────────────────────────────────
+
+
+async def embed(texts: list[str]) -> list[list[float]]:
+    """Embed one or more texts via the lake's CLIP encoder.
+
+    Returns a list of float vectors, one per input string. Used by the
+    Grand Loop's resonance ranking. Empty input returns []. On any
+    transport failure, the caller is responsible for falling back —
+    resonance ranking should degrade to recency, not crash the loop.
+    """
+    if not texts:
+        return []
+    r = await _request_with_retry("POST", "/embed", json={"texts": texts})
+    r.raise_for_status()
+    return r.json().get("embeddings") or []
+
+
 # ── Write ───────────────────────────────────────
 
 

@@ -121,7 +121,6 @@ def _inject_session_step(plan: dict, session_slug: str) -> None:
         "filter": {
             "tags_include": ["fathom-chat", f"chat:{session_slug}"],
         },
-        "tags_exclude": ["chat-name", "chat-deleted"],
         "limit": 30,
     }
     last = plan["steps"][-1]
