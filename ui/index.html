@@ -8618,18 +8618,24 @@ GET  /v1/usage               Usage stats`,
     // outputs are always visible by default; everything else is opt-in,
     // so the feed reads clean unless you've leaned into something.
     const KIND_DEFAULTS = {
+      // Passive rendering — anything with legible content in the puddle
+      // shows by default. The filter still exists for muting; the
+      // default just stops being prescriptive about what counts as
+      // "feed-worthy." Loop-internal noise (voice thoughts, model-
+      // driven recalls, raw pass-intents) stays off by default since
+      // those are deliberation-internal and would drown the chat.
       'chat':           true,   // user-message + fathom-message (Q + A as one toggle)
       'card':           true,   // feed-card route witness outputs
-      'reflection':     false,
-      'bridging':       false,
-      'drift':          false,
-      'discrepancy':    false,
+      'reflection':     true,
+      'bridging':       true,
+      'drift':          true,
+      'discrepancy':    true,
+      'lake-delta':     true,   // telepathy mirror of fresh durable lake activity
+      'crystal':        true,   // identity facets refreshed by telepathy
+      'mood':           true,   // current felt-sense
       'pass-intent':    false,
       'voice-thought':  false,
-      'lake-delta':     false,
       'recall':         false,
-      'crystal':        false,
-      'mood':           false,
     };
 
     function _extractLevelFromTags(tags) {
