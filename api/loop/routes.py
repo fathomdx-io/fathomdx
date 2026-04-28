@@ -1,19 +1,21 @@
 """HTTP surface for the Grand Loop — composer writes, dashboard reads.
 
-Three groups of endpoints:
+Endpoint groups:
 
   Composer side (write):
-    POST /v1/puddle/seed     — drop a seed delta (kind:question by default)
+    POST /v1/puddle/seed                — drop a seed (dual-write
+                                          puddle + lake; user-authored
+                                          is durable from the moment
+                                          of typing)
+    POST /v1/puddle/cards/{id}/engage   — author an engaged card into
+                                          the lake (more / less / chat)
 
   Dashboard side (read):
     GET  /v1/puddle/cards    — feed-card witness outputs currently alive
     GET  /v1/puddle/intents  — pending intent queue (key UI element)
+    GET  /v1/puddle/feed     — chronological unified stream
     GET  /v1/puddle/stream   — SSE: every puddle write fans out here
     GET  /v1/puddle/stats    — quick health snapshot
-
-Engagement (promote-to-lake) lands in a follow-up commit — it crosses
-the puddle/lake boundary and wants the existing engagement-delta path
-in api/routes/feed.py to keep working with whatever shape we settle on.
 """
 
 from __future__ import annotations
@@ -429,13 +431,17 @@ class EngageRequest(BaseModel):
 
 @router.post("/v1/puddle/cards/{card_id}/engage")
 async def engage_card(card_id: str, req: EngageRequest) -> dict:
-    """Engagement promotes an ephemeral puddle card to the durable lake.
+    """Authoring event: write a durable `feed-card` delta capturing this
+    engagement (more / less / chat) and any addressed seeds.
 
-    The grand-loop output is short-lived by design — anything not engaged
-    with TTL-fades into nothing. Engagement is the "authoring" act: the
-    user signals this card is worth keeping, and we re-emit its content
-    to the lake as a durable `feed-card` delta with the engagement kind
-    attached. No engagement → the card disappears with the puddle.
+    Witness output already lives in the lake from the moment it's
+    written — TTL'd by default, or auto-authored when the judge axes
+    pass. This endpoint records the user's authoring act as a fresh
+    durable delta tagged `engagement:<kind>` + `source-card:<id>`.
+    The originally-TTL'd witness card expires on its own clock; the
+    engagement delta is the authored memory. No mutation of the
+    original — authoring is a new act in time, not a retroactive
+    edit of the observation.
     """
     kind = req.kind.strip().lower()
     if kind not in ("more", "less", "chat"):
