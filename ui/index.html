@@ -429,6 +429,47 @@
     /* Recall — signal-dim, cooler than the witness's signal. */
     .feed .delta.recall { border-left-color: var(--signal-dim, var(--signal)); }
     .feed .delta.recall .d-kind { color: var(--signal); }
+    /* Lake delta (vampire-tap continuous mirror). Source-tinted in
+       a cool/desaturated palette so the substrate reads as ambient
+       background — present and findable, not competing for attention
+       with witness output or the parliament's voices. */
+    .feed .delta.lake-delta {
+      border-left-color: color-mix(in srgb, var(--signal) 65%, var(--ink-faint));
+      background: color-mix(in srgb, var(--surface) 96%, var(--signal) 4%);
+    }
+    .feed .delta.lake-delta .d-kind {
+      display: inline-flex; align-items: baseline; gap: 6px;
+      color: color-mix(in srgb, var(--signal) 75%, var(--ink-soft));
+    }
+    .feed .delta.lake-delta .source-chip {
+      font-family: var(--mono); font-size: 10px;
+      letter-spacing: 0.06em; text-transform: lowercase;
+      padding: 1px 7px; border-radius: 999px;
+      background: color-mix(in srgb, var(--signal) 14%, transparent);
+      color: var(--signal);
+      border: 1px solid color-mix(in srgb, var(--signal) 30%, transparent);
+    }
+    /* Wall-of-JSON content (heartbeats, capability blobs, etc) gets
+       a mono font, smaller size, and a max-height with scroll so a
+       giant heartbeat doesn't take over the feed. The "show full"
+       summary lets you expand on demand. */
+    .feed .delta .d-body.is-json {
+      font-family: var(--mono);
+      font-size: 11.5px;
+      line-height: 1.5;
+      max-height: 14em;
+      overflow: auto;
+      background: color-mix(in srgb, var(--bg-deep, var(--surface)) 60%, transparent);
+      padding: 8px 10px;
+      border-radius: 6px;
+      white-space: pre;
+      color: var(--ink-soft);
+    }
+    .feed .delta .d-body.is-json::-webkit-scrollbar { width: 6px; height: 6px; }
+    .feed .delta .d-body.is-json::-webkit-scrollbar-thumb {
+      background: var(--rule);
+      border-radius: 999px;
+    }
     /* Process events — quietest tier. */
     .feed .delta.process-event {
       opacity: 0.55;
@@ -436,7 +477,80 @@
     }
     /* Filter-hidden items collapse the same way as the legacy cards. */
     .feed .delta[data-hidden="true"],
-    .feed .msg[data-hidden="true"] { display: none; }
+    .feed .msg[data-hidden="true"],
+    .feed .accordion[data-hidden="true"] { display: none; }
+
+    /* ── Accordions ─────────────────────────────
+       Adjacent same-kind clusterable items (voice thoughts, deltas,
+       recalls, mood, crystal, pass intents, process events) pack into
+       a <details> with a count + label summary. Q / A / cards always
+       render inline; only the noisy substrate kinds cluster. Lifted
+       from experiments/loop-experiment/viz/style.css with an inline
+       feed flavor (no per-session scoping yet — we cluster by kind
+       across the visible window). */
+    .feed .accordion {
+      background: transparent;
+      border: 1px solid var(--rule-soft);
+      border-radius: var(--radius);
+      font-size: 13.5px;
+    }
+    .feed .accordion + .accordion { margin-top: -2px; }
+    .feed .accordion > summary {
+      list-style: none;
+      cursor: pointer;
+      padding: 0.55rem 0.85rem;
+      display: flex;
+      align-items: baseline;
+      gap: 0.6rem;
+      user-select: none;
+      border-radius: var(--radius);
+      transition: background 120ms;
+    }
+    .feed .accordion > summary:hover {
+      background: color-mix(in srgb, var(--surface) 60%, transparent);
+    }
+    .feed .accordion > summary::-webkit-details-marker { display: none; }
+    .feed .accordion > summary::before {
+      content: "▸";
+      display: inline-block;
+      width: 0.9rem;
+      color: var(--ink-faint);
+      transition: transform 160ms;
+    }
+    .feed .accordion[open] > summary::before { transform: rotate(90deg); }
+    .feed .accordion .accordion-label {
+      font-family: var(--mono); font-size: 10.5px;
+      text-transform: uppercase; letter-spacing: 0.08em;
+      color: var(--ink-soft);
+    }
+    .feed .accordion .accordion-stats {
+      font-family: var(--sans); font-size: 12px;
+      color: var(--ink-faint);
+    }
+    .feed .accordion .accordion-body {
+      padding: 0.4rem 0.85rem 0.85rem;
+      display: flex; flex-direction: column; gap: 0.45rem;
+      border-top: 1px dashed var(--rule-soft);
+      margin: 0 0.5rem;
+    }
+    /* Per-cluster label flavors — match the .delta tinting so the
+       open accordion's contents and its summary read as one. */
+    .feed .accordion[data-kind="voice-thought"] > summary .accordion-label { color: var(--accent); }
+    .feed .accordion[data-kind="lake-delta"]    > summary .accordion-label { color: var(--signal); }
+    .feed .accordion[data-kind="recall"]        > summary .accordion-label { color: var(--signal); }
+    .feed .accordion[data-kind="crystal"]       > summary .accordion-label { color: #c4b5fd; }
+    .feed .accordion[data-kind="mood"]          > summary .accordion-label { color: var(--accent); }
+    .feed .accordion[data-kind="pass-intent"]   > summary .accordion-label { color: #c4b5fd; }
+    .feed .accordion[data-kind="process-event"] > summary { opacity: 0.7; }
+
+    /* Compact deltas inside accordions: smaller, tighter spacing. */
+    .feed .accordion .delta {
+      padding: 0.45rem 0.7rem;
+      font-size: 12.5px;
+      border-radius: 6px;
+      animation: none;
+    }
+    .feed .accordion .delta .d-body { font-size: 13px; }
     /* ALERT band — piercing tier. Always renders regardless of the
        verbosity dropdown setting. Distinct kicker color so it's
        immediately legible as deviation rather than default content. */
@@ -8776,16 +8890,35 @@ GET  /v1/usage               Usage stats`,
         return el;
       }
       // Lake delta — vampire-tap mirror of fresh durable lake activity.
-      // Tinted with the source name so RSS / claude-code / mood / etc.
-      // are legible at a glance.
+      // Header: "delta" + source chip; body: prose if it parses as
+      // text, mono pretty-printed JSON if it parses as JSON. Either
+      // way no truncation; a max-height + scroll on .is-json keeps
+      // huge heartbeat blobs from dominating.
       if (it.kind === 'lake-delta') {
         const el = document.createElement('article');
         el.className = 'delta lake-delta';
         el.dataset.kind = 'lake-delta';
         el.dataset.fromPuddle = '1';
         el.dataset.puddleId = it.id || '';
-        const label = it.from_source ? `delta · ${it.from_source}` : 'delta';
-        el.innerHTML = `<header class="d-head"><span class="d-kind">${_esc(label)}</span><span class="d-ts">${timeStr}</span></header><div class="d-body">${_esc(it.content || '')}</div>`;
+        const src = it.from_source || 'unknown';
+        const raw = it.content || '';
+        let isJson = false;
+        let bodyText = raw;
+        const trimmed = raw.trim();
+        if ((trimmed.startsWith('{') && trimmed.endsWith('}')) ||
+            (trimmed.startsWith('[') && trimmed.endsWith(']'))) {
+          try {
+            bodyText = JSON.stringify(JSON.parse(trimmed), null, 2);
+            isJson = true;
+          } catch (e) { /* not JSON; fall through to prose */ }
+        }
+        el.innerHTML = `
+          <header class="d-head">
+            <span class="d-kind">delta<span class="source-chip">${_esc(src)}</span></span>
+            <span class="d-ts">${timeStr}</span>
+          </header>
+          <div class="d-body${isJson ? ' is-json' : ''}">${_esc(bodyText)}</div>
+        `;
         return el;
       }
       // Compositional recall result (model-driven, distinct from the
@@ -8812,6 +8945,89 @@ GET  /v1/usage               Usage stats`,
       return null;
     }
 
+    // Kinds that pack into accordions when 2+ adjacent items share
+    // the same kind. Q (chat user-msg), A (chat fathom-msg), and
+    // synthesis cards are never clustered — they're always visible
+    // inline. Everything else is "noisy substrate" and benefits from
+    // being grouped behind a count + label summary.
+    const _CLUSTERABLE_KINDS = new Set([
+      'voice-thought', 'lake-delta', 'recall', 'crystal', 'mood',
+      'pass-intent', 'process-event',
+    ]);
+
+    function _renderAccordion(items) {
+      // items is a non-empty list of same-kind, adjacent feed items.
+      // Only fires when items.length >= 2; single items render inline.
+      const kind = items[0].kind;
+      const det = document.createElement('details');
+      det.className = 'accordion';
+      det.dataset.kind = kind;
+      const labelText = (typeof _kindLabel === 'function') ? _kindLabel(kind) : kind;
+      const summary = document.createElement('summary');
+      summary.innerHTML = `<span class="accordion-label">${_esc(labelText)}</span><span class="accordion-stats">${items.length}</span>`;
+      const body = document.createElement('div');
+      body.className = 'accordion-body';
+      for (const item of items) {
+        if (!item || !item.id) continue;
+        _renderedFeedIds.add(item.id);
+        const child = _renderPuddleItem(item, 0);
+        if (child) body.appendChild(child);
+      }
+      det.appendChild(summary);
+      det.appendChild(body);
+      return det;
+    }
+
+    function _renderItemsClustered(items, mode) {
+      // Walk items (assumed newest-first) and produce a list of feed
+      // nodes — accordions for runs of 2+ same-kind clusterable items,
+      // inline rows for everything else. `mode` is 'append' (initial
+      // load + Show-more, items go to the bottom) or 'prepend' (live-
+      // poll, items go to the top, oldest-of-batch first so the
+      // newest ends up at index 0).
+      const nodes = [];
+      let i = 0;
+      let delayIdx = 0;
+      while (i < items.length) {
+        const it = items[i];
+        if (!it || !it.id || _renderedFeedIds.has(it.id)) { i++; continue; }
+        const kind = it.kind;
+        if (_CLUSTERABLE_KINDS.has(kind)) {
+          const run = [it];
+          let j = i + 1;
+          while (
+            j < items.length &&
+            items[j] &&
+            items[j].kind === kind &&
+            !_renderedFeedIds.has(items[j].id)
+          ) {
+            run.push(items[j]);
+            j++;
+          }
+          if (run.length >= 2) {
+            nodes.push(_renderAccordion(run));
+          } else {
+            _renderedFeedIds.add(it.id);
+            const node = _renderPuddleItem(it, (delayIdx++) * 0.06);
+            if (node) nodes.push(node);
+          }
+          i = j;
+        } else {
+          _renderedFeedIds.add(it.id);
+          const node = _renderPuddleItem(it, (delayIdx++) * 0.06);
+          if (node) nodes.push(node);
+          i++;
+        }
+      }
+      if (mode === 'prepend') {
+        for (let k = nodes.length - 1; k >= 0; k--) {
+          feed.insertBefore(nodes[k], feed.firstChild);
+        }
+      } else {
+        for (const n of nodes) feed.appendChild(n);
+      }
+    }
+
     async function loadFeedStories(append) {
       try {
         // First page (initial load OR Show-more's first click) walks
@@ -8834,15 +9050,9 @@ GET  /v1/usage               Usage stats`,
           _renderedFeedIds.clear();
           _feedPageUntilIso = undefined;
         }
-        // For Show-more (append): append AT THE END of the feed so newer
-        // items keep their position above. For initial load: items are
-        // newest-first from the server, append in order.
-        items.forEach((it, i) => {
-          if (!it || !it.id || _renderedFeedIds.has(it.id)) return;
-          _renderedFeedIds.add(it.id);
-          const node = _renderPuddleItem(it, i * 0.06);
-          if (node) feed.appendChild(node);
-        });
+        // Cluster adjacent same-kind clusterable items into accordions.
+        // Newest-on-top is preserved (server already sorts that way).
+        _renderItemsClustered(items, 'append');
         // Step the "until" cursor back to this page's `since` so the
         // next Show-more click pulls the prior hour.
         if (data.since) _feedPageUntilIso = data.since;
@@ -9281,14 +9491,9 @@ GET  /v1/usage               Usage stats`,
         const fresh = items.filter(it => it && it.id && !_renderedFeedIds.has(it.id));
         if (!fresh.length) return;
         if (feed.querySelector('.feed-empty')) feed.innerHTML = '';
-        // Walk OLDEST → NEWEST while prepending so the final DOM order
-        // matches the API order (newest at top).
-        for (let i = fresh.length - 1; i >= 0; i--) {
-          const it = fresh[i];
-          _renderedFeedIds.add(it.id);
-          const node = _renderPuddleItem(it, 0);
-          if (node) feed.insertBefore(node, feed.firstChild);
-        }
+        // Cluster the fresh batch and prepend at the top. Same-kind
+        // runs of 2+ pack into accordions; singletons stay inline.
+        _renderItemsClustered(fresh, 'prepend');
         refreshLightbox();
         applyVerbosityFilter();
       } catch (e) { /* best-effort */ }
