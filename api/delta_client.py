@@ -135,23 +135,6 @@ async def write(
     return r.json()
 
 
-async def update_expires_at(
-    delta_id: str,
-    expires_at: str | None = None,
-) -> dict:
-    """Update an existing delta's expires_at. None lifts the TTL,
-    making the delta durable. Used by Grand Loop engagement to author
-    a TTL'd witness card without writing a duplicate.
-    """
-    c = await _get()
-    r = await c.patch(
-        f"/deltas/{delta_id}/expires_at",
-        json={"expires_at": expires_at},
-    )
-    r.raise_for_status()
-    return r.json()
-
-
 # ── Query (structured filter) ───────────────────
 
 
