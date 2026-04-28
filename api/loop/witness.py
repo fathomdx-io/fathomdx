@@ -307,7 +307,15 @@ async def run_witness(
     route_value = witness.get("route") or "chat-reply"
     auto_authored = _should_auto_author(axes)
 
-    lake_tags = ["feed-card", f"route:{route_value}"]
+    # Include `addressing-output` so pending_intents() sees this card
+    # as having addressed its intents even after a cold-start restore
+    # (telepathy preserves these tags when mirroring the lake delta
+    # back into a fresh puddle). Without it, the loop would re-fire
+    # on questions it already answered.
+    lake_tags = [
+        "feed-card", "synthesis", "addressing-output",
+        f"route:{route_value}",
+    ]
     for intent_id in full_addressed:
         lake_tags.append(f"addresses:{intent_id}")
     if auto_authored:

@@ -61,16 +61,18 @@ REFRESH_INTERVAL_S = 5 * 60  # re-pull every 5 minutes
 MIRROR_WINDOW_S = 24 * 60 * 60
 MIRROR_LIMIT = 200
 
-# Sources we never mirror — output-side noise that would echo back into
-# the puddle as "new" activity and feed the loop its own footprint.
+# Sources we never mirror — telepathy's own anchor writes (so we
+# don't loop on our own output). composer / witness / loop-engagement
+# used to be in here back when those paths were puddle-only; after
+# the puddle/lake split they're real authored content, and the
+# recalled-id: dedup handles the in-flight echo case so duplicates
+# don't appear. Voice thoughts and pressure intents are puddle-only
+# by design; their sources are listed defensively in case some
+# external path ever writes those names to the lake.
 MIRROR_NOISE_SOURCES = frozenset({
-    "fathom-feed",       # legacy feed-card writer
-    "loop-engagement",   # the puddle's own promote-to-lake writes
-    "controller",        # process spawn/die markers (already in puddle)
-    "voice",             # voice-thought writes (already in puddle)
-    "witness",           # witness output writes (already in puddle)
-    "intent-detector",   # intent writes (already in puddle)
-    "composer",          # composer seed writes (already in puddle)
+    "controller",        # process spawn/die markers (puddle-only)
+    "voice",             # voice-thought writes (puddle-only)
+    "intent-detector",   # default intent source (puddle-only)
     "mood-crystal",      # would re-pull our own anchor write
     "crystal",           # ditto
 })
@@ -198,11 +200,21 @@ async def pull_mood() -> bool:
 
 
 async def mirror_recent_activity() -> int:
-    """Pull recent lake deltas and mirror them into the puddle as
-    `lake-delta` items. Mirrors are TTL'd copies; the originals stay
-    durable in the lake forever. Sources that are themselves loop-
-    output (witness writes, voice thoughts, the puddle's own promotes)
-    are filtered out so the loop doesn't echo on its own footprint.
+    """Dump recent lake deltas into the puddle, preserving their tags.
+
+    Telepathy is intentionally dumb: anything in the lake that isn't
+    one of telepathy's own anchor writes lands in the puddle with its
+    original tags + content + source intact. The renderer dispatches
+    on tags downstream, so a `feed-card` lake delta lands tagged
+    `feed-card`, a `user-seed` lake delta lands tagged `user-seed`,
+    and so on — the shape travels with the delta. We only stamp
+    CONVO_TAG (puddle scoping) and `recalled-id:<short>` (the dedup
+    contract) on top of whatever was already there.
+
+    Cold-start case: a fresh container boots with an empty puddle.
+    Telepathy's first pass mirrors the last 24h of lake activity in
+    proper shape, so user seeds, witness cards, and engagement-
+    authored deltas all restore as their original kinds.
 
     Returns the count of mirrors written this tick.
     """
@@ -234,23 +246,22 @@ async def mirror_recent_activity() -> int:
         content = (d.get("content") or "").strip()
         if not content or len(content) < 8:
             continue
-        # Defensive: a lake delta carrying CONVO_TAG would mean cross-
-        # tagging from another path scoped this delta into our convo;
-        # don't re-mirror it even if recalled-id wasn't stamped.
-        src_tags = d.get("tags") or []
+        src_tags = list(d.get("tags") or [])
+        # Defensive: a lake delta carrying CONVO_TAG would mean some
+        # other path scoped this delta into our convo; don't re-mirror.
         if any(t == CONVO_TAG for t in src_tags):
             continue
 
+        # Preserve the original tags. Stamp CONVO_TAG so puddle queries
+        # scope correctly, and recalled-id:<short> so subsequent ticks
+        # (and other dual-write paths) dedup. No other rewriting — the
+        # renderer reads the surviving tag set to decide rendering.
+        new_tags = src_tags + [CONVO_TAG, f"recalled-id:{short}"]
+
         await puddle.write(
             content=content,
-            tags=[
-                CONVO_TAG,
-                "mirror",
-                "lake-delta",
-                f"from-source:{src or 'unknown'}",
-                f"recalled-id:{short}",
-            ],
-            source=f"mirror:{src or 'unknown'}",
+            tags=new_tags,
+            source=src or "unknown",
             ttl_seconds=ANCHOR_TTL_S,
         )
         existing_short_ids.add(short)

@@ -160,7 +160,12 @@ def get_feed(
         }
 
         # ── Q (always visible by default) ─────────────────
-        if "intent" in tags and "kind:question" in tags:
+        # Match both vocabularies: `intent`+`kind:question` is the
+        # puddle-native shape (write_intent), `user-seed`+`kind:question`
+        # is the lake-side shape (post_seed's durable write). Telepathy
+        # may surface the lake shape directly when restoring on cold-
+        # start, and the renderer should treat both as the same kind.
+        if "kind:question" in tags and ("intent" in tags or "user-seed" in tags):
             items.append({
                 "kind": "user-message",
                 "content": d.get("content") or "",
