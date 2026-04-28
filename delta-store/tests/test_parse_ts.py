@@ -8,7 +8,7 @@ wrong neighbor radius, wrong filter bounds — without raising.
 
 from __future__ import annotations
 
-from datetime import UTC, datetime, timedelta, timezone
+from datetime import UTC, datetime
 
 from deltas.plan import _parse_ts
 
@@ -39,7 +39,6 @@ def test_non_utc_offset_is_converted_not_relabelled() -> None:
     moves to its UTC equivalent. If this test fails, every time-window
     query that accepts a non-UTC bound is wrong by the offset.
     """
-    minus_eight = timezone(timedelta(hours=-8))
     expected = datetime(2026, 4, 28, 20, 0, 0, tzinfo=UTC)  # 12:00 -08:00 == 20:00 UTC
     assert _parse_ts("2026-04-28T12:00:00-08:00") == expected
 
