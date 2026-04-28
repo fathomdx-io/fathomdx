@@ -21,10 +21,11 @@ from __future__ import annotations
 import asyncio
 import json
 
-from fastapi import APIRouter
+from fastapi import APIRouter, HTTPException
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
+from .. import delta_client
 from .intents import (
     CONVO_TAG,
     INTENT_TTL_BY_KIND,
@@ -117,6 +118,89 @@ def get_intents() -> dict:
 @router.get("/v1/puddle/stats")
 def get_stats() -> dict:
     return puddle.stats()
+
+
+class EngageRequest(BaseModel):
+    kind: str = "more"  # more | less | chat
+
+
+@router.post("/v1/puddle/cards/{card_id}/engage")
+async def engage_card(card_id: str, req: EngageRequest) -> dict:
+    """Engagement promotes an ephemeral puddle card to the durable lake.
+
+    The grand-loop output is short-lived by design — anything not engaged
+    with TTL-fades into nothing. Engagement is the "authoring" act: the
+    user signals this card is worth keeping, and we re-emit its content
+    to the lake as a durable `feed-card` delta with the engagement kind
+    attached. No engagement → the card disappears with the puddle.
+    """
+    kind = req.kind.strip().lower()
+    if kind not in ("more", "less", "chat"):
+        kind = "more"
+
+    card = puddle.get(card_id)
+    if card is None:
+        # Either expired, never existed, or already TTL'd. Returning 404
+        # is design-correct — engaging on a card that's gone shouldn't
+        # silently succeed.
+        raise HTTPException(status_code=404, detail="card not in puddle (expired or unknown)")
+
+    try:
+        payload = json.loads(card.get("content") or "{}")
+    except Exception:
+        payload = {"body": card.get("content") or ""}
+
+    # Resurrect the route from the puddle card's tags so the durable
+    # feed-card carries the same routing intent (chat-reply / drift /
+    # bridging / reflection / alert).
+    route = "chat-reply"
+    for t in card.get("tags") or []:
+        if t.startswith("route:"):
+            route = t.split(":", 1)[1]
+            break
+
+    # Write content + structure as a durable lake feed-card delta. No
+    # expires_at — engagement IS the persistence signal.
+    durable_tags = [
+        "feed-card",
+        "promoted-from-puddle",
+        f"route:{route}",
+        f"engagement:{kind}",
+        f"source-card:{card_id}",
+    ]
+    durable_content = json.dumps(payload, ensure_ascii=False)
+    promoted = await delta_client.write(
+        content=durable_content,
+        tags=durable_tags,
+        source="loop-engagement",
+    )
+
+    # Mirror the engagement delta in the same shape the existing
+    # /v1/feed/engagement endpoint writes, so confidence-scoring and
+    # crystal regen still see the signal even though the card came
+    # from the loop rather than the old feed pipeline.
+    promoted_id = (
+        promoted.get("id")
+        if isinstance(promoted, dict)
+        else (promoted if isinstance(promoted, str) else "")
+    )
+    await delta_client.write(
+        content=(payload.get("body") or "")[:200],
+        tags=[
+            "feed-engagement",
+            f"engagement:{kind}",
+            f"card:{promoted_id}" if promoted_id else "card:unknown",
+            "via:loop",
+        ],
+        source="loop-engagement",
+    )
+
+    return {
+        "ok": True,
+        "promoted_card_id": promoted_id,
+        "route": route,
+        "kind": kind,
+    }
 
 
 @router.get("/v1/puddle/_debug")

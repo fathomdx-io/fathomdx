@@ -21,6 +21,7 @@ from .intents import pending_intents
 from .process import run_process
 from .prompts import VOICES
 from .puddle import puddle
+from .vampire import vampire_loop
 from .witness import run_witness
 
 
@@ -44,6 +45,7 @@ REAP_INTERVAL_S = 30
 
 _supervisor_task: asyncio.Task | None = None
 _reaper_task: asyncio.Task | None = None
+_vampire_task: asyncio.Task | None = None
 _boot_iso: str = ""
 
 
@@ -118,19 +120,20 @@ async def _supervisor() -> None:
 
 
 def start() -> None:
-    """Start the supervisor + reaper. Idempotent."""
-    global _supervisor_task, _reaper_task, _boot_iso
+    """Start the supervisor + reaper + vampire-tap. Idempotent."""
+    global _supervisor_task, _reaper_task, _vampire_task, _boot_iso
     if _supervisor_task is not None:
         return
     _boot_iso = _now_iso()
     _supervisor_task = asyncio.create_task(_supervisor(), name="loop/supervisor")
     _reaper_task = asyncio.create_task(_reaper(), name="loop/reaper")
+    _vampire_task = asyncio.create_task(vampire_loop(), name="loop/vampire")
 
 
 async def stop() -> None:
-    """Cancel both background tasks. Idempotent."""
-    global _supervisor_task, _reaper_task
-    for task in (_supervisor_task, _reaper_task):
+    """Cancel all background tasks. Idempotent."""
+    global _supervisor_task, _reaper_task, _vampire_task
+    for task in (_supervisor_task, _reaper_task, _vampire_task):
         if task is None:
             continue
         task.cancel()
@@ -140,3 +143,4 @@ async def stop() -> None:
             pass
     _supervisor_task = None
     _reaper_task = None
+    _vampire_task = None

@@ -2,44 +2,168 @@
 <html lang="en">
 <head>
   <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Grand Loop — test</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <title>Grand Loop — preview</title>
   <link rel="stylesheet" href="https://design.fathomdx.io/v1/tokens.css" />
   <style>
+    /* Loop preview — uses the dashboard's existing component classes
+       (.feed, .card, .composer-wrap, .composer) lifted verbatim from
+       ui/index.html so the visual language matches. The eventual home
+       for these cards is inside the dashboard proper; this page is a
+       temporary scaffold for spike-mode iteration without disturbing
+       the live dashboard. */
+
     * { box-sizing: border-box; }
     html, body { margin: 0; padding: 0; background: var(--bg); color: var(--ink); font-family: var(--sans); -webkit-font-smoothing: antialiased; }
-    body { min-height: 100dvh; padding: 32px; max-width: 920px; margin: 0 auto; }
-    h1 { margin: 0 0 8px; font-size: 22px; }
-    h2 { font-size: 13px; text-transform: uppercase; letter-spacing: 0.1em; color: var(--ink-soft); margin: 28px 0 10px; }
-    .sub { color: var(--ink-soft); font-size: 14px; margin-bottom: 28px; }
-    .composer { display: flex; gap: 8px; margin-bottom: 12px; }
-    .composer input { flex: 1; padding: 10px 14px; background: var(--surface); border: 1px solid var(--rule); color: var(--ink); border-radius: 8px; font: inherit; }
-    .composer button { padding: 10px 16px; background: var(--accent); color: var(--bg-deep); border: 0; border-radius: 8px; font: inherit; font-weight: 600; cursor: pointer; }
-    .composer button:disabled { opacity: 0.6; cursor: wait; }
-    .row { padding: 12px 14px; background: var(--surface); border: 1px solid var(--rule); border-radius: 8px; margin-bottom: 10px; }
-    .row .meta { font-family: var(--mono); font-size: 11px; color: var(--ink-faint); margin-bottom: 6px; }
-    .row .body { font-size: 14px; line-height: 1.5; white-space: pre-wrap; }
-    .kicker { display: inline-block; padding: 3px 9px; background: color-mix(in srgb, var(--accent) 18%, transparent); color: var(--accent); border-radius: 999px; font-family: var(--mono); font-size: 10.5px; letter-spacing: 0.06em; text-transform: uppercase; margin-bottom: 8px; }
-    .axes { font-family: var(--mono); font-size: 11px; color: var(--ink-soft); margin-top: 8px; }
-    .empty { color: var(--ink-faint); font-size: 13px; padding: 12px 14px; }
-    .hint { font-size: 12px; color: var(--ink-faint); margin-top: 4px; }
+    body {
+      min-height: 100dvh; display: flex; flex-direction: column;
+      background:
+        radial-gradient(ellipse at 20% -10%, var(--body-glow-a), transparent 55%),
+        radial-gradient(ellipse at 80% 110%, var(--body-glow-b), transparent 50%),
+        var(--bg);
+    }
+    main { flex: 1; max-width: 720px; margin: 0 auto; padding: 32px 24px 220px; width: 100%; }
+
+    /* Section head — lifted from .section-head in the dashboard. */
+    .section-head { display: flex; align-items: baseline; justify-content: space-between; margin-bottom: 16px; }
+    .section-head h2 { font-family: var(--serif); font-weight: 400; font-size: 26px; margin: 0; }
+    .section-head .meta { font-family: var(--mono); font-size: 11px; color: var(--ink-faint); letter-spacing: 0.06em; }
+
+    /* Queue strip — small lozenges showing what the loop is about to
+       think about. Empty state collapses to a soft hint line. */
+    .queue { display: flex; gap: 8px; flex-wrap: wrap; margin: 14px 0 22px; }
+    .queue .pill {
+      display: inline-flex; align-items: center; gap: 8px;
+      padding: 5px 11px; background: color-mix(in srgb, var(--accent) 14%, transparent);
+      border: 1px solid color-mix(in srgb, var(--accent) 28%, transparent);
+      color: var(--ink); border-radius: 999px; font-size: 12.5px;
+      max-width: 360px;
+    }
+    .queue .pill .kind { font-family: var(--mono); font-size: 10.5px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--accent); }
+    .queue .pill .text { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .queue.empty {
+      font-size: 12.5px; color: var(--ink-faint); font-style: italic;
+      padding: 6px 0;
+    }
+
+    /* === Components lifted from ui/index.html === */
+
+    .feed { display: flex; flex-direction: column; gap: 12px; }
+    .card {
+      background: var(--surface); border: 1px solid var(--rule);
+      border-radius: var(--radius);
+      cursor: default;
+      transition: transform 140ms ease, border-color 140ms ease, background 140ms ease, opacity 800ms ease;
+      overflow: hidden;
+    }
+    .card-body { padding: 18px 20px; }
+    .card .kicker {
+      font-family: var(--mono); font-size: 10.5px; letter-spacing: 0.09em;
+      text-transform: uppercase; color: var(--accent); margin-bottom: 8px;
+    }
+    .card h3 {
+      font-family: var(--serif); font-weight: 400; font-size: 21px;
+      margin: 0 0 6px; line-height: 1.25; color: var(--ink);
+    }
+    .card p {
+      font-size: 14.5px; line-height: 1.55; color: var(--ink-soft);
+      margin: 0; white-space: pre-wrap;
+    }
+    .card .tail {
+      margin-top: 12px; display: flex; gap: 14px; flex-wrap: wrap; align-items: center;
+      font-family: var(--mono); font-size: 11px; color: var(--ink-faint);
+      letter-spacing: 0.04em;
+    }
+    .card .tail .route { color: var(--accent); }
+    .card .tail .axes { color: var(--ink-faint); }
+    .card .tail .engagement-spacer { flex: 1; }
+    .card .tail .engagement-btn {
+      font-family: var(--mono); font-size: 13px; line-height: 1;
+      padding: 2px 8px; border-radius: 12px;
+      border: 1px solid var(--rule); background: transparent;
+      color: var(--ink-faint); cursor: pointer;
+      transition: color 120ms ease, border-color 120ms ease, background 120ms ease;
+    }
+    .card .tail .engagement-btn:hover { color: var(--ink); border-color: var(--ink-faint); }
+    .card[data-engaged="more"] .engagement-btn[data-kind="more"],
+    .card[data-engaged="less"] .engagement-btn[data-kind="less"] {
+      color: var(--bg, #1a1a1a); background: var(--signal); border-color: var(--signal);
+    }
+    .card.fading { opacity: 0.55; }
+    .card[data-engaged] { opacity: 1; }  /* engaged cards stay vivid even past TTL fade */
+
+    /* Surface animation — same one .feed .card uses on the dashboard. */
+    @keyframes surface {
+      0% { opacity: 0; transform: scale(0.985) translateY(6px); filter: blur(4px); }
+      100% { opacity: 1; transform: scale(1) translateY(0); filter: blur(0); }
+    }
+    .card.surfacing { animation: surface 1s cubic-bezier(0.16, 1, 0.3, 1) both; }
+
+    .empty-state {
+      color: var(--ink-faint); font-size: 13.5px;
+      padding: 28px 0; text-align: center; font-style: italic;
+    }
+
+    /* Composer — lifted .composer-wrap and .composer from the dashboard. */
+    .composer-wrap {
+      position: fixed; left: 0; right: 0; bottom: 0;
+      padding: 16px 16px calc(14px + env(safe-area-inset-bottom));
+      background: linear-gradient(180deg, transparent 0%, var(--bg) 40%);
+      z-index: 20;
+    }
+    .composer {
+      max-width: 720px; margin: 0 auto;
+      display: flex; align-items: end; gap: 8px;
+      background: var(--surface); border: 1px solid var(--rule);
+      border-radius: 18px; padding: 10px 10px 10px 14px;
+      box-shadow: var(--composer-shadow, 0 8px 24px rgba(0, 0, 0, 0.18));
+    }
+    .composer:focus-within { border-color: var(--accent); }
+    .composer textarea {
+      flex: 1; border: 0; outline: 0; resize: none;
+      font-family: var(--sans); font-size: 15.5px; line-height: 1.4;
+      background: transparent; max-height: 160px; padding: 8px 0;
+      color: var(--ink);
+    }
+    .composer textarea::placeholder { color: var(--ink-faint); }
+    .composer .send {
+      width: 36px; height: 36px; border-radius: 10px; border: 0;
+      background: var(--accent); color: var(--bg-deep);
+      display: grid; place-items: center; cursor: pointer;
+      transition: background 120ms;
+      font: inherit; font-weight: 600;
+    }
+    .composer .send:hover { background: var(--accent-bright); }
+    .composer .send:disabled { opacity: 0.5; cursor: wait; }
+    .hint {
+      max-width: 720px; margin: 6px auto 0;
+      font-family: var(--mono); font-size: 11px;
+      color: var(--ink-faint); letter-spacing: 0.04em;
+      text-align: center;
+    }
   </style>
 </head>
 <body>
-  <h1>Grand Loop — test page</h1>
-  <p class="sub">Drop a seed below. The supervisor picks it up within ~2s, runs a parliament round (creator → preserver → destroyer), then witness writes a card. The intent disappears once witness addresses it.</p>
+  <main>
+    <div class="section-head">
+      <h2>Grand Loop</h2>
+      <span class="meta" id="metaLabel">preview</span>
+    </div>
 
-  <div class="composer">
-    <input id="seed" type="text" placeholder="e.g. should we keep the puddle/lake separation?" autocomplete="off" />
-    <button id="drop">Drop seed</button>
+    <div class="queue empty" id="queue">queue idle — drop a seed below</div>
+
+    <div class="feed" id="cards">
+      <div class="empty-state">No cards yet — drop a seed below to wake the loop.</div>
+    </div>
+  </main>
+
+  <div class="composer-wrap">
+    <form class="composer" id="composer" autocomplete="off">
+      <textarea id="seed" rows="1" placeholder="Drop a thought, a question, anything…" autocomplete="off"></textarea>
+      <button class="send" type="submit" id="dropBtn" title="Drop seed (Enter)">↑</button>
+    </form>
+    <div class="hint" id="status">idle</div>
   </div>
-  <div class="hint" id="status">idle</div>
-
-  <h2>Pending intents</h2>
-  <div id="intents"><div class="empty">none pending</div></div>
-
-  <h2>Cards</h2>
-  <div id="cards"><div class="empty">no cards yet</div></div>
 
   <script>
     const API = (location.origin || 'http://localhost:8201');
@@ -49,16 +173,27 @@
     }
 
     const seedInput = document.getElementById('seed');
-    const dropBtn = document.getElementById('drop');
+    const dropBtn = document.getElementById('dropBtn');
+    const composer = document.getElementById('composer');
     const statusEl = document.getElementById('status');
-    const intentsEl = document.getElementById('intents');
+    const queueEl = document.getElementById('queue');
     const cardsEl = document.getElementById('cards');
+    const metaEl = document.getElementById('metaLabel');
 
-    async function dropSeed() {
+    seedInput.addEventListener('input', () => {
+      seedInput.style.height = 'auto';
+      seedInput.style.height = Math.min(seedInput.scrollHeight, 160) + 'px';
+    });
+    seedInput.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); composer.requestSubmit(); }
+    });
+
+    composer.addEventListener('submit', async (e) => {
+      e.preventDefault();
       const text = seedInput.value.trim();
       if (!text) return;
       dropBtn.disabled = true;
-      statusEl.textContent = 'dropping seed…';
+      statusEl.textContent = 'dropping…';
       try {
         const r = await fetch(API + '/v1/puddle/seed', {
           method: 'POST',
@@ -66,72 +201,173 @@
           body: JSON.stringify({ content: text }),
         });
         if (!r.ok) {
-          statusEl.textContent = 'seed failed: ' + r.status;
+          statusEl.textContent = 'seed failed: ' + r.status + ' (logged into the dashboard yet?)';
           dropBtn.disabled = false;
           return;
         }
         seedInput.value = '';
-        statusEl.textContent = 'seeded — waiting for the loop to fire…';
-      } catch (e) {
-        statusEl.textContent = 'network error: ' + e;
+        seedInput.style.height = 'auto';
+        statusEl.textContent = 'seed dropped — voices deliberating…';
+        poll();
+      } catch (err) {
+        statusEl.textContent = 'network error: ' + err;
       } finally {
         dropBtn.disabled = false;
       }
-    }
-    dropBtn.addEventListener('click', dropSeed);
-    seedInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') dropSeed(); });
-
-    function renderIntents(items) {
-      if (!items.length) {
-        intentsEl.innerHTML = '<div class="empty">none pending</div>';
-        return;
-      }
-      intentsEl.innerHTML = items.map((it) => `
-        <div class="row">
-          <div class="meta">${it.kind || '?'} · ${it.timestamp || ''} · id=${(it.id || '').slice(0, 12)}</div>
-          <div class="body">${escapeHtml(it.content || '')}</div>
-        </div>
-      `).join('');
-    }
-
-    function renderCards(items) {
-      if (!items.length) {
-        cardsEl.innerHTML = '<div class="empty">no cards yet</div>';
-        return;
-      }
-      cardsEl.innerHTML = items.map((c) => {
-        const axes = c.axes ? Object.entries(c.axes).map(([k, v]) => `${k}=${(v ?? 0).toFixed(2)}`).join(' · ') : '';
-        return `
-          <div class="row">
-            <div class="meta">${c.route || 'chat-reply'} · ${c.timestamp || ''} · addresses=${(c.addresses || []).length}</div>
-            ${c.kicker ? `<div class="kicker">${escapeHtml(c.kicker)}</div>` : ''}
-            ${c.title ? `<div style="font-weight:600;margin-bottom:6px;">${escapeHtml(c.title)}</div>` : ''}
-            <div class="body">${escapeHtml(c.body || '')}</div>
-            ${c.tail ? `<div class="meta" style="margin-top:6px;">${escapeHtml(c.tail)}</div>` : ''}
-            ${axes ? `<div class="axes">${axes}</div>` : ''}
-          </div>
-        `;
-      }).join('');
-    }
+    });
 
     function escapeHtml(s) {
       return String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
     }
 
+    function relTime(iso) {
+      if (!iso) return '';
+      const t = new Date(iso).getTime();
+      const dt = (Date.now() - t) / 1000;
+      if (dt < 60) return Math.floor(dt) + 's';
+      if (dt < 3600) return Math.floor(dt / 60) + 'm';
+      if (dt < 86400) return Math.floor(dt / 3600) + 'h';
+      return Math.floor(dt / 86400) + 'd';
+    }
+
+    function ttlFraction(card) {
+      if (!card.expires_at || !card.timestamp) return 0;
+      const start = new Date(card.timestamp).getTime();
+      const end = new Date(card.expires_at).getTime();
+      const now = Date.now();
+      if (now <= start) return 0;
+      if (now >= end) return 1;
+      return (now - start) / (end - start);
+    }
+
+    function renderQueue(items) {
+      if (!items.length) {
+        queueEl.classList.add('empty');
+        queueEl.textContent = 'queue idle — drop a seed below';
+        return;
+      }
+      queueEl.classList.remove('empty');
+      queueEl.innerHTML = items.map((it) => {
+        const text = (it.content || '').split('\n')[0];
+        return `<span class="pill"><span class="kind">${escapeHtml(it.kind || '?')}</span><span class="text">${escapeHtml(text)}</span></span>`;
+      }).join('');
+    }
+
+    // Track rendered card IDs so re-polls don't re-trigger the surface
+    // animation on cards already on screen.
+    const _renderedIds = new Set();
+
+    function renderCards(items) {
+      if (!items.length) {
+        cardsEl.innerHTML = '<div class="empty-state">No cards yet — drop a seed below to wake the loop.</div>';
+        _renderedIds.clear();
+        return;
+      }
+      // Build card DOM, reusing already-rendered nodes to avoid re-animating.
+      const frag = document.createDocumentFragment();
+      const seenNow = new Set();
+      for (const c of items) {
+        seenNow.add(c.id);
+        const fraction = ttlFraction(c);
+        const isNew = !_renderedIds.has(c.id);
+        if (isNew) _renderedIds.add(c.id);
+
+        const card = document.createElement('article');
+        card.className = 'card' + (isNew ? ' surfacing' : '') + (fraction > 0.6 ? ' fading' : '');
+        card.dataset.cardId = c.id || '';
+
+        const axes = c.axes
+          ? Object.entries(c.axes).map(([k, v]) => `${k.slice(0, 3)}=${(v ?? 0).toFixed(2)}`).join(' ')
+          : '';
+
+        card.innerHTML = `
+          <div class="card-body">
+            ${c.kicker ? `<div class="kicker">${escapeHtml(c.kicker)}</div>` : ''}
+            ${c.title ? `<h3>${escapeHtml(c.title)}</h3>` : ''}
+            ${c.body ? `<p>${escapeHtml(c.body)}</p>` : ''}
+            <div class="tail">
+              <span class="route">${escapeHtml(c.route || 'chat-reply')}</span>
+              ${c.tail ? `<span>${escapeHtml(c.tail)}</span>` : ''}
+              <span>${relTime(c.timestamp)} ago</span>
+              ${axes ? `<span class="axes">${axes}</span>` : ''}
+              <span class="engagement-spacer"></span>
+              <button class="engagement-btn" data-kind="less" type="button" title="Less like this">−</button>
+              <button class="engagement-btn" data-kind="more" type="button" title="Save to lake">+</button>
+            </div>
+          </div>
+        `;
+        frag.appendChild(card);
+      }
+      // Drop ids that are no longer in the visible set so a card that
+      // expires and reappears later does animate.
+      for (const id of [..._renderedIds]) {
+        if (!seenNow.has(id)) _renderedIds.delete(id);
+      }
+      cardsEl.replaceChildren(frag);
+    }
+
+    // Engagement: clicking + or − promotes the card to the durable lake.
+    // Optimistic UI flip; revert if the server rejects.
+    cardsEl.addEventListener('click', async (e) => {
+      const btn = e.target.closest('.engagement-btn');
+      if (!btn) return;
+      e.stopPropagation();
+      const card = btn.closest('.card');
+      const cardId = card?.dataset?.cardId;
+      if (!cardId) return;
+      const kind = btn.dataset.kind === 'less' ? 'less' : 'more';
+      const prior = card.dataset.engaged || '';
+      card.dataset.engaged = kind;
+      try {
+        const r = await fetch(API + `/v1/puddle/cards/${encodeURIComponent(cardId)}/engage`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', ...authHeaders() },
+          body: JSON.stringify({ kind }),
+        });
+        if (!r.ok) throw new Error('engage failed: ' + r.status);
+        const data = await r.json();
+        statusEl.textContent = `card promoted to lake — id=${(data.promoted_card_id || '').slice(0, 8)}`;
+      } catch (err) {
+        if (prior) card.dataset.engaged = prior; else delete card.dataset.engaged;
+        statusEl.textContent = 'engage failed: ' + err;
+      }
+    });
+
+    let pollTimer = null;
+    let pollFast = false;
     async function poll() {
       try {
         const [iR, cR] = await Promise.all([
           fetch(API + '/v1/puddle/intents', { headers: authHeaders() }),
           fetch(API + '/v1/puddle/cards', { headers: authHeaders() }),
         ]);
-        if (iR.ok) renderIntents((await iR.json()).intents || []);
-        if (cR.ok) renderCards((await cR.json()).cards || []);
+        if (iR.status === 401 || cR.status === 401) {
+          statusEl.textContent = 'not authenticated — open the dashboard, log in, then come back.';
+          return;
+        }
+        const intents = iR.ok ? ((await iR.json()).intents || []) : [];
+        const cards = cR.ok ? ((await cR.json()).cards || []) : [];
+        renderQueue(intents);
+        renderCards(cards);
+        metaEl.textContent = cards.length
+          ? `${cards.length} card${cards.length === 1 ? '' : 's'}`
+          : 'preview';
+        // Poll every 2s while the witness is working, every 4s when idle.
+        const wantFast = intents.length > 0;
+        if (wantFast !== pollFast) {
+          pollFast = wantFast;
+          if (pollTimer) clearInterval(pollTimer);
+          pollTimer = setInterval(poll, pollFast ? 2000 : 4000);
+        }
+        if (intents.length === 0 && statusEl.textContent.startsWith('seed')) {
+          statusEl.textContent = 'loop idle';
+        }
       } catch (e) {
-        // network hiccup — silent
+        // network blip
       }
     }
     poll();
-    setInterval(poll, 2000);
+    pollTimer = setInterval(poll, 4000);
   </script>
 </body>
 </html>
