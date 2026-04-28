@@ -50,10 +50,15 @@ POLL_INTERVAL_S = 60      # check every minute
 
 # How much history we feed into the regen prompt. The directive
 # wants enough signal to read intent without dragging in old noise.
+# Trimmed values vs the legacy feed-loop's: a too-fat prompt was
+# producing empty responses on the "hard" tier. The witness reads
+# anchors, not the full engagement history; we just need enough
+# signal to distill a 2-4 sentence narrative.
 ENGAGEMENT_LOOKBACK_DAYS = 14
 CARD_LOOKBACK_DAYS = 7
-ENGAGEMENT_LIMIT = 200
-CARD_LIMIT = 50
+ENGAGEMENT_LIMIT = 60
+CARD_LIMIT = 20
+PRIOR_CRYSTAL_MAX_CHARS = 1200
 
 
 _task: asyncio.Task | None = None
@@ -156,13 +161,13 @@ async def _build_inputs_block(prior: dict | None) -> str:
     parts: list[str] = []
     parts.append("RECENT ENGAGEMENT (newest first):")
     if engagements:
-        parts.extend(_format_engagement_line(d) for d in engagements[:80])
+        parts.extend(_format_engagement_line(d) for d in engagements[:ENGAGEMENT_LIMIT])
     else:
         parts.append("  (none)")
 
     parts.append("\nRECENT FEED-CARDS (newest first):")
     if cards:
-        parts.extend(_format_card_line(d) for d in cards[:40])
+        parts.extend(_format_card_line(d) for d in cards[:CARD_LIMIT])
     else:
         parts.append("  (none)")
 
@@ -170,7 +175,7 @@ async def _build_inputs_block(prior: dict | None) -> str:
     if prior:
         prior_content = (prior.get("content") or "").strip()
         if prior_content:
-            parts.append(prior_content[:4000])
+            parts.append(prior_content[:PRIOR_CRYSTAL_MAX_CHARS])
         else:
             parts.append("  (empty)")
     else:
@@ -191,35 +196,69 @@ async def _run_regen() -> bool:
         inputs = await _build_inputs_block(prior)
         prompt = f"{FEED_CRYSTAL_DIRECTIVE}\n\n{inputs}"
 
+        log.info(
+            "feed-orient regen firing (prompt %d chars; %d engagements, prior=%s)",
+            len(prompt),
+            len(await _engagements_since(prior.get("timestamp") if prior else None)),
+            "yes" if prior else "no",
+        )
+
         try:
+            # No json_mode — the directive already says "respond with
+            # ONLY a JSON object, no markdown fences", and providers
+            # vary on how strict json_mode is for nested shapes (some
+            # return empty when they can't produce a valid object).
+            # We strip code fences + parse defensively below.
             raw = await loop_generate(
                 prompt=prompt,
                 tier="hard",
                 max_tokens=2048,
                 temperature=0.4,
-                json_mode=True,
+                json_mode=False,
             )
         except Exception:
             log.exception("feed-orient regen LLM call failed")
             return False
 
         cleaned = raw.strip()
+        # Strip code fences defensively (some providers wrap output).
         if cleaned.startswith("```"):
-            # Strip code fences defensively (some providers ignore
-            # response_format=json_object).
-            cleaned = cleaned.lstrip("`").lstrip("json").strip()
+            cleaned = cleaned.lstrip("`")
+            if cleaned.startswith("json"):
+                cleaned = cleaned[4:]
+            cleaned = cleaned.strip()
             if cleaned.endswith("```"):
                 cleaned = cleaned[:-3].strip()
+        # If the response wraps JSON in prose, extract the first { ... }
+        # block. Common shape: "Here's the crystal:\n{...}".
+        if cleaned and not cleaned.lstrip().startswith("{"):
+            import re as _re
+            m = _re.search(r"\{.*\}", cleaned, _re.DOTALL)
+            if m:
+                cleaned = m.group(0)
+
+        if not cleaned:
+            log.warning(
+                "feed-orient regen LLM returned empty content (prompt %d chars)",
+                len(prompt),
+            )
+            return False
 
         try:
             payload = json.loads(cleaned)
         except json.JSONDecodeError:
-            log.warning("feed-orient regen output not JSON; saving raw text")
+            log.warning(
+                "feed-orient regen output not JSON; first 200 chars: %r",
+                cleaned[:200],
+            )
             payload = {"version": 1, "narrative": cleaned[:4000]}
 
         narrative = (payload.get("narrative") or "").strip()
         if not narrative:
-            log.warning("feed-orient regen produced empty narrative; skipping write")
+            log.warning(
+                "feed-orient regen produced empty narrative; payload keys=%s",
+                list(payload.keys()),
+            )
             return False
 
         try:

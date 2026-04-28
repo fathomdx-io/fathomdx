@@ -103,6 +103,95 @@ async def get_crystal_events(limit: int = 50):
     return {"events": await crystal.list_events(limit=limit)}
 
 
+# ── Feed-orient signal ──────────────────────────────────────────────────────
+# Backing the dashboard's "Feed orientation" card. The Grand Loop now writes
+# crystal:feed-orient regens (api/loop/feed_orient.py) and feed-engagement
+# deltas (engage_card in api/loop/routes.py) — the legacy /v1/feed/* paths
+# the ECG polls were 404'ing post-retire. These thin endpoints surface the
+# new signal in the shapes the renderer already expects.
+
+
+@router.get("/v1/feed/engagement/history")
+async def get_feed_engagement_history(since_seconds: int = 7 * 24 * 3600):
+    """+/- engagement marks for the bottom rule of the feed-orient card.
+
+    Returns [{t, v}] where v = +1 for engagement:more / engagement:chat
+    and -1 for engagement:less. Pulls feed-engagement deltas straight
+    from the lake — the Grand Loop's engage_card writes them durable.
+    """
+    since = (datetime.now(UTC) - timedelta(seconds=since_seconds)).isoformat()
+    try:
+        items = await delta_client.query(
+            tags_include=["feed-engagement"],
+            time_start=since,
+            limit=500,
+        )
+    except Exception:
+        return {"history": []}
+    out: list[dict] = []
+    for d in items:
+        ts = d.get("timestamp")
+        if not ts:
+            continue
+        kind = ""
+        for t in d.get("tags") or []:
+            if isinstance(t, str) and t.startswith("engagement:"):
+                kind = t.split(":", 1)[1]
+                break
+        if kind in ("more", "chat"):
+            v = 1
+        elif kind == "less":
+            v = -1
+        else:
+            continue
+        out.append({"t": ts, "v": v})
+    out.sort(key=lambda e: e["t"])
+    return {"history": out}
+
+
+@router.get("/v1/feed/crystal/events")
+@router.get("/v1/feed/regen/events")
+async def get_feed_crystal_events(limit: int = 50):
+    """feed-orient regen events for the ◆ markers on the feed-orient card.
+
+    Filters /v1/crystal/events down to crystal:feed-orient writes (matched
+    by tag). The dashboard polls both /v1/feed/crystal/events and
+    /v1/feed/regen/events; both routes resolve here.
+    """
+    try:
+        items = await delta_client.query(
+            tags_include=["crystal:feed-orient"],
+            limit=limit,
+        )
+    except Exception:
+        return {"events": []}
+    events = []
+    for d in items:
+        events.append({
+            "id": d.get("id"),
+            "timestamp": d.get("timestamp"),
+            "source": d.get("source"),
+            "preview": (d.get("content") or "")[:140],
+        })
+    events.sort(key=lambda e: e.get("timestamp") or "")
+    return {"events": events}
+
+
+@router.get("/v1/feed/drift")
+@router.get("/v1/feed/drift/history")
+@router.get("/v1/feed/confidence/history")
+async def get_feed_drift_or_confidence():
+    """Placeholder: engagement-centroid drift and confidence-scoring lived in
+    the legacy feed engine. The Grand Loop hasn't reproduced those signals
+    yet — drift would need a centroid anchor snapshotted at each feed-orient
+    regen, and confidence requires comparing predicted topic_weights
+    against actual engagement post-regen. For now return empty so the
+    renderer has clean shapes and the bands stay flat (rather than 404'ing
+    and spamming the console).
+    """
+    return {"history": [], "drift": 0.0}
+
+
 @router.get("/v1/usage")
 async def usage():
     """Usage stats for the home screen widget: daily delta counts + totals."""
