@@ -232,8 +232,13 @@ async def mirror_recent_activity() -> int:
             if t.startswith("recalled-id:"):
                 existing_short_ids.add(t.split(":", 1)[1])
 
+    # Lake returns newest-first; we want the puddle's write order to
+    # be oldest-first so the newest lake delta gets the latest puddle
+    # timestamp. get_feed sorts by puddle timestamp desc, so this is
+    # what makes a cold-start dump render newest-first instead of
+    # flipping into oldest-first by accident.
     written = 0
-    for d in items:
+    for d in reversed(items):
         did = d.get("id") or ""
         if not did:
             continue
