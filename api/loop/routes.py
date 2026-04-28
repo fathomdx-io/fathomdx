@@ -120,6 +120,31 @@ def get_stats() -> dict:
     return puddle.stats()
 
 
+@router.get("/v1/puddle/deltas")
+def get_deltas(
+    tags_include: list[str] | None = None,
+    tags_exclude: list[str] | None = None,
+    time_start: str | None = None,
+    time_end: str | None = None,
+    limit: int = 1000,
+) -> list[dict]:
+    """Delta-store-shaped query over the puddle.
+
+    The Grand Loop viz issues `/deltas?tags_include=convo:grand` (and
+    similar tag queries) against the experiment's delta-store. This
+    endpoint exposes the same shape over the in-memory puddle so the
+    viz can be lifted with near-zero adaptation. Returns the bare list
+    of delta dicts the viz expects.
+    """
+    return puddle.query(
+        tags_include=tags_include,
+        tags_exclude=tags_exclude,
+        time_start=time_start,
+        time_end=time_end,
+        limit=limit,
+    )
+
+
 class EngageRequest(BaseModel):
     kind: str = "more"  # more | less | chat
 

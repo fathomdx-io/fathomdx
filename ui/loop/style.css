@@ -1,0 +1,763 @@
+/* ── Fathom deliberation viz ─────────────────────────────
+   Design system: https://design.fathomdx.io/v1/tokens.css (linked in HTML).
+   This file layers viz-specific structure + parliament voice colors on top.
+   ────────────────────────────────────────────────────── */
+
+:root {
+  /* Parliament voice colors. Trimurti-coded:
+     creator   = saffron-orange (Brahma, emergence),
+     preserver = cyan          (Vishnu, continuity),
+     destroyer = red           (Shiva, dissolution).
+     witness   = signal teal   (turiya, the integrated voice). */
+  --voice-creator:   #f97316;
+  --voice-preserver: #06b6d4;
+  --voice-destroyer: #dc2626;
+  --voice-witness:   var(--signal);
+}
+
+/* ── Reset + global ─────────────────────────────────── */
+
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  padding: 0;
+  background: var(--bg);
+  color: var(--ink);
+  font-family: var(--sans);
+  font-size: var(--text-base);
+  line-height: 1.5;
+  height: 100%;
+  overflow: hidden;
+}
+
+button {
+  background: transparent;
+  border: 1px solid var(--rule);
+  color: var(--ink);
+  font-family: var(--sans);
+  font-size: var(--text-md);
+  padding: 0.4rem 0.8rem;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: background 120ms, border-color 120ms, color 120ms;
+}
+button:hover { background: var(--surface-2); border-color: var(--accent); }
+
+input[type="text"] {
+  background: var(--surface);
+  border: 1px solid var(--rule);
+  color: var(--ink);
+  font-family: var(--sans);
+  font-size: var(--text-base);
+  padding: 0.6rem 0.85rem;
+  border-radius: 10px;
+  outline: none;
+  transition: border-color 120ms;
+}
+input[type="text"]:focus { border-color: var(--accent); }
+input[type="text"]::placeholder { color: var(--ink-faint); }
+
+/* ── Top bar ────────────────────────────────────────── */
+
+.topbar {
+  display: flex;
+  align-items: center;
+  gap: 1.25rem;
+  padding: 0.6rem 1.25rem;
+  background: var(--topbar-bg);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  border-bottom: 1px solid var(--rule);
+  z-index: 10;
+}
+
+.brand { display: flex; align-items: baseline; gap: 0.6rem; }
+.dot {
+  width: 8px; height: 8px; border-radius: 50%;
+  background: var(--ink-faint);
+  transition: background 0.3s, box-shadow 0.3s;
+  align-self: center;
+}
+.dot.live   { background: var(--signal); box-shadow: 0 0 8px var(--dot-glow); }
+.dot.paused { background: var(--accent); }
+.dot.error  { background: var(--danger); }
+
+.title {
+  font-family: var(--serif);
+  font-size: var(--text-2xl);
+  letter-spacing: var(--tracking-tight);
+  color: var(--ink);
+}
+.session {
+  font-family: var(--mono);
+  font-size: var(--text-sm);
+  color: var(--ink-faint);
+  letter-spacing: var(--tracking-wide);
+}
+
+.stats {
+  display: flex;
+  gap: 1rem;
+  margin-left: auto;
+  font-family: var(--mono);
+  font-size: var(--text-sm);
+  color: var(--ink-soft);
+  letter-spacing: var(--tracking-wide);
+  text-transform: uppercase;
+}
+.stat b { color: var(--ink); font-weight: 500; }
+
+.actions { display: flex; gap: 0.4rem; align-items: center; }
+
+.toggle-sound {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-family: var(--mono);
+  font-size: var(--text-sm);
+  color: var(--ink-soft);
+  letter-spacing: var(--tracking-wide);
+  text-transform: uppercase;
+  cursor: pointer;
+}
+.toggle-sound input { accent-color: var(--accent); }
+
+/* ── Layout: mini-lake + graph + composer (chat shape) ── */
+
+#stage-root {
+  display: grid;
+  grid-template-rows: 1fr auto auto;
+  height: calc(100vh - 56px);
+  overflow: hidden;
+  position: relative;
+}
+
+#links {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  width: 100%;
+  height: 100%;
+  z-index: 1;
+}
+
+.col, .panel {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  background: var(--bg-deep);
+}
+
+.col-head {
+  font-family: var(--mono);
+  font-size: var(--text-sm);
+  text-transform: uppercase;
+  letter-spacing: var(--tracking-wider);
+  color: var(--ink-soft);
+  padding: 0.6rem 1.25rem;
+  border-bottom: 1px solid var(--rule-soft);
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  background: var(--bg);
+}
+
+.col-body {
+  flex: 1 1 auto;
+  overflow-y: auto;
+  padding: 0.85rem 1.25rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.55rem;
+}
+
+.empty {
+  text-align: center;
+  color: var(--ink-faint);
+  font-style: italic;
+  padding: 2rem 1rem;
+}
+
+/* Status strip — slim row between the lake and the composer. Holds the
+   convergence dots (the thinking/settled indicator) and phase chips.
+   No graph — the convergence dots are the visualization. */
+.panel-graph {
+  border-top: 1px solid var(--rule);
+  background: var(--bg);
+  flex: 0 0 auto;
+}
+.graph-head {
+  min-height: 0;
+  padding: 0.55rem 1.25rem;
+  border-bottom: 0;
+  background: transparent;
+  justify-content: flex-end;
+}
+.graph-head .phase-label { margin-left: 0; }
+#graph {
+  flex: 1 1 auto;
+  width: 100%;
+  height: 100%;
+}
+#graph .grid       { stroke: var(--rule-soft); stroke-width: 0.5; }
+#graph .axis       { stroke: var(--rule); stroke-width: 1; }
+#graph .tick-label { font-family: var(--mono); font-size: var(--text-xs); fill: var(--ink-faint); }
+#graph .rumination-shade { fill: rgba(255, 20, 147, 0.05); }
+#graph .rumination-line  { stroke: #ff1493; stroke-width: 1; stroke-dasharray: 3 3; }
+#graph .max-line         { stroke: var(--ink-faint); stroke-width: 1; stroke-dasharray: 2 4; }
+
+/* Per-voice line + dot styling. Stroke / fill via class. Color changes
+   are instant (no transition) — when the panel toggles into .settled
+   the lines snap to teal immediately. The flash is a separate decay
+   animation that starts at peak and falls back to normal. */
+#graph .voice-line {
+  fill: none;
+  stroke-width: 2.2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  opacity: 0.95;
+}
+#graph .voice-line.voice-creator   { stroke: var(--voice-creator); }
+#graph .voice-line.voice-preserver { stroke: var(--voice-preserver); }
+#graph .voice-line.voice-destroyer { stroke: var(--voice-destroyer); }
+
+#graph .voice-dot.voice-creator   { fill: var(--voice-creator); }
+#graph .voice-dot.voice-preserver { fill: var(--voice-preserver); }
+#graph .voice-dot.voice-destroyer { fill: var(--voice-destroyer); }
+
+/* Settled: instant snap to witness teal — no transition, color flips
+   the moment the panel gets the class. */
+.panel-graph.settled #graph .voice-line { stroke: var(--signal); }
+.panel-graph.settled #graph .voice-dot  { fill:   var(--signal); }
+
+/* Flash: starts at peak brightness, decays to normal over 800ms. */
+@keyframes voice-settle-flash {
+  0%   { stroke-width: 7;   filter: drop-shadow(0 0 16px var(--signal)); opacity: 1; }
+  100% { stroke-width: 2.2; filter: drop-shadow(0 0 0 transparent);      opacity: 0.95; }
+}
+@keyframes voice-dot-flash {
+  0%   { r: 5.5; filter: drop-shadow(0 0 14px var(--signal)); }
+  100% { r: 2.5; filter: drop-shadow(0 0 0 transparent); }
+}
+.panel-graph.settle-flash #graph .voice-line { animation: voice-settle-flash 800ms ease-out; }
+.panel-graph.settle-flash #graph .voice-dot  { animation: voice-dot-flash    800ms ease-out; }
+
+/* ── Composer (chat input at the bottom) ──────────────── */
+
+.composer {
+  display: flex;
+  gap: 0.6rem;
+  align-items: center;
+  padding: 0.85rem 1.25rem;
+  background: var(--bg);
+  border-top: 1px solid var(--rule);
+  box-shadow: var(--composer-shadow);
+}
+
+.composer #seed-input {
+  flex: 1 1 auto;
+  background: var(--surface);
+  border: 1px solid var(--rule);
+  border-radius: 12px;
+  padding: 0.7rem 1rem;
+  font-size: var(--text-base);
+}
+.composer #seed-input:focus { border-color: var(--accent); }
+
+.composer #btn-start {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--meta-color);
+  font-weight: 600;
+  font-size: var(--text-md);
+  padding: 0.7rem 1.2rem;
+  border-radius: 12px;
+  letter-spacing: var(--tracking-tight);
+}
+.composer #btn-start:hover { background: var(--accent-bright); border-color: var(--accent-bright); }
+
+/* ── Phase labels on the graph header ─────────────────── */
+
+.phase-label {
+  font-family: var(--mono);
+  font-size: var(--text-xs);
+  text-transform: uppercase;
+  letter-spacing: var(--tracking-wider);
+  padding: 0.15rem 0.5rem;
+  border-radius: 4px;
+}
+.phase-label.phase-pattern    { color: var(--accent);          border: 1px solid var(--accent);          margin-left: auto; }
+.phase-label.phase-rumination { color: #ff1493;                border: 1px solid #ff1493; }
+.phase-label.phase-max        { color: var(--ink-soft);        border: 1px solid var(--ink-faint);       margin-left: auto; }
+.phase-label.phase-settled    { color: var(--voice-witness);   border: 1px solid var(--voice-witness);   margin-left: auto; }
+.phase-label.phase-contending { color: var(--voice-creator);   border: 1px solid var(--voice-creator);   margin-left: auto; }
+.phase-label.phase-unresolved { color: var(--voice-destroyer); border: 1px solid var(--voice-destroyer); margin-left: auto; }
+
+/* ── Delta cards in the lake (chat-shape) ─────────────── */
+
+.delta {
+  background: var(--surface);
+  border-radius: var(--radius);
+  padding: 0.65rem 0.9rem;
+  font-size: var(--text-base);
+  animation: delta-in 320ms ease-out;
+  border-left: 3px solid var(--rule);
+}
+@keyframes delta-in {
+  from { opacity: 0; transform: translateY(-3px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+.d-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  margin-bottom: 0.3rem;
+}
+.d-kind {
+  font-family: var(--mono);
+  font-size: var(--text-sm);
+  letter-spacing: var(--tracking-wide);
+  text-transform: lowercase;
+  color: var(--ink-soft);
+}
+.d-ts {
+  font-family: var(--mono);
+  font-size: var(--text-xs);
+  color: var(--ink-faint);
+}
+.d-body {
+  font-family: var(--serif);
+  font-size: var(--text-base);
+  line-height: 1.5;
+  color: var(--ink);
+  white-space: pre-wrap;
+}
+
+/* ── Per-kind tinting ──────────────────────────────── */
+
+.delta.seed         { border-left-color: var(--signal);   background: color-mix(in srgb, var(--surface) 92%, var(--signal) 8%); }
+.delta.seed .d-kind { color: var(--signal); }
+
+.delta.thought      { border-left-color: var(--ink-soft); }
+.delta.thought.pattern    { opacity: 0.8; }
+.delta.thought.rumination { opacity: 0.45; font-style: italic; }
+
+/* Parliament voice tinting on the left edge + kind label */
+.delta.thought.voice-creator   { border-left-color: var(--voice-creator); }
+.delta.thought.voice-preserver { border-left-color: var(--voice-preserver); }
+.delta.thought.voice-destroyer { border-left-color: var(--voice-destroyer); }
+.delta.thought.voice-creator   .d-kind { color: var(--voice-creator); }
+.delta.thought.voice-preserver .d-kind { color: var(--voice-preserver); }
+.delta.thought.voice-destroyer .d-kind { color: var(--voice-destroyer); }
+
+.delta.crystal {
+  border-left-color: #a78bfa;
+  background: color-mix(in srgb, var(--surface) 92%, #a78bfa 8%);
+}
+.delta.crystal .d-kind { color: #c4b5fd; }
+.delta.crystal .d-body { font-family: var(--serif); }
+
+.delta.now      { border-left-color: var(--ink-faint); }
+.delta.now .d-kind { color: var(--ink-faint); }
+
+.delta.mood     { border-left-color: var(--accent); background: color-mix(in srgb, var(--surface) 94%, var(--accent) 6%); }
+.delta.mood .d-kind { color: var(--accent); }
+
+.delta.fresh, .delta.recent {
+  border-left-color: var(--ink-soft);
+  opacity: 0.85;
+}
+.delta.fresh .d-kind, .delta.recent .d-kind { color: var(--ink-soft); }
+
+.delta.recall { border-left-color: var(--signal-dim); }
+.delta.recall .d-kind { color: var(--signal); }
+.delta.recall.recall-first   { opacity: 1.0; border-left-width: 4px; }
+.delta.recall.recall-bridge  { opacity: 0.85; }
+.delta.recall.recall-deep    { opacity: 0.7; }
+.delta.recall.recall-deeper  { opacity: 0.55; }
+.delta.recall.recall-deepest { opacity: 0.45; }
+/* Resonance vampire-tap landings — set apart from regular recalls. */
+.delta.recall.recall-resonant {
+  border-left-color: #c4b5fd;
+  background: color-mix(in srgb, var(--surface) 92%, #c4b5fd 8%);
+}
+.delta.recall.recall-resonant .d-kind { color: #c4b5fd; font-weight: 600; }
+
+.delta.interim { border-left-color: var(--accent); font-style: italic; }
+.delta.interim .d-kind { color: var(--accent); }
+
+/* ── Chat-reply — plain text response, no card boxing ─────────── */
+/* Reads as a chat message: just the body, no kicker, no axes, no
+   level chip, no kind label. The default .delta padding/border is
+   stripped down to a soft left border in voice-witness teal. */
+.delta.synthesis.chat-reply {
+  border-left-color: var(--voice-witness);
+  background: transparent;
+  padding: 0.55rem 0.85rem;
+  font-family: var(--serif);
+  font-size: var(--text-lg);
+  line-height: 1.55;
+  color: var(--ink);
+}
+.delta.synthesis.chat-reply .d-head { display: none; }
+.delta.synthesis.chat-reply .d-body { white-space: pre-wrap; }
+
+/* ── Grand-loop intent kinds (non-question) ─────────────────── */
+/* These render first-class in the lake flow, like Q/A. The kicker
+   carries the kind label so they're recognizable at a glance. */
+
+.delta.intent {
+  border-left-color: #a78bfa;
+  background: color-mix(in srgb, var(--surface) 94%, #a78bfa 6%);
+  font-style: italic;
+  opacity: 0.92;
+}
+.delta.intent .d-kind { color: #c4b5fd; font-weight: 600; }
+
+.delta.intent.intent-resonance {
+  border-left-color: #c4b5fd;
+  background: color-mix(in srgb, var(--surface) 92%, #c4b5fd 8%);
+}
+.delta.intent.intent-resonance .d-kind { color: #c4b5fd; }
+
+.delta.intent.intent-drop-in {
+  border-left-color: var(--accent);
+  background: color-mix(in srgb, var(--surface) 92%, var(--accent) 8%);
+}
+.delta.intent.intent-drop-in .d-kind { color: var(--accent); }
+
+.delta.intent.intent-pressure {
+  border-left-color: #f59e0b;
+}
+.delta.intent.intent-pressure .d-kind { color: #f59e0b; }
+
+.delta.intent.intent-alert {
+  border-left-color: #ef4444;
+}
+.delta.intent.intent-alert .d-kind { color: #ef4444; }
+
+/* ── Routed witness outputs (non chat-reply) ─────────────────── */
+
+.delta.neifama {
+  border-left: 3px dashed var(--ink-faint);
+  background: color-mix(in srgb, var(--surface) 96%, var(--ink-faint) 4%);
+  font-style: italic;
+  opacity: 0.8;
+}
+.delta.neifama .d-kind { color: var(--ink-faint); font-weight: 600; }
+
+.delta.synthesis.dm {
+  border-left-color: #f472b6;
+  background: color-mix(in srgb, var(--surface) 92%, #f472b6 8%);
+}
+.delta.synthesis.dm .d-kind { color: #f472b6; }
+
+.delta.synthesis.alert {
+  border-left: 4px solid #ef4444;
+  background: color-mix(in srgb, var(--surface) 88%, #ef4444 12%);
+}
+.delta.synthesis.alert .d-kind { color: #ef4444; font-weight: 700; }
+
+.delta.synthesis.routine {
+  border-left-color: #34d399;
+  background: color-mix(in srgb, var(--surface) 92%, #34d399 8%);
+}
+.delta.synthesis.routine .d-kind { color: #34d399; }
+
+.delta.synthesis.tool-call {
+  border-left-color: var(--accent);
+  background: color-mix(in srgb, var(--surface) 92%, var(--accent) 8%);
+  font-family: var(--mono);
+  font-size: var(--text-md);
+}
+.delta.synthesis.tool-call .d-kind { color: var(--accent); font-family: var(--mono); }
+
+.delta.synthesis:not(.feed-card) {
+  border-left-color: var(--signal);
+  background: color-mix(in srgb, var(--surface) 90%, var(--signal) 10%);
+}
+.delta.synthesis:not(.feed-card) .d-kind { color: var(--signal); font-weight: 600; }
+
+/* ── Witness feed-card — the integrated voice, set apart ── */
+
+.delta.feed-card {
+  border-left: 3px solid var(--voice-witness);
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--surface) 88%, var(--voice-witness) 12%) 0%, var(--surface) 100%);
+  padding: 0.85rem 1.05rem;
+}
+.delta.feed-card .d-kind { color: var(--voice-witness); font-weight: 600; }
+
+.delta.feed-card .feed-card-kicker {
+  font-family: var(--serif);
+  font-size: var(--text-xl);
+  font-weight: 600;
+  font-style: italic;
+  color: var(--voice-witness);
+  margin-bottom: 0.45rem;
+  letter-spacing: var(--tracking-tight);
+}
+.delta.feed-card .feed-card-title {
+  font-family: var(--serif);
+  font-size: var(--text-2xl);
+  font-weight: 700;
+  line-height: 1.3;
+  color: var(--ink);
+  margin: 0 0 0.55rem 0;
+  letter-spacing: var(--tracking-tight);
+}
+.delta.feed-card .feed-card-image {
+  display: block;
+  width: 100%;
+  max-height: 320px;
+  object-fit: cover;
+  border-radius: 6px;
+  margin-bottom: 0.65rem;
+  background: var(--surface);
+}
+.delta.feed-card .feed-card-body {
+  font-family: var(--serif);
+  font-size: var(--text-lg);
+  line-height: 1.55;
+  color: var(--ink);
+  margin-bottom: 0.65rem;
+  white-space: pre-wrap;
+}
+.delta.feed-card .feed-card-links {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  margin-bottom: 0.55rem;
+  font-family: var(--mono);
+  font-size: var(--text-sm);
+}
+.delta.feed-card .feed-card-links a {
+  color: var(--signal);
+  text-decoration: none;
+  word-break: break-all;
+}
+.delta.feed-card .feed-card-links a:hover { text-decoration: underline; }
+.delta.feed-card .feed-card-tail {
+  font-family: var(--sans);
+  font-size: var(--text-sm);
+  font-style: italic;
+  color: var(--ink-faint);
+  margin-bottom: 0.55rem;
+}
+.delta.feed-card .feed-card-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.6rem;
+  font-family: var(--mono);
+  font-size: var(--text-xs);
+  color: var(--ink-faint);
+  border-top: 1px solid var(--rule-soft);
+  padding-top: 0.5rem;
+  letter-spacing: var(--tracking-tight);
+}
+.delta.feed-card .feed-card-meta .level {
+  font-weight: 700;
+  letter-spacing: var(--tracking-wider);
+  text-transform: uppercase;
+  padding: 0.1rem 0.45rem;
+  border-radius: 3px;
+  background: color-mix(in srgb, var(--voice-witness) 18%, transparent);
+  color: var(--voice-witness);
+}
+.delta.feed-card .feed-card-meta .level.level-ALERT  { background: color-mix(in srgb, var(--danger)         22%, transparent); color: var(--danger); }
+.delta.feed-card .feed-card-meta .level.level-NOTICE { background: color-mix(in srgb, var(--signal)         18%, transparent); color: var(--signal); }
+.delta.feed-card .feed-card-meta .level.level-INFO   { background: color-mix(in srgb, var(--voice-preserver)18%, transparent); color: var(--voice-preserver); }
+.delta.feed-card .feed-card-meta .level.level-DEBUG  { background: color-mix(in srgb, var(--ink-soft)       16%, transparent); color: var(--ink-soft); }
+.delta.feed-card .feed-card-meta .level.level-TRACE  { background: color-mix(in srgb, var(--ink-soft)       10%, transparent); color: var(--ink-faint); }
+
+/* Auto-scroll target hidden ghost */
+.delta:focus { outline: 1px dashed var(--accent); }
+
+/* ── Accordions ─────────────────────────────────────────
+   Per-session collapsible groups for everything that isn't Q or A.
+   Q (seed) and A (witness) stay inline as the visible chat; context
+   (crystal / mood / fresh / recent / recall) and voice thoughts pack
+   into <details> elements with a summary line.
+*/
+.accordion {
+  background: transparent;
+  border: 1px solid var(--rule-soft);
+  border-radius: var(--radius);
+  font-size: var(--text-md);
+  animation: delta-in 280ms ease-out;
+}
+.accordion + .accordion { margin-top: -0.2rem; }
+.accordion > summary {
+  list-style: none;
+  cursor: pointer;
+  padding: 0.55rem 0.85rem;
+  display: flex;
+  align-items: baseline;
+  gap: 0.6rem;
+  user-select: none;
+  border-radius: var(--radius);
+  transition: background 120ms;
+}
+.accordion > summary:hover { background: color-mix(in srgb, var(--surface) 60%, transparent); }
+.accordion > summary::-webkit-details-marker { display: none; }
+.accordion > summary::before {
+  content: "▸";
+  display: inline-block;
+  width: 0.9rem;
+  color: var(--ink-faint);
+  transition: transform 160ms;
+}
+.accordion[open] > summary::before { transform: rotate(90deg); }
+
+.accordion .accordion-label {
+  font-family: var(--mono);
+  font-size: var(--text-sm);
+  text-transform: uppercase;
+  letter-spacing: var(--tracking-wide);
+  color: var(--ink-soft);
+}
+.accordion .accordion-stats {
+  font-family: var(--sans);
+  font-size: var(--text-md);
+  color: var(--ink-faint);
+}
+
+.accordion .accordion-body {
+  padding: 0.4rem 0.85rem 0.85rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+  border-top: 1px dashed var(--rule-soft);
+  margin: 0 0.5rem;
+}
+
+/* Deliberation flavor: amber-tinted for voice thoughts */
+.accordion-voices > summary .accordion-label { color: var(--accent); }
+
+/* Context flavor: cool, default ink-soft */
+.accordion-context > summary .accordion-label { color: var(--ink-soft); }
+
+/* Identity (convo-level): purple — same as crystal facet borders */
+.accordion-identity > summary .accordion-label { color: #c4b5fd; }
+
+/* Mirror-batch — interleaved telepathy accordions in the chat flow. No
+   left "label" text; the count is the whole header. Subtle teal accent
+   to read as "ambient input" without competing with Q/A. */
+.accordion-mirror-batch > summary .accordion-stats {
+  color: var(--signal);
+  font-style: italic;
+}
+.accordion-mirror-batch > summary {
+  background: transparent;
+}
+.accordion-mirror-batch > summary:hover {
+  background: color-mix(in srgb, var(--signal) 8%, transparent);
+}
+
+/* Compact deltas inside accordions: smaller, tighter */
+.accordion .delta {
+  padding: 0.45rem 0.7rem;
+  font-size: var(--text-md);
+  border-radius: 8px;
+  animation: none;
+}
+.accordion .delta .d-body {
+  font-size: var(--text-md);
+}
+
+/* Convergence dots — three single dots (red/green/blue), the live
+   thinking indicator at the bottom of the deliberation list. Each
+   dot's horizontal position tracks its voice's cross-voice similarity;
+   mix-blend-mode makes overlapping dots add to white at convergence.
+   Reads like an ellipsis when the voices have settled. */
+.convergence-bars {
+  position: relative;
+  width: 80px;
+  height: 12px;
+  flex-shrink: 0;
+  align-self: flex-start;
+  margin: 0.25rem 0.9rem 0.4rem;
+}
+.convergence-bars[hidden] { display: none !important; }
+
+/* Outer .conv-bar handles horizontal positioning (translateX). Inner
+   span is the actual dot — uses the same `dots` keyframe as the typing
+   indicator (scale + opacity pulse) so the convergence dots breathe
+   while the chorus is thinking. Splitting the two transforms (translate
+   on the parent, scale on the child) lets them coexist without one
+   stomping the other. */
+.conv-bar {
+  position: absolute;
+  top: 50%;
+  left: 0;
+  margin-top: -3.5px;
+  /* No transition by default — during active deliberation the rAF
+     oscillator updates transforms every frame; a slow CSS transition
+     would fight the per-frame target and freeze the dots. */
+  mix-blend-mode: screen;
+  pointer-events: none;
+  will-change: transform;
+}
+/* On settle: glide to the ellipsis position. */
+.convergence-bars.settled .conv-bar {
+  transition: transform 700ms cubic-bezier(0.34, 1.36, 0.64, 1);
+}
+/* Transitioning: brief transition window between deliberation cycles
+   so the dots don't snap-jump from settled-ellipsis to oscillator's
+   first frame. JS adds .transitioning when a new tick starts and
+   removes it ~700ms later. */
+.convergence-bars.transitioning .conv-bar {
+  transition: transform 700ms cubic-bezier(0.34, 1.36, 0.64, 1);
+}
+.conv-bar > span {
+  display: block;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  animation: dots 1.2s ease-in-out infinite;
+  transition: background 600ms ease-out, box-shadow 600ms ease-out;
+}
+/* Wider phase offsets (0/1/2s) so each voice's dot is visibly on its
+   own beat — voices fire in parallel now, so without offsets they
+   pulse in unison. The animation cycle is 1.2s, so a 1s offset is
+   most of a full cycle — they read as three independent rhythms. */
+.conv-bar.voice-creator   > span { background: #ff0000; animation-delay: 0s; }
+.conv-bar.voice-preserver > span { background: #00ff00; animation-delay: 1s; }
+.conv-bar.voice-destroyer > span { background: #0000ff; animation-delay: 2s; }
+
+/* Settled: dots snap to witness teal but KEEP pulsing — they're now
+   "writing the response" rather than "deliberating". Drop mix-blend so
+   overlapping teal dots stay cleanly teal rather than oversaturating. */
+.convergence-bars.settled .conv-bar { mix-blend-mode: normal; }
+.convergence-bars.settled .conv-bar > span {
+  background: var(--signal);
+  box-shadow: 0 0 4px var(--signal);
+}
+
+/* Synthesizing indicator — three pulsing teal dots, lives in the graph
+   header next to the SETTLED/etc phase chips. Same shape as the
+   dashboard's `.typing`. */
+.typing {
+  display: inline-flex;
+  gap: 4px;
+  align-items: center;
+  padding: 0.15rem 0.45rem;
+  margin-right: 0.25rem;
+}
+.typing[hidden] { display: none !important; }
+.typing > span {
+  width: 6px; height: 6px; border-radius: 50%;
+  background: var(--signal);
+  animation: dots 1.2s ease-in-out infinite;
+}
+.typing > span:nth-child(2) { animation-delay: 0.15s; }
+.typing > span:nth-child(3) { animation-delay: 0.3s; }
+@keyframes dots {
+  0%, 80%, 100% { opacity: 0.3; transform: scale(0.8); }
+  40%           { opacity: 1;   transform: scale(1); }
+}
+/* Push the chips to the right so the dots have the leftmost slot when
+   visible; chips still right-align. */
+.graph-head { gap: 0.5rem; }

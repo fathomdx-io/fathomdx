@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>fathom · deliberation</title>
+<link rel="stylesheet" href="https://design.fathomdx.io/v1/tokens.css" />
+<link rel="stylesheet" href="./style.css" />
+</head>
+<body>
+
+<header class="topbar">
+  <div class="brand">
+    <span class="dot" id="live-dot"></span>
+    <span class="title">fathom</span>
+    <span class="session" id="session-label">—</span>
+  </div>
+  <div class="stats">
+    <span class="stat"><b id="stat-alive">0</b> alive</span>
+    <span class="stat"><b id="stat-deltas">0</b> deltas</span>
+  </div>
+  <div class="actions">
+    <label class="toggle-sound">
+      <input type="checkbox" id="snd-on" /><span>sound</span>
+    </label>
+    <button id="btn-pause" title="Pause polling">pause</button>
+    <button type="button" id="btn-fire" title="Force-fire a pressure pulse — drops one intent per prod-pass into the puddle (reflection, drift, bridging, alert)">fire</button>
+    <button type="button" id="btn-stop" title="Stop the current session (still synthesizes from what landed)">stop</button>
+    <button type="button" id="btn-new-convo" title="Start a fresh conversation (new convo id)">new convo</button>
+  </div>
+</header>
+
+<main id="stage-root">
+  <svg id="links" aria-hidden="true"></svg>
+
+  <section class="col col-lake" id="col-lake">
+    <div class="col-body" id="lake-body">
+      <div class="empty">empty. seed will land first.</div>
+      <div id="convergence-bars" class="convergence-bars" hidden>
+        <span class="conv-bar voice-creator"><span></span></span>
+        <span class="conv-bar voice-preserver"><span></span></span>
+        <span class="conv-bar voice-destroyer"><span></span></span>
+      </div>
+    </div>
+  </section>
+
+  <form class="composer" id="seed-form">
+    <input type="text" id="seed-input" placeholder="ask fathom…" autocomplete="off" />
+    <button type="submit" id="btn-start" title="Start a new session with this question">send</button>
+  </form>
+</main>
+
+<!-- Templates -->
+<template id="tpl-delta">
+  <article class="delta" data-id="">
+    <header class="d-head">
+      <span class="d-kind"></span>
+      <span class="d-ts"></span>
+    </header>
+    <div class="d-body"></div>
+  </article>
+</template>
+
+<script type="module" src="./app.js"></script>
+</body>
+</html>
