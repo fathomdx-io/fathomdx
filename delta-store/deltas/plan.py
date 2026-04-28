@@ -662,6 +662,16 @@ class PlanExecutor:
 
 
 def _parse_ts(ts: str) -> datetime:
-    """Parse an ISO timestamp string to a timezone-aware datetime."""
+    """Parse an ISO timestamp string to a UTC-aware datetime.
+
+    Naive inputs are assumed UTC (lake timestamps are server-assigned UTC).
+    Inputs carrying a non-UTC offset are *converted* to UTC, not relabelled
+    — `.replace(tzinfo=UTC)` would silently shift the wallclock by the
+    offset, which surfaces as time-window queries returning the wrong
+    bucket for any planner-supplied non-UTC bound.
+    """
     ts = ts.replace("Z", "+00:00")
-    return datetime.fromisoformat(ts).replace(tzinfo=UTC)
+    parsed = datetime.fromisoformat(ts)
+    if parsed.tzinfo is None:
+        return parsed.replace(tzinfo=UTC)
+    return parsed.astimezone(UTC)
