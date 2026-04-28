@@ -138,14 +138,17 @@ async def lifespan(_app: FastAPI):
 
     from .loop import worker as loop_worker
 
+    # chat_listener (the legacy chat-session reply loop) and the lake feed
+    # pipeline are dormant after the Grand Loop cutover — the composer
+    # writes to the puddle, not chat sessions, and the dashboard's feed
+    # reads from /v1/puddle/feed. They're left in the imports for the
+    # legacy chat-detail-view's read path but no longer scheduled at boot.
     auto_regen.start()
-    chat_listener.listener.start()
     loop_worker.start()
     try:
         yield
     finally:
         await loop_worker.stop()
-        await chat_listener.listener.stop()
         await auto_regen.stop()
         await delta_client.close()
 

@@ -788,47 +788,66 @@
       object-fit: contain !important;
     }
 
-    .feed-pulse {
-      display: inline-block;
-      width: 8px; height: 8px; border-radius: 50%;
-      margin-right: 6px;
-      vertical-align: middle;
-      background: var(--ink-faint);
-      opacity: 0.5;
-      cursor: help;
+    /* ── Convergence dots ──────────────────────────────────
+       Three RGB dots inline in the section-head .meta strip. While the
+       loop has pending intents, each dot oscillates horizontally at its
+       own phase (driven by an rAF sine wave); mix-blend-mode:screen
+       makes overlapping dots additively combine to white at convergence.
+       When the queue empties, the bars get .settled — dots snap to
+       witness teal and glide to a left-aligned ellipsis position, still
+       pulsing as "writing the response." Lifted from the experiments/
+       loop-experiment viz; voice colors match its trimurti palette. */
+    :root {
+      --voice-creator:   #f97316;
+      --voice-preserver: #06b6d4;
+      --voice-destroyer: #dc2626;
     }
-    .feed-pulse[data-state="generating"] {
+    .convergence-bars {
+      position: relative;
+      display: inline-block;
+      width: 80px; height: 12px;
+      vertical-align: middle;
+      margin-right: 4px;
+    }
+    .convergence-bars[hidden] { display: none !important; }
+    .conv-bar {
+      position: absolute;
+      top: 50%; left: 0;
+      margin-top: -3.5px;
+      mix-blend-mode: screen;
+      pointer-events: none;
+      will-change: transform;
+    }
+    .convergence-bars.settled .conv-bar,
+    .convergence-bars.transitioning .conv-bar {
+      transition: transform 700ms cubic-bezier(0.34, 1.36, 0.64, 1);
+    }
+    .conv-bar > span {
+      display: block;
+      width: 7px; height: 7px;
+      border-radius: 50%;
+      animation: conv-dots 1.2s ease-in-out infinite;
+      transition: background 600ms ease-out, box-shadow 600ms ease-out;
+    }
+    .conv-bar.voice-creator   > span { background: #ff0000; animation-delay: 0s; }
+    .conv-bar.voice-preserver > span { background: #00ff00; animation-delay: 1s; }
+    .conv-bar.voice-destroyer > span { background: #0000ff; animation-delay: 2s; }
+    .convergence-bars.settled .conv-bar { mix-blend-mode: normal; }
+    .convergence-bars.settled .conv-bar > span {
       background: var(--signal);
-      opacity: 1;
-      animation: feed-pulse 1.4s ease-in-out infinite;
-      box-shadow: 0 0 0 0 rgba(92, 225, 198, 0.55);
+      box-shadow: 0 0 4px var(--signal);
     }
-    /* Element-level `display: inline-block` above overrides the user-agent
-       stylesheet's `[hidden] { display: none }`. Restore the hide. */
-    .feed-pulse[hidden] { display: none; }
-    /* Activity label next to the pulse — shows what the LLM is currently
-       doing ("Generating card: <topic>"), or "feed zen" when everything is
-       fresh. Lives inside .section-head .meta so it inherits uppercase,
-       mono, letter-spacing, and color from the parent status line. */
-    .feed-activity {
-      display: inline-block;
-      vertical-align: middle;
-    }
-    .feed-activity[hidden] { display: none; }
-    /* Bullet separator between the activity label and the counter text
-       ("FEED ZEN · 5 STORIES · 1H AGO"). Hidden whenever either side is
-       empty so we never render a dangling " · ". */
-    .feed-meta-sep[hidden] { display: none; }
-    /* The right-side meta group lays out pulse + label + counter inline
-       on the baseline — matches the surrounding .meta text. */
-    .section-head .section-meta-group { white-space: nowrap; }
-    @keyframes feed-pulse {
-      0%, 100% { opacity: 0.55; transform: scale(0.85); box-shadow: 0 0 0 0 rgba(92, 225, 198, 0.55); }
-      50%      { opacity: 1.0;  transform: scale(1.0);  box-shadow: 0 0 0 6px rgba(92, 225, 198, 0); }
+    @keyframes conv-dots {
+      0%, 80%, 100% { opacity: 0.3; transform: scale(0.8); }
+      40%           { opacity: 1;   transform: scale(1); }
     }
     @media (prefers-reduced-motion: reduce) {
-      .feed-pulse[data-state="generating"] { animation: none; opacity: 0.9; }
+      .conv-bar > span { animation: none; opacity: 0.85; }
     }
+    /* Bullet separator between the meta segments. Hidden whenever
+       either side is empty so we never render a dangling " · ". */
+    .feed-meta-sep[hidden] { display: none; }
+    .section-head .section-meta-group { white-space: nowrap; }
     .ecg-event-line { stroke: var(--ink-faint); stroke-width: 0.5; opacity: 0.45; stroke-dasharray: 2 3; }
     .ecg-event-icon { fill: var(--accent); font-size: 11px; }
     .ecg-mood-tick { font-family: var(--mono); font-size: 9.5px; fill: var(--ink-soft, var(--ink-faint)); }
@@ -2826,8 +2845,17 @@
             </div>
           </span>
           <span class="feed-meta-sep"> · </span>
-          <span class="feed-pulse" id="feedPulse" aria-hidden="true" hidden></span>
-          <span class="feed-activity" id="feedActivityLabel" aria-live="polite" hidden></span>
+          <!-- Convergence dots — three RGB dots that oscillate while the
+               loop has pending intents (the parliament is deliberating),
+               snap to teal and glide to a left-aligned ellipsis when
+               the queue empties. Lifted from the experiments/loop-
+               experiment viz. mix-blend-mode:screen makes overlapping
+               dots additively combine to white at convergence. -->
+          <span class="convergence-bars" id="convergenceBars" aria-hidden="true" hidden>
+            <span class="conv-bar voice-creator"><span></span></span>
+            <span class="conv-bar voice-preserver"><span></span></span>
+            <span class="conv-bar voice-destroyer"><span></span></span>
+          </span>
           <span class="feed-meta-sep" id="feedMetaSep" hidden> · </span>
           <span id="feedMeta"></span>
         </span>
@@ -8883,97 +8911,110 @@ GET  /v1/usage               Usage stats`,
       });
     }
 
-    // ── Feed loop status indicator ──────────────
-    // Poll /v1/feed/status while the page is visible. The pulse appears
-    // whenever the loop is generating cards. Polling stops when the page
-    // is hidden so backgrounded tabs don't burn requests.
-    const _feedPulse = document.getElementById('feedPulse');
-    let _feedStatusTimer = null;
+    // ── Convergence dots ─────────────────────────
+    // Three RGB dots in the feed status strip. Animation strategy lifted
+    // from the loop-experiment viz: while pending intents exist, the
+    // bars are visible and a per-frame rAF oscillator drives each dot's
+    // x-position with a sine wave (each voice on its own phase). When
+    // the queue empties, .settled flips on — dots snap to witness teal
+    // and glide to a left-aligned ellipsis position, still pulsing as
+    // "writing." When new pending lands, .settled flips off and a brief
+    // .transitioning window keeps the glide from snapping back to the
+    // first oscillator frame. Cross-voice metric data could feed real
+    // x-positions later; for now the shape lives on the sine fallback.
+    const _convBars = document.getElementById('convergenceBars');
+    const CONV_BAR_WIDTH_PX = 80;
+    const CONV_BAR_DOT_PX = 7;
+    const CONV_BAR_RANGE = CONV_BAR_WIDTH_PX - CONV_BAR_DOT_PX;
+    const CONV_ELLIPSIS_POSITIONS = { creator: 0, preserver: 11, destroyer: 22 };
+    let _convOscRafId = null;
+    let _convInEllipsisMode = false;
 
-    const _feedActivityLabel = document.getElementById('feedActivityLabel');
-
-    function _setActivityLabel(text) {
-      if (!_feedActivityLabel) return;
-      if (text) {
-        _feedActivityLabel.textContent = text;
-        _feedActivityLabel.removeAttribute('hidden');
-      } else {
-        _feedActivityLabel.textContent = '';
-        _feedActivityLabel.setAttribute('hidden', '');
+    function _convAnimate() {
+      if (!_convBars || _convBars.hidden || _convInEllipsisMode) {
+        _convOscRafId = null;
+        return;
       }
-      _updateFeedMetaSep();
+      const t = Date.now() / 1000;
+      const voices = ['creator', 'preserver', 'destroyer'];
+      voices.forEach((voice, i) => {
+        const x = CONV_BAR_RANGE / 2 + (CONV_BAR_RANGE / 2 - 4) * Math.sin(t * 1.2 + i * 2.1);
+        const bar = _convBars.querySelector(`.conv-bar.voice-${voice}`);
+        if (bar) bar.style.transform = `translateX(${x.toFixed(1)}px)`;
+      });
+      _convOscRafId = requestAnimationFrame(_convAnimate);
+    }
+    function _convStartOsc() {
+      if (_convOscRafId == null) _convOscRafId = requestAnimationFrame(_convAnimate);
+    }
+    function _convShowDeliberating() {
+      if (!_convBars) return;
+      _convBars.hidden = false;
+      // If we were in the post-settle ellipsis-teal state, un-settle so
+      // dots return to RGB pulse for the new tick. Without this, ticks
+      // 2+ in a chain would stay frozen at ellipsis positions.
+      _convBars.classList.remove('settled');
+      _convInEllipsisMode = false;
+      // Brief CSS-transition window so dots glide from their last
+      // position (ellipsis) to the oscillator's first frame instead of
+      // snap-jumping. Removed after 750ms so per-frame oscillator can
+      // take over without transition lag.
+      _convBars.classList.add('transitioning');
+      setTimeout(() => { _convBars && _convBars.classList.remove('transitioning'); }, 750);
+      _convStartOsc();
+    }
+    function _convSettleToEllipsis() {
+      if (!_convBars) return;
+      _convBars.classList.add('settled');
+      _convInEllipsisMode = true;
+      for (const [voice, x] of Object.entries(CONV_ELLIPSIS_POSITIONS)) {
+        const bar = _convBars.querySelector(`.conv-bar.voice-${voice}`);
+        if (bar) bar.style.transform = `translateX(${x}px)`;
+      }
+    }
+    function _convHide() {
+      if (_convBars) _convBars.hidden = true;
     }
 
-    // Show " · " only when the activity label AND the counter are both
-    // visible. Prevents a dangling separator whenever one side is empty.
-    function _updateFeedMetaSep() {
-      const sep = document.getElementById('feedMetaSep');
-      const meta = document.getElementById('feedMeta');
-      if (!sep || !_feedActivityLabel) return;
-      const hasLabel = !_feedActivityLabel.hasAttribute('hidden') &&
-        !!_feedActivityLabel.textContent;
-      const hasMeta = !!(meta && meta.textContent);
-      if (hasLabel && hasMeta) sep.removeAttribute('hidden');
-      else sep.setAttribute('hidden', '');
-    }
-
-    async function _pollFeedStatus() {
+    // Drive convergence dots from the puddle's pending-intent count.
+    // Pending > 0 → loop is deliberating → bars visible, RGB osc running.
+    // Pending == 0 → settle to teal ellipsis (kept visible for ~6s as
+    //                "writing the response", then hidden).
+    let _convStatusTimer = null;
+    let _convSettleHideAt = 0;
+    let _convLastPending = -1;
+    async function _pollLoopStatus() {
       try {
-        const s = await api('/v1/feed/status');
-        if (!_feedPulse) return;
-        _feedPulse.removeAttribute('hidden');
-        if (s && s.llm_active) {
-          _feedPulse.dataset.state = 'generating';
-          const live = s.activity_label || 'LLM working…';
-          _feedPulse.title = live;
-          _setActivityLabel(live);
+        const r = await fetch(API_BASE + '/v1/puddle/intents', { headers: authHeaders() });
+        if (!r.ok) return;
+        const data = await r.json();
+        const pending = (data.intents || []).length;
+        if (pending > 0) {
+          if (_convLastPending !== pending || _convBars.hidden) {
+            _convShowDeliberating();
+          }
+          _convSettleHideAt = 0;
         } else {
-          _feedPulse.dataset.state = 'idle';
-          _feedPulse.title = '';
-          _setActivityLabel('feed zen');
+          // Just transitioned from pending → idle: settle to ellipsis,
+          // keep visible briefly, then fade.
+          if (_convLastPending > 0) {
+            _convSettleToEllipsis();
+            _convSettleHideAt = Date.now() + 6000;
+          } else if (_convSettleHideAt && Date.now() >= _convSettleHideAt) {
+            _convHide();
+            _convSettleHideAt = 0;
+          }
         }
-        // Great-no-news outcome: passes ran, candidates were produced,
-        // but the judge+router decided nothing was worth surfacing.
-        // Distinct from a cold-start lake (which renders the welcome
-        // letter) and from "all_fresh" (cards exist, just still warm).
-        const outcome = s && s.last_outcome;
-        if (outcome && outcome.summary === 'great_no_news') {
-          _showNoNewsBanner(outcome.detail || "It's a great no-news day.");
-        } else {
-          _hideNoNewsBanner();
-        }
+        _convLastPending = pending;
       } catch (e) { /* best-effort */ }
     }
-
-    function _showNoNewsBanner(detail) {
-      const feed = document.querySelector('.feed');
-      if (!feed) return;
-      // Don't show alongside the cold-start letter.
-      if (feed.querySelector('.feed-empty')) return;
-      let banner = feed.querySelector('.feed-no-news[data-source="server"]');
-      if (!banner) {
-        banner = document.createElement('div');
-        banner.className = 'feed-no-news';
-        banner.dataset.source = 'server';
-        banner.innerHTML = `
-          <div class="feed-no-news-headline">It's a great no-news day.</div>
-          <div class="feed-no-news-detail"></div>`;
-        feed.prepend(banner);
-      }
-      const det = banner.querySelector('.feed-no-news-detail');
-      if (det) det.textContent = detail;
-    }
-    function _hideNoNewsBanner() {
-      const banner = document.querySelector('.feed .feed-no-news[data-source="server"]');
-      if (banner) banner.remove();
-    }
     function _startFeedStatusPoll() {
-      if (_feedStatusTimer || document.hidden) return;
-      _pollFeedStatus();
-      _feedStatusTimer = setInterval(_pollFeedStatus, 1500);
+      if (_convStatusTimer || document.hidden) return;
+      _pollLoopStatus();
+      _convStatusTimer = setInterval(_pollLoopStatus, 1500);
     }
     function _stopFeedStatusPoll() {
-      if (_feedStatusTimer) { clearInterval(_feedStatusTimer); _feedStatusTimer = null; }
+      if (_convStatusTimer) { clearInterval(_convStatusTimer); _convStatusTimer = null; }
     }
 
     // ── Feed live-poll ─────────────────────────
@@ -9046,7 +9087,8 @@ GET  /v1/usage               Usage stats`,
     _startFeedStatusPoll();
     _startFeedLivePoll();
     _startPuddleLivePoll();
-    api('/v1/feed/visit', { method: 'POST' }).catch(() => {});
+    // (legacy /v1/feed/visit ping removed — the feed-loop synthesis
+    // pipeline is retired; mark_visit() is a no-op now.)
 
     // ── Image handling: fallback cascade + hide + lightbox ────
     // On img load failure (expired signed URL, CORS, hotlink reject), try

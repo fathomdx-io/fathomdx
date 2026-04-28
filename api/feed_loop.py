@@ -340,29 +340,12 @@ def _set_status(contact_slug: str, **kwargs) -> None:
 
 
 async def mark_visit(contact_slug: str) -> dict:
-    """Called when the dashboard loads. Fires the loop if pressure says so.
-
-    The trigger model is the same primitive as mood synthesis (see
-    api/pressure.py + api/feed_pressure.py): pressure builds in the lake
-    as authored content arrives; the act of synthesizing resets it.
-    The Stats legend names the same intuition — "what's been building up
-    since the last check-in."
-
-    Each contact has its own pressure state, lock, and pending-fire task,
-    so a visit from one contact never blocks another's feed from firing.
+    """No-op since the Grand Loop cutover. The legacy feed pipeline is
+    retired — no per-line / drift / volunteer / reflection / discrepancy
+    / alert passes fire anymore. The endpoint stays as a 200 so any
+    leftover pinger doesn't 404; the loop never schedules.
     """
-    if _lock_for(contact_slug).locked():
-        return {"scheduled": False, "reason": "already-running"}
-    pending = _pending_visits.get(contact_slug)
-    if pending and not pending.done():
-        return {"scheduled": False, "reason": "already-pending"}
-    should, reason = await feed_pressure.should_synthesize()
-    if not should:
-        return {"scheduled": False, "reason": reason}
-    _pending_visits[contact_slug] = asyncio.create_task(
-        _run_once(contact_slug, reason=reason)
-    )
-    return {"scheduled": True, "reason": reason}
+    return {"scheduled": False, "reason": "legacy-feed-retired"}
 
 
 async def force_fire(contact_slug: str, reason: str = "manual") -> dict:
