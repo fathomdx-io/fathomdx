@@ -8975,12 +8975,14 @@ GET  /v1/usage               Usage stats`,
     ]);
 
     function _renderAccordion(items) {
-      // items is a non-empty list of same-kind, adjacent feed items.
+      // items is a non-empty list of same-(kind, session) feed items.
       // Only fires when items.length >= 2; single items render inline.
       const kind = items[0].kind;
+      const session = items[0].session || '';
       const det = document.createElement('details');
       det.className = 'accordion';
       det.dataset.kind = kind;
+      if (session) det.dataset.session = session;
       const labelText = (typeof _kindLabel === 'function') ? _kindLabel(kind) : kind;
       const summary = document.createElement('summary');
       summary.innerHTML = `<span class="accordion-label">${_esc(labelText)}</span><span class="accordion-stats">${items.length}</span>`;
@@ -8997,46 +8999,74 @@ GET  /v1/usage               Usage stats`,
       return det;
     }
 
-    // Merge a single node into the topmost feed child if it shares
-    // a clusterable kind. Three cases:
-    //   * top is .accordion[data-kind=X] → prepend node into its body,
-    //     bump the count summary
-    //   * top is .delta[data-kind=X] → convert into a 2-item accordion
-    //     containing the new node (newest) + the existing one (older)
-    //   * otherwise → just insert at the top of the feed
-    // Used by _renderItemsClustered's prepend mode so items arriving
-    // one-at-a-time via the live-poll still cluster with what's
-    // already on screen instead of stacking as separate rows.
-    function _mergeOrPrependNode(node, kind) {
+    // Find an existing same-(kind, session) accordion or .delta that
+    // a new item should merge into. Walks the feed top-to-bottom — the
+    // FIRST hit wins, so we always merge into the most recent matching
+    // cluster (per-session accordion pattern). Returns the element or
+    // null if no match. Same-kind clusters in different sessions stay
+    // separate; clusters with no session (e.g. crystal facets from the
+    // vampire-tap) match other no-session items of the same kind.
+    function _findMergeTarget(kind, session) {
+      const sessionKey = session || '';
+      for (const child of feed.children) {
+        if (!child.classList || !child.dataset) continue;
+        if (child.dataset.kind !== kind) continue;
+        const childSession = child.dataset.session || '';
+        if (childSession !== sessionKey) continue;
+        if (child.classList.contains('accordion') || child.classList.contains('delta')) {
+          return child;
+        }
+      }
+      return null;
+    }
+
+    // Merge a node into the matching same-(kind, session) cluster if
+    // one exists; otherwise just prepend at the top. Three cases:
+    //   * match is an accordion → prepend node into its body, bump count
+    //   * match is a flat .delta → convert into a 2-item accordion with
+    //     the new node (newer) + the existing one (older)
+    //   * no match → plain prepend at top of feed
+    // Used by the live-poll prepend path so items arriving one-at-a-
+    // time fold into the existing per-session accordion instead of
+    // stacking as separate rows.
+    function _mergeOrPrependNode(node, kind, session) {
       if (!_CLUSTERABLE_KINDS.has(kind)) {
         feed.insertBefore(node, feed.firstChild);
         return;
       }
-      const top = feed.firstChild;
-      if (top && top.classList && top.classList.contains('accordion') && top.dataset.kind === kind) {
-        const body = top.querySelector('.accordion-body');
+      const target = _findMergeTarget(kind, session);
+      if (target && target.classList.contains('accordion')) {
+        const body = target.querySelector('.accordion-body');
         if (body) {
           body.insertBefore(node, body.firstChild);
-          const stats = top.querySelector('.accordion-stats');
+          const stats = target.querySelector('.accordion-stats');
           if (stats) stats.textContent = String(body.children.length);
           return;
         }
       }
-      if (top && top.classList && top.classList.contains('delta') && top.dataset.kind === kind) {
-        feed.removeChild(top);
+      if (target && target.classList.contains('delta')) {
+        // Convert the flat .delta into a 2-item accordion at its
+        // current position, with the new node prepended (newer at
+        // the top of the body, the existing one below). Capture the
+        // anchor (target's next sibling) BEFORE re-parenting target
+        // so the accordion lands exactly where the original .delta
+        // sat in the feed.
+        const parent = target.parentNode;
+        const anchor = target.nextSibling;
         const det = document.createElement('details');
         det.className = 'accordion';
         det.dataset.kind = kind;
+        if (session) det.dataset.session = session;
         const labelText = (typeof _kindLabel === 'function') ? _kindLabel(kind) : kind;
         const summary = document.createElement('summary');
         summary.innerHTML = `<span class="accordion-label">${_esc(labelText)}</span><span class="accordion-stats">2</span>`;
         const body = document.createElement('div');
         body.className = 'accordion-body';
-        body.appendChild(node);  // newest goes first
-        body.appendChild(top);   // older below
+        body.appendChild(node);    // newer
+        body.appendChild(target);  // older (re-parented from feed)
         det.appendChild(summary);
         det.appendChild(body);
-        feed.insertBefore(det, feed.firstChild);
+        parent.insertBefore(det, anchor);
         return;
       }
       feed.insertBefore(node, feed.firstChild);
@@ -9059,29 +9089,40 @@ GET  /v1/usage               Usage stats`,
           if (!it || !it.id || _renderedFeedIds.has(it.id)) continue;
           _renderedFeedIds.add(it.id);
           const node = _renderPuddleItem(it, 0);
-          if (node) _mergeOrPrependNode(node, it.kind);
+          if (node) _mergeOrPrependNode(node, it.kind, it.session || '');
         }
         return;
       }
 
-      // Append mode — batch-cluster runs and mount at the bottom.
-      let i = 0;
+      // Append mode — for clusterable items, group by (kind, session)
+      // across the whole batch so all voices from one deliberation
+      // pile into one accordion regardless of recall results that
+      // interleave them chronologically. Non-clusterable items render
+      // inline in original order.
+      const placedIndex = new Set();
       let delayIdx = 0;
-      while (i < items.length) {
+      for (let i = 0; i < items.length; i++) {
+        if (placedIndex.has(i)) continue;
         const it = items[i];
-        if (!it || !it.id || _renderedFeedIds.has(it.id)) { i++; continue; }
-        const kind = it.kind;
-        if (_CLUSTERABLE_KINDS.has(kind)) {
+        if (!it || !it.id || _renderedFeedIds.has(it.id)) {
+          placedIndex.add(i);
+          continue;
+        }
+        if (_CLUSTERABLE_KINDS.has(it.kind)) {
+          // Collect every later item with the same (kind, session)
+          // — these all join one accordion, irrespective of strict
+          // adjacency. Order preserved (newest-first stays newest-first
+          // in the body).
           const run = [it];
-          let j = i + 1;
-          while (
-            j < items.length &&
-            items[j] &&
-            items[j].kind === kind &&
-            !_renderedFeedIds.has(items[j].id)
-          ) {
-            run.push(items[j]);
-            j++;
+          placedIndex.add(i);
+          for (let j = i + 1; j < items.length; j++) {
+            if (placedIndex.has(j)) continue;
+            const other = items[j];
+            if (!other || !other.id || _renderedFeedIds.has(other.id)) continue;
+            if (other.kind === it.kind && (other.session || '') === (it.session || '')) {
+              run.push(other);
+              placedIndex.add(j);
+            }
           }
           if (run.length >= 2) {
             feed.appendChild(_renderAccordion(run));
@@ -9090,12 +9131,11 @@ GET  /v1/usage               Usage stats`,
             const node = _renderPuddleItem(it, (delayIdx++) * 0.06);
             if (node) feed.appendChild(node);
           }
-          i = j;
         } else {
           _renderedFeedIds.add(it.id);
           const node = _renderPuddleItem(it, (delayIdx++) * 0.06);
           if (node) feed.appendChild(node);
-          i++;
+          placedIndex.add(i);
         }
       }
     }

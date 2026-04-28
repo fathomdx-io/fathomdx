@@ -113,12 +113,21 @@ def get_feed(
     for d in raw:
         tags = set(d.get("tags") or [])
         ts = d.get("timestamp")
+        # Pull the session tag out so the frontend can cluster items by
+        # (kind, session) — that way all voices from one deliberation
+        # pile into a single accordion even when recall results
+        # interleave them chronologically.
+        session_tag = next(
+            (t for t in tags if t.startswith("session:")),
+            None,
+        )
         common = {
             "id": d.get("id"),
             "timestamp": ts,
             "expires_at": d.get("expires_at"),
             "source": d.get("source"),
             "tags": list(d.get("tags") or []),
+            "session": session_tag,
         }
 
         # ── Q (always visible by default) ─────────────────
