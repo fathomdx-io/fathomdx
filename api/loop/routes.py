@@ -47,23 +47,50 @@ class SeedRequest(BaseModel):
 
 @router.post("/v1/puddle/seed")
 async def post_seed(req: SeedRequest) -> dict:
-    """Drop a seed delta into the puddle.
+    """Drop a seed delta into the puddle AND the lake.
 
-    The composer at the bottom of the dashboard hits this endpoint. The
-    seed appears in the public stream (Grand Loop is open-forum by
-    design), enters the intent queue, and gets picked up by the next
-    supervisor tick.
+    Typing a seed is authoring — the lake gets it durable from the
+    moment of writing. The puddle gets the immediate echo so the
+    loop's next round and the dashboard's feed see it without waiting
+    for telepathy to reflect it back. The puddle copy carries
+    `lake-id:<full>` and `recalled-id:<24chars>` so telepathy
+    correctly dedupes (composer is also in MIRROR_NOISE_SOURCES, so
+    the filter and the tag are belt-and-suspenders here).
+
+    Lake write is best-effort: a transient lake hiccup must not block
+    the user from sending. The puddle write always lands.
     """
     kind = req.kind.strip().lower() or "question"
     if kind not in INTENT_TTL_BY_KIND:
         kind = "question"
+    body = req.content.strip()
+
+    lake_tags = ["user-seed", f"kind:{kind}"]
+    if req.extra_tags:
+        lake_tags.extend(req.extra_tags)
+    lake_id = ""
+    try:
+        lake_delta = await delta_client.write(
+            content=body,
+            tags=lake_tags,
+            source="composer",
+        )
+        if isinstance(lake_delta, dict):
+            lake_id = lake_delta.get("id") or ""
+    except Exception as e:
+        print(f"[seed] lake write failed (puddle still writing): {type(e).__name__}: {e}")
+
+    puddle_extra: list[str] = list(req.extra_tags or [])
+    if lake_id:
+        puddle_extra.append(f"lake-id:{lake_id}")
+        puddle_extra.append(f"recalled-id:{lake_id[:24]}")
     delta = await write_intent(
         kind=kind,
-        content=req.content.strip(),
-        extra_tags=req.extra_tags,
+        content=body,
+        extra_tags=puddle_extra,
         source="composer",
     )
-    return {"ok": True, "intent": delta}
+    return {"ok": True, "intent": delta, "lake_id": lake_id}
 
 
 @router.get("/v1/puddle/feed")
