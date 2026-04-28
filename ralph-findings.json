@@ -1,11 +1,11 @@
 {
   "version": 1,
   "summary": {
-    "total_lines_removed": 5193,
-    "total_lines_added": 6499,
-    "total_bugs_fixed": 45,
-    "total_tests_added": 103,
-    "iterations_completed": 15,
+    "total_lines_removed": 5196,
+    "total_lines_added": 7197,
+    "total_bugs_fixed": 46,
+    "total_tests_added": 157,
+    "iterations_completed": 20,
     "repos_cleaned": ["fathomdx"]
   },
   "baseline": {
@@ -224,6 +224,21 @@
     "server_py_split": {
       "status": "DONE (mostly)",
       "note": "Option A (by resource) — 9 routers under api/routes/. server.py 2 417 -> 688 LOC. Chat + crystal + fathom_think + _resolve_tools still in server.py (~200 lines); separate cleanup-pass ticket."
+    },
+    "grand_loop_sweep_2026_04_28": {
+      "status": "DONE (4 commits on ralph/grand-loop-sweep)",
+      "scope": "Search + Grand Loop surface — files touched by feat/grand-loop commits ed48527 + 59796f3",
+      "iterations": 5,
+      "tests_added": 54,
+      "bugs_fixed": 1,
+      "commits": [
+        "fd66ddf test(api): pin valence rerank + sediment provenance helpers (26 tests)",
+        "c649418 test(delta-store): pin plan executor's noise rerank (11 tests)",
+        "47cf39a test(delta-store): pin _valence_modifier to mirror the api side (11 tests)",
+        "8394262 fix(delta-store): _parse_ts converts non-UTC offsets, doesn't relabel them (6 tests + fix)",
+        "04950d9 chore: ruff cleanup on new RALPH test files"
+      ],
+      "outstanding": "Same `.replace(tzinfo=UTC)` bug pattern exists in delta-store/deltas/migrate.py:31, store.py:26, and inline at query.py:169 / :589. Out of this run's scope; needs a focused timezone-handling sweep."
     }
   }
 }

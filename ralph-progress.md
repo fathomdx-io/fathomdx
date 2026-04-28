@@ -5,17 +5,15 @@
 
 ## Next
 
-**RALPH COMPLETE.** Every PRD §Completion gate is met:
+**RALPH COMPLETE** for the broad fathomdx sweep. A scoped follow-up
+landed 2026-04-28 on branch `ralph/grand-loop-sweep` covering only the
+search + Grand Loop surface introduced in `feat/grand-loop` (commits
+ed48527 + 59796f3).
 
-1. ✅ `ruff check .` → 0 errors
-2. ✅ `ruff format --check .` → 85 files already formatted
-3. ✅ `pytest` → 104 passed (target ≥ 30)
-4. ✅ `npm run lint` + `npm run format:check` → clean
-5. ✅ No file in `api/` exceeds 800 lines (max: 773)
-6. ✅ Coverage matrix: every in-scope cell DONE; UX cells N/A
-
-Nothing remaining to drive. If the user wants more iterations, add new
-perspectives to the matrix or relax the §Completion bar in the PRD.
+Open follow-up: same `.replace(tzinfo=UTC)` bug pattern fixed in
+plan.py:_parse_ts also exists in `migrate.py:31`, `store.py:26`, and
+inline at `query.py:169 / :589`. Out of this scoped run; worth a
+focused timezone-handling pass when someone has cycles.
 
 ## Coverage matrix
 
@@ -106,6 +104,72 @@ Format:
 - Key findings or decisions
 - Commits: <sha> <sha>
 ```
+
+---
+
+### 2026-04-28 — Grand Loop search-surface sweep / fathomdx
+
+Scoped RALPH run on branch `ralph/grand-loop-sweep` (off `feat/grand-loop`)
+targeting only the files touched by the Grand Loop search work in
+commits ed48527 + 59796f3. 5-iteration cap.
+
+**Iter 1 — Test Creation (api/search.py rerank + provenance helpers)**
+- Added `api/tests/test_search_rerank.py` (26 tests)
+- Pinned: `_valence_score`, `_valence_modifier`, `_apply_valence_rerank`,
+  `_provenance_ids_from_deltas`. Edge cases: zero-distance immutability,
+  per-step independence, malformed pointers, VALENCE_MAX_PCT cap.
+- Commit: fd66ddf
+
+**Iter 1 (cont.) — Test Creation (delta-store plan executor)**
+- Added `delta-store/tests/test_plan_noise_rerank.py` (11 tests)
+- Pinned: `PlanExecutor._apply_noise_rerank` over-fetch + length-only +
+  centroid-only + compounded penalties + post-rerank trim winners.
+- Commit: c649418
+
+**Iter 2 — DRY review on `_valence_modifier` duplication**
+- Decision: leave the parallel implementations (delta-store/deltas/query.py
+  and api/search.py) — they live in independently-deployed services with
+  separate Dockerfiles, the math is small and stable, and api/search.py
+  cross-references the parallel in its docstring.
+- What WAS missing: parallel test coverage. Added
+  `delta-store/tests/test_valence_modifier.py` (11 tests) mirroring the
+  api side. Drift between the two implementations now fails tests on
+  whichever side regressed.
+- Also pinned `VALENCE_MAX_PCT == 0.30` against api-side `_VALENCE_MAX_PCT`.
+- Commit: 47cf39a
+
+**Iter 3 — Bug hunt on `_exec_neighbors` + over-fetch math**
+- Found real bug in `delta-store/deltas/plan.py:_parse_ts` —
+  `.replace(tzinfo=UTC)` overrides the parsed timezone instead of
+  converting to it, silently shifting non-UTC offsets by their offset
+  (e.g. `12:00 -08:00` → `12:00 UTC` is an 8-hour drift). Affects every
+  plan step that takes a time bound, including `_exec_neighbors`.
+- Fix: branch on tzinfo, naive stays UTC-assumed, aware goes through
+  `.astimezone(UTC)`. Added `delta-store/tests/test_parse_ts.py` (6 tests)
+  with explicit regression-guard test.
+- Same bug pattern noted in `migrate.py:31`, `store.py:26`,
+  `query.py:169 / :589` — out of search-surface scope, logged in
+  findings.json `outstanding`.
+- Other audit notes (no commits): neighbor-distance scale (gap-normalized
+  vs cosine) is an architectural inconsistency when neighbors are
+  unioned with search results — needs a deliberate decision, not a fix.
+  The `d.id != s.seed_id` clause is technically redundant with the
+  `d.id != ALL($5)` clause but harmless.
+- Commit: 8394262
+
+**Iter 4 — Performance review**
+- No actionable findings. `_NOISE_OVERFETCH = 2.0 + 10` floor scales
+  well across realistic limits. Engagement-cloud batching is already
+  one POST on the union of all surfaced ids (including sediment
+  provenance). The doubly-applied `_NOISE_HARD_CAP` is cosmetic.
+- No commits per "don't manufacture work."
+
+**Iter 5 — Verify + tracking update**
+- Lint: ruff cleanup commit (04950d9) for autofixed import sort + one
+  unused local. All RALPH-touched files lint clean.
+- Tests: full suite 163 passed (was 109 before this run = +54 net).
+- Commits: 5 total (4 substantive + 1 chore).
+- Outstanding: timezone-handling sweep in the broader delta-store.
 
 ---
 
