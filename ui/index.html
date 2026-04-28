@@ -9090,6 +9090,12 @@ GET  /v1/usage               Usage stats`,
         parent.insertBefore(det, anchor);
         return;
       }
+      // No same-(kind, session) target exists yet. Stamp the session
+      // on this flat .delta so the NEXT same-session item arriving in
+      // a later poll can find it via _findMergeTarget and convert this
+      // pair into an accordion. Without this stamp the existing flat
+      // row's dataset.session reads as '' and never matches.
+      if (session) node.dataset.session = session;
       feed.insertBefore(node, feed.firstChild);
     }
 
@@ -9150,7 +9156,13 @@ GET  /v1/usage               Usage stats`,
           } else {
             _renderedFeedIds.add(it.id);
             const node = _renderPuddleItem(it, (delayIdx++) * 0.06);
-            if (node) feed.appendChild(node);
+            if (node) {
+              // Singleton clusterable — stamp data-session so a same-
+              // (kind, session) item arriving in a later poll can find
+              // and merge into this flat .delta via _findMergeTarget.
+              if (it.session) node.dataset.session = it.session;
+              feed.appendChild(node);
+            }
           }
         } else {
           _renderedFeedIds.add(it.id);
