@@ -8905,6 +8905,7 @@ GET  /v1/usage               Usage stats`,
           el.dataset.fromPuddle = '1';
           el.dataset.puddleId = it.id || '';
           el.dataset.kind = 'chat';
+          if (it.engagement) el.dataset.engaged = it.engagement;
           const body = el.querySelector('.msg-body');
           if (body) {
             const rail = document.createElement('div');
@@ -8938,6 +8939,7 @@ GET  /v1/usage               Usage stats`,
           card.dataset.fromPuddle = '1';
           card.dataset.puddleId = it.id || '';
           card.dataset.kind = 'card';
+          if (it.engagement) card.dataset.engaged = it.engagement;
         }
         return card;
       }
@@ -9149,6 +9151,57 @@ GET  /v1/usage               Usage stats`,
       feed.insertBefore(node, feed.firstChild);
     }
 
+    // Engagement projection: the puddle holds the engagement deltas
+    // (the durable feed-engagement marker + the promoted-from-puddle
+    // feed-card with engagement:<kind> tag), so the dashboard's +/-
+    // state on a card is just a reflection of what's there. Walk the
+    // batch once: pull engagement state off promoted copies, apply it
+    // to the original card by source-card id, and suppress the
+    // duplicate render. Engagement markers are accounting deltas;
+    // suppress them too. If the original isn't in this batch (TTL'd
+    // or paged out), let the promoted render itself with its own
+    // engagement state — its tags still carry the truth.
+    function _projectEngagement(items) {
+      if (!Array.isArray(items) || items.length === 0) return items;
+      const presentIds = new Set();
+      for (const it of items) {
+        if (it && it.id) presentIds.add(it.id);
+      }
+      const engagementByOriginalId = new Map();
+      const skipIds = new Set();
+      for (const it of items) {
+        const tags = (it && it.tags) || [];
+        if (tags.includes('feed-engagement')) {
+          skipIds.add(it.id);
+          continue;
+        }
+        if (tags.includes('promoted-from-puddle') && tags.includes('feed-card')) {
+          let kind = null;
+          let sourceCard = null;
+          for (const t of tags) {
+            if (typeof t !== 'string') continue;
+            if (t.startsWith('engagement:')) kind = t.slice('engagement:'.length);
+            else if (t.startsWith('source-card:')) sourceCard = t.slice('source-card:'.length);
+          }
+          if (kind && sourceCard && presentIds.has(sourceCard)) {
+            engagementByOriginalId.set(sourceCard, kind);
+            skipIds.add(it.id);
+          } else if (kind) {
+            it.engagement = kind;
+          }
+        }
+      }
+      const out = [];
+      for (const it of items) {
+        if (skipIds.has(it.id)) continue;
+        if (engagementByOriginalId.has(it.id)) {
+          it.engagement = engagementByOriginalId.get(it.id);
+        }
+        out.push(it);
+      }
+      return out;
+    }
+
     function _renderItemsClustered(items, mode) {
       // For 'append' (initial load + Show-more): cluster runs of 2+
       // same-kind items inside the batch into accordions, mount each
@@ -9239,7 +9292,7 @@ GET  /v1/usage               Usage stats`,
         });
         if (!r.ok) return;
         const data = await r.json();
-        const items = data.items || [];
+        const items = _projectEngagement(data.items || []);
         if (!append) {
           feed.innerHTML = '';
           _renderedFeedIds.clear();
@@ -9750,7 +9803,7 @@ GET  /v1/usage               Usage stats`,
         });
         if (!r.ok) return;
         const data = await r.json();
-        const items = data.items || [];
+        const items = _projectEngagement(data.items || []);
         const fresh = items.filter(it => it && it.id && !_renderedFeedIds.has(it.id));
         if (!fresh.length) return;
         if (feed.querySelector('.feed-empty')) feed.innerHTML = '';
