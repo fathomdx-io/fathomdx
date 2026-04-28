@@ -48,6 +48,11 @@ class DeltaSlim(BaseModel):
     tags: list[str]
     media_hash: str | None = None
     expires_at: str | None = None
+    # Carried back on plan-step results so the api side can re-rank by
+    # valence after attaching engagement clouds. None for filter/aggregate
+    # steps and engagement-cloud members where there is no semantic
+    # distance.
+    distance: float | None = None
 
 
 class BatchIn(BaseModel):
@@ -180,6 +185,7 @@ class PlanStep(BaseModel):
     bridge: list[str] | None = None
     aggregate: str | None = None
     chain: str | None = None
+    neighbors: str | None = None
     # Parameters
     radii: PlanRadii | None = None
     tags_include: list[str] | None = None
@@ -191,6 +197,11 @@ class PlanStep(BaseModel):
     group_by: str | None = None  # "week", "day", "month", "tag", "source"
     metric: str | None = None  # "count", "centroid"
     limit: int = 100
+    # neighbors-only params
+    radius_minutes: int = 30  # ± window around each seed
+    source_match: bool = True  # only pull from same source as seed
+    exclude_sources: list[str] | None = None  # never pull these sources
+    limit_per_seed: int = 6  # cap deltas returned per seed
 
 
 class PlanRequest(BaseModel):

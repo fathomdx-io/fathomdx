@@ -1,12 +1,24 @@
 """Compositional query plan executor.
 
 Accepts a JSON query plan with named steps. Each step is one of:
-  search, filter, intersect, union, diff, bridge, aggregate, chain.
+  search, filter, intersect, union, diff, bridge, aggregate, chain,
+  neighbors.
 
-Execution uses a hybrid approach: consecutive SQL-only steps compile into
-a single CTE chain. Steps requiring Python (embedding text, computing
-centroids from prior results) break the chain. The executor flushes the
-CTE batch, does the Python work, then starts a new batch.
+`neighbors` is the region primitive — for each delta in a referenced
+step, fetch the temporally-surrounding deltas (default same source,
+±30 minutes). Use when the load-bearing context of a hit is its
+neighbors, not the hit alone.
+
+Search / bridge / chain results pass through a noise rerank: over-
+fetch by 2× + 10, multiply each row's distance by `_noise_modifier`
+(short content + generic-ack-centroid alignment), sort, trim to the
+requested limit. This keeps the compositional path symmetric with
+shallow `/search`, which has applied the same suppression for a while.
+
+Execution uses a hybrid approach: consecutive SQL-only steps compile
+into a single CTE chain. Steps requiring Python (embedding text,
+computing centroids from prior results) break the chain. The executor
+flushes the CTE batch, does the Python work, then starts a new batch.
 """
 
 from __future__ import annotations
@@ -27,7 +39,17 @@ from deltas.models import (
     StepResultAggregate,
     StepResultDeltas,
 )
+from deltas.query import _noise_modifier, get_noise_centroid
 from deltas.store import _format_ts, _vec_to_list
+
+# Compositional steps that produce semantic distances — search/bridge/chain.
+# These get noise-suppression rerank applied: over-fetch by a multiplier,
+# bump distance for short / generic-noise-centroid-aligned content, sort,
+# trim to the requested limit. Without this, deep recall surfaces the same
+# trash the shallow path filters out (single-word acks, throwaway lines).
+_NOISE_OVERFETCH = 2.0
+_NOISE_OVERFETCH_FLOOR = 10  # always over-fetch at least this many extras
+_NOISE_HARD_CAP = 2000  # don't over-fetch past what _exec_search caps anyway
 
 
 class PlanExecutor:
@@ -134,6 +156,17 @@ class PlanExecutor:
                 rows = await self._exec_search(step, centroid)
                 resolved[step.id] = rows
 
+            elif action == "neighbors":
+                source_rows = resolved.get(step.neighbors, [])
+                if not source_rows:
+                    warnings.append(
+                        f"step '{step.id}' skipped: input '{step.neighbors}' is empty"
+                    )
+                    resolved[step.id] = []
+                    continue
+                rows = await self._exec_neighbors(step, source_rows)
+                resolved[step.id] = rows
+
         # Build response
         elapsed_ms = (time.monotonic() - t0) * 1000
         step_results: dict[str, StepResultDeltas | StepResultAggregate] = {}
@@ -164,7 +197,8 @@ class PlanExecutor:
             if action is None:
                 raise ValueError(
                     f"Step '{step.id}' has no action — must set exactly one of: "
-                    "search, filter, intersect, union, diff, bridge, aggregate, chain"
+                    "search, filter, intersect, union, diff, bridge, aggregate, "
+                    "chain, neighbors"
                 )
 
             # Check references point to earlier steps
@@ -186,6 +220,7 @@ class PlanExecutor:
             "bridge",
             "aggregate",
             "chain",
+            "neighbors",
         ):
             if getattr(step, action) is not None:
                 return action
@@ -194,7 +229,7 @@ class PlanExecutor:
     def _get_refs(self, step: PlanStep, action: str) -> list[str]:
         if action in ("intersect", "union", "diff", "bridge"):
             return getattr(step, action, []) or []
-        if action in ("aggregate", "chain"):
+        if action in ("aggregate", "chain", "neighbors"):
             val = getattr(step, action, None)
             return [val] if val else []
         return []
@@ -247,8 +282,17 @@ class PlanExecutor:
             idx += 1
 
         where = " AND ".join(conditions)
-        limit = min(step.limit, 2000)
-        params.append(limit)
+        target_limit = min(step.limit, _NOISE_HARD_CAP)
+        # Over-fetch so the noise rerank can demote trash and still return
+        # `target_limit` real items. The SQL cutoff is on raw distance —
+        # without the over-fetch, a short ack at distance 0.3 would crowd
+        # out a real hit at 0.45 even after the +20% length bump pushed
+        # it to 0.36. Pulling 2× and reranking fixes that.
+        fetch_limit = min(
+            int(target_limit * _NOISE_OVERFETCH) + _NOISE_OVERFETCH_FLOOR,
+            _NOISE_HARD_CAP,
+        )
+        params.append(fetch_limit)
 
         sql = f"""
             SELECT d.id, d.timestamp, d.modality, d.content, d.source, d.tags,
@@ -263,7 +307,8 @@ class PlanExecutor:
         params.append(float(sem_radius))
 
         rows = await self._pool.fetch(sql, *params)
-        return [self._row_to_dict(r) for r in rows]
+        results = [self._row_to_dict(r) for r in rows]
+        return self._apply_noise_rerank(results, target_limit)
 
     # ── Filter execution ─────────────────────────────────────────────────
 
@@ -355,7 +400,11 @@ class PlanExecutor:
         # Exclude deltas already in either set
         exclude_ids = [d["id"] for d in set_a] + [d["id"] for d in set_b]
 
-        limit = min(step.limit, 1000)
+        target_limit = min(step.limit, 1000)
+        fetch_limit = min(
+            int(target_limit * _NOISE_OVERFETCH) + _NOISE_OVERFETCH_FLOOR,
+            _NOISE_HARD_CAP,
+        )
 
         sql = """
             SELECT d.id, d.timestamp, d.modality, d.content, d.source, d.tags,
@@ -369,13 +418,111 @@ class PlanExecutor:
             LIMIT $4
         """
 
-        rows = await self._pool.fetch(sql, centroid_a, centroid_b, exclude_ids, limit)
+        rows = await self._pool.fetch(sql, centroid_a, centroid_b, exclude_ids, fetch_limit)
         results = []
         for r in rows:
             d = self._row_to_dict(r)
             d["distance"] = float(r["bridge_dist"])
             results.append(d)
-        return results
+        return self._apply_noise_rerank(results, target_limit)
+
+    # ── Neighbors execution ──────────────────────────────────────────────
+
+    async def _exec_neighbors(self, step: PlanStep, seeds: list[dict]) -> list[dict]:
+        """For each seed delta, pull surrounding deltas within ±radius_minutes.
+
+        One round-trip — uses a `LATERAL` subquery so each seed gets its own
+        time-windowed slice ordered by absolute distance from the seed's
+        timestamp, capped at `limit_per_seed`. Results are deduped (a delta
+        adjacent to two seeds appears once) and capped at `step.limit`
+        ordered by closeness to its nearest seed.
+
+        `source_match=True` (default) restricts each window to the seed's
+        own source — without this, a journal-entry seed pulls in every
+        agent-heartbeat written within the radius, which is exactly the
+        kind of substrate noise this primitive exists to avoid.
+        """
+        if not seeds:
+            return []
+        # Pre-build the seed table — id, timestamp (parsed), source.
+        seed_rows: list[tuple[str, datetime, str]] = []
+        for s in seeds:
+            sid = s.get("id")
+            ts_str = s.get("timestamp")
+            src = s.get("source") or ""
+            if not sid or not ts_str:
+                continue
+            try:
+                ts = _parse_ts(ts_str)
+            except Exception:
+                continue
+            seed_rows.append((sid, ts, src))
+        if not seed_rows:
+            return []
+
+        seed_ids = [r[0] for r in seed_rows]
+        seed_timestamps = [r[1] for r in seed_rows]
+        seed_sources = [r[2] for r in seed_rows]
+
+        radius_minutes = max(1, int(step.radius_minutes))
+        per_seed = max(1, int(step.limit_per_seed))
+        exclude_sources = step.exclude_sources or []
+        source_match = bool(step.source_match)
+
+        # asyncpg can pass parallel arrays through `unnest`. Each seed
+        # contributes a row to the LATERAL — its window is the radius
+        # around its timestamp, optionally constrained to its own source.
+        sql = """
+            WITH seeds AS (
+                SELECT * FROM unnest($1::text[], $2::timestamptz[], $3::text[])
+                AS s(seed_id, seed_ts, seed_src)
+            )
+            SELECT n.id, n.timestamp, n.modality, n.content, n.source, n.tags,
+                   n.media_hash, n.expires_at, n.embedding,
+                   EXTRACT(EPOCH FROM (n.timestamp - s.seed_ts)) AS gap_seconds
+            FROM seeds s
+            CROSS JOIN LATERAL (
+                SELECT d.*
+                FROM deltas d
+                WHERE d.timestamp BETWEEN s.seed_ts - ($4 || ' minutes')::interval
+                                      AND s.seed_ts + ($4 || ' minutes')::interval
+                  AND (d.expires_at IS NULL OR d.expires_at > NOW())
+                  AND d.id != s.seed_id
+                  AND d.id != ALL($5)
+                  AND ($6 = false OR d.source = s.seed_src)
+                  AND ($7::text[] IS NULL OR NOT (d.source = ANY($7)))
+                ORDER BY ABS(EXTRACT(EPOCH FROM (d.timestamp - s.seed_ts)))
+                LIMIT $8
+            ) n
+        """
+        rows = await self._pool.fetch(
+            sql,
+            seed_ids,
+            seed_timestamps,
+            seed_sources,
+            str(radius_minutes),
+            seed_ids,
+            source_match,
+            exclude_sources or None,
+            per_seed,
+        )
+
+        # Dedupe — a delta adjacent to multiple seeds shows up once,
+        # keyed to its smallest absolute gap.
+        best: dict[str, tuple[float, dict]] = {}
+        for r in rows:
+            d = self._row_to_dict(r)
+            gap = abs(float(r["gap_seconds"]))
+            # Treat absolute time gap as the row's distance for downstream
+            # rendering / valence rerank — closer-in-time = more relevant.
+            d["distance"] = gap / max(radius_minutes * 60.0, 1.0)
+            existing = best.get(d["id"])
+            if existing is None or gap < existing[0]:
+                best[d["id"]] = (gap, d)
+
+        merged = [d for _, d in best.values()]
+        merged.sort(key=lambda d: d.get("distance", 0.0))
+        return merged[: step.limit]
 
     # ── Aggregate execution ──────────────────────────────────────────────
 
@@ -486,7 +633,32 @@ class PlanExecutor:
             tags=d.get("tags", []),
             media_hash=d.get("media_hash"),
             expires_at=d.get("expires_at"),
+            distance=d.get("distance"),
         )
+
+    def _apply_noise_rerank(self, rows: list[dict], target_limit: int) -> list[dict]:
+        """Apply the noise modifier to each row's distance and re-sort.
+
+        Mirrors what `query.py:QueryEngine.search` does on the shallow
+        path, so deep recall doesn't surface trash that shallow recall
+        already filters out. Trims to `target_limit` after sorting.
+        Soft-fails to length-only on missing centroid; tolerates rows
+        without distance (no-op).
+        """
+        if not rows:
+            return rows
+        centroid = get_noise_centroid()
+        for d in rows:
+            base = d.get("distance")
+            if base is None:
+                continue
+            d["distance"] = float(base) * _noise_modifier(
+                d.get("content"), d.get("embedding") or [], centroid
+            )
+        # Stable sort by distance ascending; rows missing distance keep
+        # their relative order at the end of the list.
+        rows.sort(key=lambda d: (d.get("distance") is None, d.get("distance") or 0.0))
+        return rows[:target_limit]
 
 
 def _parse_ts(ts: str) -> datetime:

@@ -275,9 +275,13 @@ Available actions:
 - "bridge": deltas semantically close to BOTH referenced steps' centroids (value = [step_id, step_id])
 - "chain": search outward from a step's centroid (value = step_id)
 - "aggregate": group by time/tag/source (value = step_id, needs group_by param)
+- "neighbors": for each delta in a step, pull deltas from the same source \
+  within ±radius_minutes (default 30) — the surrounding context of a hit \
+  (value = step_id, optional radius_minutes / source_match / limit_per_seed)
 
 Optional params per step: radii (semantic/temporal/provenance weights), \
-tags_include, tags_exclude, limit, source, time_start, time_end, group_by, metric.
+tags_include, tags_exclude, limit, source, time_start, time_end, group_by, \
+metric, radius_minutes, source_match, exclude_sources, limit_per_seed.
 
 ALWAYS generate at least 2-3 search steps from different angles, then \
 union or chain the results. One search is never enough. Search like a \
@@ -293,6 +297,11 @@ Strategy:
 - "What connects X and Y" → search X, search Y, bridge between them
 - "Recent activity in domain Z" → filter by tags/source + search semantically
 - "How has X changed over time" → search X + aggregate by week
+- "What was happening around the time X was said" → search X, then \
+  neighbors on the result — surfaces the burst the hit was part of, \
+  not just the lone delta. Useful when a single line is meaningful only \
+  in conversation context (Telegram threads, journal sessions, kitty \
+  routine fires).
 
 Example for "remember when nova stretched mozzarella":
 {"steps": [
@@ -306,6 +315,18 @@ Example for "remember when nova stretched mozzarella":
    "relation": "which pulled on"},
   {"id": "all", "union": ["a", "b", "c"],
    "relation": "taken together"}
+]}
+
+When a hit is meaningful only with surrounding context, follow it with \
+neighbors. Example for "what did Myra say about the migration on Thursday":
+{"steps": [
+  {"id": "a", "search": "migration database Thursday discussion plan",
+   "limit": 8, "tags_exclude": ["assistant"],
+   "relation": "first came to mind"},
+  {"id": "ctx", "neighbors": "a", "radius_minutes": 30, "limit_per_seed": 6,
+   "limit": 30, "relation": "and what was around it"},
+  {"id": "all", "union": ["a", "ctx"],
+   "relation": "the moment in full"}
 ]}
 
 Always set "limit": 20 on search steps. Add "tags_exclude": ["assistant"] \

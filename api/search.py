@@ -1,17 +1,28 @@
 """Canonical natural-language recall over the delta lake.
 
 One entry point — ``search(text, depth, ...)`` — returns a hierarchical
-structured result. Used by the consumer chat internally (pre-recall layer),
-the ``POST /v1/search`` endpoint (CLI, MCP, claude-code recall hook), and
-anywhere else NL search happens. Every surface shares the same plan, the
-same DAG rendering, and the same voice.
+structured result. Used by every surface that asks the lake a question:
+the web-chat pre-recall layer, the ``POST /v1/search`` endpoint (CLI,
+MCP, claude-code recall hook), the loop's intent-searcher and voice-
+followup ticks. Every surface shares the same plan, the same DAG
+rendering, and the same voice.
 
-Deep mode generates a compositional plan via the planner LLM, executes it
-against the delta store, walks the DAG, emits an associative trail, then
-synthesizes a ``kind:sediment`` thinking-delta back into the lake with
-``from:<id>`` provenance pointers to each source — turning the act of
-recall into sediment formation. Shallow mode runs a single semantic search
-wrapped in the same shape so callers don't branch.
+Deep mode generates a compositional plan via the planner LLM, executes
+it against the delta store, walks the DAG, emits an associative trail,
+then synthesizes a ``kind:sediment`` thinking-delta back into the lake
+with ``from:<id>`` provenance pointers to each source — turning the act
+of recall into sediment formation. Shallow mode runs a single semantic
+search wrapped in the same shape so callers don't branch.
+
+Three reranking / expansion layers run on every deep recall:
+
+  * **Noise rerank** lives in the plan executor (over-fetch + demote
+    short / generic-noise-centroid-aligned content + trim).
+  * **Valence rerank** runs here, after engagement clouds attach —
+    refuted deltas sink, affirmed / ``from:``-cited ones float.
+  * **Sediment provenance auto-expand** follows ``from:<id>`` pointers
+    on any surfaced sediment to bring its cited sources into the trail
+    as a synthetic ``_provenance`` step.
 
 Result shape::
 
@@ -53,6 +64,7 @@ _ACTION_KEYS = (
     "union",
     "diff",
     "aggregate",
+    "neighbors",
 )
 
 _DEFAULT_RELATION_BY_ACTION = {
@@ -64,6 +76,7 @@ _DEFAULT_RELATION_BY_ACTION = {
     "union": "taken together",
     "diff": "but not",
     "aggregate": "grouped",
+    "neighbors": "and what was around it",
 }
 
 _MAX_CONTENT_CHARS = 1200
@@ -271,7 +284,7 @@ def _action_of(step: dict) -> tuple[str, object]:
 
 def _parents_of(step: dict) -> list[str]:
     action, val = _action_of(step)
-    if action in ("chain", "aggregate"):
+    if action in ("chain", "aggregate", "neighbors"):
         return [val] if isinstance(val, str) else []
     if action in ("bridge", "intersect", "union", "diff"):
         return [v for v in val if isinstance(v, str)] if isinstance(val, list) else []
@@ -279,6 +292,68 @@ def _parents_of(step: dict) -> list[str]:
 
 
 # ── Rendering ───────────────────────────────────
+
+
+# Valence rerank — mirrors delta-store's query.py:_valence_modifier so the
+# compositional plan path applies the same affirms/refutes lift the shallow
+# path does. Lives here (not in delta-store) because deep recall fetches
+# clouds on the api side after the plan returns; pulling the modifier with
+# it keeps the suppression contract symmetric without coupling the
+# executor to engagement-cloud HTTP.
+_VALENCE_MAX_PCT = 0.30
+
+
+def _valence_score(cloud: list[dict]) -> float:
+    if not cloud:
+        return 0.0
+    score = 0.0
+    for d in cloud:
+        tags = d.get("tags") or []
+        for t in tags:
+            if t.startswith("refutes:"):
+                score -= 1.0
+                break
+            if t.startswith("affirms:"):
+                score += 1.0
+                break
+            if t.startswith("from:"):
+                score += 0.5
+                break
+            if t.startswith("engages:") or t.startswith("reply-to:"):
+                score += 0.25
+                break
+        if "engagement:less" in tags:
+            score -= 0.5
+        elif "engagement:more" in tags:
+            score += 0.5
+    return score
+
+
+def _valence_modifier(cloud: list[dict]) -> float:
+    """≤1 boosts (lower distance = better), ≥1 demotes."""
+    score = _valence_score(cloud)
+    shift = max(-_VALENCE_MAX_PCT, min(_VALENCE_MAX_PCT, score * 0.05))
+    return 1.0 - shift
+
+
+def _apply_valence_rerank(deltas_by_step: dict[str, list[dict]]) -> None:
+    """Multiply each delta's distance by its valence modifier and re-sort
+    each step's list. Mutates in place. Deltas without a distance keep
+    their input order — relevant for filter/aggregate steps that produced
+    no semantic distance to begin with."""
+    for deltas in deltas_by_step.values():
+        any_distance = False
+        for d in deltas:
+            cloud = d.get("engagement_cloud") or []
+            base = d.get("distance")
+            if base is None or not cloud:
+                continue
+            d["distance"] = float(base) * _valence_modifier(cloud)
+            any_distance = True
+        if any_distance:
+            deltas.sort(
+                key=lambda d: (d.get("distance") is None, d.get("distance") or 0.0)
+            )
 
 
 _CLOUD_LABEL_BY_PREFIX = {
@@ -513,7 +588,9 @@ async def _deep(
         )
         deltas_by_step[sid] = cleaned
 
+    await _expand_sediment_provenance(plan, tree, deltas_by_step, seen_ids)
     await _attach_engagement_clouds(deltas_by_step, seen_ids)
+    _apply_valence_rerank(deltas_by_step)
 
     thinking_prose, thinking_id = await _synthesize_thinking(text, deltas_by_step)
 
@@ -527,6 +604,103 @@ async def _deep(
         "thinking_prose": thinking_prose,
         "thinking_id": thinking_id,
     }
+
+
+# How many provenance ids to chase per recall — caps the worst case where
+# a sediment with dozens of `from:` pointers and another sediment beside it
+# blow the trail up. The expansion is associative chrome, not load-bearing
+# retrieval; if the ceiling truncates, the original sediment still surfaces
+# with its full content.
+_SEDIMENT_PROVENANCE_LIMIT = 24
+
+
+def _provenance_ids_from_deltas(
+    deltas: list[dict], already_seen: set[str]
+) -> list[str]:
+    """Pull `from:<id>` pointers off any kind:sediment delta, drop already-
+    seen ids, preserve first-seen order, dedupe."""
+    out: list[str] = []
+    seen: set[str] = set()
+    for d in deltas:
+        tags = d.get("tags") or []
+        if "kind:sediment" not in tags:
+            continue
+        for t in tags:
+            if not t.startswith("from:"):
+                continue
+            ref = t[len("from:") :].strip()
+            if not ref or ref in already_seen or ref in seen:
+                continue
+            seen.add(ref)
+            out.append(ref)
+    return out
+
+
+async def _expand_sediment_provenance(
+    plan: dict,
+    tree: list[dict],
+    deltas_by_step: dict[str, list[dict]],
+    seen_ids: set[str],
+) -> None:
+    """If any surfaced delta is a sediment, fetch the deltas it cites
+    via `from:<id>` and append them as a synthetic `_provenance` step.
+
+    The expansion shows up in the rendered trail as its own block so the
+    reader can see "and what that came from", and the cited deltas
+    participate in valence rerank and sediment synthesis the same way as
+    everything else. Fail-soft — a fetch error leaves the original
+    sediment trail intact.
+    """
+    all_deltas: list[dict] = []
+    for step_deltas in deltas_by_step.values():
+        all_deltas.extend(step_deltas)
+    refs = _provenance_ids_from_deltas(all_deltas, seen_ids)
+    if not refs:
+        return
+    refs = refs[:_SEDIMENT_PROVENANCE_LIMIT]
+    try:
+        fetched = await delta_client.batch_get(refs)
+    except Exception:
+        log.exception("search: sediment provenance batch-get failed")
+        return
+    if not fetched:
+        return
+
+    # Drop anything that was already in the result set (dedup defensive —
+    # _provenance_ids_from_deltas already filtered seen_ids, but the lake
+    # could have surfaced the source independently between steps).
+    fresh: list[dict] = []
+    for d in fetched:
+        did = d.get("id")
+        if not did or did in seen_ids:
+            continue
+        seen_ids.add(did)
+        fresh.append(d)
+    if not fresh:
+        return
+
+    sid = "_provenance"
+    deltas_by_step[sid] = fresh
+    tree.append(
+        {
+            "id": sid,
+            "relation": "and what that came from",
+            "parents": [],
+            "action": "search",
+            "query": None,
+            "delta_ids": [d.get("id") for d in fresh if d.get("id")],
+        }
+    )
+    plan_steps = plan.get("steps") if isinstance(plan, dict) else None
+    if isinstance(plan_steps, list):
+        plan_steps.append(
+            {
+                "id": sid,
+                "search": "<sediment provenance expansion>",
+                "limit": len(fresh),
+                "relation": "and what that came from",
+            }
+        )
 
 
 async def _attach_engagement_clouds(

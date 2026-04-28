@@ -269,6 +269,44 @@ NOISE_FLOOR = 0.55  # cosine similarity below this contributes nothing
 LENGTH_THRESHOLD = 24  # chars; below → length penalty kicks in
 LENGTH_PENALTY = 0.20  # multiplicative bump from length term
 
+# Process-wide cache of the seed-centroid. The seeds are constants, so
+# every QueryEngine and PlanExecutor in this process can share a single
+# build — first caller pays the embed cost, all subsequent paths get a
+# free reference. `None` = uncomputed; `[]` = computed-but-empty (embedder
+# offline at build time, callers degrade gracefully).
+_NOISE_CENTROID_CACHE: list[float] | None = None
+
+
+def get_noise_centroid() -> list[float]:
+    """Lazy-built normalized centroid of NOISE_SEEDS embeddings.
+
+    Shared across the shallow `/search` path (QueryEngine) and the
+    compositional `/plan` path (PlanExecutor) so both apply the same
+    suppression. Returns `[]` if the embedder is offline — `_noise_modifier`
+    treats that as a no-op for the centroid term.
+    """
+    global _NOISE_CENTROID_CACHE
+    if _NOISE_CENTROID_CACHE is not None:
+        return _NOISE_CENTROID_CACHE
+    embeddings = []
+    for seed in NOISE_SEEDS:
+        try:
+            e = embed_text(seed)
+        except Exception:
+            e = None
+        if e:
+            embeddings.append(e)
+    if not embeddings:
+        _NOISE_CENTROID_CACHE = []
+        return _NOISE_CENTROID_CACHE
+    arr = np.array(embeddings, dtype=np.float32)
+    centroid = arr.mean(axis=0)
+    norm = np.linalg.norm(centroid)
+    if norm > 0:
+        centroid = centroid / norm
+    _NOISE_CENTROID_CACHE = centroid.tolist()
+    return _NOISE_CENTROID_CACHE
+
 
 def _noise_modifier(
     content: str | None,
@@ -342,34 +380,10 @@ class QueryEngine:
     config: QueryConfig = field(default_factory=QueryConfig)
     sessions: SessionStore = field(init=False)
     subsets: SubsetStore = field(init=False)
-    _noise_centroid_cache: list[float] | None = field(init=False, default=None)
 
     def __post_init__(self):
         self.sessions = SessionStore(self.config)
         self.subsets = SubsetStore()
-
-    def _get_noise_centroid(self) -> list[float]:
-        """Lazy-built normalized centroid of NOISE_SEEDS embeddings."""
-        if self._noise_centroid_cache is not None:
-            return self._noise_centroid_cache
-        embeddings = []
-        for seed in NOISE_SEEDS:
-            try:
-                e = embed_text(seed)
-            except Exception:
-                e = None
-            if e:
-                embeddings.append(e)
-        if not embeddings:
-            self._noise_centroid_cache = []
-            return self._noise_centroid_cache
-        arr = np.array(embeddings, dtype=np.float32)
-        centroid = arr.mean(axis=0)
-        norm = np.linalg.norm(centroid)
-        if norm > 0:
-            centroid = centroid / norm
-        self._noise_centroid_cache = centroid.tolist()
-        return self._noise_centroid_cache
 
     async def _centroid_from_ids(self, ids: list[str]) -> list[float]:
         """Compute normalized centroid from stored embeddings of the given delta IDs."""
@@ -583,7 +597,7 @@ class QueryEngine:
 
         # 4. Score — per-dimension independent filtering
         scored: list[ScoredDelta] = []
-        noise_centroid = self._get_noise_centroid() if suppress_noise else []
+        noise_centroid = get_noise_centroid() if suppress_noise else []
         for d in candidates:
             t_dist = _temporal_distance(_now_as_iso(), d["timestamp"], max_span_ms)
             s_dist = d.get("s_dist", _cosine_distance(origin_embedding, d["embedding"]))

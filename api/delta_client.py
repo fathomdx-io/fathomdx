@@ -211,6 +211,17 @@ async def get_delta(delta_id: str) -> dict:
     return r.json()
 
 
+async def batch_get(ids: list[str]) -> list[dict]:
+    """Bulk fetch by id. Order is not guaranteed; missing ids are
+    silently dropped (the lake is the source of truth, not the caller's
+    list). Capped server-side at 500 per call."""
+    if not ids:
+        return []
+    r = await _request_with_retry("POST", "/deltas/batch-get", json={"ids": ids})
+    r.raise_for_status()
+    return r.json()
+
+
 # ── Meta ────────────────────────────────────────
 
 
