@@ -56,8 +56,6 @@ MIRROR_NOISE_SOURCES = frozenset({
     "crystal",           # ditto
 })
 
-_mirrored_lake_ids: set[str] = set()
-
 
 def _slug(text: str, max_len: int = 40) -> str:
     s = re.sub(r"[^a-z0-9]+", "-", (text or "").lower()).strip("-")
@@ -187,8 +185,15 @@ async def mirror_recent_activity() -> int:
     output (witness writes, voice thoughts, the puddle's own promotes)
     are filtered out so the loop doesn't echo on its own footprint.
 
-    Idempotent across ticks — `_mirrored_lake_ids` remembers what's
-    already landed so the same lake delta isn't re-mirrored each pull.
+    Dedupe truth lives in the puddle itself — every echoed lake delta
+    carries a `recalled-id:<24chars>` tag (shared convention with
+    recall.py and any future dual-write path like chat/intents/witness
+    cards). We query the puddle for that tag set up front and skip any
+    lake delta whose short id is already represented, no matter which
+    path put it there. Reaping a TTL'd echo cleanly drops the dedupe
+    entry, so a still-recent lake delta gets re-mirrored after its
+    earlier copy expires.
+
     Returns the count of mirrors written this tick.
     """
     from datetime import datetime, timedelta, UTC
@@ -199,25 +204,31 @@ async def mirror_recent_activity() -> int:
         print(f"[vampire] activity fetch failed: {type(e).__name__}: {e}")
         return 0
 
+    existing_short_ids: set[str] = set()
+    for d in puddle.query(tags_include=[CONVO_TAG], limit=2000):
+        for t in d.get("tags") or []:
+            if t.startswith("recalled-id:"):
+                existing_short_ids.add(t.split(":", 1)[1])
+
     written = 0
     for d in items:
         did = d.get("id") or ""
-        if not did or did in _mirrored_lake_ids:
+        if not did:
+            continue
+        short = did[:24]
+        if short in existing_short_ids:
             continue
         src = (d.get("source") or "").strip()
         if src in MIRROR_NOISE_SOURCES:
-            _mirrored_lake_ids.add(did)
             continue
         content = (d.get("content") or "").strip()
         if not content or len(content) < 8:
-            _mirrored_lake_ids.add(did)
             continue
-        # Skip echoes — anything that already landed in the convo via
-        # another path (rare, but possible if a contact slug overlap
-        # makes the contact-tag scope a delta into our convo).
+        # Defensive: a lake delta carrying CONVO_TAG would mean cross-
+        # tagging from another path scoped this delta into our convo;
+        # don't re-mirror it even if recalled-id wasn't stamped.
         src_tags = d.get("tags") or []
         if any(t == CONVO_TAG for t in src_tags):
-            _mirrored_lake_ids.add(did)
             continue
 
         await puddle.write(
@@ -227,12 +238,12 @@ async def mirror_recent_activity() -> int:
                 "mirror",
                 "lake-delta",
                 f"from-source:{src or 'unknown'}",
-                f"recalled-id:{did[:24]}",
+                f"recalled-id:{short}",
             ],
             source=f"mirror:{src or 'unknown'}",
             ttl_seconds=ANCHOR_TTL_S,
         )
-        _mirrored_lake_ids.add(did)
+        existing_short_ids.add(short)
         written += 1
     return written
 
