@@ -74,27 +74,30 @@ PASS_DIRECTIVES: dict[str, str] = {
 async def fire_pressure_pulse(reason: str) -> None:
     """Drop one intent per pass into the puddle, then reset the
     pressure anchor so we don't immediately re-fire on the next tick.
+
+    `mark_synthesis` runs in a finally — even if the pulse loop crashes
+    mid-iteration, the pressure anchor MUST reset, or the next watcher
+    poll will detect the same pressure and re-fire indefinitely (the
+    storm bug). Pulse failure is acknowledged; pressure is consumed.
     """
     print(f"[pressure pulse] {reason}")
-    for kind_name, directive in PASS_DIRECTIVES.items():
-        try:
-            await write_intent(
-                kind=kind_name,
-                content=directive,
-                payload={"reason": reason, "pass": kind_name},
-                source="pressure-watcher",
-            )
-            print(f"  [pulse→{kind_name}] dropped intent")
-        except Exception as e:
-            print(f"  pulse intent write failed for {kind_name}: {type(e).__name__}: {e}")
-    # Reset the wake anchor so the watcher doesn't keep firing on
-    # the same accumulated pressure. mark_synthesis updates the
-    # last_synthesis_at timestamp; subsequent should_synthesize()
-    # calls measure pressure FROM that anchor.
     try:
-        await feed_pressure.mark_synthesis()
-    except Exception as e:
-        print(f"  mark_synthesis failed (pulse still fired): {type(e).__name__}: {e}")
+        for kind_name, directive in PASS_DIRECTIVES.items():
+            try:
+                await write_intent(
+                    kind=kind_name,
+                    content=directive,
+                    payload={"reason": reason, "pass": kind_name},
+                    source="pressure-watcher",
+                )
+                print(f"  [pulse→{kind_name}] dropped intent")
+            except Exception as e:
+                print(f"  pulse intent write failed for {kind_name}: {type(e).__name__}: {e}")
+    finally:
+        try:
+            await feed_pressure.mark_synthesis()
+        except Exception as e:
+            print(f"  mark_synthesis failed (pulse still fired): {type(e).__name__}: {e}")
 
 
 async def pressure_watcher() -> None:
