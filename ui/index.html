@@ -3124,10 +3124,6 @@
               <label><input type="checkbox" data-kind="chat" checked> Chat</label>
               <div class="filter-group-head">Synthesis</div>
               <label><input type="checkbox" data-kind="card" checked> Cards</label>
-              <label><input type="checkbox" data-kind="reflection"> Reflections</label>
-              <label><input type="checkbox" data-kind="bridging"> Bridges</label>
-              <label><input type="checkbox" data-kind="drift"> Drift</label>
-              <label><input type="checkbox" data-kind="discrepancy"> Discrepancies</label>
               <div class="filter-group-head">Substrate</div>
               <label><input type="checkbox" data-kind="pass-intent"> Pass intents</label>
               <label><input type="checkbox" data-kind="voice-thought"> Voice thoughts</label>
@@ -8626,16 +8622,12 @@ GET  /v1/usage               Usage stats`,
       // driven recalls, raw pass-intents) stays off by default since
       // those are deliberation-internal and would drown the chat.
       'chat':           true,   // user-message + fathom-message (Q + A as one toggle)
-      'card':           true,   // feed-card route witness outputs
-      'reflection':     true,
-      'bridging':       true,
-      'drift':          true,
-      'discrepancy':    true,
+      'card':           true,   // feed-card route witness outputs (any non-chat-reply route)
       'lake-delta':     true,   // telepathy mirror of fresh durable lake activity
       'crystal':        true,   // identity facets refreshed by telepathy
       'mood':           true,   // current felt-sense
       'routine':        true,   // routine fires + their summaries
-      'pass-intent':    false,
+      'pass-intent':    true,   // pulse directive prompts (reflection/drift/bridging/alert/drop-in)
       'voice-thought':  false,
       'recall':         false,
     };
