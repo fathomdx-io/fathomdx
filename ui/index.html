@@ -9164,57 +9164,55 @@ GET  /v1/usage               Usage stats`,
       feed.insertBefore(node, feed.firstChild);
     }
 
-    // Engagement projection: the puddle holds the engagement deltas
-    // (the durable feed-engagement marker + the promoted-from-puddle
-    // feed-card with engagement:<kind> tag), so the dashboard's +/-
-    // state on a card is just a reflection of what's there.
+    // Engagement projection: feed-engagement deltas are diffs that
+    // modify their target card's display state. We pull (kind, target)
+    // pairs off the engagement markers, suppress the markers from
+    // rendering (they're not feed items in their own right), and apply
+    // the kind to the matching feed-card item by lake-id pointer.
     //
-    // The promoted-from-puddle delta carries `source-card:<puddle_id>`,
-    // but puddle ids are ephemeral and don't survive a restart, so
-    // matching on that alone fails when telepathy restores both halves
-    // of an engagement pair after a cold-start. We match on the card's
-    // body content instead — that's what's stable across the lake/
-    // puddle round-trip. Both halves share the same JSON payload, so
-    // body equality reliably identifies the pair.
-    //
-    // Always render the engaged version, suppress its un-engaged twin.
-    // Engagement markers are accounting deltas; suppress them too.
+    // Pointer format: `engages:<full_lake_id>` per the feed-spec /
+    // reserved-tags-spec docs. The card carries either `lake-id:<full>`
+    // (Phase 1 dual-write) or `recalled-id:<short>` (telepathy-
+    // restored after restart). Match on either, taking 24-char prefix
+    // when comparing against recalled-id.
     function _projectEngagement(items) {
       if (!Array.isArray(items) || items.length === 0) return items;
       const skipIds = new Set();
-      const engagedBodies = new Map();  // body string → kind ("more"|"less")
+      const engagementByCardId = new Map();  // lake_id_short → kind
 
       for (const it of items) {
         const tags = (it && it.tags) || [];
-        if (tags.includes('feed-engagement')) {
-          skipIds.add(it.id);
-          continue;
+        if (!tags.includes('feed-engagement')) continue;
+        // Engagement markers don't render — they modify the card.
+        skipIds.add(it.id);
+        let kind = null;
+        let target = '';
+        for (const t of tags) {
+          if (typeof t !== 'string') continue;
+          if (t.startsWith('engagement:')) kind = t.slice('engagement:'.length);
+          else if (t.startsWith('engages:')) target = t.slice('engages:'.length);
         }
-        if (tags.includes('promoted-from-puddle') && tags.includes('feed-card')) {
-          let kind = null;
-          for (const t of tags) {
-            if (typeof t === 'string' && t.startsWith('engagement:')) {
-              kind = t.slice('engagement:'.length);
-              break;
-            }
-          }
-          if (!kind) continue;
-          // The promoted half: stamp its own engagement state, record
-          // its body so we can suppress the un-engaged twin below.
-          it.engagement = kind;
-          const body = (it.body || '').trim();
-          if (body) engagedBodies.set(body, kind);
-        }
+        if (kind && target) engagementByCardId.set(target.slice(0, 24), kind);
       }
 
-      // Suppress un-engaged twins of any engaged card by body match.
       for (const it of items) {
         if (skipIds.has(it.id)) continue;
         const tags = (it && it.tags) || [];
         if (!tags.includes('feed-card')) continue;
-        if (tags.includes('promoted-from-puddle')) continue;
-        const body = (it.body || '').trim();
-        if (body && engagedBodies.has(body)) skipIds.add(it.id);
+        let cardShort = '';
+        for (const t of tags) {
+          if (typeof t !== 'string') continue;
+          if (t.startsWith('lake-id:')) {
+            cardShort = t.slice('lake-id:'.length).slice(0, 24);
+            break;
+          }
+          if (t.startsWith('recalled-id:')) {
+            cardShort = t.slice('recalled-id:'.length).slice(0, 24);
+          }
+        }
+        if (cardShort && engagementByCardId.has(cardShort)) {
+          it.engagement = engagementByCardId.get(cardShort);
+        }
       }
 
       return items.filter(it => !skipIds.has(it.id));

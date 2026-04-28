@@ -454,17 +454,21 @@ class EngageRequest(BaseModel):
 
 @router.post("/v1/puddle/cards/{card_id}/engage")
 async def engage_card(card_id: str, req: EngageRequest) -> dict:
-    """Authoring event: write a durable `feed-card` delta capturing this
-    engagement (more / less / chat) and any addressed seeds.
+    """Author an engagement delta pointing at the card.
 
-    Witness output already lives in the lake from the moment it's
-    written — TTL'd by default, or auto-authored when the judge axes
-    pass. This endpoint records the user's authoring act as a fresh
-    durable delta tagged `engagement:<kind>` + `source-card:<id>`.
-    The originally-TTL'd witness card expires on its own clock; the
-    engagement delta is the authored memory. No mutation of the
-    original — authoring is a new act in time, not a retroactive
-    edit of the observation.
+    Engagement is its own shape — a `feed-engagement` delta with an
+    `engages:<lake_id>` pointer to the card it modifies (matching the
+    generalized engagement-as-delta vocabulary documented in
+    docs/reference/feed-spec.md and reserved-tags-spec.md). The card
+    itself is not duplicated. The dashboard renders the engagement
+    state by projecting these markers onto their target cards: card
+    + engagement = a card with state, never two cards.
+
+    Dual-write to lake + puddle so the dashboard's puddle watcher sees
+    the engagement immediately, without waiting for telepathy's next
+    5-minute tick. The puddle copy carries lake-id + recalled-id back-
+    references so telepathy correctly dedupes when it later mirrors
+    the lake delta.
     """
     kind = req.kind.strip().lower()
     if kind not in ("more", "less", "chat"):
@@ -482,69 +486,27 @@ async def engage_card(card_id: str, req: EngageRequest) -> dict:
     except Exception:
         payload = {"body": card.get("content") or ""}
 
-    # Resurrect the route from the puddle card's tags so the durable
-    # feed-card carries the same routing intent (chat-reply / drift /
-    # bridging / reflection / alert).
-    route = "chat-reply"
+    # The card's lake-id tag is what we'll point at via `engages:`.
+    # That's stable across telepathy round-trips: a freshly-written
+    # puddle card has `lake-id:<full>`, and a telepathy-restored card
+    # has `recalled-id:<short>` (which the frontend matches by prefix).
+    card_lake_id = ""
     for t in card.get("tags") or []:
-        if t.startswith("route:"):
-            route = t.split(":", 1)[1]
+        if t.startswith("lake-id:"):
+            card_lake_id = t.split(":", 1)[1]
             break
 
-    # Dual-write the engagement-promoted feed-card to BOTH lake and
-    # puddle. Lake is the durable record (no TTL — engagement IS the
-    # persistence signal). The puddle write makes the engagement
-    # immediately visible to the dashboard's puddle watcher without
-    # waiting for telepathy's next 5-minute tick — same pattern as
-    # Phase 1 witness output. The puddle copy carries lake-id +
-    # recalled-id back-references so telepathy correctly dedupes
-    # when it eventually mirrors the lake delta.
-    durable_tags = [
-        "feed-card",
-        "promoted-from-puddle",
-        f"route:{route}",
-        f"engagement:{kind}",
-        f"source-card:{card_id}",
-    ]
-    durable_content = json.dumps(payload, ensure_ascii=False)
-    promoted = await delta_client.write(
-        content=durable_content,
-        tags=durable_tags,
-        source="loop-engagement",
-    )
-    promoted_id = (
-        promoted.get("id")
-        if isinstance(promoted, dict)
-        else (promoted if isinstance(promoted, str) else "")
-    )
-
-    puddle_tags = [
-        CONVO_TAG,
-        "feed-card",
-        "promoted-from-puddle",
-        f"route:{route}",
-        f"engagement:{kind}",
-        f"source-card:{card_id}",
-    ]
-    if promoted_id:
-        puddle_tags.append(f"lake-id:{promoted_id}")
-        puddle_tags.append(f"recalled-id:{promoted_id[:24]}")
-    await puddle.write(
-        content=durable_content,
-        tags=puddle_tags,
-        source="loop-engagement",
-        ttl_seconds=Q_A_TTL_S,
-    )
-
-    # Engagement marker — mirrored shape that confidence-scoring and
-    # crystal regen pick up. Also dual-written so the puddle has it.
+    # Engagement marker — short content for context, the full pointer
+    # carried by the `engages:` tag. via:loop preserves the legacy
+    # confidence-scoring/crystal-regen signal shape.
     marker_content = (payload.get("body") or "")[:200]
     marker_tags = [
         "feed-engagement",
         f"engagement:{kind}",
-        f"card:{promoted_id}" if promoted_id else "card:unknown",
         "via:loop",
     ]
+    if card_lake_id:
+        marker_tags.append(f"engages:{card_lake_id}")
     marker = await delta_client.write(
         content=marker_content,
         tags=marker_tags,
@@ -566,48 +528,10 @@ async def engage_card(card_id: str, req: EngageRequest) -> dict:
         ttl_seconds=Q_A_TTL_S,
     )
 
-    # Promote the addressed seeds to the lake too — engaging the reply
-    # means "this thread mattered." Without this, the seed TTLs out of
-    # the puddle and the durable record shows an answer with no question.
-    # Each addressed intent that's still alive in the puddle gets a
-    # paired durable lake delta tagged `promoted-from-puddle` +
-    # `kind:question` + `paired-with:<promoted_card_id>`.
-    promoted_seed_ids: list[str] = []
-    addressed = [
-        t.split(":", 1)[1]
-        for t in card.get("tags") or []
-        if t.startswith("addresses:")
-    ]
-    for intent_id in addressed:
-        intent = puddle.get(intent_id)
-        if intent is None:
-            continue  # already TTL'd; nothing to promote
-        seed_tags = [
-            "user-seed",
-            "promoted-from-puddle",
-            "kind:question",
-            f"source-intent:{intent_id}",
-        ]
-        if promoted_id:
-            seed_tags.append(f"paired-with:{promoted_id}")
-        promoted_seed = await delta_client.write(
-            content=intent.get("content") or "",
-            tags=seed_tags,
-            source="loop-engagement",
-        )
-        seed_promoted_id = (
-            promoted_seed.get("id")
-            if isinstance(promoted_seed, dict)
-            else (promoted_seed if isinstance(promoted_seed, str) else "")
-        )
-        if seed_promoted_id:
-            promoted_seed_ids.append(seed_promoted_id)
-
     return {
         "ok": True,
-        "promoted_card_id": promoted_id,
-        "promoted_seed_ids": promoted_seed_ids,
-        "route": route,
+        "marker_id": marker_id,
+        "engages": card_lake_id,
         "kind": kind,
     }
 
