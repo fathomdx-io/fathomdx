@@ -315,6 +315,42 @@ def get_stats() -> dict:
     return puddle.stats()
 
 
+@router.get("/v1/puddle/metrics")
+def get_metrics(per_voice: int = 8) -> dict:
+    """Recent cross-voice convergence samples per voice.
+
+    Drives the dashboard's convergence dots — each dot's x-position
+    tracks (1 - distance) of the latest sample for that voice. Returns
+    a dict keyed by voice name; each value is a list of {timestamp,
+    distance} sorted oldest-first so the renderer can take the tail.
+    """
+    raw = puddle.query(tags_include=[CONVO_TAG, "metric"], limit=200)
+    by_voice: dict[str, list[dict]] = {}
+    for d in raw:
+        voice = next(
+            (t.split(":", 1)[1] for t in (d.get("tags") or []) if t.startswith("voice:")),
+            None,
+        )
+        if not voice:
+            continue
+        try:
+            payload = json.loads(d.get("content") or "{}")
+        except Exception:
+            continue
+        dist = payload.get("distance")
+        if not isinstance(dist, (int, float)):
+            continue
+        by_voice.setdefault(voice, []).append({
+            "timestamp": d.get("timestamp"),
+            "distance": float(dist),
+        })
+    out: dict[str, list[dict]] = {}
+    for voice, samples in by_voice.items():
+        samples.sort(key=lambda s: s.get("timestamp") or "")
+        out[voice] = samples[-per_voice:]
+    return {"voices": out}
+
+
 @router.get("/v1/puddle/deltas")
 def get_deltas(
     tags_include: list[str] | None = None,

@@ -8966,14 +8966,74 @@ GET  /v1/usage               Usage stats`,
       return det;
     }
 
+    // Merge a single node into the topmost feed child if it shares
+    // a clusterable kind. Three cases:
+    //   * top is .accordion[data-kind=X] → prepend node into its body,
+    //     bump the count summary
+    //   * top is .delta[data-kind=X] → convert into a 2-item accordion
+    //     containing the new node (newest) + the existing one (older)
+    //   * otherwise → just insert at the top of the feed
+    // Used by _renderItemsClustered's prepend mode so items arriving
+    // one-at-a-time via the live-poll still cluster with what's
+    // already on screen instead of stacking as separate rows.
+    function _mergeOrPrependNode(node, kind) {
+      if (!_CLUSTERABLE_KINDS.has(kind)) {
+        feed.insertBefore(node, feed.firstChild);
+        return;
+      }
+      const top = feed.firstChild;
+      if (top && top.classList && top.classList.contains('accordion') && top.dataset.kind === kind) {
+        const body = top.querySelector('.accordion-body');
+        if (body) {
+          body.insertBefore(node, body.firstChild);
+          const stats = top.querySelector('.accordion-stats');
+          if (stats) stats.textContent = String(body.children.length);
+          return;
+        }
+      }
+      if (top && top.classList && top.classList.contains('delta') && top.dataset.kind === kind) {
+        feed.removeChild(top);
+        const det = document.createElement('details');
+        det.className = 'accordion';
+        det.dataset.kind = kind;
+        const labelText = (typeof _kindLabel === 'function') ? _kindLabel(kind) : kind;
+        const summary = document.createElement('summary');
+        summary.innerHTML = `<span class="accordion-label">${_esc(labelText)}</span><span class="accordion-stats">2</span>`;
+        const body = document.createElement('div');
+        body.className = 'accordion-body';
+        body.appendChild(node);  // newest goes first
+        body.appendChild(top);   // older below
+        det.appendChild(summary);
+        det.appendChild(body);
+        feed.insertBefore(det, feed.firstChild);
+        return;
+      }
+      feed.insertBefore(node, feed.firstChild);
+    }
+
     function _renderItemsClustered(items, mode) {
-      // Walk items (assumed newest-first) and produce a list of feed
-      // nodes — accordions for runs of 2+ same-kind clusterable items,
-      // inline rows for everything else. `mode` is 'append' (initial
-      // load + Show-more, items go to the bottom) or 'prepend' (live-
-      // poll, items go to the top, oldest-of-batch first so the
-      // newest ends up at index 0).
-      const nodes = [];
+      // For 'append' (initial load + Show-more): cluster runs of 2+
+      // same-kind items inside the batch into accordions, mount each
+      // as a single bottom-append. For 'prepend' (live-poll): walk
+      // items oldest→newest, render each as an individual node, and
+      // call _mergeOrPrependNode so each new item folds into the
+      // existing top accordion / .delta of the same kind. The merge
+      // handles batch-internal clustering automatically: an arriving
+      // pair of same-kind items merges into a single accordion as the
+      // second one prepends.
+      if (mode === 'prepend') {
+        // Walk OLDEST → NEWEST so the final DOM order has newest at top.
+        for (let i = items.length - 1; i >= 0; i--) {
+          const it = items[i];
+          if (!it || !it.id || _renderedFeedIds.has(it.id)) continue;
+          _renderedFeedIds.add(it.id);
+          const node = _renderPuddleItem(it, 0);
+          if (node) _mergeOrPrependNode(node, it.kind);
+        }
+        return;
+      }
+
+      // Append mode — batch-cluster runs and mount at the bottom.
       let i = 0;
       let delayIdx = 0;
       while (i < items.length) {
@@ -8993,26 +9053,19 @@ GET  /v1/usage               Usage stats`,
             j++;
           }
           if (run.length >= 2) {
-            nodes.push(_renderAccordion(run));
+            feed.appendChild(_renderAccordion(run));
           } else {
             _renderedFeedIds.add(it.id);
             const node = _renderPuddleItem(it, (delayIdx++) * 0.06);
-            if (node) nodes.push(node);
+            if (node) feed.appendChild(node);
           }
           i = j;
         } else {
           _renderedFeedIds.add(it.id);
           const node = _renderPuddleItem(it, (delayIdx++) * 0.06);
-          if (node) nodes.push(node);
+          if (node) feed.appendChild(node);
           i++;
         }
-      }
-      if (mode === 'prepend') {
-        for (let k = nodes.length - 1; k >= 0; k--) {
-          feed.insertBefore(nodes[k], feed.firstChild);
-        }
-      } else {
-        for (const n of nodes) feed.appendChild(n);
       }
     }
 
@@ -9367,6 +9420,11 @@ GET  /v1/usage               Usage stats`,
     let _convOscRafId = null;
     let _convInEllipsisMode = false;
 
+    // Per-voice metric series — populated by _pollLoopStatus. Each
+    // entry is {timestamp, distance}; the latest distance drives the
+    // dot's x-position. Empty → pure sine fallback (the spike state).
+    const _metricByVoice = { creator: [], preserver: [], destroyer: [] };
+
     function _convAnimate() {
       if (!_convBars || _convBars.hidden || _convInEllipsisMode) {
         _convOscRafId = null;
@@ -9375,7 +9433,24 @@ GET  /v1/usage               Usage stats`,
       const t = Date.now() / 1000;
       const voices = ['creator', 'preserver', 'destroyer'];
       voices.forEach((voice, i) => {
-        const x = CONV_BAR_RANGE / 2 + (CONV_BAR_RANGE / 2 - 4) * Math.sin(t * 1.2 + i * 2.1);
+        const series = _metricByVoice[voice];
+        let x;
+        if (series && series.length) {
+          // Real metric data — x = (1 - distance) * range + small wobble
+          // so the dot reads as alive rather than frozen at one position.
+          // Lower distance → voices saying overlapping things → dots
+          // cluster left. Higher distance → distinct stances → dots
+          // spread. mix-blend-mode:screen makes overlapping dots
+          // additively combine to white at convergence.
+          const latest = series[series.length - 1];
+          const sim = Math.max(0, Math.min(1, 1 - (latest.distance || 0)));
+          x = sim * CONV_BAR_RANGE + 4 * Math.sin(t * 1.5 + i * 2);
+        } else {
+          // No metric yet — pure sine over the bar range so the dot
+          // moves visibly. Each voice on its own phase so they don't
+          // unison-march.
+          x = CONV_BAR_RANGE / 2 + (CONV_BAR_RANGE / 2 - 4) * Math.sin(t * 1.2 + i * 2.1);
+        }
         const bar = _convBars.querySelector(`.conv-bar.voice-${voice}`);
         if (bar) bar.style.transform = `translateX(${x.toFixed(1)}px)`;
       });
@@ -9422,27 +9497,41 @@ GET  /v1/usage               Usage stats`,
     let _convLastPending = -1;
     async function _pollLoopStatus() {
       try {
-        const r = await fetch(API_BASE + '/v1/puddle/intents', { headers: authHeaders() });
-        if (!r.ok) return;
-        const data = await r.json();
-        const pending = (data.intents || []).length;
-        if (pending > 0) {
-          if (_convLastPending !== pending || _convBars.hidden) {
-            _convShowDeliberating();
-          }
-          _convSettleHideAt = 0;
-        } else {
-          // Just transitioned from pending → idle: settle to ellipsis,
-          // keep visible briefly, then fade.
-          if (_convLastPending > 0) {
-            _convSettleToEllipsis();
-            _convSettleHideAt = Date.now() + 6000;
-          } else if (_convSettleHideAt && Date.now() >= _convSettleHideAt) {
-            _convHide();
+        // Two reads: pending intents drive show/settle/hide; metrics
+        // drive the dot positions. One Promise.all so they refresh in
+        // lockstep at the 1.5s status cadence.
+        const [intentsR, metricsR] = await Promise.all([
+          fetch(API_BASE + '/v1/puddle/intents', { headers: authHeaders() }),
+          fetch(API_BASE + '/v1/puddle/metrics', { headers: authHeaders() }),
+        ]);
+        if (intentsR.ok) {
+          const data = await intentsR.json();
+          const pending = (data.intents || []).length;
+          if (pending > 0) {
+            if (_convLastPending !== pending || _convBars.hidden) {
+              _convShowDeliberating();
+            }
             _convSettleHideAt = 0;
+          } else {
+            // Just transitioned from pending → idle: settle to
+            // ellipsis, keep visible briefly, then fade.
+            if (_convLastPending > 0) {
+              _convSettleToEllipsis();
+              _convSettleHideAt = Date.now() + 6000;
+            } else if (_convSettleHideAt && Date.now() >= _convSettleHideAt) {
+              _convHide();
+              _convSettleHideAt = 0;
+            }
+          }
+          _convLastPending = pending;
+        }
+        if (metricsR.ok) {
+          const m = await metricsR.json();
+          const voices = (m && m.voices) || {};
+          for (const v of ['creator', 'preserver', 'destroyer']) {
+            _metricByVoice[v] = voices[v] || [];
           }
         }
-        _convLastPending = pending;
       } catch (e) { /* best-effort */ }
     }
     function _startFeedStatusPoll() {

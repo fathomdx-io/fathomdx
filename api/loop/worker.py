@@ -18,6 +18,12 @@ import time
 import uuid
 
 from .intents import pending_intents
+from .metric import (
+    SETTLE_WINDOW,
+    emit_metric,
+    measure_cross_voice_convergence,
+    settle_window_check,
+)
 from .pressure import pressure_watcher
 from .process import run_process
 from .prompts import VOICES
@@ -27,12 +33,14 @@ from .vampire import vampire_loop
 from .witness import run_witness
 
 
-# Tick budget — how many voice rounds (one tick per voice) before
-# witness fires. v1 uses one full rotation (3 ticks) so the parliament
-# touches the question once each before integrating. Tunable; the
-# experiment runs many more rotations with settle detection deciding
-# when to stop.
-ROUNDS_PER_FIRE = 1
+# Maximum parliament rounds per fire. With settle detection in place
+# the loop usually exits earlier — voices converge in 2-4 rounds when
+# they're going to converge at all, and the witness fires the moment
+# the rolling cross-voice spread tightens below SETTLE_SPREAD_MAX.
+# MAX_ROUNDS is a safety cap so a deadlocked parliament can't run
+# forever; the witness still fires after it (with a "did not settle"
+# descriptor in the prompt) so an unresolved tension gets named honestly.
+MAX_ROUNDS_PER_FIRE = 8
 
 # Idle sleep — when there's nothing pending, how long to wait before
 # polling again. Short enough that a freshly-seeded intent fires within
@@ -84,30 +92,81 @@ async def _run_one_fire() -> bool:
     session_tag = f"session:{uuid.uuid4().hex[:12]}"
     print(f"[loop fire] {session_tag} pending={len(pending)}")
 
-    for round_idx in range(ROUNDS_PER_FIRE):
-        for voice in VOICES:
-            pid = f"{round_idx}-{voice['name']}-{uuid.uuid4().hex[:6]}"
+    convergence_samples: list[float] = []
+    settled = False
+    settle_level: float | None = None
+    rounds_run = 0
+
+    for round_idx in range(MAX_ROUNDS_PER_FIRE):
+        rounds_run = round_idx + 1
+        # Fire all voices + recall in parallel for this round. Each
+        # voice reads the puddle as it stands at round-start (the prior
+        # round's takes plus any vampire-tap mirrors), composes its
+        # thought, and writes back. Recall reads the latest pre-round
+        # voice thought (or the seed on round 0) and pulls hits in
+        # parallel — so by the time witness fires, the substrate has
+        # been enriched by both voices and recall together.
+        voice_coros = [
+            run_process(
+                pid=f"{round_idx}-{v['name']}-{uuid.uuid4().hex[:6]}",
+                session_tag=session_tag,
+                voice=v,
+                pending=pending,
+            )
+            for v in VOICES
+        ]
+        recall_coro = run_searcher_tick(
+            session_tag=session_tag,
+            event_id=f"{session_tag.split(':', 1)[1]}-r{round_idx}",
+        )
+        results = await asyncio.gather(*voice_coros, recall_coro, return_exceptions=True)
+
+        # Map results back to voices for the convergence sample. Recall
+        # is the trailing element (None on success, ignored otherwise).
+        voice_thoughts: list[tuple[str, str]] = []
+        for v, res in zip(VOICES, results[:-1]):
+            if isinstance(res, Exception):
+                print(f"[loop fire] {v['name']} crashed: {type(res).__name__}: {res}")
+                continue
+            voice_thoughts.append((v["name"], res or ""))
+        recall_res = results[-1]
+        if isinstance(recall_res, Exception):
+            print(f"[loop fire] searcher crashed: {type(recall_res).__name__}: {recall_res}")
+
+        # Per-voice convergence sample — measured against the OTHER
+        # voices' takes (now that all three are written for this round
+        # the comparison set is complete). Append samples in order so
+        # the rolling window's spread reflects this round's spread.
+        for voice_name, text in voice_thoughts:
+            d = measure_cross_voice_convergence(
+                text=text,
+                voice_name=voice_name,
+                session_tag=session_tag,
+            )
+            if d is None:
+                continue
+            convergence_samples.append(d)
             try:
-                await run_process(
-                    pid=pid,
+                await emit_metric(
                     session_tag=session_tag,
-                    voice=voice,
-                    pending=pending,
+                    voice_name=voice_name,
+                    distance=d,
                 )
             except Exception as e:
-                print(f"[loop fire] process {pid} crashed: {type(e).__name__}: {e}")
+                print(f"[metric] emit crashed: {type(e).__name__}: {e}")
 
-    # Searcher tick — compose a recall query against the latest voice
-    # thought, write hits into the puddle as `recall-result` deltas the
-    # witness can read on its anchors-block pass. Soft-fails: a search
-    # hiccup never blocks the witness.
-    try:
-        await run_searcher_tick(
-            session_tag=session_tag,
-            event_id=session_tag.split(":", 1)[1],
-        )
-    except Exception as e:
-        print(f"[loop fire] searcher crashed: {type(e).__name__}: {e}")
+        # Settle check — exits the deliberation loop when the last
+        # SETTLE_WINDOW samples span less than SETTLE_SPREAD_MAX.
+        ok, level = settle_window_check(convergence_samples)
+        if ok:
+            settled = True
+            settle_level = level
+            break
+
+    if settled:
+        print(f"[loop fire] settled after {rounds_run} round(s) at level {settle_level:.2f}")
+    else:
+        print(f"[loop fire] did NOT settle after {rounds_run} round(s) (cap)")
 
     try:
         await run_witness(session_tag=session_tag, pending=pending)
