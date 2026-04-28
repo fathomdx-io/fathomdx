@@ -268,17 +268,26 @@
        feed-orient crystal. Subtle on rest, lift on hover, persist on press.
        The card's data-engaged attribute records the last kind ("more" or
        "less") so a reopen of the page reflects what was already said. */
-    .card .tail .engagement-spacer { flex: 1; }
-    .card .tail .engagement-btn {
+    /* Engagement rail — same shell whether it's hung off a feed card,
+       a fathom-message, or anything else. The selectors are scoped to
+       any descendant of .card or .msg so the loop's chat-replies and
+       cards both pick up the styling without inventing a parallel. */
+    .card .tail .engagement-spacer,
+    .msg .tail .engagement-spacer { flex: 1; }
+    .card .tail .engagement-btn,
+    .msg .tail .engagement-btn {
       font-family: var(--mono); font-size: 13px; line-height: 1;
       padding: 2px 8px; border-radius: 12px;
       border: 1px solid var(--rule); background: transparent;
       color: var(--ink-faint); cursor: pointer;
       transition: color 120ms ease, border-color 120ms ease, background 120ms ease;
     }
-    .card .tail .engagement-btn:hover { color: var(--ink); border-color: var(--ink-faint); }
+    .card .tail .engagement-btn:hover,
+    .msg .tail .engagement-btn:hover { color: var(--ink); border-color: var(--ink-faint); }
     .card[data-engaged="more"] .engagement-btn[data-kind="more"],
-    .card[data-engaged="less"] .engagement-btn[data-kind="less"] {
+    .card[data-engaged="less"] .engagement-btn[data-kind="less"],
+    .msg[data-engaged="more"] .engagement-btn[data-kind="more"],
+    .msg[data-engaged="less"] .engagement-btn[data-kind="less"] {
       color: var(--bg, #1a1a1a); background: var(--signal); border-color: var(--signal);
     }
     /* Feed filter — a click-to-open dropdown panel of checkboxes for
@@ -1026,7 +1035,7 @@
     /* ── Sidebar ───────────────────────────── */
     .sidebar {
       position: fixed; top: 0; left: 0; bottom: 0;
-      width: 280px;
+      width: 360px;
       background: var(--bg-deep);
       border-right: 1px solid var(--rule-soft);
       display: flex; flex-direction: column;
@@ -1034,6 +1043,31 @@
       transform: translateX(-100%);
       transition: transform 280ms cubic-bezier(0.4, 0, 0.2, 1);
     }
+    /* Sections inside the sidebar — Reach me / Sources / Helpers / Stats
+       moved here from the main view. Tighter spacing than in the main
+       view since the column is narrower; the .section h2 / .ecg-head h2
+       size also drops a notch to fit. */
+    .sidebar-body .section,
+    .sidebar-body .ecg-section {
+      padding: 14px 14px 18px;
+      border-bottom: 1px solid var(--rule-soft);
+    }
+    .sidebar-body .section:last-child,
+    .sidebar-body .ecg-section:last-child { border-bottom: 0; }
+    .sidebar-body .section-head h2,
+    .sidebar-body .ecg-head h2 {
+      font-family: var(--serif); font-weight: 400;
+      font-size: 18px; margin: 0 0 4px;
+    }
+    .sidebar-body .section-head .meta,
+    .sidebar-body .ecg-head .meta {
+      font-family: var(--mono); font-size: 10.5px;
+    }
+    .sidebar-body .section-head { margin-bottom: 12px; }
+    /* ECG legend in sidebar — single column, smaller text */
+    .sidebar-body .ecg-legend { font-size: 12px; }
+    .sidebar-body .ecg-controls { gap: 6px; }
+    .sidebar-body .ecg-window-select { font-size: 11px; padding: 2px 6px; }
     .sidebar.open { transform: translateX(0); }
 
     .sidebar-head { padding: 14px 14px 10px; }
@@ -2190,7 +2224,8 @@
     body.config-missing main > *:not(#configWarning) { display: none !important; }
     body.config-missing .view:not(#viewMain) { display: none !important; }
     body.config-missing .composer-wrap { display: none !important; }
-    body.config-missing #jumpToTechBtn { display: none !important; }
+    /* (jumpToTechBtn was removed; rule kept as comment for breadcrumb)
+       body.config-missing #jumpToTechBtn { display: none !important; } */
     body.config-missing #sidebarToggleBtn { display: none !important; }
 
     /* Config warning — shown at the top of main when the LLM provider
@@ -2557,26 +2592,157 @@
           <svg class="ic-sun" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"/></svg>
         </button>
       </div>
-      <!-- Sessions list + new-session button + claude-code filter were
-           the legacy chat-session surface. Cutover hid them: the loop
-           drops seeds via the composer at the bottom, no per-session
-           threading anymore. The DOM stays so any code still reaching
-           into these IDs short-circuits cleanly. -->
-      <button class="new-session-btn" type="button" hidden>
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
-        <span>New session</span>
-      </button>
-      <label class="sidebar-filter" id="showClaudeCodeFilter" hidden>
-        <span>Show claude-code</span>
-        <span class="switch">
-          <input type="checkbox" id="showClaudeCodeToggle">
-          <span class="slider"></span>
-        </span>
-      </label>
     </div>
-    <div class="sidebar-body" hidden>
-      <!-- Populated dynamically from GET /v1/sessions (legacy — hidden
-           after the Grand Loop cutover) -->
+    <div class="sidebar-body" id="sidebarBody"><!--
+      Sidebar body holds the dashboard's "deeper" surfaces — Reach me,
+      Sources, Helpers, Stats — moved here from the main view in the
+      Grand Loop cutover. The main view is now feed-only (composer +
+      cards). Account row stays affixed at the bottom in .sidebar-foot.
+      The legacy session list is gone; loadSessions() is a no-op stub.
+    -->
+      <!-- ── Reach me from anywhere ───────────────── -->
+      <section class="section" id="reachSection">
+        <div class="section-head">
+          <h2>Reach me from anywhere</h2>
+          <span class="meta">one mind, all surfaces</span>
+        </div>
+        <div class="extend-grid">
+          <div class="extend" data-surface="mcp-and-hooks">
+            <span class="extend-icon">⌘</span>
+            <div class="extend-text"><span class="label">MCP &amp; Hooks</span><span class="sub">npx fathom-connect</span></div>
+          </div>
+          <div class="extend" data-surface="cli">
+            <span class="extend-icon">▸</span>
+            <div class="extend-text"><span class="label">CLI</span><span class="sub">npx fathom-delta-cli</span></div>
+          </div>
+          <div class="extend" data-surface="browser">
+            <span class="extend-icon">◎</span>
+            <div class="extend-text"><span class="label">Browser extension</span><span class="sub">load unpacked</span></div>
+          </div>
+          <div class="extend" data-surface="api">
+            <span class="extend-icon">⟡</span>
+            <div class="extend-text"><span class="label">API</span><span class="sub">OpenAI-compatible</span></div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ── Sources ───────────────────────────────── -->
+      <section class="section">
+        <div class="section-head">
+          <h2>Sources</h2>
+          <span class="meta"></span>
+        </div>
+        <div class="sources" id="sourcesList">
+          <button class="chip add" id="addSourceBtn" type="button">+ Add source</button>
+        </div>
+      </section>
+
+      <!-- ── Helpers (agent + routines) ────────────── -->
+      <section class="section" id="agentSection">
+        <div class="section-head">
+          <h2>Helpers</h2>
+          <span class="meta" id="agentMeta">loading…</span>
+        </div>
+        <div id="agentBody"><!-- populated by renderAgentSection() --></div>
+      </section>
+
+      <!-- ── Stats ─────────────────────────────────── -->
+      <section class="ecg-section" id="statsSection">
+        <div class="ecg-head">
+          <h2>Stats</h2>
+          <div class="ecg-controls">
+            <select id="ecgWindow" class="ecg-window-select">
+              <option value="all">All Time</option>
+              <option value="6mo">6 Months</option>
+              <option value="30d">30 days</option>
+              <option value="10d">10 days</option>
+              <option value="1w" selected>1 week</option>
+              <option value="3d">3 days</option>
+              <option value="1d">1 day</option>
+              <option value="6h">6 hours</option>
+            </select>
+            <span class="meta" id="ecgMeta">loading…</span>
+          </div>
+        </div>
+        <div class="stat-card">
+          <h3 class="stat-card-title">Usage</h3>
+          <div class="ecg-chart">
+            <svg id="svgActivity" width="100%" height="170" preserveAspectRatio="none"></svg>
+          </div>
+          <ul class="ecg-legend">
+            <li class="legend-item">
+              <span class="legend-key"><span class="dot" style="background:#6aa6ff;"></span>Usage In</span>
+              <span class="legend-desc">Moments arriving over time — captures into Fathom from sources, conversations, and tools.</span>
+            </li>
+            <li class="legend-item">
+              <span class="legend-key"><span class="dot" style="background:#7fcca0;"></span>Usage Out</span>
+              <span class="legend-desc">Moments being retrieved — Fathom actively recalling pieces of what it's stored, in conversation or response to a question.</span>
+            </li>
+          </ul>
+        </div>
+
+        <div class="stat-card">
+          <h3 class="stat-card-title">Weather</h3>
+          <div class="ecg-chart">
+            <svg id="svgPressureMood" width="100%" height="200" preserveAspectRatio="none"></svg>
+          </div>
+          <ul class="ecg-legend">
+            <li class="legend-item">
+              <span class="legend-key"><span class="dot" style="background:#f0a060;"></span>Pressure</span>
+              <span class="legend-desc">What's been building up since the last check-in. That feeling when there's too much you haven't sat with yet.</span>
+            </li>
+            <li class="legend-item">
+              <span class="legend-key"><span class="dot" style="background:#b08cff;"></span>Mood</span>
+              <span class="legend-desc">The weather of the moment. Each colored segment starts when Fathom checks in with itself — the same instant pressure resets to zero. Mood drives the drop you see in the orange line above.</span>
+            </li>
+            <li class="legend-item">
+              <span class="legend-key"><span class="ev" style="color:#b08cff;">✺</span>Feed regen</span>
+              <span class="legend-desc">A moment where the feed sat with everything that had built up and rewrote itself. Like the mood check-in, but for what's worth surfacing as cards.</span>
+            </li>
+          </ul>
+        </div>
+
+        <div class="stat-card">
+          <h3 class="stat-card-title">Identity</h3>
+          <div class="ecg-chart">
+            <svg id="svgDrift" width="100%" height="160" preserveAspectRatio="none"></svg>
+          </div>
+          <ul class="ecg-legend">
+            <li class="legend-item">
+              <span class="legend-key"><span class="dot" style="background:#7fcca0;"></span>Drift</span>
+              <span class="legend-desc">How far Fathom's mind has wandered from the way it currently describes itself. The dashed line marks the regeneration threshold — a fresh identity crystal pulls drift back to center.</span>
+            </li>
+            <li class="legend-item">
+              <span class="legend-key"><span class="ev crystal">◆</span>Identity Crystal Regeneration</span>
+              <span class="legend-desc">A moment where Fathom paused, looked at everything, and rewrote its own self-description. Journaling "who am I now?" and meaning it.</span>
+            </li>
+          </ul>
+        </div>
+        <div class="stat-card">
+          <h3 class="stat-card-title">Feed orientation</h3>
+          <div class="ecg-chart">
+            <svg id="svgFeedOrient" width="100%" height="160" preserveAspectRatio="none"></svg>
+          </div>
+          <ul class="ecg-legend">
+            <li class="legend-item">
+              <span class="legend-key"><span class="dot" style="background:#b08cff;"></span>Engagement drift</span>
+              <span class="legend-desc">How far your signals (more, less, chats from cards) have moved since the last feed-orient crystal. Anchored at acceptance — drift reads zero immediately after a fresh crystal.</span>
+            </li>
+            <li class="legend-item">
+              <span class="legend-key"><span class="dot" style="background:#d8b14a;"></span>Confidence</span>
+              <span class="legend-desc">How well the previous crystal predicted your reactions to the cards it generated. Each new crystal is tagged with the score it earned over its lifetime.</span>
+            </li>
+            <li class="legend-item">
+              <span class="legend-key"><span class="ev crystal">◆</span>Feed-orient crystal regeneration</span>
+              <span class="legend-desc">A moment Fathom rewrote its model of "what to put in your feed." Triggered by drift or low confidence, gated by cooldown and a min-signal cold-start guard.</span>
+            </li>
+          </ul>
+        </div>
+        <div class="ecg-cta-row" data-tier-view="free">
+          <button class="btn" id="horizonUnlockBtn">Unlock Fathom</button>
+          <button class="btn ghost" style="margin-left: 8px;">See pricing</button>
+        </div>
+      </section>
     </div>
     <div class="sidebar-foot">
       <button class="account-row" id="accountRowBtn" type="button">
@@ -2605,9 +2771,6 @@
       <button class="stack-version-chip" id="stackVersionChip" type="button" hidden>
         <span class="sha" id="stackVersionSha">—</span>
         <span class="behind" id="stackVersionBehind" hidden></span>
-      </button>
-      <button class="icon-btn" id="jumpToTechBtn" aria-label="Jump to technical section" title="Jump to technical section">
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><circle cx="4" cy="6" r="1"/><circle cx="4" cy="12" r="1"/><circle cx="4" cy="18" r="1"/></svg>
       </button>
       <div class="alerts-wrap">
         <button class="icon-btn alerts-btn" id="alertsBtn" aria-label="Alerts" title="Alerts">
@@ -2675,163 +2838,9 @@
       <button class="show-more-feed" id="showMoreFeed" type="button" style="display:none">Show more</button>
     </section>
 
-    <!-- Extend: how to reach Fathom from elsewhere -->
-    <section class="section scroll-target" id="reachSection">
-      <div class="section-head">
-        <h2>Reach me from anywhere</h2>
-        <span class="meta">one mind, all surfaces</span>
-      </div>
-      <div class="extend-grid">
-        <div class="extend" data-surface="mcp-and-hooks">
-          <span class="extend-icon">⌘</span>
-          <div class="extend-text"><span class="label">MCP &amp; Hooks</span><span class="sub">npx fathom-connect</span></div>
-        </div>
-        <div class="extend" data-surface="cli">
-          <span class="extend-icon">▸</span>
-          <div class="extend-text"><span class="label">CLI</span><span class="sub">npx fathom-delta-cli</span></div>
-        </div>
-        <div class="extend" data-surface="browser">
-          <span class="extend-icon">◎</span>
-          <div class="extend-text"><span class="label">Browser extension</span><span class="sub">load unpacked</span></div>
-        </div>
-        <div class="extend" data-surface="api">
-          <span class="extend-icon">⟡</span>
-          <div class="extend-text"><span class="label">API</span><span class="sub">OpenAI-compatible</span></div>
-        </div>
-      </div>
-    </section>
-
-    <!-- Sources -->
-    <section class="section">
-      <div class="section-head">
-        <h2>Sources</h2>
-        <span class="meta"></span>
-      </div>
-      <div class="sources" id="sourcesList">
-        <!-- Populated by loadSources() + renderAgentSources(). Agent chips
-             get appended here with a flex-break so they wrap to their own
-             line visually, but they're part of the same chip flow. -->
-        <button class="chip add" id="addSourceBtn" type="button">+ Add source</button>
-      </div>
-    </section>
-
-    <!-- Routines — scheduled prompts that fire into local claude sessions.
-         Hidden entirely when no agent is connected (the Agent section's
-         install callout covers the "unlock this" messaging).
-
-         Rendered as a timeline: chips sorted by next_fire_at ascending, so
-         the chip in the top-left is the next routine that will fire. The
-         secondary text on each chip is a countdown ("in 23m"). Tap a chip
-         to open the routine detail view, same shape as the source detail. -->
-    <!-- Agent — the local runtime. Shows a connected status when alive,
-         or an install callout (snazzy) when not. Routines live inside
-         this section because they're inherently agent-scoped: they fire
-         into claude sessions that the local agent spawns. -->
-    <section class="section" id="agentSection">
-      <div class="section-head">
-        <h2>Helpers</h2>
-        <span class="meta" id="agentMeta">loading…</span>
-      </div>
-      <div id="agentBody"><!-- populated by renderAgentSection() --></div>
-    </section>
-
-    <!-- Stats — multi-track time-series of Fathom's state -->
-    <section class="ecg-section" id="statsSection">
-      <div class="ecg-head">
-        <h2>Stats</h2>
-        <div class="ecg-controls">
-          <select id="ecgWindow" class="ecg-window-select">
-            <option value="all">All Time</option>
-            <option value="6mo">6 Months</option>
-            <option value="30d">30 days</option>
-            <option value="10d">10 days</option>
-            <option value="1w" selected>1 week</option>
-            <option value="3d">3 days</option>
-            <option value="1d">1 day</option>
-            <option value="6h">6 hours</option>
-          </select>
-          <span class="meta" id="ecgMeta">loading…</span>
-        </div>
-      </div>
-      <div class="stat-card">
-        <h3 class="stat-card-title">Usage</h3>
-        <div class="ecg-chart">
-          <svg id="svgActivity" width="100%" height="170" preserveAspectRatio="none"></svg>
-        </div>
-        <ul class="ecg-legend">
-          <li class="legend-item">
-            <span class="legend-key"><span class="dot" style="background:#6aa6ff;"></span>Usage In</span>
-            <span class="legend-desc">Moments arriving over time — captures into Fathom from sources, conversations, and tools.</span>
-          </li>
-          <li class="legend-item">
-            <span class="legend-key"><span class="dot" style="background:#7fcca0;"></span>Usage Out</span>
-            <span class="legend-desc">Moments being retrieved — Fathom actively recalling pieces of what it's stored, in conversation or response to a question.</span>
-          </li>
-        </ul>
-      </div>
-
-      <div class="stat-card">
-        <h3 class="stat-card-title">Weather</h3>
-        <div class="ecg-chart">
-          <svg id="svgPressureMood" width="100%" height="200" preserveAspectRatio="none"></svg>
-        </div>
-        <ul class="ecg-legend">
-          <li class="legend-item">
-            <span class="legend-key"><span class="dot" style="background:#f0a060;"></span>Pressure</span>
-            <span class="legend-desc">What's been building up since the last check-in. That feeling when there's too much you haven't sat with yet.</span>
-          </li>
-          <li class="legend-item">
-            <span class="legend-key"><span class="dot" style="background:#b08cff;"></span>Mood</span>
-            <span class="legend-desc">The weather of the moment. Each colored segment starts when Fathom checks in with itself — the same instant pressure resets to zero. Mood drives the drop you see in the orange line above.</span>
-          </li>
-          <li class="legend-item">
-            <span class="legend-key"><span class="ev" style="color:#b08cff;">✺</span>Feed regen</span>
-            <span class="legend-desc">A moment where the feed sat with everything that had built up and rewrote itself. Like the mood check-in, but for what's worth surfacing as cards.</span>
-          </li>
-        </ul>
-      </div>
-
-      <div class="stat-card">
-        <h3 class="stat-card-title">Identity</h3>
-        <div class="ecg-chart">
-          <svg id="svgDrift" width="100%" height="160" preserveAspectRatio="none"></svg>
-        </div>
-        <ul class="ecg-legend">
-          <li class="legend-item">
-            <span class="legend-key"><span class="dot" style="background:#7fcca0;"></span>Drift</span>
-            <span class="legend-desc">How far Fathom's mind has wandered from the way it currently describes itself. The dashed line marks the regeneration threshold — a fresh identity crystal pulls drift back to center.</span>
-          </li>
-          <li class="legend-item">
-            <span class="legend-key"><span class="ev crystal">◆</span>Identity Crystal Regeneration</span>
-            <span class="legend-desc">A moment where Fathom paused, looked at everything, and rewrote its own self-description. Journaling "who am I now?" and meaning it.</span>
-          </li>
-        </ul>
-      </div>
-      <div class="stat-card">
-        <h3 class="stat-card-title">Feed orientation</h3>
-        <div class="ecg-chart">
-          <svg id="svgFeedOrient" width="100%" height="160" preserveAspectRatio="none"></svg>
-        </div>
-        <ul class="ecg-legend">
-          <li class="legend-item">
-            <span class="legend-key"><span class="dot" style="background:#b08cff;"></span>Engagement drift</span>
-            <span class="legend-desc">How far your signals (more, less, chats from cards) have moved since the last feed-orient crystal. Anchored at acceptance — drift reads zero immediately after a fresh crystal.</span>
-          </li>
-          <li class="legend-item">
-            <span class="legend-key"><span class="dot" style="background:#d8b14a;"></span>Confidence</span>
-            <span class="legend-desc">How well the previous crystal predicted your reactions to the cards it generated. Each new crystal is tagged with the score it earned over its lifetime.</span>
-          </li>
-          <li class="legend-item">
-            <span class="legend-key"><span class="ev crystal">◆</span>Feed-orient crystal regeneration</span>
-            <span class="legend-desc">A moment Fathom rewrote its model of "what to put in your feed." Triggered by drift or low confidence, gated by cooldown and a min-signal cold-start guard.</span>
-          </li>
-        </ul>
-      </div>
-      <div class="ecg-cta-row" data-tier-view="free">
-        <button class="btn" id="horizonUnlockBtn">Unlock Fathom</button>
-        <button class="btn ghost" style="margin-left: 8px;">See pricing</button>
-      </div>
-    </section>
+    <!-- Reach me / Sources / Helpers / Stats moved into the sidebar
+         (.sidebar-body) in the Grand Loop cutover. The main view is
+         now feed-only: opener (mood) + filters + .feed + composer. -->
 
   </main>
 
@@ -3687,16 +3696,9 @@
       ta.style.height = Math.min(ta.scrollHeight, 160) + 'px';
     });
 
-    // Jump to technical section — header button that smooth-scrolls to
-    // "Reach me from anywhere". The target section carries a
-    // scroll-margin-top equal to the sticky topbar's height so the
-    // heading lands below the header instead of under it.
-    const jumpTechBtn = document.getElementById('jumpToTechBtn');
-    if (jumpTechBtn) {
-      jumpTechBtn.addEventListener('click', () => {
-        document.getElementById('reachSection')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-      });
-    }
+    // (Header "jump to technical section" button removed — Reach me /
+    // Sources / Helpers / Stats now live in the sidebar, accessed via
+    // the existing sidebarToggleBtn.)
 
     // Theme toggle
     const toggle = document.getElementById('themeToggle');
@@ -7078,12 +7080,6 @@ GET  /v1/usage               Usage stats`,
       openSettings();
     });
 
-    // New session button — opens a fresh chat session
-    document.querySelector('.new-session-btn').addEventListener('click', () => {
-      if (isMobile()) closeSidebar();
-      openChatFresh();
-    });
-
     // ── Chat view ────────────────────────────────
     const viewChat = document.getElementById('viewChat');
     const chatBackBtn = document.getElementById('chatBackBtn');
@@ -7674,23 +7670,11 @@ GET  /v1/usage               Usage stats`,
       currentSessionId = null;
     });
 
-    // Dynamic sidebar session loading
+    // Sidebar session list — population is still wired (loadSessions
+    // below) so anything that calls it for side effects keeps working,
+    // but the body element is hidden post-cutover. The new-session
+    // button and the show-claude-code filter were removed entirely.
     const sidebarBody = document.querySelector('.sidebar-body');
-    const showClaudeCodeToggle = document.getElementById('showClaudeCodeToggle');
-    const showClaudeCodeFilter = document.getElementById('showClaudeCodeFilter');
-
-    // Persist the toggle across reloads. Default off — kitty-window
-    // claude-code can be chatty and most users open the dashboard to
-    // see consumer-api chat threads specifically. The filter row itself
-    // stays hidden until the lake actually contains a claude-code
-    // session, so the toggle doesn't take up real estate for users who
-    // don't use claude-code.
-    const SHOW_CC_KEY = 'fathom.sidebar.showClaudeCode';
-    showClaudeCodeToggle.checked = localStorage.getItem(SHOW_CC_KEY) === '1';
-    showClaudeCodeToggle.addEventListener('change', () => {
-      localStorage.setItem(SHOW_CC_KEY, showClaudeCodeToggle.checked ? '1' : '0');
-      loadSessions();
-    });
 
     function isClaudeCodeSession(s) {
       // Session sources come from the delta `source` field — claude-code
@@ -7758,60 +7742,12 @@ GET  /v1/usage               Usage stats`,
       return stamp ? `${base} · ${stamp}` : base;
     }
 
-    async function loadSessions() {
-      try {
-        const data = await api('/v1/sessions');
-        sidebarBody.innerHTML = '';
-        const groupLabels = { today: 'Today', yesterday: 'Yesterday', last_7_days: 'Last 7 days', older: 'Older' };
-        const showCC = showClaudeCodeToggle.checked;
-        // Reveal the filter only if the lake has at least one claude-code
-        // session in the visible window — empty installs stay uncluttered.
-        const hasClaudeCode = Object.values(data.groups || {}).some(arr =>
-          (arr || []).some(isClaudeCodeSession)
-        );
-        showClaudeCodeFilter.hidden = !hasClaudeCode;
-        for (const [key, label] of Object.entries(groupLabels)) {
-          const raw = data.groups[key] || [];
-          const sessions = showCC ? raw : raw.filter(s => !isClaudeCodeSession(s));
-          if (sessions.length === 0) continue;
-          const group = document.createElement('div');
-          group.className = 'session-group';
-          group.innerHTML = `<h3>${label}</h3><ul class="session-list"></ul>`;
-          const ul = group.querySelector('ul');
-          for (const s of sessions) {
-            const li = document.createElement('li');
-            const btn = document.createElement('button');
-            btn.className = 'session-item';
-            if (s.id === currentSessionId) btn.classList.add('active');
-            const isCC = isClaudeCodeSession(s);
-            const label = sidebarLabel(s);
-            if (isCC) {
-              btn.dataset.source = 'claude-code';
-              btn.innerHTML = `<span class="session-icon">${iconHtml('claude-code', 14)}</span><span class="session-title"></span>`;
-              btn.querySelector('.session-title').textContent = label;
-            } else {
-              btn.textContent = label;
-            }
-            if (s.project) btn.title = s.project;
-            btn.dataset.sessionId = s.id;
-            btn.addEventListener('click', () => {
-              sidebarBody.querySelectorAll('.session-item.active').forEach(a => a.classList.remove('active'));
-              btn.classList.add('active');
-              if (isMobile()) closeSidebar();
-              openChatWithSession(s, isClaudeCodeSession(s));
-            });
-            li.appendChild(btn);
-            ul.appendChild(li);
-          }
-          sidebarBody.appendChild(group);
-        }
-      } catch (err) {
-        // Sidebar stays as-is if API is down — static mock sessions still work
-      }
-    }
-
-    // Load sessions on startup
-    loadSessions();
+    // loadSessions was the sidebar session-list populator. Removed in
+    // the Grand Loop cutover — the sidebar now holds Reach me / Sources
+    // / Helpers / Stats instead. Stubbed (rather than deleted) so the
+    // chat-detail-view reconcile path that still calls it doesn't
+    // crash. Its body's deliberately empty.
+    async function loadSessions() { /* no-op */ }
 
     // ── Header alerts ────────────────────────────────
     // Polls /v1/alerts every ~10s for unread sessions addressed to the
