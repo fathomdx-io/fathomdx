@@ -36,6 +36,7 @@ from datetime import datetime, timedelta, UTC
 
 from .. import delta_client
 from ..prompt import FEED_CRYSTAL_DIRECTIVE
+from . import feed_orient_anchor, feed_orient_drift
 from .llm import loop_generate
 
 log = logging.getLogger(__name__)
@@ -262,7 +263,7 @@ async def _run_regen() -> bool:
             return False
 
         try:
-            await delta_client.write(
+            written = await delta_client.write(
                 content=json.dumps(payload, ensure_ascii=False),
                 tags=["crystal:feed-orient", "crystal-regen"],
                 source="feed-orient",
@@ -270,6 +271,29 @@ async def _run_regen() -> bool:
         except Exception:
             log.exception("feed-orient regen lake write failed")
             return False
+
+        crystal_id = ""
+        if isinstance(written, dict):
+            crystal_id = written.get("id") or ""
+
+        # Anchor the engagement centroid at the moment of acceptance —
+        # drift now reads ~0 by construction and grows as user signals
+        # diverge from what this crystal predicted. Mirrors the
+        # identity-crystal anchor pattern.
+        try:
+            c = await delta_client.centroid(tags_include=["feed-engagement"])
+            vec = c.get("centroid") if isinstance(c, dict) else None
+            if vec:
+                await feed_orient_anchor.save(vec, crystal_id or None)
+        except Exception:
+            log.exception("feed-orient regen anchor snapshot failed (non-fatal)")
+
+        # Sample drift right away so the chart has a fresh post-regen
+        # point at zero (and the rolling history reflects the reset).
+        try:
+            await feed_orient_drift.sample()
+        except Exception:
+            log.exception("feed-orient regen post-anchor drift sample failed")
 
         log.info(
             "feed-orient regen wrote crystal (narrative %d chars, %d directive lines)",
@@ -282,7 +306,15 @@ async def _run_regen() -> bool:
 
 
 async def _check_once() -> dict:
-    """One pass: count engagement signal, decide, maybe fire."""
+    """One pass: sample engagement-drift, count engagement signal,
+    decide, maybe fire."""
+    # Drift sampling runs on every tick so the history populates
+    # smoothly between regens. Cheap (one centroid query, one cosine).
+    try:
+        await feed_orient_drift.sample()
+    except Exception:
+        log.exception("feed-orient drift sample failed")
+
     prior = await _latest_feed_orient()
     prior_ts = prior.get("timestamp") if prior else None
 

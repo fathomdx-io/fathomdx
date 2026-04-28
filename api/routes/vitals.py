@@ -16,6 +16,7 @@ from fastapi import APIRouter, HTTPException
 
 from .. import crystal, delta_client, drift, mood, pressure, recall
 from .. import usage as usage_module
+from ..loop import feed_orient_drift
 
 router = APIRouter()
 
@@ -178,18 +179,26 @@ async def get_feed_crystal_events(limit: int = 50):
 
 
 @router.get("/v1/feed/drift")
+async def get_feed_drift():
+    """Sample current engagement-drift against the feed-orient anchor."""
+    return await feed_orient_drift.sample()
+
+
 @router.get("/v1/feed/drift/history")
+async def get_feed_drift_history(since_seconds: int | None = None):
+    """Engagement-drift samples accumulated from the feed-orient poll
+    cadence (every 60s) plus on-regen post-anchor samples."""
+    items = await feed_orient_drift.history(since_seconds=since_seconds)
+    return {"history": items}
+
+
 @router.get("/v1/feed/confidence/history")
-async def get_feed_drift_or_confidence():
-    """Placeholder: engagement-centroid drift and confidence-scoring lived in
-    the legacy feed engine. The Grand Loop hasn't reproduced those signals
-    yet — drift would need a centroid anchor snapshotted at each feed-orient
-    regen, and confidence requires comparing predicted topic_weights
-    against actual engagement post-regen. For now return empty so the
-    renderer has clean shapes and the bands stay flat (rather than 404'ing
-    and spamming the console).
-    """
-    return {"history": [], "drift": 0.0}
+async def get_feed_confidence_history():
+    """Placeholder: confidence-scoring requires per-engagement card
+    lookup + topic resolution against the latest feed-orient's
+    topic_weights. Not yet wired in the Grand Loop. Returning empty
+    keeps the dashboard's renderer happy without 404 spam."""
+    return {"history": []}
 
 
 @router.get("/v1/usage")
