@@ -27,7 +27,6 @@ from __future__ import annotations
 import json
 import re
 from collections import OrderedDict
-from datetime import datetime, timedelta, UTC
 
 from .. import delta_client
 from .intents import CONVO_TAG, intent_kind
@@ -166,25 +165,6 @@ _JUDGE_FALLBACK = {
 }
 
 
-def _should_auto_author(axes: dict) -> bool:
-    """Worth-keeping signal — does this card become durable from birth?
-
-    Two paths to durability without engagement:
-      1. The card lands well *and* the witness is sure (resonance and
-         confidence both above their thresholds).
-      2. Salience alone is high enough that the topic matters even if
-         the witness isn't sure of the take.
-
-    Engagement remains the manual override. Tunable; starter values
-    chosen to make auto-authoring the minority path until we see real
-    distributions in production.
-    """
-    resonance = float(axes.get("resonance") or 0.0)
-    confidence = float(axes.get("confidence") or 0.0)
-    salience = float(axes.get("salience") or 0.0)
-    return (resonance >= 0.7 and confidence >= 0.6) or salience >= 0.85
-
-
 async def _call_judge(*, kicker: str, body: str, seed: str) -> dict[str, float]:
     prompt = JUDGE_PROMPT.format(kicker=kicker, body=body, seed=seed)
     try:
@@ -286,12 +266,12 @@ async def run_witness(
         )
 
     # Write the routed output as a feed-card delta. Dual-write:
-    # lake first (so we have its id to back-reference from the puddle
-    # copy), then puddle (the conscious-now view). The lake delta
-    # carries a TTL by default — Q_A_TTL_S, same as the puddle copy —
-    # unless the judge axes pass _should_auto_author, in which case
-    # the lake write is durable from birth and the card persists past
-    # the puddle's TTL even without engagement.
+    # Dual-write the witness card to lake (durable, no TTL) + puddle
+    # (working memory, TTL'd). Engagement is now a marker delta with
+    # an `engages:<lake_id>` pointer at this card, so the card itself
+    # has to live durably or the pointer dangles. The judge axes still
+    # get computed and stored on the card payload — useful for ranking
+    # later — but they no longer gate whether the card survives.
     payload = {
         "kicker": witness.get("kicker") or "",
         "title": witness.get("title") or "",
@@ -305,7 +285,6 @@ async def run_witness(
     }
     payload_json = json.dumps(payload, ensure_ascii=False)
     route_value = witness.get("route") or "chat-reply"
-    auto_authored = _should_auto_author(axes)
 
     # Include `addressing-output` so pending_intents() sees this card
     # as having addressed its intents even after a cold-start restore
@@ -318,20 +297,12 @@ async def run_witness(
     ]
     for intent_id in full_addressed:
         lake_tags.append(f"addresses:{intent_id}")
-    if auto_authored:
-        lake_tags.append("auto-authored")
-    expires_at_iso: str | None = None
-    if not auto_authored:
-        expires_at_iso = (
-            datetime.now(UTC) + timedelta(seconds=Q_A_TTL_S)
-        ).isoformat()
     lake_id = ""
     try:
         lake_delta = await delta_client.write(
             content=payload_json,
             tags=lake_tags,
             source="witness",
-            expires_at=expires_at_iso,
         )
         if isinstance(lake_delta, dict):
             lake_id = lake_delta.get("id") or ""
@@ -348,8 +319,6 @@ async def run_witness(
     ]
     for intent_id in full_addressed:
         puddle_tags.append(f"addresses:{intent_id}")
-    if auto_authored:
-        puddle_tags.append("auto-authored")
     if lake_id:
         # Back-reference to the durable counterpart. recalled-id is the
         # canonical telepathy-dedupe tag (telepathy skips lake deltas
@@ -365,7 +334,6 @@ async def run_witness(
     )
     print(
         f"[witness] addressed={len(full_addressed)} route={route_value!r} "
-        f"body[{len(payload['body'])}c] auto={auto_authored} "
-        f"lake-id={lake_id[:24] or 'none'}"
+        f"body[{len(payload['body'])}c] lake-id={lake_id[:24] or 'none'}"
     )
     return full_addressed
