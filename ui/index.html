@@ -352,6 +352,91 @@
       border-top: 1px dashed var(--rule);
       max-width: 220px; line-height: 1.4;
     }
+    .feed-filter-panel .filter-group-head {
+      font-size: 9.5px; letter-spacing: 0.12em;
+      text-transform: uppercase;
+      color: var(--ink-faint);
+      margin: 6px 4px 0;
+      padding-top: 6px;
+      border-top: 1px dashed var(--rule);
+    }
+    .feed-filter-panel .filter-group-head:first-child,
+    .feed-filter-panel .always-on + .filter-group-head {
+      border-top: 0; padding-top: 2px;
+    }
+
+    /* ── .delta — auxiliary puddle items in the feed ──
+       Compact rows for voice thoughts, recalls, crystal facets, mood,
+       pass intents, and process events. Lifted from the experiment's
+       viz/style.css (loop-experiment) so the visual language is the
+       same on both surfaces. The witness's main feed-card and the
+       chat-shape Q/A still use .card and .msg-* for full presence;
+       these .delta rows are deliberately quieter. */
+    .feed .delta {
+      background: var(--surface);
+      border-left: 3px solid var(--rule);
+      border-radius: var(--radius);
+      padding: 0.55rem 0.85rem;
+      font-size: 13.5px;
+    }
+    .feed .delta .d-head {
+      display: flex; justify-content: space-between; align-items: baseline;
+      margin-bottom: 0.3rem;
+    }
+    .feed .delta .d-kind {
+      font-family: var(--mono); font-size: 10.5px;
+      letter-spacing: 0.06em; text-transform: lowercase;
+      color: var(--ink-soft);
+    }
+    .feed .delta .d-ts {
+      font-family: var(--mono); font-size: 10px;
+      color: var(--ink-faint);
+    }
+    .feed .delta .d-body {
+      font-family: var(--serif); font-size: 14px; line-height: 1.5;
+      color: var(--ink); white-space: pre-wrap;
+    }
+    /* Voice-tinted thoughts — the trimurti palette from the experiment. */
+    .feed .delta.thought.voice-creator   { border-left-color: #f97316; }
+    .feed .delta.thought.voice-creator   .d-kind { color: #f97316; }
+    .feed .delta.thought.voice-preserver { border-left-color: #06b6d4; }
+    .feed .delta.thought.voice-preserver .d-kind { color: #06b6d4; }
+    .feed .delta.thought.voice-destroyer { border-left-color: #dc2626; }
+    .feed .delta.thought.voice-destroyer .d-kind { color: #dc2626; }
+    /* Pass intents (reflection / drift / bridging / alert) — italic purple. */
+    .feed .delta.intent {
+      border-left-color: #a78bfa;
+      background: color-mix(in srgb, var(--surface) 94%, #a78bfa 6%);
+      font-style: italic; opacity: 0.92;
+    }
+    .feed .delta.intent .d-kind { color: #c4b5fd; font-weight: 600; }
+    .feed .delta.intent.intent-alert {
+      border-left-color: #ef4444;
+    }
+    .feed .delta.intent.intent-alert .d-kind { color: #ef4444; }
+    /* Crystal — purple accent on the surface tint. */
+    .feed .delta.crystal {
+      border-left-color: #a78bfa;
+      background: color-mix(in srgb, var(--surface) 92%, #a78bfa 8%);
+    }
+    .feed .delta.crystal .d-kind { color: #c4b5fd; }
+    /* Mood — accent. */
+    .feed .delta.mood {
+      border-left-color: var(--accent);
+      background: color-mix(in srgb, var(--surface) 94%, var(--accent) 6%);
+    }
+    .feed .delta.mood .d-kind { color: var(--accent); }
+    /* Recall — signal-dim, cooler than the witness's signal. */
+    .feed .delta.recall { border-left-color: var(--signal-dim, var(--signal)); }
+    .feed .delta.recall .d-kind { color: var(--signal); }
+    /* Process events — quietest tier. */
+    .feed .delta.process-event {
+      opacity: 0.55;
+      padding: 0.3rem 0.85rem;
+    }
+    /* Filter-hidden items collapse the same way as the legacy cards. */
+    .feed .delta[data-hidden="true"],
+    .feed .msg[data-hidden="true"] { display: none; }
     /* ALERT band — piercing tier. Always renders regardless of the
        verbosity dropdown setting. Distinct kicker color so it's
        immediately legible as deviation rather than default content. */
@@ -2837,11 +2922,22 @@
               <label class="always-on" title="Alerts always pierce — they reach you whether or not you've checked them">
                 <span class="pierce-mark">⚠</span> Alerts <span style="margin-left:auto; font-size:10px; opacity:0.7;">always on</span>
               </label>
-              <label><input type="checkbox" data-bucket="default" checked> Curated</label>
-              <label><input type="checkbox" data-bucket="reflection"> Reflections</label>
-              <label><input type="checkbox" data-bucket="bridging"> Bridges</label>
-              <label><input type="checkbox" data-bucket="discrepancy"> Discrepancies</label>
-              <div class="filter-note">Alerts always pierce. Toggle the rest to dial the feed up or down.</div>
+              <div class="filter-group-head">Conversation</div>
+              <label><input type="checkbox" data-kind="chat" checked> Chat</label>
+              <div class="filter-group-head">Synthesis</div>
+              <label><input type="checkbox" data-kind="card" checked> Cards</label>
+              <label><input type="checkbox" data-kind="reflection"> Reflections</label>
+              <label><input type="checkbox" data-kind="bridging"> Bridges</label>
+              <label><input type="checkbox" data-kind="drift"> Drift</label>
+              <label><input type="checkbox" data-kind="discrepancy"> Discrepancies</label>
+              <div class="filter-group-head">Substrate</div>
+              <label><input type="checkbox" data-kind="pass-intent"> Pass intents</label>
+              <label><input type="checkbox" data-kind="voice-thought"> Voice thoughts</label>
+              <label><input type="checkbox" data-kind="recall"> Recalls</label>
+              <label><input type="checkbox" data-kind="crystal"> Crystal</label>
+              <label><input type="checkbox" data-kind="mood"> Mood</label>
+              <label><input type="checkbox" data-kind="process-event"> Process events</label>
+              <div class="filter-note">Default = clean. Check anything to surface it inline. Most types render as compact <code>.delta</code> rows below cards.</div>
             </div>
           </span>
           <span class="feed-meta-sep"> · </span>
@@ -8310,16 +8406,24 @@ GET  /v1/usage               Usage stats`,
     // regardless of checkbox state, so they're not in the toggle set
     // (rendered as a non-interactive ⚠ Alerts label instead).
     //
-    // Bucket → kind mapping: keep the user-facing labels small.
-    const KIND_BUCKETS = {
-      'default':     ['per_line', 'drift', 'volunteered', 'cold_start', ''],  // '' = pre-rebuild untagged
-      'reflection':  ['reflection'],
-      'bridging':    ['bridging'],
-      'discrepancy': ['discrepancy'],
-      // 'alert' bucket exists only conceptually — ALERT cards are
-      // always visible, so they don't need a checkbox.
+    // Per-kind filter: each visible kind gets a checkbox + a default.
+    // Q (.msg-user), chat-reply A (.msg-fathom), and feed-card synthesis
+    // outputs are always visible by default; everything else is opt-in,
+    // so the feed reads clean unless you've leaned into something.
+    const KIND_DEFAULTS = {
+      'chat':           true,   // user-message + fathom-message (Q + A as one toggle)
+      'card':           true,   // feed-card route witness outputs
+      'reflection':     false,
+      'bridging':       false,
+      'drift':          false,
+      'discrepancy':    false,
+      'pass-intent':    false,
+      'voice-thought':  false,
+      'recall':         false,
+      'crystal':        false,
+      'mood':           false,
+      'process-event':  false,
     };
-    const BUCKET_DEFAULTS = { default: true, reflection: false, bridging: false, discrepancy: false };
 
     function _extractLevelFromTags(tags) {
       if (!Array.isArray(tags)) return '';
@@ -8335,64 +8439,46 @@ GET  /v1/usage               Usage stats`,
       }
       return '';
     }
-    function getEnabledBuckets() {
-      // Persisted as a JSON object {bucket: bool}. Migrate from the
-      // old single-string `feedVerbosity` (the dropdown era) by
-      // mapping its level to the closest checkbox set on first load.
-      const raw = localStorage.getItem('feedFilterBuckets');
+    function getEnabledKinds() {
+      // Persisted as {kind: bool}. Old key (`feedFilterBuckets`) from
+      // the lake-feed era is dropped silently — the cutover invalidated
+      // its bucket-shape anyway.
+      const raw = localStorage.getItem('feedFilterKinds');
       if (raw) {
         try {
           const parsed = JSON.parse(raw);
           if (parsed && typeof parsed === 'object') {
-            return { ...BUCKET_DEFAULTS, ...parsed };
+            return { ...KIND_DEFAULTS, ...parsed };
           }
         } catch (e) { /* fall through to defaults */ }
       }
-      // One-time migration from the old dropdown.
-      const oldVerbosity = localStorage.getItem('feedVerbosity');
-      if (oldVerbosity) {
-        const migrated = { ...BUCKET_DEFAULTS };
-        if (oldVerbosity === 'INFO' || oldVerbosity === 'DEBUG' || oldVerbosity === 'TRACE') {
-          migrated.reflection = true;
-        }
-        if (oldVerbosity === 'TRACE') {
-          migrated.bridging = true;
-          migrated.discrepancy = true;
-        }
-        localStorage.setItem('feedFilterBuckets', JSON.stringify(migrated));
-        localStorage.removeItem('feedVerbosity');
-        return migrated;
-      }
-      return { ...BUCKET_DEFAULTS };
+      return { ...KIND_DEFAULTS };
     }
-    function setEnabledBucket(bucket, enabled) {
-      const current = getEnabledBuckets();
-      current[bucket] = !!enabled;
-      localStorage.setItem('feedFilterBuckets', JSON.stringify(current));
+    function setEnabledKind(kind, enabled) {
+      const current = getEnabledKinds();
+      current[kind] = !!enabled;
+      localStorage.setItem('feedFilterKinds', JSON.stringify(current));
     }
-    // Backward-compat alias — older code paths still call this.
     function applyVerbosityFilter() { applyKindFilter(); }
 
     function applyKindFilter() {
-      const enabled = getEnabledBuckets();
-      // Build a set of accepted kind values from the enabled buckets.
-      const accepted = new Set();
-      Object.keys(enabled).forEach(bucket => {
-        if (enabled[bucket] && KIND_BUCKETS[bucket]) {
-          KIND_BUCKETS[bucket].forEach(k => accepted.add(k));
-        }
-      });
-      const cards = document.querySelectorAll('.feed .card');
+      const enabled = getEnabledKinds();
+      // Walk every kind-tagged element in the feed. Cards and deltas
+      // both carry data-kind set by _renderPuddleItem; messages
+      // (.msg-user / .msg-fathom) are always visible (no data-kind).
+      const items = document.querySelectorAll('.feed [data-kind]');
       let visibleCount = 0;
-      cards.forEach(card => {
-        const lvl = card.dataset.level || '';
-        const kind = card.dataset.kind || '';
-        // ALERT pierces — always visible, regardless of checkbox state.
-        const passes = (lvl === 'ALERT') || accepted.has(kind);
-        card.dataset.hidden = passes ? 'false' : 'true';
+      items.forEach(el => {
+        const kind = el.dataset.kind || '';
+        const lvl = el.dataset.level || '';
+        // ALERT cards pierce regardless of state. Anything matching an
+        // enabled kind passes; default-true kinds carry through unless
+        // the user turned them off.
+        const passes = (lvl === 'ALERT') || !!enabled[kind];
+        el.dataset.hidden = passes ? 'false' : 'true';
         if (passes) visibleCount += 1;
       });
-      _maybeShowNoNewsForFilter(cards.length, visibleCount);
+      _maybeShowNoNewsForFilter(items.length, visibleCount);
     }
     function _maybeShowNoNewsForFilter(total, visible) {
       const feed = document.querySelector('.feed');
@@ -8528,31 +8614,37 @@ GET  /v1/usage               Usage stats`,
     // rendering ones already on screen.
     const _renderedFeedIds = new Set();
 
-    // Render dispatch for puddle feed items. Three shapes flow through
-    // the same .feed container: user seeds via .msg-user, fathom replies
-    // via .msg-fathom, and witness cards via the existing renderStoryCard.
-    // Newest-on-top sorting is the server's job (/v1/puddle/feed).
+    // Render dispatch for puddle feed items. Several shapes flow through
+    // the same .feed container, all carrying data-kind so applyKindFilter
+    // can show/hide them. Default-visible shapes — chat (Q+A) and cards
+    // (synthesis routed `feed-card` or `chat-reply`) — match the existing
+    // dashboard look (.msg-user / .msg-fathom / .card). Auxiliary shapes
+    // — voices / recalls / crystal / mood / pass-intents / process events
+    // — render as compact .delta rows lifted from the experiment viz, so
+    // the kind tinting (voice-creator, voice-preserver, voice-destroyer,
+    // crystal purple, mood accent, recall signal-dim) carries through.
     function _renderPuddleItem(it, delay) {
       const ts = it.timestamp ? new Date(it.timestamp) : new Date();
       const timeStr = ts.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+
+      // Q (user message) — kind=chat
       if (it.kind === 'user-message') {
         const el = renderTurn({ role: 'user', time: timeStr, text: it.content || '' });
         if (el) {
           el.dataset.fromPuddle = '1';
           el.dataset.puddleId = it.id || '';
+          el.dataset.kind = 'chat';
         }
         return el;
       }
+      // A (fathom message) — kind=chat
       if (it.kind === 'fathom-message') {
         const html = (typeof renderMd === 'function') ? renderMd(it.body || '') : _esc(it.body || '');
         const el = renderTurn({ role: 'fathom', time: timeStr, html });
         if (el) {
           el.dataset.fromPuddle = '1';
           el.dataset.puddleId = it.id || '';
-          // Engagement rail for fathom replies — same +/- buttons as cards.
-          // Sits inline below the body. The delegate at .feed catches the
-          // click and routes through /v1/puddle/cards/<id>/engage when
-          // data-from-puddle is set.
+          el.dataset.kind = 'chat';
           const body = el.querySelector('.msg-body');
           if (body) {
             const rail = document.createElement('div');
@@ -8566,8 +8658,8 @@ GET  /v1/usage               Usage stats`,
         }
         return el;
       }
+      // Synthesis cards (any non-chat-reply route).
       if (it.kind === 'card') {
-        // Adapt witness card payload to renderStoryCard's story shape.
         const story = {
           id: it.id,
           timestamp: it.timestamp,
@@ -8585,8 +8677,77 @@ GET  /v1/usage               Usage stats`,
         if (card) {
           card.dataset.fromPuddle = '1';
           card.dataset.puddleId = it.id || '';
+          card.dataset.kind = 'card';
         }
         return card;
+      }
+
+      // ── Auxiliary types — compact .delta rows ───────────────
+      // Voice thought: tinted by voice (creator/preserver/destroyer)
+      if (it.kind === 'voice-thought') {
+        const el = document.createElement('article');
+        el.className = `delta thought voice-${it.voice || 'unknown'}`;
+        el.dataset.kind = 'voice-thought';
+        el.dataset.fromPuddle = '1';
+        el.dataset.puddleId = it.id || '';
+        el.innerHTML = `<header class="d-head"><span class="d-kind">${_esc(it.voice || 'voice')}</span><span class="d-ts">${timeStr}</span></header><div class="d-body">${_esc(it.content || '')}</div>`;
+        return el;
+      }
+      // Pass intent (reflection / drift / bridging / alert) — purple-tinted
+      if (it.kind === 'pass-intent') {
+        const passKind = it.pass_kind || 'pass';
+        const el = document.createElement('article');
+        el.className = `delta intent intent-${passKind}`;
+        el.dataset.kind = passKind === 'reflection' ? 'reflection'
+          : passKind === 'drift' ? 'drift'
+          : passKind === 'bridging' ? 'bridging'
+          : 'pass-intent';
+        el.dataset.fromPuddle = '1';
+        el.dataset.puddleId = it.id || '';
+        el.innerHTML = `<header class="d-head"><span class="d-kind">${_esc(passKind)}</span><span class="d-ts">${timeStr}</span></header><div class="d-body">${_esc((it.content || '').slice(0, 220))}…</div>`;
+        return el;
+      }
+      // Crystal facet
+      if (it.kind === 'crystal') {
+        const el = document.createElement('article');
+        el.className = 'delta crystal';
+        el.dataset.kind = 'crystal';
+        el.dataset.fromPuddle = '1';
+        el.dataset.puddleId = it.id || '';
+        const label = it.facet ? `crystal · ${it.facet}` : 'crystal';
+        el.innerHTML = `<header class="d-head"><span class="d-kind">${_esc(label)}</span><span class="d-ts">${timeStr}</span></header><div class="d-body">${_esc(it.content || '')}</div>`;
+        return el;
+      }
+      // Mood
+      if (it.kind === 'mood') {
+        const el = document.createElement('article');
+        el.className = 'delta mood';
+        el.dataset.kind = 'mood';
+        el.dataset.fromPuddle = '1';
+        el.dataset.puddleId = it.id || '';
+        const label = it.feeling ? `mood · ${it.feeling}` : 'mood';
+        el.innerHTML = `<header class="d-head"><span class="d-kind">${_esc(label)}</span><span class="d-ts">${timeStr}</span></header><div class="d-body">${_esc(it.content || '')}</div>`;
+        return el;
+      }
+      // Recall / mirror landings from vampire-tap
+      if (it.kind === 'recall') {
+        const el = document.createElement('article');
+        el.className = 'delta recall';
+        el.dataset.kind = 'recall';
+        el.dataset.fromPuddle = '1';
+        el.dataset.puddleId = it.id || '';
+        el.innerHTML = `<header class="d-head"><span class="d-kind">recall</span><span class="d-ts">${timeStr}</span></header><div class="d-body">${_esc((it.content || '').slice(0, 320))}</div>`;
+        return el;
+      }
+      // Process spawn/die — minimal, mostly background noise
+      if (it.kind === 'process-event') {
+        const el = document.createElement('article');
+        el.className = `delta process-event event-${it.event || 'unknown'}`;
+        el.dataset.kind = 'process-event';
+        el.dataset.fromPuddle = '1';
+        el.dataset.puddleId = it.id || '';
+        el.innerHTML = `<header class="d-head"><span class="d-kind">${_esc(it.event || 'event')}</span><span class="d-ts">${timeStr}</span></header>`;
+        return el;
       }
       return null;
     }
@@ -8852,17 +9013,31 @@ GET  /v1/usage               Usage stats`,
     const _feedFilterPanel = document.getElementById('feedFilterPanel');
     const _feedFilterToggleLabel = document.getElementById('feedFilterToggleLabel');
 
-    function _bucketLabel(bucket) {
-      return { default: 'Curated', reflection: 'Reflections', bridging: 'Bridges', discrepancy: 'Discrepancies' }[bucket] || bucket;
+    function _kindLabel(kind) {
+      return ({
+        chat: 'Chat',
+        card: 'Cards',
+        reflection: 'Reflections',
+        bridging: 'Bridges',
+        drift: 'Drift',
+        discrepancy: 'Discrepancies',
+        'pass-intent': 'Pass intents',
+        'voice-thought': 'Voice thoughts',
+        recall: 'Recalls',
+        crystal: 'Crystal',
+        mood: 'Mood',
+        'process-event': 'Process events',
+      })[kind] || kind;
     }
     function _refreshFilterToggleLabel() {
       if (!_feedFilterToggleLabel) return;
-      const enabled = getEnabledBuckets();
-      const on = Object.keys(enabled).filter(k => enabled[k]);
+      const enabled = getEnabledKinds();
+      const all = Object.keys(KIND_DEFAULTS);
+      const on = all.filter(k => enabled[k]);
       let text;
       if (on.length === 0) text = 'Alerts only';
-      else if (on.length === 1) text = _bucketLabel(on[0]);
-      else if (on.length === 4) text = 'All kinds';
+      else if (on.length === 1) text = _kindLabel(on[0]);
+      else if (on.length === all.length) text = 'All kinds';
       else text = `${on.length} kinds`;
       _feedFilterToggleLabel.textContent = text;
     }
@@ -8875,12 +9050,12 @@ GET  /v1/usage               Usage stats`,
 
     if (_feedFilterEl && _feedFilterToggle && _feedFilterPanel) {
       // Restore checkbox state from localStorage on load.
-      const stored = getEnabledBuckets();
-      _feedFilterPanel.querySelectorAll('input[type="checkbox"][data-bucket]').forEach(cb => {
-        const bucket = cb.dataset.bucket;
-        cb.checked = !!stored[bucket];
+      const stored = getEnabledKinds();
+      _feedFilterPanel.querySelectorAll('input[type="checkbox"][data-kind]').forEach(cb => {
+        const kind = cb.dataset.kind;
+        cb.checked = !!stored[kind];
         cb.addEventListener('change', () => {
-          setEnabledBucket(bucket, cb.checked);
+          setEnabledKind(kind, cb.checked);
           applyKindFilter();
           _refreshFilterToggleLabel();
         });

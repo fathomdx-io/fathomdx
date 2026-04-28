@@ -87,17 +87,24 @@ def get_feed(limit: int = 100) -> dict:
     for d in raw:
         tags = set(d.get("tags") or [])
         ts = d.get("timestamp")
-        # User seed → user-message turn.
+        common = {
+            "id": d.get("id"),
+            "timestamp": ts,
+            "expires_at": d.get("expires_at"),
+            "source": d.get("source"),
+            "tags": list(d.get("tags") or []),
+        }
+
+        # ── Q (always visible by default) ─────────────────
         if "intent" in tags and "kind:question" in tags:
             items.append({
                 "kind": "user-message",
-                "id": d.get("id"),
                 "content": d.get("content") or "",
-                "timestamp": ts,
-                "expires_at": d.get("expires_at"),
+                **common,
             })
             continue
-        # Witness output → split by route.
+
+        # ── A — witness output, split by route ────────────
         if "feed-card" in tags:
             try:
                 payload = json.loads(d.get("content") or "{}")
@@ -109,9 +116,7 @@ def get_feed(limit: int = 100) -> dict:
             )
             addresses = [t.split(":", 1)[1] for t in tags if t.startswith("addresses:")]
             base = {
-                "id": d.get("id"),
-                "timestamp": ts,
-                "expires_at": d.get("expires_at"),
+                **common,
                 "addresses": addresses,
                 "route": route,
                 **payload,
@@ -120,6 +125,84 @@ def get_feed(limit: int = 100) -> dict:
                 items.append({"kind": "fathom-message", **base})
             else:
                 items.append({"kind": "card", **base})
+            continue
+
+        # ── Auxiliary types (filter-toggleable) ───────────
+        # Voice thoughts — the parliament's individual takes.
+        if "thought" in tags:
+            voice = next(
+                (t.split(":", 1)[1] for t in tags if t.startswith("voice:")),
+                None,
+            )
+            items.append({
+                "kind": "voice-thought",
+                "voice": voice,
+                "content": d.get("content") or "",
+                **common,
+            })
+            continue
+        # Pulse intents (reflection / drift / bridging / alert) — these
+        # are pressure-watcher pass intents that haven't been addressed
+        # by witness yet. Surface them so the queue is visible.
+        if "intent" in tags:
+            kind = next(
+                (t.split(":", 1)[1] for t in tags if t.startswith("kind:")),
+                "unknown",
+            )
+            if kind in ("reflection", "drift", "bridging", "alert", "drop-in"):
+                items.append({
+                    "kind": "pass-intent",
+                    "pass_kind": kind,
+                    "content": d.get("content") or "",
+                    **common,
+                })
+            continue
+        # Crystal facets — identity layer.
+        if "crystal" in tags:
+            facet = next(
+                (t.split(":", 1)[1] for t in tags if t.startswith("facet:")),
+                None,
+            )
+            items.append({
+                "kind": "crystal",
+                "facet": facet,
+                "content": d.get("content") or "",
+                **common,
+            })
+            continue
+        # Mood / felt-sense.
+        if "mood" in tags:
+            feeling = next(
+                (t.split(":", 1)[1] for t in tags if t.startswith("feeling:")),
+                None,
+            )
+            items.append({
+                "kind": "mood",
+                "feeling": feeling,
+                "content": d.get("content") or "",
+                **common,
+            })
+            continue
+        # Recall / mirror / vampire-tap landings.
+        if "recall-result" in tags or "mirror" in tags:
+            items.append({
+                "kind": "recall",
+                "content": d.get("content") or "",
+                **common,
+            })
+            continue
+        # Process events — spawn/die/metric. Quiet by default; rendered
+        # as compact dots when the deliberation accordion is open.
+        if "process-event" in tags or "metric" in tags:
+            items.append({
+                "kind": "process-event",
+                "event": next(
+                    (t.split(":", 1)[1] for t in tags if t.startswith("event:")),
+                    None,
+                ),
+                **common,
+            })
+            continue
 
     items.sort(key=lambda it: it.get("timestamp") or "", reverse=True)
     return {"items": items[:limit]}
