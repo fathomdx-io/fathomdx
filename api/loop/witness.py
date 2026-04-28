@@ -7,9 +7,15 @@ prompt, asks for an integrated body + a route + addressed intent-ids,
 then runs an independent judge for the salience/novelty/resonance/
 confidence/comfort axes.
 
-Outputs are written to the puddle as `feed-card` deltas with TTLs from
-the experiment (Q_A_TTL_S = 30min). Engagement promotes them to the
-durable lake — handled in routes.py via the engagement endpoint.
+Outputs dual-write — puddle (consciousness, the now) + lake (memory,
+durable). The puddle copy carries `lake-id:<full>` and `recalled-id:
+<24chars>` tags pointing at the lake delta so telepathy doesn't echo
+the lake write back as a separate puddle item. The lake copy carries
+a TTL by default (Q_A_TTL_S, same as the puddle); the judge's axes
+auto-author it (drop the TTL) when the card is salient/resonant
+enough to be worth keeping unconditionally — see _should_auto_author.
+Engagement still promotes via routes.py for now; once the delta-store
+gains an in-place TTL update, engagement collapses to that.
 
 For v1 we skip the "settled vs divergent" descriptor (we'd need the
 metrics module first). We pass a generic "deliberated" descriptor and
@@ -21,7 +27,9 @@ from __future__ import annotations
 import json
 import re
 from collections import OrderedDict
+from datetime import datetime, timedelta, UTC
 
+from .. import delta_client
 from .intents import CONVO_TAG, intent_kind
 from .llm import loop_generate
 from .prompts import JUDGE_PROMPT, WITNESS_PROMPT, VOICES
@@ -158,6 +166,25 @@ _JUDGE_FALLBACK = {
 }
 
 
+def _should_auto_author(axes: dict) -> bool:
+    """Worth-keeping signal — does this card become durable from birth?
+
+    Two paths to durability without engagement:
+      1. The card lands well *and* the witness is sure (resonance and
+         confidence both above their thresholds).
+      2. Salience alone is high enough that the topic matters even if
+         the witness isn't sure of the take.
+
+    Engagement remains the manual override. Tunable; starter values
+    chosen to make auto-authoring the minority path until we see real
+    distributions in production.
+    """
+    resonance = float(axes.get("resonance") or 0.0)
+    confidence = float(axes.get("confidence") or 0.0)
+    salience = float(axes.get("salience") or 0.0)
+    return (resonance >= 0.7 and confidence >= 0.6) or salience >= 0.85
+
+
 async def _call_judge(*, kicker: str, body: str, seed: str) -> dict[str, float]:
     prompt = JUDGE_PROMPT.format(kicker=kicker, body=body, seed=seed)
     try:
@@ -258,16 +285,13 @@ async def run_witness(
             seed=primary_intent,
         )
 
-    # Write the routed output as a feed-card delta. Tags include
-    # `addresses:<id>` for each claimed intent so pending_intents() can
-    # exclude them on the next pass.
-    tags = [
-        CONVO_TAG, session_tag,
-        "feed-card", "synthesis", "addressing-output",
-        f"route:{witness.get('route') or 'chat-reply'}",
-    ]
-    for intent_id in full_addressed:
-        tags.append(f"addresses:{intent_id}")
+    # Write the routed output as a feed-card delta. Dual-write:
+    # lake first (so we have its id to back-reference from the puddle
+    # copy), then puddle (the conscious-now view). The lake delta
+    # carries a TTL by default — Q_A_TTL_S, same as the puddle copy —
+    # unless the judge axes pass _should_auto_author, in which case
+    # the lake write is durable from birth and the card persists past
+    # the puddle's TTL even without engagement.
     payload = {
         "kicker": witness.get("kicker") or "",
         "title": witness.get("title") or "",
@@ -279,11 +303,61 @@ async def run_witness(
         "route": witness.get("route") or "chat-reply",
         "axes": axes,
     }
+    payload_json = json.dumps(payload, ensure_ascii=False)
+    route_value = witness.get("route") or "chat-reply"
+    auto_authored = _should_auto_author(axes)
+
+    lake_tags = ["feed-card", f"route:{route_value}"]
+    for intent_id in full_addressed:
+        lake_tags.append(f"addresses:{intent_id}")
+    if auto_authored:
+        lake_tags.append("auto-authored")
+    expires_at_iso: str | None = None
+    if not auto_authored:
+        expires_at_iso = (
+            datetime.now(UTC) + timedelta(seconds=Q_A_TTL_S)
+        ).isoformat()
+    lake_id = ""
+    try:
+        lake_delta = await delta_client.write(
+            content=payload_json,
+            tags=lake_tags,
+            source="witness",
+            expires_at=expires_at_iso,
+        )
+        if isinstance(lake_delta, dict):
+            lake_id = lake_delta.get("id") or ""
+    except Exception as e:
+        # Lake write is non-fatal — a transient lake hiccup must not
+        # take the loop offline. The puddle copy still lands; the
+        # card is just ephemeral for this fire.
+        print(f"[witness] lake write failed (puddle still writing): {type(e).__name__}: {e}")
+
+    puddle_tags = [
+        CONVO_TAG, session_tag,
+        "feed-card", "synthesis", "addressing-output",
+        f"route:{route_value}",
+    ]
+    for intent_id in full_addressed:
+        puddle_tags.append(f"addresses:{intent_id}")
+    if auto_authored:
+        puddle_tags.append("auto-authored")
+    if lake_id:
+        # Back-reference to the durable counterpart. recalled-id is the
+        # canonical telepathy-dedupe tag (vampire skips lake deltas
+        # whose short id is already represented in the puddle); lake-id
+        # carries the full id for engagement to look up directly.
+        puddle_tags.append(f"lake-id:{lake_id}")
+        puddle_tags.append(f"recalled-id:{lake_id[:24]}")
     await puddle.write(
-        content=json.dumps(payload, ensure_ascii=False),
-        tags=tags,
+        content=payload_json,
+        tags=puddle_tags,
         source="witness",
         ttl_seconds=Q_A_TTL_S,
     )
-    print(f"[witness] addressed={len(full_addressed)} route={payload['route']!r} body[{len(payload['body'])}c]")
+    print(
+        f"[witness] addressed={len(full_addressed)} route={route_value!r} "
+        f"body[{len(payload['body'])}c] auto={auto_authored} "
+        f"lake-id={lake_id[:24] or 'none'}"
+    )
     return full_addressed
