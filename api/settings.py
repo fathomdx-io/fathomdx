@@ -163,65 +163,6 @@ class Settings(BaseSettings):
     crystal_drift_poll_seconds: int = 60
     crystal_regen_cooldown_seconds: int = 259200  # 3 days
 
-    # Feed-orient crystal (mood-shape regen, not identity-shape).
-    # See docs/feed-spec.md. The min-signal guard is the cold-start
-    # fail-open lesson from the 2026-04-19 auto-regen runaway.
-    feed_crystal_cooldown_seconds: int = 21600  # 6 hours
-    feed_drift_threshold: float = 0.35
-    feed_confidence_floor: float = 0.55
-    feed_min_signal_engagements: int = 10
-    # Engagement-confidence recency decay. A week-old hit on last week's
-    # crystal says less about today's taste than a hit from yesterday.
-    # Half-life of 3 days: 1d ≈ 0.79 weight, 3d = 0.5, 7d ≈ 0.2.
-    feed_engagement_half_life_seconds: int = 259200  # 3 days
-
-    # Feed loop — per-directive-line budgets. Without a budget,
-    # "until satisfied" is a runaway-cost grenade.
-    feed_loop_budget_tool_calls: int = 8
-    feed_loop_budget_seconds: int = 90
-
-    # Drift pass — the free-association card slot. Gets a bigger tool-call
-    # ceiling than per-line because its whole shape is "follow the thread"
-    # (remember/recall outward from a scatter item). Wall-clock stays the
-    # same; drift shouldn't be allowed to monopolize a fire.
-    feed_drift_budget_tool_calls: int = 16
-
-    # Volunteered noticing — the present-salience off-crystal slot. Reuses
-    # per-line budgets (feed_loop_budget_tool_calls + feed_loop_budget_seconds).
-    # Its shape is closer to per-line than drift: "scan, pick, compose."
-
-    # Synthesis pass budgets — max items per cycle, per pass kind. These
-    # cap output independently of the LLM's own scoring; below the axis
-    # floor, items are dropped *before* hitting the budget. The budget is
-    # the upper end (no quota pressure) — a quiet pass producing zero is
-    # a healthy outcome, not a failure.
-    feed_pass_budget_alert: int = 5  # piercing tier; rare, uncapped on emergencies
-    feed_pass_budget_reflection: int = 2  # dense outputs; over-frequent reflection is noise
-    feed_pass_budget_bridging: int = 2  # cross-workspace; quality over quantity
-    feed_pass_budget_discrepancy: int = 1  # uncomfortable — don't pile on
-
-    # Drop floors — if an item's axis score falls below these, the router
-    # drops it entirely (throwaway as first-class destination). Items
-    # above the floor go to the level computation.
-    feed_axis_floor_salience: float = 0.20
-    feed_axis_floor_confidence: float = 0.30  # below this, the judge thinks it might be confabulated
-
-    # Level promotion thresholds. Composed by _feed_router.route() into
-    # ALERT > NOTICE > INFO > DEBUG > TRACE bands. ALERT auto-promotes
-    # when salience is very high AND comfort is low (the uncomfortable-
-    # truth gate) OR when the pass kind is "alert" itself (piercing).
-    feed_level_alert_salience: float = 0.92
-    feed_level_alert_comfort_max: float = 0.30
-    feed_level_notice_salience: float = 0.55
-    feed_level_notice_resonance: float = 0.50
-    feed_level_info_salience: float = 0.35
-
-    # Default level the dashboard shows when the user hasn't picked one
-    # in the verbosity dropdown. NOTICE means alerts pierce, the
-    # curated mid-tier is visible, and reflection/bridging/discrepancy
-    # stay in the lake until dialed up.
-    feed_default_visible_level: str = "NOTICE"
-
     # Server
     host: str = "0.0.0.0"
     port: int = 8200
@@ -245,7 +186,7 @@ class Settings(BaseSettings):
 
     @property
     def resolved_model_medium(self) -> str:
-        """Model for search planning, mood, feed-crystal."""
+        """Model for search planning, mood, and the loop voice tier."""
         if self.model_medium:
             return self.model_medium
         return PROVIDER_DEFAULTS.get(self.effective_provider, {}).get("medium", "")

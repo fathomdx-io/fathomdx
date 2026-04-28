@@ -62,8 +62,6 @@ _EXACT: dict[str, str] = {
     "profile": GATE_INTERNAL,  # /v1/contacts/<slug> (admin), /v1/me/profile (self)
     "contact-deleted": GATE_INTERNAL,  # DELETE /v1/contacts/<slug>
     "crystal:identity": GATE_INTERNAL,  # POST /v1/crystal/refresh
-    "crystal:feed-orient": GATE_INTERNAL,  # POST /v1/feed/crystal/refresh
-    "feed-anchor": GATE_INTERNAL,  # feed_crystal._snapshot_anchor
     "routine-fire": GATE_INTERNAL,  # POST /v1/routines/<id>/fire
     "routine-definition": GATE_INTERNAL,  # POST /v1/routines
     "resonance-allowed": GATE_INTERNAL,  # POST /hooks/activation/sources
