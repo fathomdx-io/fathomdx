@@ -95,7 +95,11 @@ async def sample() -> dict:
     else:
         try:
             d = crystal_anchor.cosine_distance(anchor["centroid"], vec)
-            snapshot = {"drift": round(d, 4)}
+            # 6 decimals: engagement deltas often cluster tight (the
+            # user keeps engaging on similar topics), so a single new
+            # engagement can shift the centroid by less than 0.0001 —
+            # rounding to 4 was masking real movement as flat zero.
+            snapshot = {"drift": round(d, 6)}
         except Exception:
             snapshot = {"drift": 0.0, "error": True}
 
