@@ -76,19 +76,15 @@ async def run_process(
 ) -> str:
     """Run one voice tick. Writes a thought to the puddle. Returns the
     thought text so the caller can log it.
-    """
-    # Spawn marker — useful for the viz to draw a process card.
-    await puddle.write(
-        content=f'{{"process_id": "{pid}", "voice": "{voice["name"]}"}}',
-        tags=[
-            CONVO_TAG, session_tag, f"process:{pid}",
-            "process-event", "event:spawn",
-            f"voice:{voice['name']}",
-        ],
-        source="controller",
-        ttl_seconds=EPHEMERAL_TTL_S,
-    )
 
+    Process spawn/die events are deliberately not written — they
+    interleave between voice thoughts in the chronological feed and
+    prevent adjacent voice thoughts from clustering into a single
+    accordion. The witness only needs the thoughts themselves; the
+    experiment's left-column process viz isn't ported here. EPHEMERAL_TTL_S
+    is kept as a constant in case something later does want to record
+    deliberation lifecycle markers.
+    """
     # Context: pending intents + each voice's most-recent take. v1 keeps
     # this small; the experiment also pulled resonant material from the
     # vampire tap, which we'll add when that module lands.
@@ -131,17 +127,5 @@ async def run_process(
             source="voice",
             ttl_seconds=POEM_TTL_S,
         )
-
-    # Death marker.
-    await puddle.write(
-        content="",
-        tags=[
-            CONVO_TAG, session_tag, f"process:{pid}",
-            "process-event", "event:die",
-            f"voice:{voice['name']}",
-        ],
-        source="controller",
-        ttl_seconds=EPHEMERAL_TTL_S,
-    )
 
     return thought

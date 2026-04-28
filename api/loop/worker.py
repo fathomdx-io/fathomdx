@@ -22,6 +22,7 @@ from .pressure import pressure_watcher
 from .process import run_process
 from .prompts import VOICES
 from .puddle import puddle
+from .recall import run_searcher_tick
 from .vampire import vampire_loop
 from .witness import run_witness
 
@@ -95,6 +96,18 @@ async def _run_one_fire() -> bool:
                 )
             except Exception as e:
                 print(f"[loop fire] process {pid} crashed: {type(e).__name__}: {e}")
+
+    # Searcher tick — compose a recall query against the latest voice
+    # thought, write hits into the puddle as `recall-result` deltas the
+    # witness can read on its anchors-block pass. Soft-fails: a search
+    # hiccup never blocks the witness.
+    try:
+        await run_searcher_tick(
+            session_tag=session_tag,
+            event_id=session_tag.split(":", 1)[1],
+        )
+    except Exception as e:
+        print(f"[loop fire] searcher crashed: {type(e).__name__}: {e}")
 
     try:
         await run_witness(session_tag=session_tag, pending=pending)

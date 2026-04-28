@@ -3051,7 +3051,6 @@
               <label><input type="checkbox" data-kind="recall"> Recalls</label>
               <label><input type="checkbox" data-kind="crystal"> Crystal</label>
               <label><input type="checkbox" data-kind="mood"> Mood</label>
-              <label><input type="checkbox" data-kind="process-event"> Process events</label>
               <div class="filter-note">Default = clean. Check anything to surface it inline. Most types render as compact <code>.delta</code> rows below cards.</div>
             </div>
           </span>
@@ -8543,7 +8542,6 @@ GET  /v1/usage               Usage stats`,
       'recall':         false,
       'crystal':        false,
       'mood':           false,
-      'process-event':  false,
     };
 
     function _extractLevelFromTags(tags) {
@@ -8932,16 +8930,6 @@ GET  /v1/usage               Usage stats`,
         el.innerHTML = `<header class="d-head"><span class="d-kind">recall</span><span class="d-ts">${timeStr}</span></header><div class="d-body">${_esc(it.content || '')}</div>`;
         return el;
       }
-      // Process spawn/die — minimal, mostly background noise
-      if (it.kind === 'process-event') {
-        const el = document.createElement('article');
-        el.className = `delta process-event event-${it.event || 'unknown'}`;
-        el.dataset.kind = 'process-event';
-        el.dataset.fromPuddle = '1';
-        el.dataset.puddleId = it.id || '';
-        el.innerHTML = `<header class="d-head"><span class="d-kind">${_esc(it.event || 'event')}</span><span class="d-ts">${timeStr}</span></header>`;
-        return el;
-      }
       return null;
     }
 
@@ -8952,7 +8940,7 @@ GET  /v1/usage               Usage stats`,
     // being grouped behind a count + label summary.
     const _CLUSTERABLE_KINDS = new Set([
       'voice-thought', 'lake-delta', 'recall', 'crystal', 'mood',
-      'pass-intent', 'process-event',
+      'pass-intent',
     ]);
 
     function _renderAccordion(items) {
@@ -9301,7 +9289,6 @@ GET  /v1/usage               Usage stats`,
         recall: 'Recalls',
         crystal: 'Crystal',
         mood: 'Mood',
-        'process-event': 'Process events',
       })[kind] || kind;
     }
     function _refreshFilterToggleLabel() {

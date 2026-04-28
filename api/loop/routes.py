@@ -235,17 +235,12 @@ def get_feed(
                 **common,
             })
             continue
-        # Process events — spawn/die/metric. Quiet by default; rendered
-        # as compact dots when the deliberation accordion is open.
+        # Process events (spawn/die/metric) are no longer written by
+        # process.py — they were interleaving between voice thoughts in
+        # the feed and breaking the cluster. Defensive: silently drop any
+        # legacy process-event still alive in the puddle from before the
+        # change. They TTL out on their own.
         if "process-event" in tags or "metric" in tags:
-            items.append({
-                "kind": "process-event",
-                "event": next(
-                    (t.split(":", 1)[1] for t in tags if t.startswith("event:")),
-                    None,
-                ),
-                **common,
-            })
             continue
 
     items.sort(key=lambda it: it.get("timestamp") or "", reverse=True)
