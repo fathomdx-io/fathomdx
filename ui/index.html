@@ -1047,6 +1047,36 @@
        either side is empty so we never render a dangling " · ". */
     .feed-meta-sep[hidden] { display: none; }
     .section-head .section-meta-group { white-space: nowrap; }
+
+    /* Fire-pulse button — small mono pill in the feed status strip,
+       sits next to the convergence dots. Hand-trigger for a feed
+       synthesis (POST /v1/puddle/pulse). Mirrors the experiment's
+       viz "fire" button placement; size + tone are quiet so it
+       doesn't compete with the rest of the strip. */
+    .fire-pulse-btn {
+      font-family: var(--mono); font-size: 10px;
+      letter-spacing: 0.08em; text-transform: uppercase;
+      padding: 2px 9px; margin-left: 6px;
+      border-radius: 999px;
+      border: 1px solid var(--rule);
+      background: transparent; color: var(--ink-faint);
+      cursor: pointer;
+      transition: color 120ms, border-color 120ms, background 120ms;
+      vertical-align: middle;
+    }
+    .fire-pulse-btn:hover {
+      color: var(--accent);
+      border-color: color-mix(in srgb, var(--accent) 50%, var(--rule));
+      background: color-mix(in srgb, var(--accent) 8%, transparent);
+    }
+    .fire-pulse-btn:disabled {
+      opacity: 0.4; cursor: wait;
+    }
+    .fire-pulse-btn[data-state="firing"] {
+      color: var(--accent);
+      border-color: var(--accent);
+      background: color-mix(in srgb, var(--accent) 14%, transparent);
+    }
     .ecg-event-line { stroke: var(--ink-faint); stroke-width: 0.5; opacity: 0.45; stroke-dasharray: 2 3; }
     .ecg-event-icon { fill: var(--accent); font-size: 11px; }
     .ecg-mood-tick { font-family: var(--mono); font-size: 9.5px; fill: var(--ink-soft, var(--ink-faint)); }
@@ -3066,6 +3096,7 @@
             <span class="conv-bar voice-preserver"><span></span></span>
             <span class="conv-bar voice-destroyer"><span></span></span>
           </span>
+          <button class="fire-pulse-btn" id="firePulseBtn" type="button" title="Fire a feed synthesis pulse — drops one intent per pass (reflection / drift / bridging / alert) into the puddle. Same primitive the pressure-watcher fires automatically when substrate pressure crosses threshold.">fire</button>
           <span class="feed-meta-sep" id="feedMetaSep" hidden> · </span>
           <span id="feedMeta"></span>
         </span>
@@ -9541,6 +9572,39 @@ GET  /v1/usage               Usage stats`,
     }
     function _stopFeedStatusPoll() {
       if (_convStatusTimer) { clearInterval(_convStatusTimer); _convStatusTimer = null; }
+    }
+
+    // Fire-pulse button — hand-trigger a feed synthesis. Drops the four
+    // pass intents (reflection / drift / bridging / alert) into the
+    // puddle, same primitive the pressure-watcher fires automatically.
+    const _firePulseBtn = document.getElementById('firePulseBtn');
+    if (_firePulseBtn) {
+      _firePulseBtn.addEventListener('click', async () => {
+        _firePulseBtn.disabled = true;
+        _firePulseBtn.dataset.state = 'firing';
+        const original = _firePulseBtn.textContent;
+        _firePulseBtn.textContent = 'firing…';
+        try {
+          await fetch(API_BASE + '/v1/puddle/pulse?reason=manual-button', {
+            method: 'POST',
+            headers: authHeaders(),
+          });
+          // Pulse intents land in the puddle synchronously; kick the
+          // status poll so the convergence dots show "deliberating"
+          // immediately instead of waiting up to 1.5s.
+          _pollLoopStatus();
+        } catch (e) { /* button re-enables in finally */ }
+        finally {
+          // Brief delay so the user sees the firing state register
+          // even on fast networks; supervisor picks up the pending
+          // intents within ~1.5s, the dots take over the visual.
+          setTimeout(() => {
+            _firePulseBtn.textContent = original;
+            _firePulseBtn.dataset.state = '';
+            _firePulseBtn.disabled = false;
+          }, 1200);
+        }
+      });
     }
 
     // ── Feed live-poll ─────────────────────────
