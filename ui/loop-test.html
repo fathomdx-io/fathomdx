@@ -1,0 +1,137 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Grand Loop — test</title>
+  <link rel="stylesheet" href="https://design.fathomdx.io/v1/tokens.css" />
+  <style>
+    * { box-sizing: border-box; }
+    html, body { margin: 0; padding: 0; background: var(--bg); color: var(--ink); font-family: var(--sans); -webkit-font-smoothing: antialiased; }
+    body { min-height: 100dvh; padding: 32px; max-width: 920px; margin: 0 auto; }
+    h1 { margin: 0 0 8px; font-size: 22px; }
+    h2 { font-size: 13px; text-transform: uppercase; letter-spacing: 0.1em; color: var(--ink-soft); margin: 28px 0 10px; }
+    .sub { color: var(--ink-soft); font-size: 14px; margin-bottom: 28px; }
+    .composer { display: flex; gap: 8px; margin-bottom: 12px; }
+    .composer input { flex: 1; padding: 10px 14px; background: var(--surface); border: 1px solid var(--rule); color: var(--ink); border-radius: 8px; font: inherit; }
+    .composer button { padding: 10px 16px; background: var(--accent); color: var(--bg-deep); border: 0; border-radius: 8px; font: inherit; font-weight: 600; cursor: pointer; }
+    .composer button:disabled { opacity: 0.6; cursor: wait; }
+    .row { padding: 12px 14px; background: var(--surface); border: 1px solid var(--rule); border-radius: 8px; margin-bottom: 10px; }
+    .row .meta { font-family: var(--mono); font-size: 11px; color: var(--ink-faint); margin-bottom: 6px; }
+    .row .body { font-size: 14px; line-height: 1.5; white-space: pre-wrap; }
+    .kicker { display: inline-block; padding: 3px 9px; background: color-mix(in srgb, var(--accent) 18%, transparent); color: var(--accent); border-radius: 999px; font-family: var(--mono); font-size: 10.5px; letter-spacing: 0.06em; text-transform: uppercase; margin-bottom: 8px; }
+    .axes { font-family: var(--mono); font-size: 11px; color: var(--ink-soft); margin-top: 8px; }
+    .empty { color: var(--ink-faint); font-size: 13px; padding: 12px 14px; }
+    .hint { font-size: 12px; color: var(--ink-faint); margin-top: 4px; }
+  </style>
+</head>
+<body>
+  <h1>Grand Loop — test page</h1>
+  <p class="sub">Drop a seed below. The supervisor picks it up within ~2s, runs a parliament round (creator → preserver → destroyer), then witness writes a card. The intent disappears once witness addresses it.</p>
+
+  <div class="composer">
+    <input id="seed" type="text" placeholder="e.g. should we keep the puddle/lake separation?" autocomplete="off" />
+    <button id="drop">Drop seed</button>
+  </div>
+  <div class="hint" id="status">idle</div>
+
+  <h2>Pending intents</h2>
+  <div id="intents"><div class="empty">none pending</div></div>
+
+  <h2>Cards</h2>
+  <div id="cards"><div class="empty">no cards yet</div></div>
+
+  <script>
+    const API = (location.origin || 'http://localhost:8201');
+    function authHeaders() {
+      const k = localStorage.getItem('fathom-api-key') || '';
+      return k ? { 'Authorization': 'Bearer ' + k } : {};
+    }
+
+    const seedInput = document.getElementById('seed');
+    const dropBtn = document.getElementById('drop');
+    const statusEl = document.getElementById('status');
+    const intentsEl = document.getElementById('intents');
+    const cardsEl = document.getElementById('cards');
+
+    async function dropSeed() {
+      const text = seedInput.value.trim();
+      if (!text) return;
+      dropBtn.disabled = true;
+      statusEl.textContent = 'dropping seed…';
+      try {
+        const r = await fetch(API + '/v1/puddle/seed', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', ...authHeaders() },
+          body: JSON.stringify({ content: text }),
+        });
+        if (!r.ok) {
+          statusEl.textContent = 'seed failed: ' + r.status;
+          dropBtn.disabled = false;
+          return;
+        }
+        seedInput.value = '';
+        statusEl.textContent = 'seeded — waiting for the loop to fire…';
+      } catch (e) {
+        statusEl.textContent = 'network error: ' + e;
+      } finally {
+        dropBtn.disabled = false;
+      }
+    }
+    dropBtn.addEventListener('click', dropSeed);
+    seedInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') dropSeed(); });
+
+    function renderIntents(items) {
+      if (!items.length) {
+        intentsEl.innerHTML = '<div class="empty">none pending</div>';
+        return;
+      }
+      intentsEl.innerHTML = items.map((it) => `
+        <div class="row">
+          <div class="meta">${it.kind || '?'} · ${it.timestamp || ''} · id=${(it.id || '').slice(0, 12)}</div>
+          <div class="body">${escapeHtml(it.content || '')}</div>
+        </div>
+      `).join('');
+    }
+
+    function renderCards(items) {
+      if (!items.length) {
+        cardsEl.innerHTML = '<div class="empty">no cards yet</div>';
+        return;
+      }
+      cardsEl.innerHTML = items.map((c) => {
+        const axes = c.axes ? Object.entries(c.axes).map(([k, v]) => `${k}=${(v ?? 0).toFixed(2)}`).join(' · ') : '';
+        return `
+          <div class="row">
+            <div class="meta">${c.route || 'chat-reply'} · ${c.timestamp || ''} · addresses=${(c.addresses || []).length}</div>
+            ${c.kicker ? `<div class="kicker">${escapeHtml(c.kicker)}</div>` : ''}
+            ${c.title ? `<div style="font-weight:600;margin-bottom:6px;">${escapeHtml(c.title)}</div>` : ''}
+            <div class="body">${escapeHtml(c.body || '')}</div>
+            ${c.tail ? `<div class="meta" style="margin-top:6px;">${escapeHtml(c.tail)}</div>` : ''}
+            ${axes ? `<div class="axes">${axes}</div>` : ''}
+          </div>
+        `;
+      }).join('');
+    }
+
+    function escapeHtml(s) {
+      return String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+    }
+
+    async function poll() {
+      try {
+        const [iR, cR] = await Promise.all([
+          fetch(API + '/v1/puddle/intents', { headers: authHeaders() }),
+          fetch(API + '/v1/puddle/cards', { headers: authHeaders() }),
+        ]);
+        if (iR.ok) renderIntents((await iR.json()).intents || []);
+        if (cR.ok) renderCards((await cR.json()).cards || []);
+      } catch (e) {
+        // network hiccup — silent
+      }
+    }
+    poll();
+    setInterval(poll, 2000);
+  </script>
+</body>
+</html>

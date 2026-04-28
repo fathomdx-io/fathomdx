@@ -136,11 +136,15 @@ async def lifespan(_app: FastAPI):
 
         _spawn_task(_backfill_once(resolved_admin), name="lifespan/contact-backfill")
 
+    from .loop import worker as loop_worker
+
     auto_regen.start()
     chat_listener.listener.start()
+    loop_worker.start()
     try:
         yield
     finally:
+        await loop_worker.stop()
         await chat_listener.listener.stop()
         await auto_regen.stop()
         await delta_client.close()
@@ -170,6 +174,7 @@ from .routes import sessions as _sessions_routes  # noqa: E402
 from .routes import sources as _sources_routes  # noqa: E402
 from .routes import stack as _stack_routes  # noqa: E402
 from .routes import vitals as _vitals_routes  # noqa: E402
+from .loop import routes as _loop_routes  # noqa: E402
 
 app.include_router(_agent_instructions_routes.router)
 app.include_router(_agents_routes.router)
@@ -185,6 +190,7 @@ app.include_router(_sessions_routes.router)
 app.include_router(_sources_routes.router)
 app.include_router(_stack_routes.router)
 app.include_router(_vitals_routes.router)
+app.include_router(_loop_routes.router)
 
 
 # ── Helpers ─────────────────────────────────────
