@@ -7,14 +7,18 @@
   <title>Fathom</title>
   <script>
     // Inline so the theme is set before first paint (avoids flash).
+    // Edition + tier default to the self-host shape (no subscription UI);
+    // loadHealth() rehydrates them from /health a moment later for hosted
+    // instances. Defaulting open-side here means a stray cache hit on a
+    // self-host install never flashes the "Upgrade" cards.
     (function () {
       try {
         var saved = localStorage.getItem('fathom-theme');
         var prefersLight = window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches;
         var theme = saved || (prefersLight ? 'light' : 'dark');
         if (theme === 'light') document.documentElement.setAttribute('data-theme', 'light');
-        var tier = localStorage.getItem('fathom-tier') || 'free';
-        document.documentElement.setAttribute('data-tier', tier);
+        document.documentElement.setAttribute('data-edition', 'self-host');
+        document.documentElement.setAttribute('data-tier', 'open');
       } catch (e) {}
     })();
   </script>
@@ -1749,9 +1753,14 @@
       background: color-mix(in srgb, var(--signal) 18%, transparent);
     }
 
-    /* Tier-based content visibility */
+    /* Tier-based content visibility. data-tier ∈ {free, open}. data-edition ∈
+       {self-host, hosted-free, hosted-paid} and is the source of truth —
+       /health sets it and the inline header script defaults it to self-host.
+       Self-host hides the "You're on Fathom Open" card and any other
+       subscription-only affordance, since there's nothing to be on. */
     :root:not([data-tier="open"]) [data-tier-view="open"] { display: none !important; }
     [data-tier="open"] [data-tier-view="free"] { display: none !important; }
+    [data-edition="self-host"] [data-tier-view="open"] { display: none !important; }
 
     /* Open tier: unlock the memory horizon */
     [data-tier="open"] .col.locked .bar {
@@ -3222,13 +3231,13 @@
             </div>
             <h3>Upgrade to Fathom Open.</h3>
             <p>Unlimited memory horizon. No moment cap. Cross-device sync always. Priority on new source connectors as they ship.</p>
-            <button class="btn" id="upgradeBtn">Upgrade · $12 / month</button>
+            <button class="btn" id="upgradeBtn">Upgrade · $x.xx / mo</button>
             <button class="btn ghost" style="margin-left: 8px;">See pricing</button>
           </div>
           <div class="sub-card" data-tier-view="open">
             <div class="tier-row">
               <span class="tier tier-open">Open</span>
-              <span class="price">$12 / month · renews May 15, 2026</span>
+              <span class="price">$x.xx / mo · renews May 15, 2026</span>
             </div>
             <h3>You're on Fathom Open.</h3>
             <p>Unlimited memory, no moment cap, every source connector unlocked. Thanks for betting on Fathom early.</p>
@@ -4209,6 +4218,23 @@
         const r = await fetch(API_BASE + '/health', { headers: authHeaders() });
         if (!r.ok) return;  // silent: /health itself is healthy-ish, don't cry wolf
         const h = await r.json();
+        const edition = (h.edition === 'hosted-free' || h.edition === 'hosted-paid')
+          ? h.edition
+          : 'self-host';
+        document.documentElement.setAttribute('data-edition', edition);
+        document.documentElement.setAttribute(
+          'data-tier',
+          edition === 'hosted-free' ? 'free' : 'open'
+        );
+        // The ECG window selector init at script bottom ran before this
+        // returned; on hosted-free we need to force the 10d default so the
+        // 7-day blackout fits, regardless of whatever localStorage carries.
+        if (edition === 'hosted-free' && typeof ecgWindowSelect !== 'undefined' && ecgWindowSelect) {
+          ecgWindowSelect.value = '10d';
+          if (typeof ECG_WINDOWS !== 'undefined' && ECG_WINDOWS['10d']) {
+            ECG_WINDOW_DAYS = ECG_WINDOWS['10d'].days;
+          }
+        }
         if (h.llm_configured) {
           banner.hidden = true;
           document.body.classList.remove('config-missing');
@@ -8216,17 +8242,12 @@ GET  /v1/usage               Usage stats`,
       return data; // {id, media_hash}
     }
 
-    // Tier toggle (upgrade ↔ cancel)
-    function applyTier(tier) {
-      document.documentElement.setAttribute('data-tier', tier);
-      try { localStorage.setItem('fathom-tier', tier); } catch (e) {}
-    }
-    document.getElementById('upgradeBtn').addEventListener('click', () => applyTier('open'));
-    document.getElementById('cancelSubBtn').addEventListener('click', () => applyTier('free'));
-    document.getElementById('horizonUnlockBtn').addEventListener('click', () => {
-      applyTier('open');
-      openSettings();
-    });
+    // The horizon-blackout "Unlock Fathom" pill on the stats ECG only
+    // renders when edition=hosted-free; clicking it opens settings, where
+    // the real upgrade card lives. Upgrade/cancel buttons themselves are
+    // intentionally inert until there's a real billing flow — the dashboard
+    // doesn't fake tier transitions anymore.
+    document.getElementById('horizonUnlockBtn').addEventListener('click', openSettings);
 
     // Esc closes whichever drill-down view (or open sidebar) is on top
     document.addEventListener('keydown', (e) => {
@@ -9877,7 +9898,7 @@ GET  /v1/usage               Usage stats`,
       }
 
       _drawFreeTierBlackout(ctx, {
-        headline: "Just $12 / month",
+        headline: "Just $x.xx / mo",
         large: true,
       });
       _drawXLabels(ctx, ticks);
@@ -10016,7 +10037,7 @@ GET  /v1/usage               Usage stats`,
       }
 
       _drawFreeTierBlackout(ctx, {
-        headline: "Just $12 / month",
+        headline: "Just $x.xx / mo",
         large: true,
       });
       _drawXLabels(ctx, ticks);

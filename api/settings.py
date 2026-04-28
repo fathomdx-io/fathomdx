@@ -104,6 +104,19 @@ class Settings(BaseSettings):
     # a public instance should flip this.
     signup_enabled: bool = Field(True, validation_alias="FATHOM_SIGNUP_ENABLED")
 
+    # Which build of Fathom this is — drives whether the dashboard shows
+    # subscription UI (upgrade card, free-tier blackout on the stats ECG,
+    # pricing CTAs). Three values:
+    #   self-host    — the default. No subscription UI anywhere; the operator
+    #                  runs their own LLM key, full features, no upsell.
+    #   hosted-free  — operator runs hosted.fathomdx.io and this account is
+    #                  on the free tier; show the 7-day blackout, pricing
+    #                  CTAs, and the "Upgrade to Fathom Open" settings card.
+    #   hosted-paid  — same hosted instance, paid account; subscription UI
+    #                  collapses to the "You're on Fathom Open" card and the
+    #                  "Cancel subscription" affordance.
+    fathom_edition: str = Field("self-host", validation_alias="FATHOM_EDITION")
+
     # Allowlist directory for `image_path` on POST /v1/deltas and the
     # `write` tool. When a caller hands the api a local filesystem path
     # instead of base64, the api reads that path — a bare acceptance

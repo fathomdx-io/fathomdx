@@ -1281,6 +1281,7 @@ async def health():
         "model": settings.resolved_model,
         "llm_configured": not missing,
         "llm_missing": missing,
+        "edition": settings.fathom_edition,
     }
 
 
