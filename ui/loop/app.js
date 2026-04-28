@@ -149,7 +149,7 @@ let _lastSeenSid = null;
 let _convoIdentityDet = null;
 const _convoIdentityCounts = { crystal: 0, mood: 0 };
 
-// Mirror deltas (vampire-tap stream) collect into rolling "batch" accordions
+// Mirror deltas (telepathy stream) collect into rolling "batch" accordions
 // that are interleaved inline with Q/A in the lake flow. Each Q or A card
 // closes the current batch; the next mirror starts a new accordion below
 // it. This shows the puddle filling in around the conversation timeline:
@@ -477,7 +477,7 @@ function renderDelta(d) {
   const isFresh      = tags.includes("fresh");
   const isNow        = tags.includes("now");
   const isRecall     = tags.includes("recall-result");
-  const isMirror     = tags.includes("mirror");  // vampire-tap stream
+  const isMirror     = tags.includes("mirror");  // telepathy stream
   const isPattern    = tags.includes("pattern-phase");
   const isRumination = tags.includes("rumination-phase");
   // Grand-loop additions:

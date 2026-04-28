@@ -65,9 +65,9 @@ def _group_thoughts_by_voice(deltas: list[dict]) -> dict[str, list[str]]:
 def _render_anchors() -> str:
     """Identity facets + current mood from the puddle.
 
-    The vampire-tap module (when wired) populates these by mirroring the
-    latest crystal facets and mood-delta from the lake. Until vampire-tap
-    is hooked up, this returns empty and the witness writes from the
+    The telepathy module populates these by mirroring the latest
+    crystal facets and mood-delta from the lake. Until telepathy is
+    hooked up, this returns empty and the witness writes from the
     voice block alone.
     """
     facet_lines: list[str] = []
@@ -344,7 +344,7 @@ async def run_witness(
         puddle_tags.append("auto-authored")
     if lake_id:
         # Back-reference to the durable counterpart. recalled-id is the
-        # canonical telepathy-dedupe tag (vampire skips lake deltas
+        # canonical telepathy-dedupe tag (telepathy skips lake deltas
         # whose short id is already represented in the puddle); lake-id
         # carries the full id for engagement to look up directly.
         puddle_tags.append(f"lake-id:{lake_id}")

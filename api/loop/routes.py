@@ -245,7 +245,7 @@ def get_feed(
                 **common,
             })
             continue
-        # Lake delta — vampire-tap mirror of recent durable lake activity
+        # Lake delta — telepathy mirror of recent durable lake activity
         # (RSS arrivals, claude-code session deltas, anything new in the
         # lake that isn't loop-output noise). Surfaced under its own kind
         # so the filter can show "raw lake" separately from model-driven

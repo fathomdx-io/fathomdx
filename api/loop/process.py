@@ -57,7 +57,7 @@ def _gather_substrate(session_tag: str) -> list[dict]:
          Always retained; this is how voices read each other.
       2. Recall-results — lake hits the searcher tick wrote into THIS
          session's puddle slice. These are why the searcher exists.
-      3. Lake-mirrors — vampire-tap copies of recent lake activity,
+      3. Lake-mirrors — telepathy copies of recent lake activity,
          convo-wide. Ambient context — what's been happening elsewhere.
       4. Crystal facets — identity anchors, convo-wide.
       5. Mood — current felt-sense, convo-wide.

@@ -7,7 +7,7 @@ queue automatically because the witness output carries
 `addresses:<intent-id>` tags that `pending_intents()` filters on.
 
 This is the v1 spike — no ambient watcher, no pressure pulses, no
-vampire tap. Those wire in as separate background tasks in subsequent
+telepathy. Those wire in as separate background tasks in subsequent
 commits without changing this loop's shape.
 """
 
@@ -29,7 +29,7 @@ from .process import run_process
 from .prompts import VOICES
 from .puddle import puddle
 from .recall import run_searcher_tick
-from .vampire import vampire_loop
+from .telepathy import telepathy_loop
 from .witness import run_witness
 
 
@@ -55,7 +55,7 @@ REAP_INTERVAL_S = 30
 
 _supervisor_task: asyncio.Task | None = None
 _reaper_task: asyncio.Task | None = None
-_vampire_task: asyncio.Task | None = None
+_telepathy_task: asyncio.Task | None = None
 _pressure_task: asyncio.Task | None = None
 _boot_iso: str = ""
 
@@ -101,7 +101,7 @@ async def _run_one_fire() -> bool:
         rounds_run = round_idx + 1
         # Fire all voices + recall in parallel for this round. Each
         # voice reads the puddle as it stands at round-start (the prior
-        # round's takes plus any vampire-tap mirrors), composes its
+        # round's takes plus any telepathy mirrors), composes its
         # thought, and writes back. Recall reads the latest pre-round
         # voice thought (or the seed on round 0) and pulls hits in
         # parallel — so by the time witness fires, the substrate has
@@ -194,22 +194,22 @@ async def _supervisor() -> None:
 
 
 def start() -> None:
-    """Start supervisor + reaper + vampire-tap + pressure-watcher.
+    """Start supervisor + reaper + telepathy + pressure-watcher.
     Idempotent."""
-    global _supervisor_task, _reaper_task, _vampire_task, _pressure_task, _boot_iso
+    global _supervisor_task, _reaper_task, _telepathy_task, _pressure_task, _boot_iso
     if _supervisor_task is not None:
         return
     _boot_iso = _now_iso()
     _supervisor_task = asyncio.create_task(_supervisor(), name="loop/supervisor")
     _reaper_task = asyncio.create_task(_reaper(), name="loop/reaper")
-    _vampire_task = asyncio.create_task(vampire_loop(), name="loop/vampire")
+    _telepathy_task = asyncio.create_task(telepathy_loop(), name="loop/telepathy")
     _pressure_task = asyncio.create_task(pressure_watcher(), name="loop/pressure")
 
 
 async def stop() -> None:
     """Cancel all background tasks. Idempotent."""
-    global _supervisor_task, _reaper_task, _vampire_task, _pressure_task
-    for task in (_supervisor_task, _reaper_task, _vampire_task, _pressure_task):
+    global _supervisor_task, _reaper_task, _telepathy_task, _pressure_task
+    for task in (_supervisor_task, _reaper_task, _telepathy_task, _pressure_task):
         if task is None:
             continue
         task.cancel()
@@ -219,5 +219,5 @@ async def stop() -> None:
             pass
     _supervisor_task = None
     _reaper_task = None
-    _vampire_task = None
+    _telepathy_task = None
     _pressure_task = None

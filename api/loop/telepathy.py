@@ -1,19 +1,31 @@
-"""Vampire tap — lake → puddle resonance mirror.
+"""Telepathy — the puddle's real-time view into the lake.
 
-The witness's `anchors_block` reads identity facets and the current mood
-from the puddle. Without something filling those tags, the witness
-writes from voice thoughts alone — correct but flavorless.
+The puddle observes; it doesn't own. Telepathy is the mechanism that
+keeps the puddle aware of what's actually happening in the lake right
+now: the witness's identity facets, the latest mood, anything the user
+or external sources just authored. Without it the loop would write
+from voice thoughts alone — correct, but unmoored from what's
+currently true.
 
-This module pulls the latest identity-crystal and latest mood-delta
-from the durable lake and writes them as puddle deltas with the same
-tag conventions the witness already queries (`crystal` + `facet:<slug>`,
-`mood` + `feeling:<state>`).
+Three pulls run every refresh:
 
-For v1 this is one-shot at boot + refresh-every-N. The experiment also
-mirrored arbitrary substrate activity into the puddle continuously, but
-that's a resonance/settle-driven feature we haven't ported yet — adding
-it would put noise into the puddle without the metrics that filter it
-back out.
+  * pull_crystal — split the latest identity-crystal into facet deltas
+    so the witness can surface individual facets independently.
+  * pull_mood — render the latest mood-delta as a `mood` card so the
+    integrated take colors with the felt-sense layer.
+  * mirror_recent_activity — copy any lake delta written in the
+    MIRROR_WINDOW_S seconds before this tick into the puddle as a
+    `lake-delta` item, filtered to drop loop-output sources so the
+    loop doesn't echo on its own footprint.
+
+Dedupe truth lives in the puddle itself — every echoed lake delta
+carries a `recalled-id:<24chars>` tag (shared convention with
+recall.py and the dual-write paths in witness.py / routes.py). The
+mirror pass queries the puddle for that tag set up front and skips
+any lake delta whose short id is already represented, no matter
+which path put it there. Reaping a TTL'd echo cleanly drops the
+dedupe entry, so a still-recent lake delta gets re-mirrored after
+its earlier copy expires.
 """
 
 from __future__ import annotations
@@ -38,7 +50,7 @@ ANCHOR_TTL_S = 48 * 60 * 60  # 48h rolling horizon
 REFRESH_INTERVAL_S = 5 * 60  # re-pull every 5 minutes
 
 # Mirror window — how far back to look in the lake on each tick. Each
-# vampire-tap pull asks for any new lake delta written in the last
+# telepathy pass asks for any new lake delta written in the last
 # MIRROR_WINDOW_S seconds; previously-mirrored ids get deduped.
 MIRROR_WINDOW_S = 5 * 60
 
@@ -94,7 +106,7 @@ async def pull_crystal() -> int:
             limit=1,
         )
     except Exception as e:
-        print(f"[vampire] crystal fetch failed: {type(e).__name__}: {e}")
+        print(f"[telepathy] crystal fetch failed: {type(e).__name__}: {e}")
         return 0
     if not items:
         return 0
@@ -139,7 +151,7 @@ async def pull_mood() -> bool:
     try:
         items = await delta_client.query(tags_include=["mood-delta"], limit=1)
     except Exception as e:
-        print(f"[vampire] mood fetch failed: {type(e).__name__}: {e}")
+        print(f"[telepathy] mood fetch failed: {type(e).__name__}: {e}")
         return False
     if not items:
         return False
@@ -185,15 +197,6 @@ async def mirror_recent_activity() -> int:
     output (witness writes, voice thoughts, the puddle's own promotes)
     are filtered out so the loop doesn't echo on its own footprint.
 
-    Dedupe truth lives in the puddle itself — every echoed lake delta
-    carries a `recalled-id:<24chars>` tag (shared convention with
-    recall.py and any future dual-write path like chat/intents/witness
-    cards). We query the puddle for that tag set up front and skip any
-    lake delta whose short id is already represented, no matter which
-    path put it there. Reaping a TTL'd echo cleanly drops the dedupe
-    entry, so a still-recent lake delta gets re-mirrored after its
-    earlier copy expires.
-
     Returns the count of mirrors written this tick.
     """
     from datetime import datetime, timedelta, UTC
@@ -201,7 +204,7 @@ async def mirror_recent_activity() -> int:
     try:
         items = await delta_client.query(time_start=cutoff, limit=200)
     except Exception as e:
-        print(f"[vampire] activity fetch failed: {type(e).__name__}: {e}")
+        print(f"[telepathy] activity fetch failed: {type(e).__name__}: {e}")
         return 0
 
     existing_short_ids: set[str] = set()
@@ -249,29 +252,29 @@ async def mirror_recent_activity() -> int:
 
 
 async def refresh_anchors() -> None:
-    """One refresh pass — pull crystal + mood. Used on boot and on
-    interval. Logs but never raises; a transient lake hiccup must not
-    take down the loop."""
+    """One refresh pass — pull crystal + mood + recent activity. Used
+    on boot and on interval. Logs but never raises; a transient lake
+    hiccup must not take down the loop."""
     try:
         n = await pull_crystal()
         if n:
-            print(f"[vampire] refreshed {n} crystal facet(s) in the puddle")
+            print(f"[telepathy] refreshed {n} crystal facet(s) in the puddle")
     except Exception as e:
-        print(f"[vampire] crystal refresh crashed: {type(e).__name__}: {e}")
+        print(f"[telepathy] crystal refresh crashed: {type(e).__name__}: {e}")
     try:
         if await pull_mood():
-            print("[vampire] refreshed mood in the puddle")
+            print("[telepathy] refreshed mood in the puddle")
     except Exception as e:
-        print(f"[vampire] mood refresh crashed: {type(e).__name__}: {e}")
+        print(f"[telepathy] mood refresh crashed: {type(e).__name__}: {e}")
     try:
         n = await mirror_recent_activity()
         if n:
-            print(f"[vampire] mirrored {n} new lake delta(s) into the puddle")
+            print(f"[telepathy] mirrored {n} new lake delta(s) into the puddle")
     except Exception as e:
-        print(f"[vampire] activity mirror crashed: {type(e).__name__}: {e}")
+        print(f"[telepathy] activity mirror crashed: {type(e).__name__}: {e}")
 
 
-async def vampire_loop() -> None:
+async def telepathy_loop() -> None:
     """Background task — periodic refresh forever."""
     await refresh_anchors()  # one immediate pull at boot
     while True:

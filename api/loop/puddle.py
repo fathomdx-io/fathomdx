@@ -1,11 +1,13 @@
 """In-memory puddle — the Grand Loop's working substrate.
 
 The loop deliberates in a small, fast, ephemeral store separate from the
-durable lake. The puddle is where voices write their thoughts, where
-intents queue up, where the witness reads its inputs. Everything in the
-puddle is TTL'd; the only thing that survives a process restart is what
-the loop has promoted to the lake (via engagement) or read from the lake
-(via the vampire tap, which re-fills on every boot).
+durable lake. The puddle is consciousness/now — observes but doesn't
+own. It holds voice thoughts, queued intents, recall hits, telepathy
+mirrors of recent lake activity, and the witness's currently-alive
+cards. Everything is TTL'd; nothing survives a process restart on its
+own. Authored content (engaged cards, user seeds, witness output that
+auto-authors on resonance) lives in the lake; telepathy refills the
+puddle's anchors (crystal, mood) on every boot.
 
 This module implements the puddle as a Python list of delta dicts,
 guarded by an asyncio.Lock for writes. Reads are lock-free over a snapshot.
@@ -50,11 +52,11 @@ def _parse_iso(s: str) -> datetime | None:
 class Puddle:
     """Single shared in-memory delta store.
 
-    One instance per api process. The Grand Loop's worker, the vampire
-    tap, and the /v1/puddle/* HTTP routes all hold a reference to the
-    same Puddle. No per-contact partitioning — the loop is global by
-    design (the user explicitly decided this; see the discussion that
-    led to the open-forum cut).
+    One instance per api process. The Grand Loop's worker, telepathy,
+    and the /v1/puddle/* HTTP routes all hold a reference to the same
+    Puddle. No per-contact partitioning — the loop is global by design
+    (the user explicitly decided this; see the discussion that led to
+    the open-forum cut).
     """
 
     def __init__(self) -> None:

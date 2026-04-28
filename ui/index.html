@@ -429,7 +429,7 @@
     /* Recall — signal-dim, cooler than the witness's signal. */
     .feed .delta.recall { border-left-color: var(--signal-dim, var(--signal)); }
     .feed .delta.recall .d-kind { color: var(--signal); }
-    /* Lake delta (vampire-tap continuous mirror). Source-tinted in
+    /* Lake delta (telepathy continuous mirror). Source-tinted in
        a cool/desaturated palette so the substrate reads as ambient
        background — present and findable, not competing for attention
        with witness output or the parliament's voices. */
@@ -8983,7 +8983,7 @@ GET  /v1/usage               Usage stats`,
         el.innerHTML = `<header class="d-head"><span class="d-kind">${_esc(label)}</span><span class="d-ts">${timeStr}</span></header><div class="d-body">${_esc(it.content || '')}</div>`;
         return el;
       }
-      // Lake delta — vampire-tap mirror of fresh durable lake activity.
+      // Lake delta — telepathy mirror of fresh durable lake activity.
       // Header: "delta" + source chip; body: prose if it parses as
       // text, mono pretty-printed JSON if it parses as JSON. Either
       // way no truncation; a max-height + scroll on .is-json keeps
@@ -9016,7 +9016,7 @@ GET  /v1/usage               Usage stats`,
         return el;
       }
       // Compositional recall result (model-driven, distinct from the
-      // vampire-tap continuous mirror above).
+      // telepathy continuous mirror above).
       if (it.kind === 'recall') {
         const el = document.createElement('article');
         el.className = 'delta recall';
@@ -9069,8 +9069,8 @@ GET  /v1/usage               Usage stats`,
     // FIRST hit wins, so we always merge into the most recent matching
     // cluster (per-session accordion pattern). Returns the element or
     // null if no match. Same-kind clusters in different sessions stay
-    // separate; clusters with no session (e.g. crystal facets from the
-    // vampire-tap) match other no-session items of the same kind.
+    // separate; clusters with no session (e.g. crystal facets from
+    // telepathy) match other no-session items of the same kind.
     function _findMergeTarget(kind, session) {
       const sessionKey = session || '';
       for (const child of feed.children) {

@@ -430,7 +430,7 @@ input[type="text"]::placeholder { color: var(--ink-faint); }
 .delta.recall.recall-deep    { opacity: 0.7; }
 .delta.recall.recall-deeper  { opacity: 0.55; }
 .delta.recall.recall-deepest { opacity: 0.45; }
-/* Resonance vampire-tap landings — set apart from regular recalls. */
+/* Resonance telepathy landings — set apart from regular recalls. */
 .delta.recall.recall-resonant {
   border-left-color: #c4b5fd;
   background: color-mix(in srgb, var(--surface) 92%, #c4b5fd 8%);
