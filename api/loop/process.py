@@ -105,10 +105,15 @@ async def run_process(
     )
 
     try:
+        # max_tokens generous so a voice never gets cut off mid-sentence.
+        # The voice prompt asks for "one to three sentences" but the model
+        # sometimes runs longer; capping low produced visibly truncated
+        # thoughts ("The most beautiful thing I"). 2048 is plenty of
+        # headroom — a real voice take rarely exceeds 200 tokens.
         thought = await loop_generate(
             prompt=prompt,
             tier="medium",
-            max_tokens=200,
+            max_tokens=2048,
             temperature=0.95,
         )
     except Exception as e:
