@@ -66,6 +66,65 @@ async def post_seed(req: SeedRequest) -> dict:
     return {"ok": True, "intent": delta}
 
 
+@router.get("/v1/puddle/feed")
+def get_feed(limit: int = 100) -> dict:
+    """Unified feed: user seeds + fathom replies + witness cards in one
+    chronological list, newest first.
+
+    The dashboard renders three component shapes from this one stream:
+      * kind=user-message   → renderTurn({role:'user'})    .msg-user
+      * kind=fathom-message → renderTurn({role:'fathom'})  .msg-fathom
+      * kind=card           → renderStoryCard()            .card
+
+    A user's seed (kind:question intent) appears as user-message regardless
+    of whether the witness has addressed it yet — leaving the seed visible
+    after its reply lands keeps the conversation legible. The witness
+    output's `addresses` list points back to the seed it answered.
+    """
+    items: list[dict] = []
+    raw = puddle.query(tags_include=[CONVO_TAG], limit=500)
+
+    for d in raw:
+        tags = set(d.get("tags") or [])
+        ts = d.get("timestamp")
+        # User seed → user-message turn.
+        if "intent" in tags and "kind:question" in tags:
+            items.append({
+                "kind": "user-message",
+                "id": d.get("id"),
+                "content": d.get("content") or "",
+                "timestamp": ts,
+                "expires_at": d.get("expires_at"),
+            })
+            continue
+        # Witness output → split by route.
+        if "feed-card" in tags:
+            try:
+                payload = json.loads(d.get("content") or "{}")
+            except Exception:
+                payload = {"body": d.get("content") or ""}
+            route = next(
+                (t.split(":", 1)[1] for t in tags if t.startswith("route:")),
+                "chat-reply",
+            )
+            addresses = [t.split(":", 1)[1] for t in tags if t.startswith("addresses:")]
+            base = {
+                "id": d.get("id"),
+                "timestamp": ts,
+                "expires_at": d.get("expires_at"),
+                "addresses": addresses,
+                "route": route,
+                **payload,
+            }
+            if route == "chat-reply":
+                items.append({"kind": "fathom-message", **base})
+            else:
+                items.append({"kind": "card", **base})
+
+    items.sort(key=lambda it: it.get("timestamp") or "", reverse=True)
+    return {"items": items[:limit]}
+
+
 @router.get("/v1/puddle/cards")
 def get_cards(limit: int = 50) -> dict:
     """Witness outputs (feed-card synthesis deltas) alive in the puddle.
@@ -220,9 +279,47 @@ async def engage_card(card_id: str, req: EngageRequest) -> dict:
         source="loop-engagement",
     )
 
+    # Promote the addressed seeds to the lake too — engaging the reply
+    # means "this thread mattered." Without this, the seed TTLs out of
+    # the puddle and the durable record shows an answer with no question.
+    # Each addressed intent that's still alive in the puddle gets a
+    # paired durable lake delta tagged `promoted-from-puddle` +
+    # `kind:question` + `paired-with:<promoted_card_id>`.
+    promoted_seed_ids: list[str] = []
+    addressed = [
+        t.split(":", 1)[1]
+        for t in card.get("tags") or []
+        if t.startswith("addresses:")
+    ]
+    for intent_id in addressed:
+        intent = puddle.get(intent_id)
+        if intent is None:
+            continue  # already TTL'd; nothing to promote
+        seed_tags = [
+            "user-seed",
+            "promoted-from-puddle",
+            "kind:question",
+            f"source-intent:{intent_id}",
+        ]
+        if promoted_id:
+            seed_tags.append(f"paired-with:{promoted_id}")
+        promoted_seed = await delta_client.write(
+            content=intent.get("content") or "",
+            tags=seed_tags,
+            source="loop-engagement",
+        )
+        seed_promoted_id = (
+            promoted_seed.get("id")
+            if isinstance(promoted_seed, dict)
+            else (promoted_seed if isinstance(promoted_seed, str) else "")
+        )
+        if seed_promoted_id:
+            promoted_seed_ids.append(seed_promoted_id)
+
     return {
         "ok": True,
         "promoted_card_id": promoted_id,
+        "promoted_seed_ids": promoted_seed_ids,
         "route": route,
         "kind": kind,
     }

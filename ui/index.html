@@ -468,9 +468,12 @@
     /* Dynamically appended cards */
     .card.surfacing { animation: surface 1s cubic-bezier(0.16, 1, 0.3, 1) both; }
 
-    /* Chat messages surface the same way */
+    /* Chat messages surface the same way — both inside the chat-stream
+       (legacy chat detail view) and inline in the main feed (Grand Loop
+       cutover, where user seeds + fathom replies render alongside cards). */
     .chat-stream .msg,
-    .chat-stream .tool-strip {
+    .chat-stream .tool-strip,
+    .feed .msg {
       animation: surface 0.8s cubic-bezier(0.16, 1, 0.3, 1) both;
     }
 
@@ -2554,7 +2557,12 @@
           <svg class="ic-sun" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"/></svg>
         </button>
       </div>
-      <button class="new-session-btn" type="button">
+      <!-- Sessions list + new-session button + claude-code filter were
+           the legacy chat-session surface. Cutover hid them: the loop
+           drops seeds via the composer at the bottom, no per-session
+           threading anymore. The DOM stays so any code still reaching
+           into these IDs short-circuits cleanly. -->
+      <button class="new-session-btn" type="button" hidden>
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
         <span>New session</span>
       </button>
@@ -2566,8 +2574,9 @@
         </span>
       </label>
     </div>
-    <div class="sidebar-body">
-      <!-- Populated dynamically from GET /v1/sessions -->
+    <div class="sidebar-body" hidden>
+      <!-- Populated dynamically from GET /v1/sessions (legacy — hidden
+           after the Grand Loop cutover) -->
     </div>
     <div class="sidebar-foot">
       <button class="account-row" id="accountRowBtn" type="button">
@@ -3495,7 +3504,10 @@
   <div class="composer-wrap" id="composerWrap">
     <div class="composer">
       <input type="file" id="fileInput" accept="image/*" hidden />
-      <button class="attach" id="attachBtn" aria-label="Attach">
+      <!-- Attach hidden post-cutover: the puddle's seed shape is
+           text-only; image flow comes back when the loop knows how to
+           render media in witness output. -->
+      <button class="attach" id="attachBtn" aria-label="Attach" hidden>
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg>
       </button>
       <div class="attach-preview" id="attachPreview">
@@ -7981,203 +7993,46 @@ GET  /v1/usage               Usage stats`,
     // Composer send — real streaming API call
     async function sendFromComposer() {
       const text = composerTa.value.trim();
-      const hasImage = !!pendingFile;
-      if (!text && !hasImage) return;
+      if (!text) return;
       composerTa.value = '';
       composerTa.style.height = 'auto';
 
-      // If on main view, open a fresh chat
-      if (viewChat.hidden) {
-        openChatFresh();
-      }
-
-      // Pause polling while the stream is in flight so we don't double-render
-      // the user's message or interleave partial output with a poll result.
-      // Wrapped in try/finally below so an unexpected throw (image upload
-      // edge case, a missing element, anything before the network try
-      // block at the `fetch /v1/chat/completions` call) can't leave
-      // paused stuck at true — that would silently freeze chat polling
-      // until refresh.
-      _chatPollPaused = true;
-      let _resumed = false;
-      const _resume = () => {
-        if (_resumed) return;
-        _resumed = true;
-        _chatPollPaused = false;
-        if (currentSessionId && !_chatPollTimer) _startChatPoll();
-      };
-
-      const now = new Date();
-      const timeStr = now.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
-
-      // If we have an image on a fresh session, mint the session slug up
-      // front. The upload endpoint stamps chat:<slug> onto the image delta
-      // only when session_id is present — without that tag the image isn't
-      // part of this conversation and hits dedup against prior fathom-chat
-      // uploads (same source+tags, same content) → the write returns None
-      // and the endpoint 500s. Minting here keeps the image tied to the
-      // session from the first byte.
-      if (hasImage && !currentSessionId) {
-        try {
-          const sr = await fetch(API_BASE + '/v1/sessions', {
-            method: 'POST',
-            headers: authHeaders(),
-            body: JSON.stringify({ title: 'New session' }),
-          });
-          if (sr.ok) {
-            const sd = await sr.json();
-            if (sd && sd.id) currentSessionId = sd.id;
-          }
-        } catch { /* non-fatal — fall through to pre-mint behavior */ }
-      }
-
-      // Upload image first if attached
-      let uploadedMedia = null;
-      let uploadError = null;
-      if (hasImage) {
-        try {
-          uploadedMedia = await uploadPendingImage(currentSessionId, text);
-          if (!uploadedMedia) uploadError = 'Upload failed. Your image is still attached — try Send again.';
-        } catch (err) {
-          uploadError = `Upload failed: ${err.message}. Your image is still attached.`;
-        }
-      }
-
-      // Upload failed — don't post a ghost message. Surface the error,
-      // leave pendingFile in place so the user can retry, unpause polling,
-      // and restore whatever text the user typed so they don't have to
-      // re-compose the caption.
-      if (hasImage && !uploadedMedia) {
-        chatStream.appendChild(renderTurn({
-          role: 'fathom', time: timeStr,
-          html: `<p style="color: var(--danger);">${_esc(uploadError || 'Upload failed.')}</p>`,
-        }));
-        scrollToBottomOfChat();
-        if (text) {
-          composerTa.value = text;
-          composerTa.dispatchEvent(new Event('input'));
-        }
-        _resume();
-        return;
-      }
-
-      // Show user message with optional thumbnail
-      const userEl = renderTurn({ role: 'user', time: timeStr, text: text || '(image)' });
-      if (uploadedMedia) {
-        userEl.querySelector('.msg-body').appendChild(
-          _lightboxChatImage(uploadedMedia.media_hash, 'msg-thumb')
-        );
-      }
-      chatStream.appendChild(userEl);
-      // User just hit send — re-arm sticky mode so they follow the reply
-      // regardless of where they were scrolled before.
-      _stickBottom = true;
-      scrollToBottomOfChat(true);
-      refreshLightbox();
-
-      // Show typing indicator. It stays until the poll reconcile sees a
-      // new Fathom (or body) message, then is removed by _maybeRemoveTyping.
-      // In the delta-driven world the server doesn't stream a reply back —
-      // it writes the user delta, the chat listener picks it up, Fathom's
-      // response lands as a new delta, and polling surfaces it.
-      const typing = document.createElement('div');
-      typing.className = 'typing';
-      typing.innerHTML = '<span></span><span></span><span></span>';
-      chatStream.appendChild(typing);
-      scrollToBottomOfChat(true);
-
-      // Carry the seed-card id on the first send of a card-opened
-      // session. The server uses it to write Fathom's opening turn
-      // (the card, snapshotted as a normal assistant delta) BEFORE
-      // persisting the user message — so timestamps order it first.
-      const seedCardId = _seedCard ? _seedCard.id : null;
-
+      // Cutover: the composer drops into the Grand Loop puddle as a
+      // kind:question intent. The supervisor picks it up within ~2s,
+      // parliament fires, witness produces a routed card, and the seed
+      // + reply both surface in the feed via _pollFeedLive. No chat
+      // session is created; the conversation lives as ephemeral puddle
+      // deltas until engagement promotes them to the durable lake.
       try {
-        const r = await fetch(API_BASE + '/v1/chat/completions', {
+        const r = await fetch(API_BASE + '/v1/puddle/seed', {
           method: 'POST',
-          headers: authHeaders(),
-          body: JSON.stringify({
-            messages: [{ role: 'user', content: uploadedMedia
-              ? `${text || 'Attached image.'}\n[Image attached: media_hash=${uploadedMedia.media_hash}]`
-              : text }],
-            session_id: currentSessionId,
-            image_uploaded: !!uploadedMedia,
-            seed_card_id: seedCardId,
-          }),
+          headers: { 'Content-Type': 'application/json', ...authHeaders() },
+          body: JSON.stringify({ content: text }),
         });
-        const data = await r.json();
-        if (data.session_id && !currentSessionId) {
-          currentSessionId = data.session_id;
-        }
-
-        // Refresh sidebar in case this created a new session
-        loadSessions();
-
-        // Fathom's response carries the freshly-written seed message
-        // (id + content + media_hash). Replace the transient card clone
-        // with a normal Fathom bubble at the TOP of the stream, then
-        // mark the seed id so reconcile doesn't double-paint it. The
-        // seed timestamp is server-stamped earlier than the user
-        // message so reload-from-lake order matches paint order.
-        if (data.seed && data.seed.id) {
-          const stale = chatStream.querySelector('.msg-feed-seed-local');
-          const seedEl = renderTurn({
-            role: 'fathom',
-            time: timeStr,
-            html: renderMd(data.seed.content || ''),
+        if (!r.ok) {
+          // Surface the failure inline as a red fathom-style note in the
+          // feed so the user isn't left wondering. They can re-type and
+          // retry; the puddle endpoint is idempotent at the seed level.
+          const now = new Date();
+          const timeStr = now.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+          const errEl = renderTurn({
+            role: 'fathom', time: timeStr,
+            html: `<p style="color: var(--danger);">Couldn't drop seed: ${_esc(r.status + ' ' + r.statusText)}.</p>`,
           });
-          if (data.seed.media_hash) {
-            const body = seedEl.querySelector('.msg-body');
-            if (body) body.appendChild(_lightboxChatImage(data.seed.media_hash, 'msg-thumb'));
-          }
-          if (stale) stale.replaceWith(seedEl);
-          else chatStream.insertBefore(seedEl, chatStream.firstChild);
-          _renderedMessageIds.add(data.seed.id);
-          refreshLightbox();
+          feed.insertBefore(errEl, feed.firstChild);
+          return;
         }
-
-        // If this session was seeded by a feed card, the first user
-        // message is also the chat-engagement signal back toward the
-        // crystal. One signal per seed; clear after firing.
-        if (_seedCard && currentSessionId) {
-          const seed = _seedCard;
-          _seedCard = null;
-          try {
-            await api('/v1/feed/engagement', {
-              method: 'POST',
-              body: JSON.stringify({
-                kind: 'chat',
-                card_id: seed.id,
-                topic: seed.topic || '',
-                card_excerpt: seed.excerpt || '',
-                chat_session: currentSessionId,
-              }),
-            });
-          } catch (err) { /* best-effort — drop silently */ }
-        }
-
-        // Silently consume the user's own delta — we already painted
-        // its bubble manually above, so the next poll mustn't double-
-        // render it. Crucially do NOT swallow 'assistant' here: by the
-        // time chat-completions returns, _await_fathom_reply has waited
-        // for the reply delta to land in the lake (server.py:797). If
-        // we silenced 'assistant' too, the very reply we want to show
-        // would get its id marked-but-not-rendered, leaving the typing
-        // indicator hanging forever until refresh wipes the rendered
-        // set. The reply paints through the normal poll path below.
-        await _reconcileChatMessages(['user']);
+        // Kick the live-poll right away so the seed appears as a
+        // .msg-user immediately rather than waiting up to 3s.
+        _pollFeedLive();
       } catch (err) {
-        typing.remove();
-        chatStream.appendChild(renderTurn({
+        const now = new Date();
+        const timeStr = now.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+        const errEl = renderTurn({
           role: 'fathom', time: timeStr,
           html: `<p style="color: var(--danger);">Connection error: ${_esc(err.message)}</p>`,
-        }));
-        scrollToBottomOfChat();
-      } finally {
-        // ALWAYS resume — guarantees paused doesn't get stuck at true,
-        // which would silently freeze chat polling for this session
-        // until the user refreshes.
-        _resume();
+        });
+        feed.insertBefore(errEl, feed.firstChild);
       }
     }
 
@@ -8709,19 +8564,89 @@ GET  /v1/usage               Usage stats`,
     // rendering ones already on screen.
     const _renderedFeedIds = new Set();
 
+    // Render dispatch for puddle feed items. Three shapes flow through
+    // the same .feed container: user seeds via .msg-user, fathom replies
+    // via .msg-fathom, and witness cards via the existing renderStoryCard.
+    // Newest-on-top sorting is the server's job (/v1/puddle/feed).
+    function _renderPuddleItem(it, delay) {
+      const ts = it.timestamp ? new Date(it.timestamp) : new Date();
+      const timeStr = ts.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+      if (it.kind === 'user-message') {
+        const el = renderTurn({ role: 'user', time: timeStr, text: it.content || '' });
+        if (el) {
+          el.dataset.fromPuddle = '1';
+          el.dataset.puddleId = it.id || '';
+        }
+        return el;
+      }
+      if (it.kind === 'fathom-message') {
+        const html = (typeof renderMd === 'function') ? renderMd(it.body || '') : _esc(it.body || '');
+        const el = renderTurn({ role: 'fathom', time: timeStr, html });
+        if (el) {
+          el.dataset.fromPuddle = '1';
+          el.dataset.puddleId = it.id || '';
+          // Engagement rail for fathom replies — same +/- buttons as cards.
+          // Sits inline below the body. The delegate at .feed catches the
+          // click and routes through /v1/puddle/cards/<id>/engage when
+          // data-from-puddle is set.
+          const body = el.querySelector('.msg-body');
+          if (body) {
+            const rail = document.createElement('div');
+            rail.className = 'tail';
+            rail.style.cssText = 'display:flex;gap:14px;margin-top:10px;font-family:var(--mono);font-size:11px;color:var(--ink-faint);letter-spacing:0.04em;';
+            rail.innerHTML = `<span style="flex:1"></span>
+              <button class="engagement-btn" data-kind="less" type="button" title="Less like this">−</button>
+              <button class="engagement-btn" data-kind="more" type="button" title="Save to lake">+</button>`;
+            body.appendChild(rail);
+          }
+        }
+        return el;
+      }
+      if (it.kind === 'card') {
+        // Adapt witness card payload to renderStoryCard's story shape.
+        const story = {
+          id: it.id,
+          timestamp: it.timestamp,
+          kicker: it.kicker || '',
+          title: it.title || '',
+          body: it.body || '',
+          tail: it.tail || '',
+          link: it.link || '',
+          links: it.links || [],
+          media_hash: it.body_image || '',
+          media: it.body_image ? [it.body_image] : [],
+          tags: ['feed-card', 'from-puddle', `route:${it.route || 'feed-card'}`],
+        };
+        const card = renderStoryCard(story, delay);
+        if (card) {
+          card.dataset.fromPuddle = '1';
+          card.dataset.puddleId = it.id || '';
+        }
+        return card;
+      }
+      return null;
+    }
+
     async function loadFeedStories(append) {
       try {
-        const data = await api(`/v1/feed/stories?limit=${FEED_PAGE}&offset=${feedOffset}`);
-        const stories = data.stories || [];
+        const r = await fetch(API_BASE + '/v1/puddle/feed?limit=100', { headers: authHeaders() });
+        if (!r.ok) return;
+        const data = await r.json();
+        const items = data.items || [];
         if (!append) {
           feed.innerHTML = '';
           _renderedFeedIds.clear();
         }
-        stories.forEach((s, i) => {
-          if (s && s.id) _renderedFeedIds.add(s.id);
-          feed.appendChild(renderStoryCard(s, append ? i * 0.18 : i * 0.18));
+        items.forEach((it, i) => {
+          if (!it || !it.id) return;
+          _renderedFeedIds.add(it.id);
+          const node = _renderPuddleItem(it, i * 0.06);
+          if (node) feed.appendChild(node);
         });
-        feedOffset += stories.length;
+        // Compatibility: keep the local pagination counter at item count
+        // so any stragglers reading feedOffset don't break, but the puddle
+        // is naturally bounded by TTL — no real pagination.
+        feedOffset = items.length;
         // Empty-state: the feed has nothing visible. Check DOM truth rather
         // than the API offset, so we fall into the letter on any path that
         // ends up with zero cards (empty response, filtered-out stories,
@@ -8739,28 +8664,24 @@ GET  /v1/usage               Usage stats`,
               </div>
             </div>`;
           showMoreBtn.style.display = 'none';
-        } else if (data.has_more && stories.length >= FEED_PAGE) {
-          showMoreBtn.style.display = '';
-          showMoreBtn.disabled = false;
-          showMoreBtn.textContent = 'Show more';
-          showMoreBtn.style.opacity = '';
         } else {
+          // Puddle is naturally bounded by TTL — no pagination needed.
           showMoreBtn.style.display = 'none';
         }
-        // Update section meta. On first page only — preserves meta when
-        // "show more" appends additional pages.
+        // Update section meta. The puddle is bounded so total IS the
+        // visible count. Meta shows the freshest item's relative time.
         if (!append) {
           const meta = document.getElementById('feedMeta');
           if (meta) {
-            const total = (typeof data.total === 'number') ? data.total : feedOffset;
+            const total = items.length;
             if (total === 0) {
               meta.textContent = '';
             } else {
-              const newest = stories[0] || {};
-              const ts = newest.timestamp || newest.created_at || newest.ts || newest.published_at;
+              const newest = items[0] || {};
+              const ts = newest.timestamp;
               const rel = _relTime(ts);
               const stamp = rel ? ` · ${rel}` : '';
-              meta.textContent = `${total} ${total === 1 ? 'story' : 'stories'}${stamp}`;
+              meta.textContent = `${total} ${total === 1 ? 'item' : 'items'}${stamp}`;
             }
           }
           if (typeof _updateFeedMetaSep === 'function') _updateFeedMetaSep();
@@ -8775,42 +8696,52 @@ GET  /v1/usage               Usage stats`,
       }
     }
 
-    // Engagement buttons (+ / −): explicit signal into the feed-orient
-    // crystal. Mounted on the same delegate as card-clicks but resolved
-    // first so the chat-opener doesn't fire underneath. See docs/feed-spec.md.
+    // Engagement buttons (+ / −): explicit signal that promotes a
+    // puddle item (card or fathom-message) to the durable lake. The
+    // engagement endpoint also paired-promotes any addressed seeds, so
+    // engaging a reply preserves both halves of the Q/A. Without
+    // engagement the puddle deltas TTL away.
     feed.addEventListener('click', async (e) => {
       const btn = e.target.closest('.engagement-btn');
       if (!btn) return;
       e.stopPropagation();
       e.preventDefault();
-      const card = btn.closest('.card');
-      if (!card) return;
-      const cardId = card.dataset.cardId || '';
-      if (!cardId) return;
+      // Item can be a .card (witness card) or a .msg (fathom message);
+      // both carry data-puddle-id when they came from the loop.
+      const item = btn.closest('.card, .msg');
+      if (!item) return;
+      const puddleId = item.dataset.puddleId || item.dataset.cardId || '';
+      if (!puddleId) return;
       const kind = btn.dataset.kind === 'less' ? 'less' : 'more';
-      // Mark this card as explicitly engaged so the passive-engagement
-      // observer doesn't ALSO fire a scroll-past / dwell-low when it
-      // eventually leaves the viewport.
-      _markEngaged(cardId);
-      // Optimistic — flip the data-engaged attribute first; revert if the
-      // write fails. The active state is exclusive: a "more" overrides a
-      // prior "less" on the same card and vice versa.
-      const prior = card.dataset.engaged || '';
-      card.dataset.engaged = kind;
+      _markEngaged(puddleId);
+      const prior = item.dataset.engaged || '';
+      item.dataset.engaged = kind;
       try {
-        await api('/v1/feed/engagement', {
-          method: 'POST',
-          body: JSON.stringify({
-            kind,
-            card_id: cardId,
-            topic: card.dataset.topic || '',
-            card_excerpt: card.dataset.excerpt || '',
-          }),
-        });
+        // Puddle-sourced items go through the loop's promote-on-engage
+        // path. Legacy lake cards (no data-from-puddle) fall back to
+        // the existing /v1/feed/engagement endpoint until the cleanup
+        // pass strips that route.
+        if (item.dataset.fromPuddle === '1') {
+          const r = await fetch(API_BASE + `/v1/puddle/cards/${encodeURIComponent(puddleId)}/engage`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', ...authHeaders() },
+            body: JSON.stringify({ kind }),
+          });
+          if (!r.ok) throw new Error('engage failed: ' + r.status);
+        } else {
+          await api('/v1/feed/engagement', {
+            method: 'POST',
+            body: JSON.stringify({
+              kind,
+              card_id: puddleId,
+              topic: item.dataset.topic || '',
+              card_excerpt: item.dataset.excerpt || '',
+            }),
+          });
+        }
       } catch (err) {
-        // Revert visual state on failure so the user knows it didn't take.
-        if (prior) card.dataset.engaged = prior;
-        else delete card.dataset.engaged;
+        if (prior) item.dataset.engaged = prior;
+        else delete item.dataset.engaged;
       }
     }, true);  // capture phase so we beat the chat-opener delegate below
 
@@ -9110,33 +9041,29 @@ GET  /v1/usage               Usage stats`,
     }
 
     // ── Feed live-poll ─────────────────────────
-    // Same shape as the chat listener's poll-the-lake pattern: every few
-    // seconds, fetch the newest feed-card deltas and prepend any we
-    // haven't rendered yet. New cards animate in via the existing
-    // `surface` keyframe (fade + scale + unblur) and naturally push
-    // existing cards down as the layout reflows. No FLIP-style smooth
-    // shift on the existing cards — the new card surfacing reads as the
-    // event; the others just settle into their new spot.
+    // The feed is now puddle-driven (Grand Loop cutover). Every few
+    // seconds we hit /v1/puddle/feed and prepend newly-arrived items
+    // dispatched through _renderPuddleItem (user seed → .msg-user,
+    // fathom reply → .msg-fathom, witness card → .card). New items
+    // surface via the existing `surface` keyframe (the .feed .msg
+    // animation rule was added when the cutover landed).
     let _feedLiveTimer = null;
     async function _pollFeedLive() {
       try {
-        const data = await api(`/v1/feed/stories?limit=${FEED_PAGE}&offset=0`);
-        const stories = (data.stories || []);
-        // Newest-first from the API. Walk OLDEST → NEWEST while
-        // prepending so the final DOM order matches the API order
-        // (newest at top).
-        const fresh = stories.filter(s => s && s.id && !_renderedFeedIds.has(s.id));
+        const r = await fetch(API_BASE + '/v1/puddle/feed?limit=100', { headers: authHeaders() });
+        if (!r.ok) return;
+        const data = await r.json();
+        const items = data.items || [];
+        const fresh = items.filter(it => it && it.id && !_renderedFeedIds.has(it.id));
         if (!fresh.length) return;
-        // Empty-state to data-state transition: if the feed currently
-        // shows the .feed-empty letter, clear it before prepending.
-        if (feed.querySelector('.feed-empty')) {
-          feed.innerHTML = '';
-        }
+        if (feed.querySelector('.feed-empty')) feed.innerHTML = '';
+        // Walk OLDEST → NEWEST while prepending so the final DOM order
+        // matches the API order (newest at top).
         for (let i = fresh.length - 1; i >= 0; i--) {
-          const s = fresh[i];
-          _renderedFeedIds.add(s.id);
-          const card = renderStoryCard(s, 0);  // zero delay — surface immediately
-          feed.insertBefore(card, feed.firstChild);
+          const it = fresh[i];
+          _renderedFeedIds.add(it.id);
+          const node = _renderPuddleItem(it, 0);
+          if (node) feed.insertBefore(node, feed.firstChild);
         }
         refreshLightbox();
         applyVerbosityFilter();
@@ -9144,73 +9071,18 @@ GET  /v1/usage               Usage stats`,
     }
     function _startFeedLivePoll() {
       if (_feedLiveTimer || document.hidden) return;
-      _feedLiveTimer = setInterval(_pollFeedLive, 5000);
+      _feedLiveTimer = setInterval(_pollFeedLive, 3000);
     }
     function _stopFeedLivePoll() {
       if (_feedLiveTimer) { clearInterval(_feedLiveTimer); _feedLiveTimer = null; }
     }
 
-    // ── Grand Loop puddle poll ─────────────────────
-    // Witness outputs land in the in-memory puddle as ephemeral feed cards
-    // with TTLs. We poll the same cadence as the lake feed, dedupe by id
-    // against _renderedFeedIds (shared with the lake loop), and surface
-    // through renderStoryCard so puddle cards are visually indistinct
-    // from lake-fed cards. Promotion-to-lake (engagement) flows through
-    // the existing feed engagement path because the promoted delta has
-    // the same `feed-card` shape.
-    let _puddleLiveTimer = null;
-    function _puddleCardToStory(c) {
-      // Adapt the puddle's witness payload into the story shape that
-      // renderStoryCard expects. Tags are synthesized from the route so
-      // _extractKindFromTags / _extractLevelFromTags still resolve.
-      const tags = ['feed-card', 'from-puddle'];
-      if (c.route) tags.push('route:' + c.route);
-      return {
-        id: c.id,
-        timestamp: c.timestamp,
-        kicker: c.kicker || '',
-        title: c.title || '',
-        body: c.body || '',
-        tail: c.tail || '',
-        link: c.link || '',
-        links: c.links || [],
-        media_hash: c.body_image || '',
-        media: c.body_image ? [c.body_image] : [],
-        tags,
-        // Visible TTL hint — how close this card is to fading.
-        _ttl_fraction: (c.expires_at && c.timestamp)
-          ? Math.max(0, Math.min(1, (Date.now() - new Date(c.timestamp).getTime()) / (new Date(c.expires_at).getTime() - new Date(c.timestamp).getTime())))
-          : 0,
-      };
-    }
-    async function _pollPuddleLive() {
-      try {
-        const r = await fetch(API_BASE + '/v1/puddle/cards', { headers: authHeaders() });
-        if (!r.ok) return;
-        const data = await r.json();
-        const cards = (data.cards || []);
-        const fresh = cards.filter(c => c && c.id && !_renderedFeedIds.has(c.id));
-        if (!fresh.length) return;
-        if (feed.querySelector('.feed-empty')) feed.innerHTML = '';
-        for (let i = fresh.length - 1; i >= 0; i--) {
-          const story = _puddleCardToStory(fresh[i]);
-          _renderedFeedIds.add(story.id);
-          const card = renderStoryCard(story, 0);
-          if (story._ttl_fraction > 0.6) card.style.opacity = '0.55';
-          feed.insertBefore(card, feed.firstChild);
-        }
-        refreshLightbox();
-        applyVerbosityFilter();
-      } catch (e) { /* best-effort */ }
-    }
-    function _startPuddleLivePoll() {
-      if (_puddleLiveTimer || document.hidden) return;
-      _pollPuddleLive();  // immediate first call
-      _puddleLiveTimer = setInterval(_pollPuddleLive, 3000);
-    }
-    function _stopPuddleLivePoll() {
-      if (_puddleLiveTimer) { clearInterval(_puddleLiveTimer); _puddleLiveTimer = null; }
-    }
+    // _pollFeedLive IS the puddle poll now since the cutover. These
+    // start/stop stubs stay as no-ops so the visibilitychange and boot
+    // callers don't need to be edited; they'll get pruned in a later
+    // cleanup pass.
+    function _startPuddleLivePoll() { /* no-op */ }
+    function _stopPuddleLivePoll()  { /* no-op */ }
 
     document.addEventListener('visibilitychange', () => {
       if (document.hidden) {
