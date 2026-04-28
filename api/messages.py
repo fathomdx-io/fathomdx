@@ -1,6 +1,6 @@
 """Direct messages — Fathom reaching out to a contact.
 
-Distinct from the chat listener's reply path. The listener writes
+Distinct from the chat reply path. The reply path writes
 participant:fathom deltas as part of the chat turn loop in response to a
 user message. `send_message` here is for the OTHER direction: Fathom
 proactively writes a delta addressed to a contact, so it surfaces in the

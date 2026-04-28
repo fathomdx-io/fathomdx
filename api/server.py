@@ -604,7 +604,7 @@ async def _persist_client_system_once(
     OpenAI clients re-send the same system message on every request. The
     first one lands as a real delta in the session — a recorded wish the
     Fathom voice can ground in (or not). Subsequent identical sends are
-    no-ops. The chat listener never fires on `participant:client-system`
+    no-ops. The chat reply path never fires on `participant:client-system`
     deltas; they sit in the lake as session context that the first user
     message arrives into.
 
@@ -800,12 +800,11 @@ async def chat_completions(req: ChatRequest, request: Request):
       1. Resolve or mint a session.
       2. Persist any `system` message as a `participant:client-system`
          delta (deduped per-session by content hash). These are recorded
-         wishes, not privileged directives; the chat listener never fires
-         on them.
+         wishes, not privileged directives; the chat reply path never
+         fires on them.
       3. Persist the latest `user` message as a `participant:user` delta.
-         That write is what the chat listener picks up (within ~3s) and
-         responds to via `fathom_think`, writing a `participant:fathom`
-         reply delta.
+         That write is what the chat reply path picks up and responds to
+         via `fathom_think`, writing a `participant:fathom` reply delta.
       4. Wait (poll the lake) for that reply delta to land, up to
          `_OPENAI_REPLY_TIMEOUT_S`. Return it in OpenAI completion shape,
          or stream it as SSE when `stream: true`.

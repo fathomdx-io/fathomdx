@@ -394,8 +394,8 @@ def get_intents() -> dict:
 async def fire_pulse(reason: str = "manual") -> dict:
     """Drop one intent per pass (reflection / drift / bridging / alert)
     into the puddle, same as the pressure-watcher does on a substrate
-    pressure crossing. Used to manually trigger a feed synthesis when
-    you want one without waiting for ambient pressure to build."""
+    pressure crossing. Used to manually trigger a witness pass when you
+    want one without waiting for ambient pressure to build."""
     from .pressure import fire_pressure_pulse
     await fire_pressure_pulse(reason)
     return {"ok": True, "reason": reason}

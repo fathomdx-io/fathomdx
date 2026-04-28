@@ -3,7 +3,7 @@
 The dashboard's session paradigm is retired — clicking feed cards now
 writes engagement deltas (`reply-to:<id>`) that the Grand Loop processes
 as intents. Sessions persist only for `/v1/chat/completions` (OpenAI-
-shape clients), where the fathom-chat listener picks up `participant:user`
+shape clients), where the chat reply path picks up `participant:user`
 deltas and writes back `participant:fathom` replies.
 
 Tags written here:

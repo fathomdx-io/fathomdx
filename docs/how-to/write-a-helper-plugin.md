@@ -163,7 +163,7 @@ async def _execute_summarize_session(args: dict, session_id: str | None) -> dict
     return {"summary": "..."}
 ```
 
-The handler has access to `delta_client` for lake queries, `write_chat_event` for writing ephemeral UI signals, and anything else the inline-tool context gives it.
+The handler has access to `delta_client` for lake queries and anything else the inline-tool context gives it.
 
 ### Step 3: rebuild and test
 

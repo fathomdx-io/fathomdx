@@ -1,17 +1,15 @@
 """Pressure watcher — substrate-driven Grand Loop trigger.
 
-Pressure relief used to fire the legacy feed pipeline (mark_visit →
-should_synthesize → run_once). With the legacy retired, that signal is
-unwired. This module restores it: when feed-layer pressure crosses
-threshold, drop one intent per pass kind (reflection / drift / bridging
-/ alert) into the puddle. The supervisor picks them up like any other
-pending intent — voices deliberate, witness routes a card per pass.
+When substrate pressure (`api/feed_pressure.py`) crosses threshold,
+drop one intent per pass kind (reflection / drift / bridging / alert)
+into the puddle. The supervisor picks them up like any other pending
+intent — voices deliberate, witness routes a card per pass.
 
-This is the in-process port of the experiment's `pressure_watcher` in
+In-process port of the experiment's `pressure_watcher` in
 experiments/loop-experiment/worker/controller.py:1121. The big change:
 no HTTP roundtrip to a prod-lake; we share-process feed_pressure
-directly. The manual `loop-control:fire-pulse` signal isn't ported (no
-UI button for it anymore).
+directly. The manual variant lives at `POST /v1/puddle/pulse` (see
+`routes.py`) and reuses the same intent-drop machinery here.
 """
 
 from __future__ import annotations

@@ -18,23 +18,6 @@ from ._tool_schema import TOOLS
 __all__ = ["TOOLS", "execute", "heartbeat_age_seconds", "heartbeat_is_fresh"]
 
 
-# write_chat_event used to live in api/chat_listener.py and paint a
-# `chat-event` delta into the lake so the dashboard's chat detail view
-# could show "tool used", "routine proposed", "silence", etc. inline.
-# Chat sessions are retired (Grand Loop cutover), so the events have no
-# consumer and this is a no-op. The single live caller is the routine-
-# proposal flow below; once /n is wired through the puddle, that flow
-# should write a puddle delta the witness can render instead.
-# TODO(grand-loop): replace with a puddle write of `route:routine-proposal`
-# when the /n endpoint moves off chat sessions.
-async def write_chat_event(*_args, **_kwargs) -> None:
-    return None
-
-# How long a routine-proposal event survives in the lake before the
-# delta-store reaps it. Longer than the default chat-event TTL because
-# the user may wander off for a while before confirming the form.
-ROUTINE_PROPOSAL_TTL_SECONDS = 6 * 3600
-
 # A heartbeat is considered "fresh" (agent connected) if it was emitted
 # within this window. Heartbeats fire every ~60s, so 90s tolerates a
 # single missed beat without flipping the UI to disconnected. Heartbeat
@@ -653,34 +636,20 @@ async def _execute_routines(args: dict, session_id: str | None = None) -> str:
 
         confirm = bool(args.get("confirm"))
 
-        # Proposal flow: inside a chat, paint the routine form in the stream
-        # and let the human review/edit/save. Skipped when confirm=true
-        # (user said "just make it") or outside chat (no session_id).
+        # Proposal flow: surface the proposed routine to the user before
+        # committing. The legacy chat-event painter is gone (Grand Loop
+        # cutover); the LLM relays the proposal in prose and asks the
+        # user to confirm.
         if session_id and not confirm:
             proposal = {k: args[k] for k in args if k not in ("action", "confirm")}
-            try:
-                await write_chat_event(
-                    session_id,
-                    "routine-proposal",
-                    {"proposal": proposal},
-                    ttl_seconds=ROUTINE_PROPOSAL_TTL_SECONDS,
-                )
-            except Exception as e:
-                return json.dumps(
-                    {
-                        "action": "create",
-                        "status": "proposal_failed",
-                        "message": f"couldn't paint review form: {e}",
-                    }
-                )
             return json.dumps(
                 {
                     "action": "create",
                     "status": "needs_confirmation",
                     "hint": (
-                        "The routine form is now in the chat for the user to "
-                        "review and save. Reply briefly — do NOT restate the "
-                        "fields in prose."
+                        "Tell the user what this routine would do — name, "
+                        "schedule, prompt — and ask them to confirm before "
+                        "you call create again with confirm:true."
                     ),
                     "proposal": proposal,
                 }
