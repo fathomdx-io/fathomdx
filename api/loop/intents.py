@@ -19,19 +19,21 @@ import json
 from .puddle import puddle
 
 
-# TTLs by kind. The Q/A window (30min) covers question + the pressure-pulse
-# pass kinds (reflection / drift / bridging) since each is a deliberate
-# ask. Resonance/pressure/drop-in expire quickly because they're triggered
-# by short-lived substrate (5min mirror TTL on vampire-tap).
-Q_A_TTL_S = 30 * 60
+# Rolling 48h horizon — gives the feed real substance, lets the loop
+# resonate against a wider working window, and prevents Q/A from falling
+# off-screen mid-thought. Everything in the puddle aspires to this same
+# horizon; the per-kind table is kept as the single override surface in
+# case a future kind wants something tighter (alerts that should fade
+# fast, etc.) but for now every kind reaches for the rolling default.
+Q_A_TTL_S = 48 * 60 * 60
 
 INTENT_TTL_BY_KIND: dict[str, int] = {
     "question":    Q_A_TTL_S,
-    "resonance":   5 * 60,
-    "pressure":    5 * 60,
-    "drop-in":     5 * 60,
-    "alert":       15 * 60,
-    "routine-due": 30 * 60,
+    "resonance":   Q_A_TTL_S,
+    "pressure":    Q_A_TTL_S,
+    "drop-in":     Q_A_TTL_S,
+    "alert":       Q_A_TTL_S,
+    "routine-due": Q_A_TTL_S,
     "reflection":  Q_A_TTL_S,
     "drift":       Q_A_TTL_S,
     "bridging":    Q_A_TTL_S,

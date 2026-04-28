@@ -67,7 +67,11 @@ async def post_seed(req: SeedRequest) -> dict:
 
 
 @router.get("/v1/puddle/feed")
-def get_feed(limit: int = 100) -> dict:
+def get_feed(
+    until: str | None = None,
+    hours: float = 1.0,
+    limit: int = 500,
+) -> dict:
     """Unified feed: user seeds + fathom replies + witness cards in one
     chronological list, newest first.
 
@@ -81,8 +85,30 @@ def get_feed(limit: int = 100) -> dict:
     after its reply lands keeps the conversation legible. The witness
     output's `addresses` list points back to the seed it answered.
     """
+    # Time-windowed pagination: each page is the last `hours` of the
+    # puddle counted backward from `until` (defaults to now). The dashboard
+    # walks back one hour at a time on Show-more. Lots of different item
+    # kinds can land in any window — voice thoughts, recalls, intents,
+    # cards — so paging by time gives a stable rhythm; paging by item
+    # count would mean "show more" pulls inconsistent slices when the
+    # puddle is dense.
+    from datetime import datetime, timedelta, UTC
+
+    until_dt = (
+        datetime.fromisoformat(until.replace("Z", "+00:00"))
+        if until else datetime.now(UTC)
+    )
+    since_dt = until_dt - timedelta(hours=hours)
+    until_iso = until_dt.isoformat()
+    since_iso = since_dt.isoformat()
+
     items: list[dict] = []
-    raw = puddle.query(tags_include=[CONVO_TAG], limit=500)
+    raw = puddle.query(
+        tags_include=[CONVO_TAG],
+        time_start=since_iso,
+        time_end=until_iso,
+        limit=limit,
+    )
 
     for d in raw:
         tags = set(d.get("tags") or [])
@@ -205,7 +231,21 @@ def get_feed(limit: int = 100) -> dict:
             continue
 
     items.sort(key=lambda it: it.get("timestamp") or "", reverse=True)
-    return {"items": items[:limit]}
+    # has_more is true if the puddle holds anything older than the
+    # window's `since` boundary. One cheap query, since=None,
+    # time_end=since: any hit means there's more to page through.
+    older = puddle.query(
+        tags_include=[CONVO_TAG],
+        time_end=since_iso,
+        limit=1,
+    )
+    return {
+        "items": items,
+        "since": since_iso,
+        "until": until_iso,
+        "hours": hours,
+        "has_more": bool(older),
+    }
 
 
 @router.get("/v1/puddle/cards")

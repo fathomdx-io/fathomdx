@@ -28,7 +28,7 @@ from .prompts import JUDGE_PROMPT, WITNESS_PROMPT, VOICES
 from .puddle import puddle
 
 
-Q_A_TTL_S = 30 * 60
+Q_A_TTL_S = 48 * 60 * 60  # rolling 48h horizon — see intents.py
 
 
 def _group_thoughts_by_voice(deltas: list[dict]) -> dict[str, list[str]]:

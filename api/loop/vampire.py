@@ -31,7 +31,10 @@ from .puddle import puddle
 # context — the witness reads them on every fire, and they don't churn.
 # Refreshed by the periodic re-pull (REFRESH_INTERVAL_S) so a stale
 # mood doesn't anchor the loop after the user's mood has actually moved.
-ANCHOR_TTL_S = 60 * 60  # 1 hour
+# Matches the rolling 48h horizon every other puddle item uses, since
+# the dedupe on identical content keeps steady-state writes quiet —
+# the long TTL just means the latest pulled state stays available.
+ANCHOR_TTL_S = 48 * 60 * 60  # 48h rolling horizon
 REFRESH_INTERVAL_S = 5 * 60  # re-pull every 5 minutes
 
 

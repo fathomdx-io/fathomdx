@@ -8177,8 +8177,13 @@ GET  /v1/usage               Usage stats`,
     // ── Live feed stories ───────────────────────
     const feed = document.querySelector('.feed');
     const showMoreBtn = document.getElementById('showMoreFeed');
-    let feedOffset = 0;
-    const FEED_PAGE = 5;
+    // Time-windowed pagination: each page is 1h of the puddle, walking
+    // backward from now. _feedPageUntilIso names the upper boundary of
+    // the next page Show-more will load (i.e. the lower boundary of
+    // the oldest page already on screen). Reset to undefined on full
+    // reload — `undefined` means the live edge ("now").
+    const FEED_PAGE_HOURS = 1;
+    let _feedPageUntilIso = undefined;
 
     function mediaUrl(hash) {
       // Build a /v1/media/{hash} URL with the auth token in the query string.
@@ -8793,35 +8798,51 @@ GET  /v1/usage               Usage stats`,
 
     async function loadFeedStories(append) {
       try {
-        const r = await fetch(API_BASE + '/v1/puddle/feed?limit=100', { headers: authHeaders() });
+        // First page (initial load OR Show-more's first click) walks
+        // back from "now"; subsequent Show-more clicks walk back from
+        // the previous page's `since` boundary. _feedPageUntilIso is
+        // updated below from the response so each click steps an hour
+        // further into the past.
+        const params = new URLSearchParams({ hours: String(FEED_PAGE_HOURS) });
+        if (append && _feedPageUntilIso) {
+          params.set('until', _feedPageUntilIso);
+        }
+        const r = await fetch(API_BASE + '/v1/puddle/feed?' + params.toString(), {
+          headers: authHeaders(),
+        });
         if (!r.ok) return;
         const data = await r.json();
         const items = data.items || [];
         if (!append) {
           feed.innerHTML = '';
           _renderedFeedIds.clear();
+          _feedPageUntilIso = undefined;
         }
+        // For Show-more (append): append AT THE END of the feed so newer
+        // items keep their position above. For initial load: items are
+        // newest-first from the server, append in order.
         items.forEach((it, i) => {
-          if (!it || !it.id) return;
+          if (!it || !it.id || _renderedFeedIds.has(it.id)) return;
           _renderedFeedIds.add(it.id);
           const node = _renderPuddleItem(it, i * 0.06);
           if (node) feed.appendChild(node);
         });
-        // Compatibility: keep the local pagination counter at item count
-        // so any stragglers reading feedOffset don't break, but the puddle
-        // is naturally bounded by TTL — no real pagination.
-        feedOffset = items.length;
-        // After every load, defer the empty-state decision to
-        // applyKindFilter — it knows what's visible after filtering and
-        // toggles the welcome letter or the filter banner accordingly.
-        if (!append && feed.children.length === 0) {
-          showMoreBtn.style.display = 'none';
+        // Step the "until" cursor back to this page's `since` so the
+        // next Show-more click pulls the prior hour.
+        if (data.since) _feedPageUntilIso = data.since;
+
+        // Show-more visibility: show iff the server says there's more
+        // history beyond the page we just loaded.
+        if (data.has_more) {
+          showMoreBtn.style.display = '';
+          showMoreBtn.disabled = false;
+          showMoreBtn.textContent = 'Show more';
         } else {
-          // Puddle is naturally bounded by TTL — no pagination needed.
           showMoreBtn.style.display = 'none';
         }
-        // Update section meta. The puddle is bounded so total IS the
-        // visible count. Meta shows the freshest item's relative time.
+
+        // Update section meta on initial load only — preserves it when
+        // Show-more pages append below.
         if (!append) {
           const meta = document.getElementById('feedMeta');
           if (meta) {
@@ -8844,7 +8865,7 @@ GET  /v1/usage               Usage stats`,
         // vanish without disturbing the layout above them.
         applyVerbosityFilter();
       } catch (err) {
-        // API down — static cards remain as fallback
+        // API down — soft-fail; the existing DOM stays as-is.
       }
     }
 
@@ -9229,7 +9250,14 @@ GET  /v1/usage               Usage stats`,
     let _feedLiveTimer = null;
     async function _pollFeedLive() {
       try {
-        const r = await fetch(API_BASE + '/v1/puddle/feed?limit=100', { headers: authHeaders() });
+        // Live poll watches only the live edge — the most recent hour.
+        // Anything older than 1h is paged in via Show-more and stays
+        // statically rendered; the live poll never re-renders historical
+        // pages, just prepends new items above them.
+        const params = new URLSearchParams({ hours: String(FEED_PAGE_HOURS) });
+        const r = await fetch(API_BASE + '/v1/puddle/feed?' + params.toString(), {
+          headers: authHeaders(),
+        });
         if (!r.ok) return;
         const data = await r.json();
         const items = data.items || [];

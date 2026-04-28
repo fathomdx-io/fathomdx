@@ -19,8 +19,8 @@ from .prompts import VOICE_PROMPT, VOICES
 from .puddle import puddle
 
 
-POEM_TTL_S = 2 * 60
-EPHEMERAL_TTL_S = 2 * 60
+POEM_TTL_S = 48 * 60 * 60       # voice thoughts — 48h rolling horizon
+EPHEMERAL_TTL_S = 48 * 60 * 60  # spawn/die markers — match the rolling horizon
 
 SESSION_TAG_PREFIX = "session:"
 
