@@ -14,9 +14,21 @@ from ._engagement import build_engagement_payload
 from ._tags import tag_suffix
 from ._tool_explain import _execute_explain
 from ._tool_schema import TOOLS
-from .chat_listener import write_chat_event
 
 __all__ = ["TOOLS", "execute", "heartbeat_age_seconds", "heartbeat_is_fresh"]
+
+
+# write_chat_event used to live in api/chat_listener.py and paint a
+# `chat-event` delta into the lake so the dashboard's chat detail view
+# could show "tool used", "routine proposed", "silence", etc. inline.
+# Chat sessions are retired (Grand Loop cutover), so the events have no
+# consumer and this is a no-op. The single live caller is the routine-
+# proposal flow below; once /n is wired through the puddle, that flow
+# should write a puddle delta the witness can render instead.
+# TODO(grand-loop): replace with a puddle write of `route:routine-proposal`
+# when the /n endpoint moves off chat sessions.
+async def write_chat_event(*_args, **_kwargs) -> None:
+    return None
 
 # How long a routine-proposal event survives in the lake before the
 # delta-store reaps it. Longer than the default chat-event TTL because

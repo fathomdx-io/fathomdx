@@ -43,6 +43,13 @@ from .tools import IMAGE_RESULT_PREFIX, TOOLS, execute
 
 log = logging.getLogger(__name__)
 
+# Strips <recalled>…</recalled> blocks that fathom_think occasionally
+# leaves in its draft when it forgot to remove them — used by the /n
+# (OpenAI-compat) endpoint when polling for the assistant reply. Kept
+# at module scope so chat_listener.py (now retired) doesn't have to be
+# resurrected for one regex.
+_RECALLED_RE = re.compile(r"<recalled>.*?</recalled>", re.DOTALL | re.IGNORECASE)
+
 # ── Request / response models ───────────────────
 
 
@@ -83,8 +90,6 @@ async def lifespan(_app: FastAPI):
     # until bootstrap runs. Retries because delta-store may still be
     # booting when api starts.
     import asyncio as _asyncio
-
-    from . import chat_listener
 
     resolved_admin: str | None = None
     for attempt in range(6):
@@ -138,11 +143,6 @@ async def lifespan(_app: FastAPI):
 
     from .loop import worker as loop_worker
 
-    # chat_listener (the legacy chat-session reply loop) and the lake feed
-    # pipeline are dormant after the Grand Loop cutover — the composer
-    # writes to the puddle, not chat sessions, and the dashboard's feed
-    # reads from /v1/puddle/feed. They're left in the imports for the
-    # legacy chat-detail-view's read path but no longer scheduled at boot.
     auto_regen.start()
     loop_worker.start()
     try:
@@ -739,7 +739,6 @@ async def _await_fathom_reply(
     Ignores tool-event deltas (remember/recall/etc.) — only the durable
     reply or a silence-event counts as a turn completing.
     """
-    from .chat_listener import _RECALLED_RE
 
     deadline = time.monotonic() + timeout_s
     while time.monotonic() < deadline:
@@ -826,7 +825,6 @@ async def _openai_stream(
     # Opening role chunk so clients can render the assistant bubble early.
     yield _chunk({"role": "assistant"})
 
-    from .chat_listener import _RECALLED_RE
 
     deadline = time.monotonic() + _OPENAI_REPLY_TIMEOUT_S
     last_heartbeat = time.monotonic()
