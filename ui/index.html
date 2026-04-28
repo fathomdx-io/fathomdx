@@ -8957,15 +8957,20 @@ GET  /v1/usage               Usage stats`,
         el.innerHTML = `<header class="d-head"><span class="d-kind">${_esc(it.voice || 'voice')}</span><span class="d-ts">${timeStr}</span></header><div class="d-body">${_esc(it.content || '')}</div>`;
         return el;
       }
-      // Pass intent (reflection / drift / bridging / alert) — purple-tinted
+      // Pass intent (reflection / drift / bridging / alert) — purple-
+      // tinted. These are PROMPTS the witness reads (the pulse
+      // directive), not generated cards. data-kind is uniformly
+      // "pass-intent" so the Substrate → Pass intents filter governs
+      // them; the Synthesis → Reflections/Bridges/Drift filters stay
+      // reserved for generated cards of those kinds. Visual variant
+      // lives in the className (intent-reflection / intent-drift / ...)
+      // so the per-pulse color treatment still applies.
       if (it.kind === 'pass-intent') {
         const passKind = it.pass_kind || 'pass';
         const el = document.createElement('article');
         el.className = `delta intent intent-${passKind}`;
-        el.dataset.kind = passKind === 'reflection' ? 'reflection'
-          : passKind === 'drift' ? 'drift'
-          : passKind === 'bridging' ? 'bridging'
-          : 'pass-intent';
+        el.dataset.kind = 'pass-intent';
+        el.dataset.passKind = passKind;
         el.dataset.fromPuddle = '1';
         el.dataset.puddleId = it.id || '';
         el.innerHTML = `<header class="d-head"><span class="d-kind">${_esc(passKind)}</span><span class="d-ts">${timeStr}</span></header><div class="d-body">${_esc(it.content || '')}</div>`;
