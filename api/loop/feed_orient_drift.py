@@ -65,19 +65,37 @@ def _save_raw(state: dict) -> None:
 
 async def sample() -> dict:
     """Sample current engagement-drift against the anchor. Append to
-    history. Returns the snapshot dict."""
+    history. Returns the snapshot dict.
+
+    Bootstrap: if no anchor exists but engagement signal does, snapshot
+    the current centroid as the bootstrap anchor — drift reads 0 right
+    now and starts measuring from this baseline. Avoids the dashboard
+    showing a flat zero-line for 30+ minutes after first install while
+    waiting for a regen to land an anchor."""
     anchor = await feed_orient_anchor.load()
+    try:
+        c = await delta_client.centroid(tags_include=["feed-engagement"])
+    except Exception:
+        c = {}
+    vec = c.get("centroid") if isinstance(c, dict) else None
+
     if not anchor:
-        snapshot = {"drift": 0.0, "no_anchor": True}
+        if vec:
+            try:
+                anchor = await feed_orient_anchor.save(vec, None)
+            except Exception:
+                snapshot = {"drift": 0.0, "anchor_save_failed": True}
+                anchor = None
+            else:
+                snapshot = {"drift": 0.0, "bootstrap_anchor": True}
+        else:
+            snapshot = {"drift": 0.0, "no_engagement": True}
+    elif not vec:
+        snapshot = {"drift": 0.0, "no_engagement": True}
     else:
         try:
-            c = await delta_client.centroid(tags_include=["feed-engagement"])
-            vec = c.get("centroid")
-            if not vec:
-                snapshot = {"drift": 0.0, "no_engagement": True}
-            else:
-                d = crystal_anchor.cosine_distance(anchor["centroid"], vec)
-                snapshot = {"drift": round(d, 4)}
+            d = crystal_anchor.cosine_distance(anchor["centroid"], vec)
+            snapshot = {"drift": round(d, 4)}
         except Exception:
             snapshot = {"drift": 0.0, "error": True}
 
