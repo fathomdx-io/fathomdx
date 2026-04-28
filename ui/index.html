@@ -9170,21 +9170,23 @@ GET  /v1/usage               Usage stats`,
     // Engagement projection: the puddle holds the engagement deltas
     // (the durable feed-engagement marker + the promoted-from-puddle
     // feed-card with engagement:<kind> tag), so the dashboard's +/-
-    // state on a card is just a reflection of what's there. Walk the
-    // batch once: pull engagement state off promoted copies, apply it
-    // to the original card by source-card id, and suppress the
-    // duplicate render. Engagement markers are accounting deltas;
-    // suppress them too. If the original isn't in this batch (TTL'd
-    // or paged out), let the promoted render itself with its own
-    // engagement state — its tags still carry the truth.
+    // state on a card is just a reflection of what's there.
+    //
+    // The promoted-from-puddle delta carries `source-card:<puddle_id>`,
+    // but puddle ids are ephemeral and don't survive a restart, so
+    // matching on that alone fails when telepathy restores both halves
+    // of an engagement pair after a cold-start. We match on the card's
+    // body content instead — that's what's stable across the lake/
+    // puddle round-trip. Both halves share the same JSON payload, so
+    // body equality reliably identifies the pair.
+    //
+    // Always render the engaged version, suppress its un-engaged twin.
+    // Engagement markers are accounting deltas; suppress them too.
     function _projectEngagement(items) {
       if (!Array.isArray(items) || items.length === 0) return items;
-      const presentIds = new Set();
-      for (const it of items) {
-        if (it && it.id) presentIds.add(it.id);
-      }
-      const engagementByOriginalId = new Map();
       const skipIds = new Set();
+      const engagedBodies = new Map();  // body string → kind ("more"|"less")
+
       for (const it of items) {
         const tags = (it && it.tags) || [];
         if (tags.includes('feed-engagement')) {
@@ -9193,29 +9195,32 @@ GET  /v1/usage               Usage stats`,
         }
         if (tags.includes('promoted-from-puddle') && tags.includes('feed-card')) {
           let kind = null;
-          let sourceCard = null;
           for (const t of tags) {
-            if (typeof t !== 'string') continue;
-            if (t.startsWith('engagement:')) kind = t.slice('engagement:'.length);
-            else if (t.startsWith('source-card:')) sourceCard = t.slice('source-card:'.length);
+            if (typeof t === 'string' && t.startsWith('engagement:')) {
+              kind = t.slice('engagement:'.length);
+              break;
+            }
           }
-          if (kind && sourceCard && presentIds.has(sourceCard)) {
-            engagementByOriginalId.set(sourceCard, kind);
-            skipIds.add(it.id);
-          } else if (kind) {
-            it.engagement = kind;
-          }
+          if (!kind) continue;
+          // The promoted half: stamp its own engagement state, record
+          // its body so we can suppress the un-engaged twin below.
+          it.engagement = kind;
+          const body = (it.body || '').trim();
+          if (body) engagedBodies.set(body, kind);
         }
       }
-      const out = [];
+
+      // Suppress un-engaged twins of any engaged card by body match.
       for (const it of items) {
         if (skipIds.has(it.id)) continue;
-        if (engagementByOriginalId.has(it.id)) {
-          it.engagement = engagementByOriginalId.get(it.id);
-        }
-        out.push(it);
+        const tags = (it && it.tags) || [];
+        if (!tags.includes('feed-card')) continue;
+        if (tags.includes('promoted-from-puddle')) continue;
+        const body = (it.body || '').trim();
+        if (body && engagedBodies.has(body)) skipIds.add(it.id);
       }
-      return out;
+
+      return items.filter(it => !skipIds.has(it.id));
     }
 
     function _renderItemsClustered(items, mode) {
