@@ -10655,9 +10655,14 @@ GET  /v1/usage               Usage stats`,
       const confBot = plotBot;
 
       // ── Drift band ─────────────────────────────
-      const FEED_DRIFT_AXIS_MAX = 0.55;
-      // Threshold dashed line — fires when drift > feed_drift_threshold (0.35 default)
-      const driftThresholdY = driftTop + (1 - 0.35 / FEED_DRIFT_AXIS_MAX) * (driftBot - driftTop);
+      // Engagement centroid is much tighter than the whole-lake
+      // centroid — the user keeps engaging on related topics, so a
+      // typical drift sample is ~0.001-0.05 rather than the whole-
+      // lake's 0.1-0.5 range. Axis maxes out at 0.05 with a 0.03
+      // threshold so small but real movement is still readable.
+      const FEED_DRIFT_AXIS_MAX = 0.05;
+      const FEED_DRIFT_THRESHOLD = 0.03;
+      const driftThresholdY = driftTop + (1 - FEED_DRIFT_THRESHOLD / FEED_DRIFT_AXIS_MAX) * (driftBot - driftTop);
       ctx.svg.appendChild(ecgSvgNS('line', {
         x1: ctx.padding.left, x2: ctx.W - ctx.padding.right,
         y1: driftThresholdY, y2: driftThresholdY,
