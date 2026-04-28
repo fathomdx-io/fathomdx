@@ -31,6 +31,7 @@ from .. import delta_client
 from .intents import (
     CONVO_TAG,
     INTENT_TTL_BY_KIND,
+    Q_A_TTL_S,
     intent_kind,
     pending_intents,
     write_intent,
@@ -490,8 +491,14 @@ async def engage_card(card_id: str, req: EngageRequest) -> dict:
             route = t.split(":", 1)[1]
             break
 
-    # Write content + structure as a durable lake feed-card delta. No
-    # expires_at — engagement IS the persistence signal.
+    # Dual-write the engagement-promoted feed-card to BOTH lake and
+    # puddle. Lake is the durable record (no TTL — engagement IS the
+    # persistence signal). The puddle write makes the engagement
+    # immediately visible to the dashboard's puddle watcher without
+    # waiting for telepathy's next 5-minute tick — same pattern as
+    # Phase 1 witness output. The puddle copy carries lake-id +
+    # recalled-id back-references so telepathy correctly dedupes
+    # when it eventually mirrors the lake delta.
     durable_tags = [
         "feed-card",
         "promoted-from-puddle",
@@ -505,25 +512,58 @@ async def engage_card(card_id: str, req: EngageRequest) -> dict:
         tags=durable_tags,
         source="loop-engagement",
     )
-
-    # Mirror the engagement delta in the same shape the existing
-    # /v1/feed/engagement endpoint writes, so confidence-scoring and
-    # crystal regen still see the signal even though the card came
-    # from the loop rather than the old feed pipeline.
     promoted_id = (
         promoted.get("id")
         if isinstance(promoted, dict)
         else (promoted if isinstance(promoted, str) else "")
     )
-    await delta_client.write(
-        content=(payload.get("body") or "")[:200],
-        tags=[
-            "feed-engagement",
-            f"engagement:{kind}",
-            f"card:{promoted_id}" if promoted_id else "card:unknown",
-            "via:loop",
-        ],
+
+    puddle_tags = [
+        CONVO_TAG,
+        "feed-card",
+        "promoted-from-puddle",
+        f"route:{route}",
+        f"engagement:{kind}",
+        f"source-card:{card_id}",
+    ]
+    if promoted_id:
+        puddle_tags.append(f"lake-id:{promoted_id}")
+        puddle_tags.append(f"recalled-id:{promoted_id[:24]}")
+    await puddle.write(
+        content=durable_content,
+        tags=puddle_tags,
         source="loop-engagement",
+        ttl_seconds=Q_A_TTL_S,
+    )
+
+    # Engagement marker — mirrored shape that confidence-scoring and
+    # crystal regen pick up. Also dual-written so the puddle has it.
+    marker_content = (payload.get("body") or "")[:200]
+    marker_tags = [
+        "feed-engagement",
+        f"engagement:{kind}",
+        f"card:{promoted_id}" if promoted_id else "card:unknown",
+        "via:loop",
+    ]
+    marker = await delta_client.write(
+        content=marker_content,
+        tags=marker_tags,
+        source="loop-engagement",
+    )
+    marker_id = (
+        marker.get("id")
+        if isinstance(marker, dict)
+        else (marker if isinstance(marker, str) else "")
+    )
+    puddle_marker_tags = [CONVO_TAG, *marker_tags]
+    if marker_id:
+        puddle_marker_tags.append(f"lake-id:{marker_id}")
+        puddle_marker_tags.append(f"recalled-id:{marker_id[:24]}")
+    await puddle.write(
+        content=marker_content,
+        tags=puddle_marker_tags,
+        source="loop-engagement",
+        ttl_seconds=Q_A_TTL_S,
     )
 
     # Promote the addressed seeds to the lake too — engaging the reply

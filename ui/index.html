@@ -9361,11 +9361,12 @@ GET  /v1/usage               Usage stats`,
       }
     }
 
-    // Engagement buttons (+ / −): explicit signal that promotes a
-    // puddle item (card or fathom-message) to the durable lake. The
-    // engagement endpoint also paired-promotes any addressed seeds, so
-    // engaging a reply preserves both halves of the Q/A. Without
-    // engagement the puddle deltas TTL away.
+    // Engagement buttons (+ / −): the click writes a delta; the
+    // dashboard is a puddle watcher, so the engagement state on the
+    // card lights up because the next poll sees the engagement delta
+    // in the puddle and _projectEngagement applies it. NO optimistic
+    // local update — that would be the dashboard talking to itself
+    // instead of reflecting the substrate.
     feed.addEventListener('click', async (e) => {
       const btn = e.target.closest('.engagement-btn');
       if (!btn) return;
@@ -9379,13 +9380,12 @@ GET  /v1/usage               Usage stats`,
       if (!puddleId) return;
       const kind = btn.dataset.kind === 'less' ? 'less' : 'more';
       _markEngaged(puddleId);
-      const prior = item.dataset.engaged || '';
-      item.dataset.engaged = kind;
       try {
-        // Puddle-sourced items go through the loop's promote-on-engage
-        // path. Legacy lake cards (no data-from-puddle) fall back to
-        // the existing /v1/feed/engagement endpoint until the cleanup
-        // pass strips that route.
+        // Puddle-sourced items go through the loop's engage endpoint,
+        // which dual-writes the engagement-promoted delta to BOTH the
+        // lake (durable) and the puddle (immediate). The next live-poll
+        // tick (kicked off below) picks the new puddle delta up and
+        // _projectEngagement lights up the button.
         if (item.dataset.fromPuddle === '1') {
           const r = await fetch(API_BASE + `/v1/puddle/cards/${encodeURIComponent(puddleId)}/engage`, {
             method: 'POST',
@@ -9404,9 +9404,15 @@ GET  /v1/usage               Usage stats`,
             }),
           });
         }
+        // Immediate poll so the engagement state shows up within
+        // ~one round-trip instead of waiting for the next scheduled
+        // tick. Idempotent — _projectEngagement dedupes by body, and
+        // _renderedFeedIds prevents duplicate inserts.
+        if (typeof _pollFeedLive === 'function') _pollFeedLive();
       } catch (err) {
-        if (prior) item.dataset.engaged = prior;
-        else delete item.dataset.engaged;
+        // Soft-fail. Without optimistic local state there's nothing
+        // to roll back; the next poll continues to reflect whatever's
+        // actually in the puddle.
       }
     }, true);  // capture phase so we beat the chat-opener delegate below
 
