@@ -1,5 +1,15 @@
 # Feed Spec
 
+> **Archived.** The legacy feed-synthesis engine documented here
+> (feed_loop, feed_crystal, the per-pass routers and budgets) was
+> retired in the Grand Loop cutover. The dashboard feed now reads
+> from the puddle via /v1/puddle/feed; deliberation happens in the
+> Grand Loop (`api/loop/`). This page will be replaced by Grand
+> Loop documentation once the new shape is stable. Original spec
+> preserved as an HTML comment below for reference.
+
+<!--
+
 The feed is what Fathom shows the user on the dashboard — short cards distilled from the lake, the web, and Fathom's own work on their behalf. It is not a recommender. It is a **provenance generator**: Fathom goes out, finds what the user cares about, writes it as sediment, and renders the most recent layer.
 
 The feed orients on a `crystal:feed-orient` delta — a task-shaped distillation of "what the user wants to see right now," regenerated from their engagement over time. The crystal IS the directive; the user never writes one.
@@ -324,3 +334,4 @@ A feed-card delta now carries:
 - `topic:<slug>` — when from per_line (existing)
 - `crystal:<id>` — links back to the crystal that drove generation (existing)
 - `drift` / `volunteered` — legacy bare tags for back-compat (drift/volunteered passes only)
+-->

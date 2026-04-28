@@ -1,14 +1,22 @@
 ---
 title: Why a session is a tag, not a table
-description: Chat sessions in Fathom aren't first-class rows with memberships and permissions. They're just tags on deltas. Here's why that choice pays off.
+description: Archived during the Grand Loop transition. Will be replaced by Grand Loop docs once the new shape stabilizes.
 audience: developer
 quadrant: explanation
+status: archived
 last_verified: 2026-04-24
-owners: [api/chat_listener.py, ../CLAUDE.md]
 ---
 
 # Why a session is a tag, not a table
 
+> **Archived.** Chat sessions are retired in the Grand Loop cutover.
+> The Grand Loop's substrate is the puddle, not chat-tag timestreams,
+> and the design choices documented here no longer drive the dashboard.
+> This page will be replaced by Grand Loop documentation once the new
+> shape is stable. Original content is preserved as HTML comments below
+> for reference.
+
+<!--
 In most chat systems, a session (or conversation, or thread) is a concrete object. There's a `sessions` table. It has an ID, a title, a creator, a created_at, maybe a participant list. Messages belong to a session by way of a foreign key. Joining a session means adding a row to `session_members`. Leaving means deleting that row.
 
 Fathom has none of that. A session is a tag.
@@ -76,3 +84,4 @@ Every one of these would have been an obvious table in a traditional design. Mak
 The question "who's in this session?" has a simple answer under the tag model: whoever has ever written a delta tagged with the session. Once you've participated, you're implicitly a member forever, and there are no membership tombstones. This sounds like a bug until you remember that Fathom's chat is more like a persistent thread you can return to than a room you can be kicked from. The deltas are the thread. If you've ever spoken into it, you've marked yourself as a party to it.
 
 If a feature ever needs explicit "left the session" semantics, it would be built as another tag convention, not a schema change. That is the pattern: when you need more structure, you add a tag, not a table.
+-->

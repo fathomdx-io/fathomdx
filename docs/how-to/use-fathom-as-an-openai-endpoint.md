@@ -4,10 +4,18 @@ description: Point OpenAI-compatible clients at Fathom so third-party tools can 
 audience: developer
 quadrant: how-to
 last_verified: 2026-04-24
-owners: [api/server.py, api/chat_listener.py]
+owners: [api/server.py]
 ---
 
 # How to use Fathom as an OpenAI endpoint
+
+> **TODO (Grand Loop).** The `/v1/chat/completions` path still works
+> end-to-end, but it currently runs through the legacy `fathom_think`
+> reasoning loop and writes chat-session deltas internally. The Grand
+> Loop cutover retired chat sessions; this endpoint will be rewired to
+> seed a puddle intent and return the witness's body once the design
+> stabilizes. External clients (Slack/Discord bots, n8n, LiteLLM) keep
+> working unchanged in the meantime.
 
 Fathom speaks the OpenAI chat-completions wire format at `POST /v1/chat/completions`. Any client that expects an OpenAI-compatible endpoint (Slack and Discord bots, n8n workflow nodes, drop-in chatbot widgets, LiteLLM, llm-cli) can point at Fathom and get replies back from your lake.
 
