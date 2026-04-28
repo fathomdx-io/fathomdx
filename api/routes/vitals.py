@@ -16,7 +16,7 @@ from fastapi import APIRouter, HTTPException
 
 from .. import crystal, delta_client, drift, mood, pressure, recall
 from .. import usage as usage_module
-from ..loop import feed_orient_drift
+from ..loop import feed_orient_confidence, feed_orient_drift
 
 router = APIRouter()
 
@@ -193,12 +193,12 @@ async def get_feed_drift_history(since_seconds: int | None = None):
 
 
 @router.get("/v1/feed/confidence/history")
-async def get_feed_confidence_history():
-    """Placeholder: confidence-scoring requires per-engagement card
-    lookup + topic resolution against the latest feed-orient's
-    topic_weights. Not yet wired in the Grand Loop. Returning empty
-    keeps the dashboard's renderer happy without 404 spam."""
-    return {"history": []}
+async def get_feed_confidence_history(since_seconds: int | None = None):
+    """Confidence samples accumulated from the feed-orient poll
+    cadence. Each sample = mean predicted-vs-actual score over all
+    feed-engagements written since the latest crystal:feed-orient."""
+    items = await feed_orient_confidence.history(since_seconds=since_seconds)
+    return {"history": items}
 
 
 @router.get("/v1/usage")

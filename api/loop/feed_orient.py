@@ -36,7 +36,7 @@ from datetime import datetime, timedelta, UTC
 
 from .. import delta_client
 from ..prompt import FEED_CRYSTAL_DIRECTIVE
-from . import feed_orient_anchor, feed_orient_drift
+from . import feed_orient_anchor, feed_orient_confidence, feed_orient_drift
 from .llm import loop_generate
 
 log = logging.getLogger(__name__)
@@ -288,12 +288,18 @@ async def _run_regen() -> bool:
         except Exception:
             log.exception("feed-orient regen anchor snapshot failed (non-fatal)")
 
-        # Sample drift right away so the chart has a fresh post-regen
-        # point at zero (and the rolling history reflects the reset).
+        # Sample drift + confidence right away so the chart has fresh
+        # post-regen points (drift resets to zero by construction;
+        # confidence resets to None until new post-regen engagement
+        # arrives).
         try:
             await feed_orient_drift.sample()
         except Exception:
             log.exception("feed-orient regen post-anchor drift sample failed")
+        try:
+            await feed_orient_confidence.sample()
+        except Exception:
+            log.exception("feed-orient regen post-anchor confidence sample failed")
 
         log.info(
             "feed-orient regen wrote crystal (narrative %d chars, %d directive lines)",
@@ -308,12 +314,17 @@ async def _run_regen() -> bool:
 async def _check_once() -> dict:
     """One pass: sample engagement-drift, count engagement signal,
     decide, maybe fire."""
-    # Drift sampling runs on every tick so the history populates
-    # smoothly between regens. Cheap (one centroid query, one cosine).
+    # Drift + confidence sampling runs on every tick so history
+    # populates smoothly between regens. Cheap: one centroid query
+    # plus one delta-query for confidence's post-regen engagements.
     try:
         await feed_orient_drift.sample()
     except Exception:
         log.exception("feed-orient drift sample failed")
+    try:
+        await feed_orient_confidence.sample()
+    except Exception:
+        log.exception("feed-orient confidence sample failed")
 
     prior = await _latest_feed_orient()
     prior_ts = prior.get("timestamp") if prior else None
