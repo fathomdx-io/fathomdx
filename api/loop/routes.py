@@ -255,7 +255,17 @@ def get_feed(
                 "route": route,
                 **payload,
             }
-            if route == "chat-reply":
+            if route == "claude-code":
+                # Outbound dispatch: Fathom asking a claude-code agent
+                # on a specific machine to do work. Body is the literal
+                # prompt claude reads. Surface the host so the renderer
+                # can show "Fathom → <host>" instead of a generic card.
+                host = next(
+                    (t.split(":", 1)[1] for t in tags if t.startswith("host:")),
+                    "",
+                )
+                items.append({"kind": "claude-code-dispatch", "host": host, **base})
+            elif route == "chat-reply":
                 items.append({"kind": "fathom-message", **base})
             else:
                 items.append({"kind": "card", **base})
@@ -340,9 +350,13 @@ def get_feed(
         # category (on by default) surfaces them, instead of getting
         # buried under `thinking` with the rest of the lake-delta noise.
         if "task-complete" in tags or d.get("source") == "claude-code:task":
+            host = next(
+                (t.split(":", 1)[1] for t in tags if t.startswith("host:")),
+                "",
+            )
             items.append({
-                "kind": "claude-code",
-                "from_source": "claude-code:task",
+                "kind": "claude-code-reply",
+                "host": host,
                 "content": d.get("content") or "",
                 **common,
             })

@@ -565,6 +565,13 @@ async def run_witness(
     is_closure_followup = any(
         "closure:true" in (it.get("tags") or []) for it in pending
     )
+    # `about_corr` / `about_host` carry the closure's task linkage onto
+    # the chat-reply as informational tags (`about-task-corr:` /
+    # `about-host:`) so the renderer can show "Fathom (about task on
+    # <host>)" without misrepresenting the chat-reply as if it were
+    # addressed to claude-code as a wire.
+    about_corr = ""
+    about_host = ""
     if channel == "claude-code" and not is_closure_followup:
         route_value = "claude-code"
         payload["route"] = "claude-code"
@@ -573,6 +580,15 @@ async def run_witness(
         route_value = "chat-reply"
         payload["route"] = "chat-reply"
         payload_json = json.dumps(payload, ensure_ascii=False)
+        # The closure-driven chat-reply addresses the user via `for:`
+        # (the contact propagated by the watcher), not claude-code as
+        # a destination. Drop the channel/correlation/host stamps; the
+        # `about-task-corr` link below preserves the threading.
+        about_corr = correlation
+        about_host = host_for_channel
+        channel = ""
+        correlation = ""
+        host_for_channel = ""
 
     # Include `addressing-output` so pending_intents() sees this card
     # as having addressed its intents even after a cold-start restore
@@ -597,6 +613,10 @@ async def run_witness(
             lake_tags.append(f"host:{host_for_channel}")
         if correlation:
             lake_tags.append(f"task-corr:{correlation}")
+    if about_corr:
+        lake_tags.append(f"about-task-corr:{about_corr}")
+        if about_host:
+            lake_tags.append(f"about-host:{about_host}")
     if addressee:
         # `for:<contact>` is the existing addressing convention (see
         # messages.send_message); reusing it means contact-scoped views
@@ -633,6 +653,10 @@ async def run_witness(
             puddle_tags.append(f"host:{host_for_channel}")
         if correlation:
             puddle_tags.append(f"task-corr:{correlation}")
+    if about_corr:
+        puddle_tags.append(f"about-task-corr:{about_corr}")
+        if about_host:
+            puddle_tags.append(f"about-host:{about_host}")
     if addressee:
         puddle_tags.append(f"for:{addressee}")
     for intent_id in full_addressed:

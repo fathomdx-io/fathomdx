@@ -435,10 +435,35 @@
       cursor: pointer;
     }
     .claude-code-task .cc-resume:hover { color: var(--ink); border-color: var(--ink-faint); }
-    /* Claude-code task replies in the feed — visually echoes the
-       status strip's cyan tint so the eye links them. */
-    .feed .delta.claude-code-reply { border-left-color: #06b6d4; }
-    .feed .delta.claude-code-reply .d-kind { color: #06b6d4; }
+    /* Claude-code dispatches and replies — both share the cyan tint so
+       the eye links them with the status strip. The arrow direction in
+       the header tells the user which way the message is flowing. */
+    .feed .delta.claude-code-dispatch,
+    .feed .delta.claude-code-reply {
+      border-left-color: #06b6d4;
+    }
+    .feed .delta.claude-code-dispatch .d-kind,
+    .feed .delta.claude-code-reply .d-kind {
+      color: #06b6d4;
+      font-family: var(--mono);
+      font-size: 11px;
+      letter-spacing: 0.06em;
+      text-transform: lowercase;
+    }
+    .feed .delta.claude-code-dispatch .cc-arrow,
+    .feed .delta.claude-code-reply .cc-arrow {
+      color: #06b6d4;
+      opacity: 0.8;
+      margin: 0 0.2em;
+    }
+    /* Dispatch body is a literal prompt — render mono so it reads as
+       instructions to a system, not as chat prose. */
+    .feed .delta.claude-code-dispatch .d-body.cc-prompt {
+      font-family: var(--mono);
+      font-size: 12px;
+      color: var(--ink-soft);
+      white-space: pre-wrap;
+    }
     /* Voice-tinted thoughts — the trimurti palette from the experiment. */
     .feed .delta.thought.voice-creator   { border-left-color: #f97316; }
     .feed .delta.thought.voice-creator   .d-kind { color: #f97316; }
@@ -8094,16 +8119,17 @@ GET  /v1/usage               Usage stats`,
     // feed endpoint. The renderer collapses user-message + fathom-
     // message to data-kind="chat", which is what the filter sees.
     const KIND_TO_CATEGORY = {
-      'chat':          'chat',
-      'card':          'card',
-      'pass-intent':   'prompts',
-      'voice-thought': 'thinking',
-      'recall':        'thinking',
-      'lake-delta':    'thinking',
-      'crystal':       'identity',
-      'mood':          'identity',
-      'routine':       'routine',
-      'claude-code':   'claude-code',
+      'chat':                  'chat',
+      'card':                  'card',
+      'pass-intent':           'prompts',
+      'voice-thought':         'thinking',
+      'recall':                'thinking',
+      'lake-delta':            'thinking',
+      'crystal':               'identity',
+      'mood':                  'identity',
+      'routine':               'routine',
+      'claude-code-dispatch':  'claude-code',
+      'claude-code-reply':     'claude-code',
     };
     const CATEGORY_LABELS = {
       'chat':        'Chat',
@@ -8604,25 +8630,48 @@ GET  /v1/usage               Usage stats`,
         `;
         return el;
       }
-      // Claude-code task output — closure replies from a tasked
-      // claude-code session. Renders similar to lake-delta but stamps
-      // data-kind so the Claude Code filter category catches it (on
-      // by default) instead of `thinking` (off by default).
-      if (it.kind === 'claude-code') {
+      // Claude-code DISPATCH — Fathom telling a claude-code agent on
+      // a specific machine to do work. The body is the literal prompt
+      // claude reads, so we render it mono so it reads as instructions,
+      // not as a chat reply. Header carries the direction (Fathom →
+      // <host>) so the user can tell at a glance which way the message
+      // is flowing.
+      if (it.kind === 'claude-code-dispatch') {
         const el = document.createElement('article');
-        el.className = 'delta claude-code-reply';
-        el.dataset.kind = 'claude-code';
+        el.className = 'delta claude-code-dispatch';
+        el.dataset.kind = 'claude-code-dispatch';
         el.dataset.fromPuddle = '1';
         el.dataset.puddleId = it.id || '';
         if (it.id) el.dataset.deltaId = it.id;
-        const src = it.from_source || 'claude-code:task';
-        const raw = it.content || '';
+        const host = (it.host || '?').replace(/[<>&]/g, c => ({'<':'&lt;','>':'&gt;','&':'&amp;'}[c]));
+        const body = (it.body || it.content || '').toString();
         el.innerHTML = `
           <header class="d-head">
-            <span class="d-kind">claude-code<span class="source-chip">${_esc(src)}</span></span>
+            <span class="d-kind">fathom <span class="cc-arrow">→</span> ${host}</span>
             <span class="d-ts">${timeStr}</span>
           </header>
-          <div class="d-body">${_esc(raw)}</div>
+          <div class="d-body cc-prompt">${_esc(body)}</div>
+        `;
+        return el;
+      }
+      // Claude-code REPLY — closure deltas from a tasked claude-code
+      // session. Inverse direction from dispatch (host ← claude). Body
+      // renders as prose since it's claude's narrative response, not
+      // an executable prompt.
+      if (it.kind === 'claude-code-reply') {
+        const el = document.createElement('article');
+        el.className = 'delta claude-code-reply';
+        el.dataset.kind = 'claude-code-reply';
+        el.dataset.fromPuddle = '1';
+        el.dataset.puddleId = it.id || '';
+        if (it.id) el.dataset.deltaId = it.id;
+        const host = (it.host || '?').replace(/[<>&]/g, c => ({'<':'&lt;','>':'&gt;','&':'&amp;'}[c]));
+        el.innerHTML = `
+          <header class="d-head">
+            <span class="d-kind">${host} <span class="cc-arrow">←</span> claude</span>
+            <span class="d-ts">${timeStr}</span>
+          </header>
+          <div class="d-body">${_esc(it.content || '')}</div>
         `;
         return el;
       }

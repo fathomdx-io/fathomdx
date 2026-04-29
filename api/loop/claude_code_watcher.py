@@ -55,6 +55,37 @@ def _tag_value(tags: list[str], prefix: str) -> str:
     return ""
 
 
+async def _dispatch_contact_for_corr(corr: str) -> str:
+    """Pull the addressed contact from the original dispatch card so
+    the closure intent can propagate it forward.
+
+    The witness card that started the task carries `for:<slug>` (the
+    user who asked, threaded from the chain origin). When the watcher
+    mints a closure intent for that task, this lets the closure intent
+    be tagged `contact:<slug>` too — the witness's chat-reply on the
+    closure then renders as "Fathom > <slug>" instead of bare "Fathom".
+
+    Returns empty string when the dispatch can't be found or has no
+    for-tag (e.g., feed-pulse-driven dispatches with no human author).
+    """
+    try:
+        dispatches = await delta_client.query(
+            tags_include=["route:claude-code", f"task-corr:{corr}"],
+            limit=5,
+        )
+    except Exception as e:
+        print(
+            f"[claude-code watcher] dispatch lookup failed for {corr[:12]}: "
+            f"{type(e).__name__}: {e}"
+        )
+        return ""
+    for d in dispatches:
+        for t in d.get("tags") or []:
+            if t.startswith("for:"):
+                return t.split(":", 1)[1]
+    return ""
+
+
 async def _correlation_state() -> tuple[dict[str, dict], dict[str, dict]]:
     """Build active and closing correlation maps from the lake.
 
@@ -64,11 +95,12 @@ async def _correlation_state() -> tuple[dict[str, dict], dict[str, dict]]:
         for spawned tasks with no matching closure yet — the watcher
         polls these for new assistant deltas to mint as intents.
 
-      * ``closing``: same shape but augmented with ``closure_delta`` —
-        spawned tasks whose closure delta has landed. The watcher mints
-        ONE intent per closing correlation (deduped via _last_minted)
-        so the loop wakes on the final task report, not just on
-        intermediate Stop hooks.
+      * ``closing``: same shape but augmented with ``closure_delta`` and
+        ``contact`` (the original asker, when known) — spawned tasks
+        whose closure delta has landed. The watcher mints ONE intent
+        per closing correlation (deduped via _last_minted) so the loop
+        wakes on the final task report, not just on intermediate Stop
+        hooks.
     """
     spawns, completes = await asyncio.gather(
         delta_client.query(tags_include=["task-spawn"], limit=200),
@@ -106,6 +138,10 @@ async def _correlation_state() -> tuple[dict[str, dict], dict[str, dict]]:
             closing[corr] = {**info, "closure_delta": closure}
         else:
             active[corr] = info
+    # Enrich closing entries with the original dispatch's contact, so
+    # the closure-driven chat-reply has someone to address.
+    for corr, info in closing.items():
+        info["contact"] = await _dispatch_contact_for_corr(corr)
     return active, closing
 
 
@@ -150,6 +186,11 @@ def _build_intent_tags(corr: str, sid: str, info: dict, source_id: str, *, closu
         # Without this marker, route:claude-code on the witness reply
         # would respawn the task — see kitty plugin's gate.
         tags.append("closure:true")
+        # Propagate the chain's original addressee onto the closure
+        # intent so the witness's chat-reply lands as "Fathom > <slug>".
+        contact = info.get("contact")
+        if contact:
+            tags.append(f"contact:{contact}")
     return tags
 
 
