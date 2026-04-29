@@ -22,6 +22,7 @@ from pydantic import BaseModel
 from . import (
     auth,
     auto_regen,
+    channels as channels_mod,
     crystal,
     crystal_anchor,
     db,
@@ -30,6 +31,7 @@ from . import (
     mood,
 )
 from . import contacts as contacts_mod
+from .loop.intents import write_intent
 from .prompt import (
     CRYSTAL_DIRECTIVE,
     CRYSTAL_REGEN_SYSTEM,
@@ -581,11 +583,12 @@ async def fathom_think(
 
 # ── OpenAI-compat helpers ───────────────────────
 
-# Max time we'll wait for Fathom's reply delta before returning an empty
-# completion. The listener fires on a ~3s poll and a real turn runs
-# 5-30s; 120s covers tool-heavy turns without letting clients hang
-# indefinitely on a stuck loop.
-_OPENAI_REPLY_TIMEOUT_S = 120.0
+# Max time we'll wait for the witness card before returning an empty
+# completion. The Grand Loop runs parliament (3 voices × N rounds) +
+# judge + witness — typically 15-45s, with tool-heavy or unsettled
+# rounds pushing higher. 180s gives the loop room without letting
+# clients hang on a stuck supervisor.
+_OPENAI_REPLY_TIMEOUT_S = 180.0
 _OPENAI_REPLY_POLL_S = 0.5
 
 
@@ -633,30 +636,53 @@ async def _persist_client_system_once(
     return True
 
 
-async def _await_fathom_reply(
+def _render_witness_payload(content: str) -> str:
+    """Parse a witness card's JSON content and render the OpenAI body.
+
+    Witness cards are JSON {kicker, title, body, tail, ...}. Falls back
+    to raw content if parsing fails — should not happen, but a witness
+    that wrote prose by accident still surfaces something rather than
+    an empty turn.
+    """
+    raw = (content or "").strip()
+    if not raw:
+        return ""
+    try:
+        payload = json.loads(raw)
+    except Exception:
+        return _RECALLED_RE.sub("", raw).strip()
+    ch = channels_mod.get("openai")
+    text = ch.render(payload) if ch else (payload.get("body") or "")
+    return _RECALLED_RE.sub("", text).strip()
+
+
+async def _await_witness_reply(
     session_id: str,
+    intent_id: str,
     after_iso: str,
     timeout_s: float = _OPENAI_REPLY_TIMEOUT_S,
 ) -> tuple[str, str]:
-    """Poll the lake for the next Fathom reply delta in this session.
+    """Poll the lake for the witness card addressing this request's intent.
 
     Returns (finish_reason, content). Reasons:
-      "stop"    — a real reply (or silence-ack) landed. content is the
-                  reply text, stripped of any <recalled>...</recalled>
-                  provenance. Silence-acks surface as empty content.
-      "timeout" — no reply within timeout_s. content is empty.
+      "stop"    — witness wrote a card addressing this intent. content
+                  is the rendered body (may be empty if the loop chose
+                  silence — route:unknown).
+      "timeout" — no witness output within timeout_s.
 
-    Ignores tool-event deltas (remember/recall/etc.) — only the durable
-    reply or a silence-event counts as a turn completing.
+    The polling key is (to:openai:<sid>, addresses:<intent_id>) — the
+    address tag scopes to this conversation, the addresses tag scopes to
+    THIS specific request so a later request in the same session won't
+    accidentally pick up an earlier reply.
     """
-
+    address = channels_mod.address_tag("openai", session_id)
     deadline = time.monotonic() + timeout_s
     while time.monotonic() < deadline:
         try:
             fresh = await delta_client.query(
-                tags_include=[f"chat:{session_id}", "participant:fathom"],
+                tags_include=[address, f"addresses:{intent_id}"],
                 time_start=after_iso,
-                limit=10,
+                limit=5,
             )
         except Exception as e:
             log.warning("openai-compat: poll failed: %s", e)
@@ -665,14 +691,7 @@ async def _await_fathom_reply(
             ts = d.get("timestamp") or ""
             if ts <= after_iso:
                 continue
-            tags = d.get("tags") or []
-            if "chat-event" in tags:
-                if "event:silence" in tags:
-                    return "stop", ""
-                continue
-            text = (d.get("content") or "").strip()
-            text = _RECALLED_RE.sub("", text).strip()
-            return "stop", text
+            return "stop", _render_witness_payload(d.get("content") or "")
         await asyncio.sleep(_OPENAI_REPLY_POLL_S)
     return "timeout", ""
 
@@ -702,15 +721,16 @@ def _openai_completion_response(
 
 async def _openai_stream(
     session_id: str,
+    intent_id: str,
     after_iso: str,
     model: str,
 ):
     """SSE generator for `stream: true`.
 
-    Fathom writes the reply as one complete delta, not token-by-token, so
-    we emit a single content chunk once the reply lands, then [DONE]. A
-    heartbeat keep-alive frame every 15s prevents client/proxy idle
-    timeouts during long turns.
+    The Grand Loop produces one witness card, not token-by-token output,
+    so we emit a single content chunk once the card lands, then [DONE].
+    A heartbeat keep-alive frame every 15s prevents client/proxy idle
+    timeouts during the (often 30s+) parliament + witness deliberation.
     """
     chunk_id = f"chatcmpl-{uuid.uuid4().hex}"
     created = int(time.time())
@@ -735,7 +755,7 @@ async def _openai_stream(
     # Opening role chunk so clients can render the assistant bubble early.
     yield _chunk({"role": "assistant"})
 
-
+    address = channels_mod.address_tag("openai", session_id)
     deadline = time.monotonic() + _OPENAI_REPLY_TIMEOUT_S
     last_heartbeat = time.monotonic()
     finish_reason = "timeout"
@@ -743,9 +763,9 @@ async def _openai_stream(
     while time.monotonic() < deadline:
         try:
             fresh = await delta_client.query(
-                tags_include=[f"chat:{session_id}", "participant:fathom"],
+                tags_include=[address, f"addresses:{intent_id}"],
                 time_start=after_iso,
-                limit=10,
+                limit=5,
             )
         except Exception as e:
             log.warning("openai-compat stream: poll failed: %s", e)
@@ -755,16 +775,8 @@ async def _openai_stream(
             ts = d.get("timestamp") or ""
             if ts <= after_iso:
                 continue
-            tags = d.get("tags") or []
-            if "chat-event" in tags:
-                if "event:silence" in tags:
-                    finish_reason = "stop"
-                    reply_text = ""
-                    landed = True
-                    break
-                continue
             finish_reason = "stop"
-            reply_text = _RECALLED_RE.sub("", d.get("content") or "").strip()
+            reply_text = _render_witness_payload(d.get("content") or "")
             landed = True
             break
         if landed:
@@ -787,27 +799,28 @@ async def _openai_stream(
 
 @app.post("/v1/chat/completions")
 async def chat_completions(req: ChatRequest, request: Request):
-    """OpenAI-shaped chat completions over Fathom's lake substrate.
+    """OpenAI-shaped chat completions over Fathom's Grand Loop.
 
     Fathom is OpenAI-*shaped*, not OpenAI-*semantic*: the conversation
     lives in Fathom's memory, not in the request's `messages` array.
-    Only the latest `user` turn and any new `system` directive are
-    read off the payload. Older assistant turns the client sends are
-    ignored — Fathom re-orients from the lake by session, so doctoring
-    past turns in the request is inert.
+    Only the latest `user` turn is read off the payload. Older assistant
+    turns and `system` messages the client sends are ignored — Fathom
+    re-orients from the lake by session, so doctoring past turns in the
+    request is inert.
 
     Flow per request:
       1. Resolve or mint a session.
-      2. Persist any `system` message as a `participant:client-system`
-         delta (deduped per-session by content hash). These are recorded
-         wishes, not privileged directives; the chat reply path never
-         fires on them.
-      3. Persist the latest `user` message as a `participant:user` delta.
-         That write is what the chat reply path picks up and responds to
-         via `fathom_think`, writing a `participant:fathom` reply delta.
-      4. Wait (poll the lake) for that reply delta to land, up to
-         `_OPENAI_REPLY_TIMEOUT_S`. Return it in OpenAI completion shape,
-         or stream it as SSE when `stream: true`.
+      2. Take the LAST `user` message off the payload.
+      3. Write it into the puddle as a `kind:question` intent tagged
+         `channel:openai` + `openai-session:<sid>`. This activates the
+         Grand Loop — supervisor groups intents by (channel, session),
+         runs parliament, the witness produces one card.
+      4. Poll the lake for the witness card tagged
+         `to:openai:<sid>` + `addresses:<intent_id>`. The intent_id
+         scoping makes a later request in the same session immune to
+         earlier replies sticking around.
+      5. Render the card's `body` field as the assistant message
+         (channels.openai.render). Stream it as SSE when `stream: true`.
 
     The response carries `session_id` as an extension field so the
     internal dashboard UI (which calls this same endpoint) can lock onto
@@ -825,33 +838,27 @@ async def chat_completions(req: ChatRequest, request: Request):
     contact = getattr(request.state, "contact", None)
     contact_slug = (contact or {}).get("slug")
 
-    # Snapshot the wall clock BEFORE any delta writes so the reply-poller
-    # ignores deltas that predate this request (including our own user
-    # write). Lake timestamps are server-assigned ISO-8601.
+    # Snapshot the wall clock BEFORE the intent write so the reply-poller
+    # ignores any pre-existing witness card. Lake timestamps are
+    # server-assigned ISO-8601.
     request_start_iso = datetime.now(UTC).isoformat()
-
-    persisted_user = False
-    # Iterate in request order so a system message preceding the first
-    # user message lands in the lake first — the user message then
-    # arrives into a session that already has the recorded system wish
-    # as recent context, not the other way around.
-    for m in req.messages:
-        if m.role == "system" and isinstance(m.content, str) and m.content.strip():
-            await _persist_client_system_once(session_id, m.content.strip(), contact_slug)
-        elif m.role == "user" and m.content:
-            content = m.content if isinstance(m.content, str) else json.dumps(m.content)
-            if not req.image_uploaded:
-                await db.add_message(session_id, "user", content, contact_slug=contact_slug)
-            persisted_user = True
-        # Other roles (assistant, tool, function) are intentionally
-        # ignored — Fathom's prior turns live in the lake, not in the
-        # client's replay of the conversation.
-
     model_label = req.model or "fathom"
 
-    # Nothing to respond to — no user turn, no image upload. Return an
-    # empty completion rather than hanging on a poll that won't fire.
-    if not persisted_user and not req.image_uploaded:
+    # Take only the latest user turn — Fathom's view of the conversation
+    # is the lake, not the client's replay. System / prior assistant /
+    # tool messages are intentionally ignored.
+    user_text = ""
+    for m in reversed(req.messages):
+        if m.role == "user" and m.content:
+            user_text = m.content if isinstance(m.content, str) else json.dumps(m.content)
+            user_text = user_text.strip()
+            break
+
+    # Nothing to respond to. Return an empty completion rather than
+    # hanging on a poll that won't fire. (image_uploaded with no text
+    # still gives us an image-sourced intent via routes/media.py — we
+    # don't fire the loop from here in that case yet; v1 limitation.)
+    if not user_text and not req.image_uploaded:
         if req.stream:
 
             async def _empty_stream():
@@ -872,13 +879,66 @@ async def chat_completions(req: ChatRequest, request: Request):
             return StreamingResponse(_empty_stream(), media_type="text/event-stream")
         return _openai_completion_response("", session_id, model_label, "stop")
 
+    # Dual-write the user's turn: lake (durable, survives restarts) +
+    # puddle (intent for the loop to consume on this fire). The lake
+    # copy is tagged `user-seed` so the dashboard feed renderer treats
+    # it the same as a composer seed; telepathy will mirror it back
+    # into the puddle on cold start, and the `recalled-id`/`lake-id`
+    # tags on the puddle copy keep telepathy from re-echoing it.
+    body_text = user_text or "[image]"
+    lake_intent_tags = [
+        "user-seed",
+        "kind:question",
+        channels_mod.channel_tag("openai"),
+        channels_mod.correlation_tag("openai", session_id),
+        f"chat:{session_id}",  # legacy compat — keep until full web-chat decom
+    ]
+    if contact_slug:
+        lake_intent_tags.append(f"contact:{contact_slug}")
+    lake_id = ""
+    try:
+        lake_delta = await delta_client.write(
+            content=body_text,
+            tags=lake_intent_tags,
+            source="openai-compat",
+        )
+        if isinstance(lake_delta, dict):
+            lake_id = lake_delta.get("id") or ""
+    except Exception as e:
+        # Best-effort: a transient lake hiccup must not block the
+        # client from getting a reply. The puddle write below still
+        # fires and the loop still runs; we just lose durability.
+        log.warning("openai-compat: lake write failed (%s)", e)
+
+    extra_tags = [
+        channels_mod.channel_tag("openai"),
+        channels_mod.correlation_tag("openai", session_id),
+        f"chat:{session_id}",
+    ]
+    if contact_slug:
+        extra_tags.append(f"contact:{contact_slug}")
+    if lake_id:
+        extra_tags.append(f"lake-id:{lake_id}")
+        extra_tags.append(f"recalled-id:{lake_id[:24]}")
+    intent = await write_intent(
+        kind="question",
+        content=body_text,
+        extra_tags=extra_tags,
+        source="openai-compat",
+    )
+    intent_id = (intent or {}).get("id") or ""
+    if not intent_id:
+        raise HTTPException(status_code=503, detail="puddle write failed")
+
     if req.stream:
         return StreamingResponse(
-            _openai_stream(session_id, request_start_iso, model_label),
+            _openai_stream(session_id, intent_id, request_start_iso, model_label),
             media_type="text/event-stream",
         )
 
-    finish_reason, reply_text = await _await_fathom_reply(session_id, request_start_iso)
+    finish_reason, reply_text = await _await_witness_reply(
+        session_id, intent_id, request_start_iso
+    )
     return _openai_completion_response(reply_text, session_id, model_label, finish_reason)
 
 
@@ -1046,13 +1106,20 @@ async def refresh_crystal():
 
 @app.get("/v1/models")
 async def list_models():
+    """Models list for OpenAI-compatible clients (Open WebUI, etc.).
+
+    From a client's perspective there is one model — `fathom`. Every
+    request goes through the Grand Loop regardless of which provider/
+    model is configured for which tier; the underlying picks are an
+    internal concern surfaced via /v1/settings/models for the dashboard.
+    """
     return {
         "object": "list",
         "data": [
             {
-                "id": settings.resolved_model,
+                "id": "fathom",
                 "object": "model",
-                "owned_by": settings.provider,
+                "owned_by": "fathom",
             }
         ],
     }

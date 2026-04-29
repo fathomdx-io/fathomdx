@@ -30,17 +30,43 @@ SESSION_TAG_PREFIX = "session:"
 INPUT_SAMPLE_K = 8
 
 
+def _intent_prefix(intent: dict) -> str:
+    """Render origin metadata — who's asking and how it arrived — as a
+    bracketed prefix on the intent line. Voices need both to ground
+    their take: contact differentiates Myra-asking from Nova-asking;
+    channel differentiates browser-composer from openai-client. Without
+    these the LLM confabulates ("the user", "claude-code") because the
+    raw content alone doesn't carry origin."""
+    from ..channels import extract_channel
+    parts: list[str] = []
+    contact = ""
+    for t in intent.get("tags") or []:
+        if t.startswith("contact:"):
+            contact = t.split(":", 1)[1]
+            break
+    if contact:
+        parts.append(f"from: {contact}")
+    ch, corr = extract_channel(intent.get("tags") or [])
+    if ch and corr:
+        parts.append(f"via: {ch}:{corr}")
+    elif ch:
+        parts.append(f"via: {ch}")
+    return f"[{' · '.join(parts)}] " if parts else ""
+
+
 def _render_seed_block(pending: list[dict]) -> str:
     """Format the open-question(s) the chorus is thinking about."""
     if not pending:
         return "  «(no question — sit with what's already in the substrate)»"
     if len(pending) == 1:
+        prefix = _intent_prefix(pending[0])
         text = (pending[0].get("content") or "").strip().split("\n")[0][:400]
-        return f'  "{text}"'
+        return f'  {prefix}"{text}"'
     lines = []
     for it in pending[:5]:
+        prefix = _intent_prefix(it)
         text = (it.get("content") or "").strip().split("\n")[0][:300]
-        lines.append(f"  · {text}")
+        lines.append(f"  · {prefix}{text}")
     return "\n".join(lines)
 
 

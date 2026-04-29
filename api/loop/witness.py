@@ -29,6 +29,7 @@ import re
 from collections import OrderedDict
 
 from .. import delta_client
+from ..channels import address_tag, extract_channel
 from . import resonance
 from .intents import CONVO_TAG, intent_kind
 from .llm import loop_generate
@@ -335,7 +336,25 @@ async def run_witness(
                     f"  ↩ replying to [{tgt_source}]: \"{tgt_content}\""
                 )
 
-        intent_lines.append(f"  [intent-id: {iid_short} · kind: {kind}] {text}")
+        # Surface origin metadata — who's asking and how it arrived —
+        # so the witness speaks accurately to the right person on the
+        # right wire. Without this the voices confabulate ("the user",
+        # "claude-code") for anything meta about the conversation.
+        contact = ""
+        for t in (it.get("tags") or []):
+            if t.startswith("contact:"):
+                contact = t.split(":", 1)[1]
+                break
+        ch, corr = extract_channel(it.get("tags") or [])
+        meta_parts: list[str] = []
+        if contact:
+            meta_parts.append(f"from: {contact}")
+        if ch and corr:
+            meta_parts.append(f"via: {ch}:{corr}")
+        elif ch:
+            meta_parts.append(f"via: {ch}")
+        meta_suffix = (" · " + " · ".join(meta_parts)) if meta_parts else ""
+        intent_lines.append(f"  [intent-id: {iid_short} · kind: {kind}{meta_suffix}] {text}")
     intent_block = "\n".join(intent_lines)
     primary_intent = (pending[0].get("content") or "").strip()
     primary_intent_clean = primary_intent.split("\n\n[intent-payload]", 1)[0].strip()
@@ -400,6 +419,26 @@ async def run_witness(
     payload_json = json.dumps(payload, ensure_ascii=False)
     route_value = witness.get("route") or "chat-reply"
 
+    # Read channel/correlation off the addressed intents — supervisor
+    # groups by (channel, correlation) so every intent in this fire
+    # carries the same pair (or none, for ambient fires). Stamp
+    # `to:<channel>:<correlation>` on the output so the channel's
+    # consumer (OpenAI endpoint poller, etc.) finds it with one tag
+    # query without scanning route metadata.
+    channel, correlation = "", ""
+    addressee = ""
+    for it in pending:
+        ch, corr = extract_channel(it.get("tags") or [])
+        if ch and not channel:
+            channel, correlation = ch, corr
+        if not addressee:
+            for t in (it.get("tags") or []):
+                if t.startswith("contact:"):
+                    addressee = t.split(":", 1)[1]
+                    break
+        if channel and addressee:
+            break
+
     # Include `addressing-output` so pending_intents() sees this card
     # as having addressed its intents even after a cold-start restore
     # (telepathy preserves these tags when mirroring the lake delta
@@ -409,6 +448,15 @@ async def run_witness(
         "feed-card", "synthesis", "addressing-output",
         f"route:{route_value}",
     ]
+    if channel and correlation:
+        lake_tags.append(address_tag(channel, correlation))
+        lake_tags.append(f"channel:{channel}")
+    if addressee:
+        # `for:<contact>` is the existing addressing convention (see
+        # messages.send_message); reusing it means contact-scoped views
+        # see Fathom's reply alongside any direct messages for the
+        # same person. Also lets the dashboard render "Fathom > Myra".
+        lake_tags.append(f"for:{addressee}")
     for intent_id in full_addressed:
         lake_tags.append(f"addresses:{intent_id}")
     lake_id = ""
@@ -431,6 +479,11 @@ async def run_witness(
         "feed-card", "synthesis", "addressing-output",
         f"route:{route_value}",
     ]
+    if channel and correlation:
+        puddle_tags.append(address_tag(channel, correlation))
+        puddle_tags.append(f"channel:{channel}")
+    if addressee:
+        puddle_tags.append(f"for:{addressee}")
     for intent_id in full_addressed:
         puddle_tags.append(f"addresses:{intent_id}")
     if lake_id:

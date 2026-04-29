@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import json
 
+from ..channels import extract_channel
 from .puddle import puddle
 
 
@@ -113,6 +114,33 @@ def pending_intents(since_iso: str | None = None) -> list[dict]:
     pending = [c for c in candidates if (c.get("id") or "") not in addressed]
     pending.sort(key=lambda d: d.get("timestamp") or "")
     return pending
+
+
+def next_intent_group(pending: list[dict]) -> list[dict]:
+    """Pick the next group of intents to fire on. Oldest-first by group.
+
+    Group key is (channel, correlation). Channel-less intents (pressure,
+    drift, reflection, bridging — everything ambient) form one group;
+    each (channel, correlation) pair is its own group.
+
+    Returns the group whose oldest member is the oldest among all groups,
+    so a chat message that arrived before a feed-pressure pulse fires
+    first. Within a fire, the witness still sees every intent in the
+    group and produces one integrated card addressing all of them.
+    """
+    if not pending:
+        return []
+    by_key: dict[tuple[str, str], list[dict]] = {}
+    first_seen: dict[tuple[str, str], str] = {}
+    for it in pending:
+        key = extract_channel(it.get("tags") or [])
+        by_key.setdefault(key, []).append(it)
+        ts = it.get("timestamp") or ""
+        prev = first_seen.get(key)
+        if prev is None or ts < prev:
+            first_seen[key] = ts
+    oldest_key = min(by_key.keys(), key=lambda k: first_seen.get(k) or "")
+    return by_key[oldest_key]
 
 
 def intent_kind(intent: dict) -> str:

@@ -18,7 +18,7 @@ import time
 import uuid
 
 from . import feed_orient
-from .intents import pending_intents
+from .intents import next_intent_group, pending_intents
 from .metric import (
     SETTLE_WINDOW,
     emit_metric,
@@ -86,12 +86,21 @@ async def _run_one_fire() -> bool:
     Returns True if a fire happened (work was done). The caller idles
     when there was nothing pending.
     """
-    pending = pending_intents(since_iso=_boot_iso)
+    all_pending = pending_intents(since_iso=_boot_iso)
+    if not all_pending:
+        return False
+    # Fire one (channel, correlation) group at a time. Two concurrent
+    # OpenAI sessions become two sequential fires, not one collapsed
+    # card. Channel-less ambient intents still batch as today.
+    pending = next_intent_group(all_pending)
     if not pending:
         return False
 
     session_tag = f"session:{uuid.uuid4().hex[:12]}"
-    print(f"[loop fire] {session_tag} pending={len(pending)}")
+    print(
+        f"[loop fire] {session_tag} pending={len(pending)} "
+        f"(of {len(all_pending)} total across groups)"
+    )
 
     convergence_samples: list[float] = []
     settled = False

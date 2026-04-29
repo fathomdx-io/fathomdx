@@ -23,7 +23,7 @@ from __future__ import annotations
 import asyncio
 import json
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
@@ -49,7 +49,7 @@ class SeedRequest(BaseModel):
 
 
 @router.post("/v1/puddle/seed")
-async def post_seed(req: SeedRequest) -> dict:
+async def post_seed(req: SeedRequest, request: Request) -> dict:
     """Drop a seed delta into the puddle AND the lake.
 
     Typing a seed is authoring — the lake gets it durable from the
@@ -62,15 +62,27 @@ async def post_seed(req: SeedRequest) -> dict:
 
     Lake write is best-effort: a transient lake hiccup must not block
     the user from sending. The puddle write always lands.
+
+    Contact tagging: the auth middleware resolves the bearer token to
+    a contact and stamps it on `request.state.contact`. We propagate
+    `contact:<slug>` server-side so Fathom knows who's typing — the
+    browser composer never sets this in `extra_tags` and the loop's
+    prompts now read it via the seed block + witness intent line.
     """
     kind = req.kind.strip().lower() or "question"
     if kind not in INTENT_TTL_BY_KIND:
         kind = "question"
     body = req.content.strip()
 
+    contact = getattr(request.state, "contact", None)
+    contact_slug = (contact or {}).get("slug")
+    contact_tag = f"contact:{contact_slug}" if contact_slug else None
+
     lake_tags = ["user-seed", f"kind:{kind}"]
     if req.extra_tags:
         lake_tags.extend(req.extra_tags)
+    if contact_tag and contact_tag not in lake_tags:
+        lake_tags.append(contact_tag)
     lake_id = ""
     try:
         lake_delta = await delta_client.write(
@@ -84,6 +96,8 @@ async def post_seed(req: SeedRequest) -> dict:
         print(f"[seed] lake write failed (puddle still writing): {type(e).__name__}: {e}")
 
     puddle_extra: list[str] = list(req.extra_tags or [])
+    if contact_tag and contact_tag not in puddle_extra:
+        puddle_extra.append(contact_tag)
     if lake_id:
         puddle_extra.append(f"lake-id:{lake_id}")
         puddle_extra.append(f"recalled-id:{lake_id[:24]}")
