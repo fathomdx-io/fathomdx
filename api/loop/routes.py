@@ -154,7 +154,41 @@ def get_feed(
         limit=limit,
     )
 
-    for d in raw:
+    # Chat anchor — on the live edge, also pull chat-shape deltas
+    # (user seeds + witness chat-replies) from BEFORE the primary
+    # window so the conversation always grounds the view, even when
+    # the active hour is otherwise quiet. Bounded by the puddle's TTL;
+    # anything evicted is gone from this query and the dashboard would
+    # need to page back via Show-more (or the lake) to see it.
+    chat_anchor_raw: list[dict] = []
+    if until is None:
+        anchor_pool = puddle.query(
+            tags_include=[CONVO_TAG],
+            time_end=since_iso,
+            limit=200,
+        )
+        for d in anchor_pool:
+            d_tags = set(d.get("tags") or [])
+            is_user_seed = "kind:question" in d_tags and (
+                "intent" in d_tags or "user-seed" in d_tags
+            )
+            is_chat_reply = "feed-card" in d_tags and "route:chat-reply" in d_tags
+            if is_user_seed or is_chat_reply:
+                chat_anchor_raw.append(d)
+
+    # Dedupe by id when concatenating; the primary window query and
+    # the chat anchor's `time_end=since_iso` are non-overlapping by
+    # construction, but defensive against any boundary clock skew.
+    seen_ids: set[str] = set()
+    deduped: list[dict] = []
+    for d in raw + chat_anchor_raw:
+        d_id = d.get("id")
+        if not d_id or d_id in seen_ids:
+            continue
+        seen_ids.add(d_id)
+        deduped.append(d)
+
+    for d in deduped:
         tags = set(d.get("tags") or [])
         ts = d.get("timestamp")
         # Drop agent heartbeats — they're connection signals, not
@@ -221,7 +255,17 @@ def get_feed(
                 "route": route,
                 **payload,
             }
-            if route == "chat-reply":
+            if route == "claude-code":
+                # Outbound dispatch: Fathom asking a claude-code agent
+                # on a specific machine to do work. Body is the literal
+                # prompt claude reads. Surface the host so the renderer
+                # can show "Fathom → <host>" instead of a generic card.
+                host = next(
+                    (t.split(":", 1)[1] for t in tags if t.startswith("host:")),
+                    "",
+                )
+                items.append({"kind": "claude-code-dispatch", "host": host, **base})
+            elif route == "chat-reply":
                 items.append({"kind": "fathom-message", **base})
             else:
                 items.append({"kind": "card", **base})
@@ -296,6 +340,23 @@ def get_feed(
                 "kind": "routine",
                 "routine_id": routine_id,
                 "summary": "routine-summary" in tags,
+                "content": d.get("content") or "",
+                **common,
+            })
+            continue
+        # Claude-code task channel — closure deltas from a tasked
+        # claude-code session, plus any other claude-code:task source
+        # output. Routed under its own kind so the Claude Code filter
+        # category (on by default) surfaces them, instead of getting
+        # buried under `thinking` with the rest of the lake-delta noise.
+        if "task-complete" in tags or d.get("source") == "claude-code:task":
+            host = next(
+                (t.split(":", 1)[1] for t in tags if t.startswith("host:")),
+                "",
+            )
+            items.append({
+                "kind": "claude-code-reply",
+                "host": host,
                 "content": d.get("content") or "",
                 **common,
             })
@@ -628,3 +689,108 @@ async def stream() -> StreamingResponse:
                 continue
 
     return StreamingResponse(event_gen(), media_type="text/event-stream")
+
+
+@router.get("/v1/loop/claude-code-tasks")
+async def get_claude_code_tasks() -> dict:
+    """Active claude-code-channel tasks for the dashboard's status bar.
+
+    Joins three lake reads — `task-spawn` (the kitty handshake delta),
+    `task-complete` (claude's closure signal), and `assistant`/`user`
+    hook deltas for each active session — into one row per live task.
+
+    Returns:
+      {"tasks": [
+        {
+          "corr": str,
+          "title": str,            # first user prompt, truncated
+          "host": str,
+          "claude_session_id": str,
+          "project": str,
+          "spawn_iso": str,
+          "last_message_at": str,  # most recent assistant delta ts
+          "last_message_id": str,  # for click-to-scroll
+        },
+        ...
+      ]}
+    """
+    spawns, completes = await asyncio.gather(
+        delta_client.query(tags_include=["task-spawn"], limit=200),
+        delta_client.query(tags_include=["task-complete"], limit=200),
+    )
+
+    def _tag_value(tags: list[str], prefix: str) -> str:
+        for t in tags:
+            if t.startswith(prefix):
+                return t[len(prefix):]
+        return ""
+
+    completed: set[str] = set()
+    for c in completes:
+        corr = _tag_value(c.get("tags") or [], "task-corr:")
+        if corr:
+            completed.add(corr)
+
+    active: list[dict] = []
+    seen: set[str] = set()
+    for s in spawns:
+        tags = s.get("tags") or []
+        corr = _tag_value(tags, "task-corr:")
+        sid = _tag_value(tags, "claude-code-session:")
+        if not corr or not sid or corr in completed or corr in seen:
+            continue
+        seen.add(corr)
+        active.append({
+            "corr": corr,
+            "claude_session_id": sid,
+            "host": _tag_value(tags, "host:"),
+            "project": _tag_value(tags, "project:"),
+            "spawn_iso": s.get("timestamp") or "",
+        })
+
+    if not active:
+        return {"tasks": []}
+
+    # Per-task lookups, parallelized. The first user-prompt of the
+    # session gives the dashboard a human-readable title; the latest
+    # assistant delta gives "last message X ago" + click-to-scroll.
+    async def _enrich(row: dict) -> dict:
+        sid = row["claude_session_id"]
+        first_user, last_assistant = await asyncio.gather(
+            delta_client.query(
+                tags_include=["user", f"session:{sid}"],
+                limit=1,
+            ),
+            delta_client.query(
+                tags_include=["assistant", f"session:{sid}"],
+                limit=50,
+            ),
+        )
+        title_raw = ""
+        if first_user:
+            # `query` returns newest-first; the first user prompt of the
+            # session is the OLDEST one. Re-sort to grab it.
+            first_user.sort(key=lambda d: d.get("timestamp") or "")
+            title_raw = (first_user[0].get("content") or "").strip()
+        # Strip the kitty prompt header so the user sees the actual ask.
+        title_raw = title_raw.replace(f"[fathom-task:{row['corr']}]", "").strip()
+        title = title_raw[:80] + ("…" if len(title_raw) > 80 else "")
+
+        last_message_at = ""
+        last_message_id = ""
+        if last_assistant:
+            last_assistant.sort(key=lambda d: d.get("timestamp") or "")
+            tail = last_assistant[-1]
+            last_message_at = tail.get("timestamp") or ""
+            last_message_id = tail.get("id") or ""
+
+        return {
+            **row,
+            "title": title or "(no prompt yet)",
+            "last_message_at": last_message_at,
+            "last_message_id": last_message_id,
+        }
+
+    enriched = await asyncio.gather(*(_enrich(r) for r in active))
+    enriched.sort(key=lambda r: r.get("spawn_iso") or "")
+    return {"tasks": enriched}

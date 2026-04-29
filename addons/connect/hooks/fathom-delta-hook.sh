@@ -34,9 +34,24 @@ print(f'export ASSISTANT={shlex.quote(d.get(\"last_assistant_message\", \"\"))}'
 
 # Hostname for the machine the session is running on — lets the
 # dashboard show sessions as `fedora · fathomdx` instead of raw UUIDs,
-# and makes fleets with multiple agents distinguishable. Short form
-# preferred (hostname -s); fall back to full hostname, then `unknown`.
-export HOST=$(hostname -s 2>/dev/null || hostname 2>/dev/null || echo unknown)
+# and makes fleets with multiple agents distinguishable.
+#
+# Resolution order matters for cross-component join:
+#   1. FATHOM_HOST  — ad-hoc override (test scaffolding, CI).
+#   2. ~/.fathom/agent.json `host` — the user-chosen display name.
+#      The agent and the kitty plugin both write this on tags; if
+#      the hook tags `host:fedora` while the agent expects
+#      `host:myras-fedora-laptop`, the claude-code-channel handshake
+#      silently misses and the loop never wakes on session deltas.
+#   3. `hostname -s` — short OS hostname; the fallback.
+#   4. `hostname` — full hostname; defensive.
+#   5. `unknown` — last resort.
+HOST="${FATHOM_HOST:-}"
+if [ -z "$HOST" ] && [ -f "$HOME/.fathom/agent.json" ]; then
+    HOST=$(python3 -c "import json,sys; print(json.load(open('$HOME/.fathom/agent.json')).get('host',''))" 2>/dev/null)
+fi
+[ -z "$HOST" ] && HOST=$(hostname -s 2>/dev/null || hostname 2>/dev/null || echo unknown)
+export HOST
 
 AUTH_HEADER=""
 [ -n "$FATHOM_API_KEY" ] && AUTH_HEADER="Authorization: Bearer ${FATHOM_API_KEY}"

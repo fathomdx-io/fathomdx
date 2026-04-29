@@ -253,13 +253,14 @@ VOICE — this is the part that matters most:
 - If they stayed divergent — name the unresolved tension honestly, in your voice.
 - Never name the voices. Never narrate the deliberation. The user reads the body, period.
 
-ROUTE — pick exactly one. Available routes:
+{hosts_block}ROUTE — pick exactly one. Available routes:
   · chat-reply         — direct answer to the user. Default for question / drop-in.
   · feed-card          — durable observation worth keeping in the feed. Use for reflection/drift/bridging or when pressure yielded a real take.
   · dm:<contact-slug>  — message addressed to a specific contact (someone OTHER than the active user). Rare.
   · alert:<level>      — info | warn | piercing. Rare — only when urgency genuinely outranks normal cadence.
   · routine-fire:<id>  — invoke a named routine.
   · tool:<name>        — use a tool as the response (search / remember / etc).
+  · claude-code:<host> — dispatch a task to claude-code running on a specific machine (must be one of the hosts above). The `body` becomes the literal prompt claude reads — write it as instructions, not as a chat reply. PICK THIS, NOT chat-reply, whenever the user asks for ANYTHING that needs the live world: a current price, the latest news, today's weather, fresh API data, "fetch X", "run Y", "check on Z", "test", a file edit, a shell command, a git operation. Substrate is by definition stale — guessing from memory at a `current price of gold` request is a wrong answer; the right answer is dispatching claude-code to fetch it. Same for any request to RUN code, EDIT files, or REACH OUT to the network. Only fall back to chat-reply when the question is genuinely about something already in the lake (a memory, a relationship, an opinion, a reflection) or about Fathom itself. A new kitty window spawns on the named machine; claude executes; its closure delta lands back in the feed.
   · unknown            — NEIFAMA: you looked, there's nothing meaningful to say. Honest. Addresses the intent.
 
 CLAIMING — multi-intent: walk through each intent-id and decide if your body addresses it. Default to claiming MORE, not fewer. Empty addresses means "leaving everything open — more substrate is imminently arriving"; only use that when literally true.
@@ -281,7 +282,7 @@ Return STRICT JSON only — no markdown fences, no commentary:
   "body_image": "<media_hash from substrate, or empty string>",
   "link":      "<URL from substrate, or empty string>",
   "links":     [],
-  "route":     "<one of: chat-reply | feed-card | dm:<slug> | alert:<level> | routine-fire:<id> | tool:<name> | unknown>",
+  "route":     "<one of: chat-reply | feed-card | dm:<slug> | alert:<level> | routine-fire:<id> | tool:<name> | claude-code:<host> | unknown>",
   "addresses": ["<intent-id this body addresses>", ...]
 }}"""
 

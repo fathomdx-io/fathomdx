@@ -26,7 +26,9 @@ from __future__ import annotations
 
 import json
 import re
+import uuid
 from collections import OrderedDict
+from datetime import UTC, datetime, timedelta
 
 from .. import delta_client
 from ..channels import address_tag, extract_channel
@@ -176,18 +178,60 @@ def _render_resonance_block(items: list[dict]) -> str:
     return "\n\n".join(blocks) if blocks else "  (no resonant material in the puddle this fire)"
 
 
+async def _available_claude_code_hosts() -> list[str]:
+    """Distinct hosts that have heartbeated in the last 5 minutes —
+    these are the agents that can receive a `claude-code:<host>`
+    dispatch. Empty list means nothing is online and the witness
+    shouldn't pick that route this tick.
+    """
+    cutoff = (datetime.now(UTC) - timedelta(minutes=5)).isoformat()
+    try:
+        beats = await delta_client.query(
+            tags_include=["agent-heartbeat"],
+            time_start=cutoff,
+            limit=100,
+        )
+    except Exception as e:
+        print(f"[witness] heartbeat query failed: {type(e).__name__}: {e}")
+        return []
+    hosts: set[str] = set()
+    for b in beats:
+        for t in b.get("tags") or []:
+            if t.startswith("host:"):
+                hosts.add(t.split(":", 1)[1])
+                break
+    return sorted(hosts)
+
+
+def _render_hosts_block(hosts: list[str]) -> str:
+    """Format the available-hosts list for injection into the witness
+    prompt. Empty when nothing is online — the prompt then has no
+    `claude-code:<host>` option from the model's POV, since picking
+    a host that doesn't exist would just no-op anyway."""
+    if not hosts:
+        return ""
+    lines = "\n".join(f"  · {h}" for h in hosts)
+    return (
+        "MACHINES — agents currently online that can receive a "
+        "`claude-code:<host>` dispatch:\n"
+        f"{lines}\n\n"
+    )
+
+
 async def _call_witness(
     *,
     intent_block: str,
     voice_blocks: str,
     anchors_block: str,
     resonance_block: str,
+    hosts_block: str,
 ) -> dict | None:
     prompt = WITNESS_PROMPT.format(
         intent_block=intent_block,
         voice_blocks=voice_blocks,
         anchors_block=anchors_block,
         resonance_block=resonance_block,
+        hosts_block=hosts_block,
         settled_status="deliberated",
         settled_descriptor=(
             "The voices took their turns — speak from the integrated take "
@@ -391,11 +435,13 @@ async def run_witness(
     )
     resonance_block = _render_resonance_block(resonant)
 
+    available_hosts = await _available_claude_code_hosts()
     witness = await _call_witness(
         intent_block=intent_block,
         voice_blocks=voice_blocks,
         anchors_block=_render_anchors(),
         resonance_block=resonance_block,
+        hosts_block=_render_hosts_block(available_hosts),
     )
     if witness is None:
         print("[witness] produced nothing")
@@ -450,12 +496,22 @@ async def run_witness(
     # `to:<channel>:<correlation>` on the output so the channel's
     # consumer (OpenAI endpoint poller, etc.) finds it with one tag
     # query without scanning route metadata.
+    #
+    # `host_for_channel` is captured for the claude-code channel: kitty
+    # plugins on each machine query by (route:claude-code AND host:<me>),
+    # so the host tag must propagate from the addressed intent onto the
+    # outbound card. Other channels ignore it.
     channel, correlation = "", ""
     addressee = ""
+    host_for_channel = ""
     for it in pending:
         ch, corr = extract_channel(it.get("tags") or [])
         if ch and not channel:
             channel, correlation = ch, corr
+            for t in (it.get("tags") or []):
+                if t.startswith("host:"):
+                    host_for_channel = t.split(":", 1)[1]
+                    break
         if not addressee:
             for t in (it.get("tags") or []):
                 if t.startswith("contact:"):
@@ -463,6 +519,76 @@ async def run_witness(
                     break
         if channel and addressee:
             break
+
+    # Proactive claude-code dispatch — witness picked `claude-code:<host>`
+    # as its route, meaning it wants to spawn a fresh kitty window on
+    # that host with `body` as the prompt. This is the user-asked-for-
+    # hands-on-work path; distinct from the closure-followup case where
+    # the addressed intent already lives on the claude-code channel.
+    #
+    # We override channel/correlation/host with a fresh dispatch tuple
+    # so the existing tag-stamping branches downstream emit the right
+    # `to:claude-code:<corr>` + `host:<H>` + `task-corr:<corr>` set,
+    # and the kitty plugin's `route:claude-code AND host:<myhost>`
+    # query lands the dispatch at the targeted machine.
+    proactive_route_raw = (witness.get("route") or "").strip()
+    if proactive_route_raw.startswith("claude-code:") and available_hosts:
+        target = proactive_route_raw.split(":", 1)[1].strip()
+        if target in available_hosts:
+            channel = "claude-code"
+            correlation = uuid.uuid4().hex[:12]
+            host_for_channel = target
+            print(
+                f"[witness] proactive claude-code dispatch → host={target} "
+                f"corr={correlation}"
+            )
+        else:
+            print(
+                f"[witness] dropped claude-code:{target} dispatch — "
+                f"host not in available hosts {available_hosts}"
+            )
+
+    # Channels with a known consumer (kitty for claude-code) need their
+    # route to match the consumer's filter even when the witness model's
+    # JSON didn't pick that route explicitly. The route field on the
+    # JSON is still informational for feed rendering; the wire-level
+    # routing comes from the `to:<channel>:<corr>` tag pair, which is
+    # already stamped above. Here we keep `route:<...>` aligned with
+    # the channel so nothing downstream has to special-case it.
+    #
+    # `closure:true` on an addressed intent means the task already
+    # wrapped (claude wrote its task-complete delta) and the watcher
+    # minted this intent from the closure. Routing back as
+    # `claude-code` here would make kitty respawn the closed task. So
+    # for closure-driven intents we use `chat-reply` instead — the
+    # witness reply lands in the feed as a normal message.
+    is_closure_followup = any(
+        "closure:true" in (it.get("tags") or []) for it in pending
+    )
+    # `about_corr` / `about_host` carry the closure's task linkage onto
+    # the chat-reply as informational tags (`about-task-corr:` /
+    # `about-host:`) so the renderer can show "Fathom (about task on
+    # <host>)" without misrepresenting the chat-reply as if it were
+    # addressed to claude-code as a wire.
+    about_corr = ""
+    about_host = ""
+    if channel == "claude-code" and not is_closure_followup:
+        route_value = "claude-code"
+        payload["route"] = "claude-code"
+        payload_json = json.dumps(payload, ensure_ascii=False)
+    elif channel == "claude-code" and is_closure_followup:
+        route_value = "chat-reply"
+        payload["route"] = "chat-reply"
+        payload_json = json.dumps(payload, ensure_ascii=False)
+        # The closure-driven chat-reply addresses the user via `for:`
+        # (the contact propagated by the watcher), not claude-code as
+        # a destination. Drop the channel/correlation/host stamps; the
+        # `about-task-corr` link below preserves the threading.
+        about_corr = correlation
+        about_host = host_for_channel
+        channel = ""
+        correlation = ""
+        host_for_channel = ""
 
     # Include `addressing-output` so pending_intents() sees this card
     # as having addressed its intents even after a cold-start restore
@@ -476,6 +602,21 @@ async def run_witness(
     if channel and correlation:
         lake_tags.append(address_tag(channel, correlation))
         lake_tags.append(f"channel:{channel}")
+    # Claude-code consumers (kitty plugin) match on
+    # `route:claude-code AND host:<myhost>`; the host has to ride along
+    # for that filter to land at the right machine. `task-corr:<corr>`
+    # is the cross-cutting key the loop watcher uses to thread replies
+    # to a particular task — present on the witness card, on the kitty
+    # join delta, and on claude's closure delta.
+    if channel == "claude-code":
+        if host_for_channel:
+            lake_tags.append(f"host:{host_for_channel}")
+        if correlation:
+            lake_tags.append(f"task-corr:{correlation}")
+    if about_corr:
+        lake_tags.append(f"about-task-corr:{about_corr}")
+        if about_host:
+            lake_tags.append(f"about-host:{about_host}")
     if addressee:
         # `for:<contact>` is the existing addressing convention (see
         # messages.send_message); reusing it means contact-scoped views
@@ -507,6 +648,15 @@ async def run_witness(
     if channel and correlation:
         puddle_tags.append(address_tag(channel, correlation))
         puddle_tags.append(f"channel:{channel}")
+    if channel == "claude-code":
+        if host_for_channel:
+            puddle_tags.append(f"host:{host_for_channel}")
+        if correlation:
+            puddle_tags.append(f"task-corr:{correlation}")
+    if about_corr:
+        puddle_tags.append(f"about-task-corr:{about_corr}")
+        if about_host:
+            puddle_tags.append(f"about-host:{about_host}")
     if addressee:
         puddle_tags.append(f"for:{addressee}")
     for intent_id in full_addressed:
