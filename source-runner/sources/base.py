@@ -92,15 +92,17 @@ def _delta_headers() -> dict[str, str]:
 
 async def upload_image(
     image_url: str,
-    content: str = "",
-    tags: list[str] | None = None,
-    source: str = "source-runner",
     http_client: httpx.AsyncClient | None = None,
 ) -> str | None:
-    """Download an image by URL and upload it to delta-store.
+    """Download an image by URL and store it as a content-addressable
+    blob in delta-store. Returns the media_hash on success, None on
+    failure.
 
-    Delta-store handles resizing, WebP conversion, and content-addressable
-    hashing. Returns the media_hash on success, None on failure.
+    NO delta is written here. The caller attaches the returned hash to
+    its own ProducedDelta via the media_hash field, so the rich text
+    content and the image share one record. (Side-effect image deltas
+    used to split each feed item into two records and strip the image
+    from the rich one — that's the bug this avoids.)
 
     Pass http_client to reuse an existing session (preserves cookies,
     referer, etc. — needed for sites like Reddit that block hotlinking).
@@ -121,22 +123,17 @@ async def upload_image(
         if not image_bytes:
             return None
 
-        url = _delta_url() + "/deltas/media/upload"
+        url = _delta_url() + "/media/upload"
         headers = _delta_headers()
         async with httpx.AsyncClient(timeout=60) as client:
             resp = await client.post(
                 url,
                 files={"file": ("image", image_bytes, "application/octet-stream")},
-                data={
-                    "content": content or f"[image from {image_url}]",
-                    "tags": ",".join(tags or []),
-                    "source": source,
-                },
                 headers=headers,
             )
             resp.raise_for_status()
             body = resp.json()
-            return body.get("media_hash") or body.get("id")
+            return body.get("media_hash")
     except httpx.HTTPStatusError as e:
         log.debug("Image download failed (%s): %s", e.response.status_code, image_url)
         return None
@@ -147,25 +144,17 @@ async def upload_image(
 
 async def extract_images(
     image_urls: list[str],
-    content: str = "",
-    tags: list[str] | None = None,
-    source: str = "source-runner",
     http_client: httpx.AsyncClient | None = None,
 ) -> str | None:
-    """Upload the first available image from a URL list to delta-store.
+    """Upload the first available image from a URL list. Returns
+    media_hash on success, None if all downloads fail.
 
-    Call this from poll() or digest() to attach a media_hash to the delta.
-    Pass http_client to reuse the session that fetched the source content.
-    Returns media_hash on success, None if all downloads fail.
+    Single-hash result by design — the current schema stores one
+    media_hash per delta. Multi-image-per-delta is a future schema
+    change; for now, RSS / Mastodon / etc. attach the cover image.
     """
     for url in image_urls:
-        media_hash = await upload_image(
-            url,
-            content=content,
-            tags=tags,
-            source=source,
-            http_client=http_client,
-        )
+        media_hash = await upload_image(url, http_client=http_client)
         if media_hash:
             return media_hash
     return None

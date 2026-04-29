@@ -275,9 +275,15 @@ class SourceRunner:
             img_lines = "\n".join(f"![image]({url})" for url in delta.image_urls)
             content = f"{content}\n\n{img_lines}"
 
+        # Preserve the producer's stated modality. A rich-text delta with
+        # a cover image (RSS post, Mastodon attachment) is still a text
+        # delta — overriding to "image" used to merge text content into
+        # the image-modality search space, which is why feed cards lost
+        # their attached image: the text-side resonance ranker never
+        # surfaced an "image" delta when it was looking for text.
         body: dict[str, Any] = {
             "content": content,
-            "modality": "image" if delta.media_hash else delta.modality,
+            "modality": delta.modality,
             "tags": delta.tags,
             "source": delta.source,
         }

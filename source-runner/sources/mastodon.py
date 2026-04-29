@@ -78,13 +78,7 @@ class MastodonProducer(SourceProducer):
                     ]
 
                 media_hash = (
-                    await extract_images(
-                        image_urls,
-                        content=text[:100],
-                        tags=["mastodon", "social"],
-                        source="mastodon",
-                        http_client=client,
-                    )
+                    await extract_images(image_urls, http_client=client)
                     if image_urls
                     else None
                 )
