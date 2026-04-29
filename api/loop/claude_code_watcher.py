@@ -32,8 +32,62 @@ import asyncio
 
 from .. import delta_client
 from ..channels import channel_tag, correlation_tag
-from .intents import write_intent
+from .intents import CONVO_TAG, Q_A_TTL_S, write_intent
 from .puddle import puddle
+
+
+async def _mirror_closure_to_puddle(closure: dict, info: dict, corr: str) -> None:
+    """Dual-write the closure delta into the puddle so the feed
+    surfaces it within seconds, instead of waiting up to 5 minutes
+    for telepathy's next mirror pass.
+
+    Telepathy will eventually try to mirror this same delta — the
+    `recalled-id:<short>` tag is the dedup contract: telepathy
+    indexes existing puddle entries by recalled-id at the start of
+    each pass and skips lake deltas whose short id is already
+    present. So this fast-path doesn't double-render once telepathy
+    catches up.
+
+    The puddle entry preserves the original tags (so the feed's
+    `task-complete` branch in routes.py renders it as a
+    `claude-code-reply`) plus the standard telepathy stamps
+    (`convo:grand`, `lake-delta`, `recalled-id`, `from-source`).
+    """
+    closure_id = closure.get("id") or ""
+    if not closure_id:
+        return
+    short = closure_id[:24]
+    # If a matching puddle entry already exists (telepathy got here
+    # first, or we mirrored this same closure on a prior tick),
+    # skip — same dedup logic telepathy uses.
+    try:
+        existing = puddle.query(
+            tags_include=[CONVO_TAG, f"recalled-id:{short}"],
+            limit=1,
+        )
+    except Exception:
+        existing = []
+    if existing:
+        return
+    src_tags = list(closure.get("tags") or [])
+    new_tags = src_tags + [
+        CONVO_TAG,
+        "lake-delta",
+        f"from-source:claude-code:task",
+        f"recalled-id:{short}",
+    ]
+    try:
+        await puddle.write(
+            content=closure.get("content") or "",
+            tags=new_tags,
+            source=closure.get("source") or "claude-code:task",
+            ttl_seconds=Q_A_TTL_S,
+        )
+    except Exception as e:
+        print(
+            f"[claude-code watcher] closure puddle-mirror failed for "
+            f"{corr[:12]}: {type(e).__name__}: {e}"
+        )
 
 
 # Polling cadence. 5s feels like a real conversation latency without
@@ -266,6 +320,11 @@ async def claude_code_watcher_tick() -> None:
             continue
         if _last_minted.get(corr, "") >= closure_ts:
             continue
+        # Fast-path the closure into the puddle so the feed renders
+        # claude's reply within the watcher's 5s tick instead of
+        # waiting on telepathy's 5min cadence. Idempotent via
+        # recalled-id; safe to call before or alongside intent mint.
+        await _mirror_closure_to_puddle(closure, info, corr)
         sid = info["claude_session_id"]
         content = (closure.get("content") or "").strip()
         if not content:
