@@ -82,14 +82,28 @@ _DEFAULT_RELATION_BY_ACTION = {
 }
 
 # Sources whose bursts get run-length collapsed inside a timeline window.
-# Heartbeats and routine telemetry tick on a clock and would otherwise
-# crowd the actual signal in a high-traffic moment.
+# Two flavors of noise here:
+#   * Heartbeat-shaped telemetry (heartbeat, sysinfo, laptop-health) —
+#     ticks on a clock, content is structurally similar each time, and
+#     having ten of them in a strip drowns the actual signal.
+#   * Loop self-references (witness, fathom-loop, fathom-mood, fathom-feed,
+#     fathom-sediment) — when a recall is for the loop's own substrate,
+#     sequences of these crowd out the human/lake content the recall
+#     was actually about.
+# Conversational sources (claude-code, fathom-chat) NEVER go here — each
+# of those deltas carries unique narrative content and collapsing would
+# erase the moment.
 _TIMELINE_COLLAPSE_SOURCES = [
     "agent-heartbeat",
     "fathom-agent",
     "sysinfo",
+    "laptop-health",
     "witness",
     "fathom-loop",
+    "fathom-mood",
+    "fathom-feed",
+    "fathom-sediment",
+    "homeassistant",
 ]
 
 # Steps that produce timestamped deltas usable as timeline anchors.
@@ -487,10 +501,18 @@ def _format_strip_header(t_start: str, t_end: str) -> str:
 def _render_timelines(timelines: list[dict], *, query: str) -> str:
     """Render a list of timeline strips as the LLM-facing markdown block.
 
-    Strips are delimited by a thick rule with a date/time-range header;
-    deltas inside each strip render via the tag-keyed dispatch in
-    ``timeline_renderers``. Anchor deltas carry a ``▸`` marker so the
-    reader can see which moments the query actually pulled on.
+    Strips are delimited by a thick rule with a date/time-range header,
+    then within each strip:
+      1. ANCHOR LINES first — the deltas the query actually matched.
+         These are the load-bearing signal; consumers that truncate the
+         render (witness substrate at 600 chars, etc.) see these first.
+      2. Ambient context after — the surrounding deltas, rendered
+         chronologically. Bursty telemetry sources are run-length
+         collapsed by the executor before they hit this layer, so what
+         arrives here is real moment texture, not heartbeat noise.
+
+    Anchor lines carry a ``▸`` marker; ambient lines do not. Tag-keyed
+    dispatch in ``timeline_renderers`` formats each line.
     """
     from . import timeline_renderers
 
@@ -506,7 +528,18 @@ def _render_timelines(timelines: list[dict], *, query: str) -> str:
         anchor_note = f" · {anchor_count} anchor" + ("s" if anchor_count != 1 else "")
         rule = "═" * 8
         blocks.append(f"\n{rule} {header}{anchor_note} {rule}")
-        for d in tl.get("deltas") or []:
+
+        deltas = tl.get("deltas") or []
+        anchors = [d for d in deltas if _normalize_delta(d).get("is_anchor")]
+        ambient = [d for d in deltas if not _normalize_delta(d).get("is_anchor")]
+
+        for d in anchors:
+            line = timeline_renderers.render_delta(_normalize_delta(d))
+            if line:
+                blocks.append(line)
+        if anchors and ambient:
+            blocks.append("  ── surrounding context ──")
+        for d in ambient:
             line = timeline_renderers.render_delta(_normalize_delta(d))
             if line:
                 blocks.append(line)
