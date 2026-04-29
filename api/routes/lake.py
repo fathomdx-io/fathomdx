@@ -510,12 +510,15 @@ async def search_endpoint(request: dict):
         session_slug: if set, unions session-scoped memories into the plan (deep only).
         limit: cap on raw results per step.
         threshold: shallow-mode distance cutoff (defaults to None = keep all).
+        view: "timeline" (default — strips around each hit, ambient included)
+              or "deltas" (legacy flat per-step lists).
     """
     text = request.get("text", "")
     depth = request.get("depth", "deep")
     session_slug = request.get("session_slug")
     limit = int(request.get("limit", 50))
     threshold = request.get("threshold")
+    view = request.get("view", "timeline")
     if threshold is not None:
         threshold = float(threshold)
     return await nl_search(
@@ -524,6 +527,7 @@ async def search_endpoint(request: dict):
         session_slug=session_slug,
         limit=limit,
         threshold=threshold,
+        view=view,
     )
 
 

@@ -87,6 +87,25 @@ def _slim_search_results(raw: dict) -> dict:
     return {"count": len(slim), "results": slim}
 
 
+def _slim_recall_for_tool(result: dict) -> dict:
+    """Compact recall result for the chat-LLM tool channel.
+
+    Returns the rendered timeline as `as_prompt` (the load-bearing
+    context for the model to read), the structured `timelines` for any
+    consumer that wants to walk the strips, and `total_count` /
+    `media_hashes`. Drops `plan` / `tree` / `deltas_by_step` to keep
+    the JSON payload small — the prose carries the meaning.
+    """
+    return {
+        "as_prompt": result.get("as_prompt", ""),
+        "timelines": result.get("timelines", []),
+        "total_count": result.get("total_count", 0),
+        "media_hashes": result.get("media_hashes", []),
+        "thinking_prose": result.get("thinking_prose"),
+        "thinking_id": result.get("thinking_id"),
+    }
+
+
 def _slim_query_results(raw: list) -> dict:
     """Same slimming for query results."""
     slim = []
@@ -114,13 +133,20 @@ async def execute(name: str, arguments: dict, session_id: str | None = None) -> 
     """
     try:
         if name == "remember":
-            raw = await delta_client.search(
-                query=arguments["query"],
+            # Route through the canonical NL search so chat-LLM tool calls
+            # see the same shape as MCP / CLI: timeline strips with
+            # ambient context and anchors marked, instead of orphan delta
+            # fragments. radii / tags_include are not threaded through —
+            # they're shallow-only knobs and the canonical path is deep.
+            from .search import search as nl_search
+
+            result = await nl_search(
+                text=arguments["query"],
+                depth=arguments.get("depth", "deep"),
                 limit=arguments.get("limit", 20),
-                radii=arguments.get("radii"),
-                tags_include=arguments.get("tags_include"),
+                view="timeline",
             )
-            return json.dumps(_slim_search_results(raw))
+            return json.dumps(_slim_recall_for_tool(result))
 
         if name == "write":
             # image_b64 routes through upload_media so the model can attach

@@ -578,7 +578,7 @@ async def search(
     conv_context: str = "",
     limit: int = 50,
     threshold: float | None = None,
-    view: str = "deltas",
+    view: str = "timeline",
 ) -> dict:
     """Canonical NL recall.
 
@@ -587,12 +587,15 @@ async def search(
 
     ``threshold`` (shallow only) drops results whose distance > threshold.
 
-    ``view="deltas"`` (default, back-compat) — flat per-step delta lists,
-    rendered as the existing tree-of-blocks ``as_prompt``.
+    ``view="timeline"`` (default) — append a timeline expansion to the
+    plan and return chronological strips around each hit. ``as_prompt``
+    is the rendered timeline; ``timelines`` carries the structured shape.
+    Recall reads as moments (anchor + ambient context, gap-bounded), not
+    orphan fragments stripped of conversation.
 
-    ``view="timeline"`` — append a timeline expansion to the plan and
-    return chronological strips around each hit. Result gains a
-    ``timelines`` field; ``as_prompt`` becomes the timeline render.
+    ``view="deltas"`` — opt-out for callers that want the legacy flat
+    per-step delta lists with the tree-of-blocks ``as_prompt``. Tests
+    and table-rendering UIs use this.
 
     Retrieval counting lives at the delta-store (see delta-store's
     retrievals.py) so the Stats Activity card catches every client.
