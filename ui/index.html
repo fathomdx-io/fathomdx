@@ -7735,11 +7735,33 @@ GET  /v1/usage               Usage stats`,
           feed.insertBefore(errEl, feed.firstChild);
           return;
         }
+        // Optimistic render: pull the freshly-written intent off the
+        // response and prepend it ourselves so the user sees their own
+        // message instantly instead of waiting on the live poll. The
+        // poll's _renderedFeedIds dedup guarantees we don't double-
+        // render when the server-side row comes back next tick.
+        try {
+          const data = await r.json();
+          const intent = data && data.intent;
+          if (intent && intent.id) {
+            const item = {
+              id: intent.id,
+              content: intent.content || text,
+              tags: intent.tags || [],
+              timestamp: intent.timestamp,
+              source: intent.source || 'composer',
+              kind: 'user-message',
+            };
+            _renderItemsClustered([item], 'prepend');
+            refreshLightbox();
+            applyVerbosityFilter();
+          }
+        } catch (e) { /* response already consumed or non-JSON; poll will catch up */ }
         // Successful send — clear the reply target so the next message
         // starts fresh, and hide the context bar.
         clearReplyTarget();
-        // Kick the live-poll right away so the seed appears as a
-        // .msg-user immediately rather than waiting up to 3s.
+        // Still kick the live-poll so the witness reply (and anything
+        // else newly arrived) prepends without waiting up to 3s.
         _pollFeedLive();
       } catch (err) {
         const now = new Date();
@@ -8648,8 +8670,12 @@ GET  /v1/usage               Usage stats`,
       for (const item of items) {
         if (!item || !item.id) continue;
         _renderedFeedIds.add(item.id);
-        const child = _renderPuddleItem(item, 0);
-        if (child) body.appendChild(child);
+        try {
+          const child = _renderPuddleItem(item, 0);
+          if (child) body.appendChild(child);
+        } catch (err) {
+          console.warn('[feed] render failed for item', item.id, item.kind, err);
+        }
       }
       det.appendChild(summary);
       det.appendChild(body);
@@ -8683,11 +8709,15 @@ GET  /v1/usage               Usage stats`,
     //     the new node (newer) + the existing one (older)
     //   * no match → plain prepend at top of feed
     function _mergeOrPrependNode(node, kind, session) {
-      const category = _categoryOf(kind) || kind;
-      // Stamp data-category so future merge lookups can resolve back
-      // to the same group regardless of which kind landed first.
+      // Resolve from the DOM kind that _renderPuddleItem already
+      // mapped (e.g. raw 'user-message' → DOM 'chat'); the raw `kind`
+      // argument is the server shape, which doesn't map directly into
+      // _categoryOf. Stamping the raw kind as data-category was hiding
+      // chat rows because applyKindFilter only matches 'chat' exactly.
+      const resolvedKind = node.dataset.kind || kind;
+      const category = _categoryOf(resolvedKind);
       if (category) node.dataset.category = category;
-      if (!_CLUSTERABLE_CATEGORIES.has(category)) {
+      if (!category || !_CLUSTERABLE_CATEGORIES.has(category)) {
         feed.insertBefore(node, feed.firstChild);
         return;
       }
@@ -8818,12 +8848,18 @@ GET  /v1/usage               Usage stats`,
       // second one prepends.
       if (mode === 'prepend') {
         // Walk OLDEST → NEWEST so the final DOM order has newest at top.
+        // Per-item try/catch: a malformed item shouldn't take down the
+        // whole batch (and silently stall the live poll until refresh).
         for (let i = items.length - 1; i >= 0; i--) {
           const it = items[i];
           if (!it || !it.id || _renderedFeedIds.has(it.id)) continue;
           _renderedFeedIds.add(it.id);
-          const node = _renderPuddleItem(it, 0);
-          if (node) _mergeOrPrependNode(node, it.kind, it.session || '');
+          try {
+            const node = _renderPuddleItem(it, 0);
+            if (node) _mergeOrPrependNode(node, it.kind, it.session || '');
+          } catch (err) {
+            console.warn('[feed] render failed for item', it && it.id, it && it.kind, err);
+          }
         }
         return;
       }
@@ -9421,7 +9457,10 @@ GET  /v1/usage               Usage stats`,
         const r = await fetch(API_BASE + '/v1/puddle/feed?' + params.toString(), {
           headers: authHeaders(),
         });
-        if (!r.ok) return;
+        if (!r.ok) {
+          console.warn('[feed] live poll non-OK', r.status, r.statusText);
+          return;
+        }
         const data = await r.json();
         const items = _projectEngagement(data.items || []);
         const fresh = items.filter(it => it && it.id && !_renderedFeedIds.has(it.id));
@@ -9432,7 +9471,9 @@ GET  /v1/usage               Usage stats`,
         _renderItemsClustered(fresh, 'prepend');
         refreshLightbox();
         applyVerbosityFilter();
-      } catch (e) { /* best-effort */ }
+      } catch (e) {
+        console.warn('[feed] live poll threw', e);
+      }
     }
     function _startFeedLivePoll() {
       if (_feedLiveTimer || document.hidden) return;

@@ -154,7 +154,41 @@ def get_feed(
         limit=limit,
     )
 
-    for d in raw:
+    # Chat anchor — on the live edge, also pull chat-shape deltas
+    # (user seeds + witness chat-replies) from BEFORE the primary
+    # window so the conversation always grounds the view, even when
+    # the active hour is otherwise quiet. Bounded by the puddle's TTL;
+    # anything evicted is gone from this query and the dashboard would
+    # need to page back via Show-more (or the lake) to see it.
+    chat_anchor_raw: list[dict] = []
+    if until is None:
+        anchor_pool = puddle.query(
+            tags_include=[CONVO_TAG],
+            time_end=since_iso,
+            limit=200,
+        )
+        for d in anchor_pool:
+            d_tags = set(d.get("tags") or [])
+            is_user_seed = "kind:question" in d_tags and (
+                "intent" in d_tags or "user-seed" in d_tags
+            )
+            is_chat_reply = "feed-card" in d_tags and "route:chat-reply" in d_tags
+            if is_user_seed or is_chat_reply:
+                chat_anchor_raw.append(d)
+
+    # Dedupe by id when concatenating; the primary window query and
+    # the chat anchor's `time_end=since_iso` are non-overlapping by
+    # construction, but defensive against any boundary clock skew.
+    seen_ids: set[str] = set()
+    deduped: list[dict] = []
+    for d in raw + chat_anchor_raw:
+        d_id = d.get("id")
+        if not d_id or d_id in seen_ids:
+            continue
+        seen_ids.add(d_id)
+        deduped.append(d)
+
+    for d in deduped:
         tags = set(d.get("tags") or [])
         ts = d.get("timestamp")
         # Drop agent heartbeats — they're connection signals, not
