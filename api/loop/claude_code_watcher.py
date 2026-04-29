@@ -207,26 +207,69 @@ async def _correlation_state() -> tuple[dict[str, dict], dict[str, dict]]:
 
 
 async def _prime_last_minted() -> None:
-    """Fill `_last_minted` from existing puddle intents at startup so
-    we don't re-fire the loop on assistant deltas the watcher already
-    minted in a previous process.
+    """Prime `_last_minted` so a process restart doesn't re-fire the
+    loop on closures and replies that landed before we were running.
+
+    Read from the LAKE, not the puddle: the puddle's intents TTL out
+    at 48h, so a restart 49h after a closure would see no
+    matching intent and replay the closure as if it were fresh. The
+    lake holds task-complete deltas durably; using its timestamps as
+    the floor is the only safe primer.
+
+    Two passes:
+
+      1. For every `task-complete` in the lake, set
+         `_last_minted[corr] = closure_ts`. Future closing-corr scans
+         will see `_last_minted >= closure_ts` and skip the mint.
+
+      2. For every `task-spawn` whose corr doesn't yet have a primer
+         (i.e., a still-active task), clamp `_last_minted[corr]` to
+         the current wall-clock time. The assistant-delta query in
+         the active loop uses `_last_minted` as `time_start`, so this
+         prevents replaying every historical hook delta from a long-
+         running session at boot. We accept missing replies that
+         landed in the brief restart window — small price for not
+         flooding the loop with stale intents.
     """
+    from datetime import UTC, datetime
+    now_iso = datetime.now(UTC).isoformat()
     try:
-        existing = puddle.query(
-            tags_include=["intent", "kind:claude-code-reply"],
-            limit=200,
+        completes = await delta_client.query(
+            tags_include=["task-complete"], limit=500,
         )
     except Exception as e:
-        print(f"[claude-code watcher] prime failed: {type(e).__name__}: {e}")
-        return
-    for it in existing:
-        tags = it.get("tags") or []
-        corr = _tag_value(tags, f"claude-code-session:")
+        print(f"[claude-code watcher] prime (closures) failed: {type(e).__name__}: {e}")
+        completes = []
+    primed_from_closures = 0
+    for c in completes:
+        corr = _tag_value(c.get("tags") or [], "task-corr:")
         if not corr:
             continue
-        ts = it.get("timestamp") or ""
+        ts = c.get("timestamp") or ""
         if ts and ts > _last_minted.get(corr, ""):
             _last_minted[corr] = ts
+            primed_from_closures += 1
+    try:
+        spawns = await delta_client.query(
+            tags_include=["task-spawn"], limit=500,
+        )
+    except Exception as e:
+        print(f"[claude-code watcher] prime (active) failed: {type(e).__name__}: {e}")
+        spawns = []
+    primed_active = 0
+    for s in spawns:
+        corr = _tag_value(s.get("tags") or [], "task-corr:")
+        if not corr:
+            continue
+        if corr in _last_minted:
+            continue  # already closed; closure-pass set the floor
+        _last_minted[corr] = now_iso
+        primed_active += 1
+    if primed_from_closures or primed_active:
+        print(
+            f"[claude-code watcher] primed {primed_from_closures} closed "
+            f"+ {primed_active} active corrs from lake"
+        )
 
 
 def _build_intent_tags(corr: str, sid: str, info: dict, source_id: str, *, closure: bool) -> list[str]:
