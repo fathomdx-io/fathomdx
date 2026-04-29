@@ -65,6 +65,7 @@ _ACTION_KEYS = (
     "diff",
     "aggregate",
     "neighbors",
+    "timeline",
 )
 
 _DEFAULT_RELATION_BY_ACTION = {
@@ -77,7 +78,24 @@ _DEFAULT_RELATION_BY_ACTION = {
     "diff": "but not",
     "aggregate": "grouped",
     "neighbors": "and what was around it",
+    "timeline": "the moment around it",
 }
+
+# Sources whose bursts get run-length collapsed inside a timeline window.
+# Heartbeats and routine telemetry tick on a clock and would otherwise
+# crowd the actual signal in a high-traffic moment.
+_TIMELINE_COLLAPSE_SOURCES = [
+    "agent-heartbeat",
+    "fathom-agent",
+    "sysinfo",
+    "witness",
+    "fathom-loop",
+]
+
+# Steps that produce timestamped deltas usable as timeline anchors.
+# `aggregate` produces buckets, not deltas; `filter` / set ops can
+# produce deltas but typically aren't the load-bearing recall hit.
+_TIMELINE_ANCHOR_ACTIONS = {"search", "chain", "bridge", "neighbors"}
 
 _MAX_CONTENT_CHARS = 1200
 _MAX_MEDIA_HASHES = 5
@@ -284,11 +302,51 @@ def _action_of(step: dict) -> tuple[str, object]:
 
 def _parents_of(step: dict) -> list[str]:
     action, val = _action_of(step)
-    if action in ("chain", "aggregate", "neighbors"):
+    if action in ("chain", "aggregate", "neighbors", "timeline"):
         return [val] if isinstance(val, str) else []
     if action in ("bridge", "intersect", "union", "diff"):
         return [v for v in val if isinstance(v, str)] if isinstance(val, list) else []
     return []
+
+
+def _inject_timeline_step(plan: dict) -> str | None:
+    """Append a timeline step that anchors on the last delta-producing step.
+
+    Walks the plan steps in order, picks the last step whose action is in
+    `_TIMELINE_ANCHOR_ACTIONS` as the anchor source. Returns the new step
+    id, or None if nothing in the plan is a viable anchor source (e.g.
+    aggregate-only plan)."""
+    steps = plan.get("steps") or []
+    anchor_id: str | None = None
+    for step in steps:
+        action, _ = _action_of(step)
+        if action in _TIMELINE_ANCHOR_ACTIONS:
+            anchor_id = step["id"]
+    if not anchor_id:
+        return None
+    # Pick a unique step id even if the planner happened to emit one
+    # named "_timeline" (defensive — it shouldn't, but the planner is an
+    # LLM and we'd rather not let it collide).
+    sid = "_timeline"
+    existing_ids = {s["id"] for s in steps}
+    n = 0
+    while sid in existing_ids:
+        n += 1
+        sid = f"_timeline_{n}"
+    steps.append(
+        {
+            "id": sid,
+            "timeline": anchor_id,
+            "relation": "the moment around it",
+            "radius_minutes": 20,
+            "max_per_side": 15,
+            "gap_minutes": 30,
+            "merge_gap_seconds": 300,
+            "collapse_sources": _TIMELINE_COLLAPSE_SOURCES,
+            "limit": 50,
+        }
+    )
+    return sid
 
 
 # ── Rendering ───────────────────────────────────
@@ -414,6 +472,63 @@ def _delta_line(d: dict) -> str:
     return f"[{src} · {ts} · {tags}]{media}\n{content}{cloud_note}"
 
 
+def _format_strip_header(t_start: str, t_end: str) -> str:
+    """Date · time-span header for a timeline strip."""
+    if "T" in t_start and "T" in t_end:
+        date_part = t_start.split("T", 1)[0]
+        s_time = t_start.split("T", 1)[1][:5]
+        e_time = t_end.split("T", 1)[1][:5]
+        if s_time == e_time:
+            return f"{date_part} · {s_time}"
+        return f"{date_part} · {s_time}–{e_time}"
+    return f"{t_start} – {t_end}"
+
+
+def _render_timelines(timelines: list[dict], *, query: str) -> str:
+    """Render a list of timeline strips as the LLM-facing markdown block.
+
+    Strips are delimited by a thick rule with a date/time-range header;
+    deltas inside each strip render via the tag-keyed dispatch in
+    ``timeline_renderers``. Anchor deltas carry a ``▸`` marker so the
+    reader can see which moments the query actually pulled on.
+    """
+    from . import timeline_renderers
+
+    if not timelines:
+        return ""
+
+    blocks: list[str] = []
+    blocks.append(f'your query "{query}" returned')
+
+    for i, tl in enumerate(timelines):
+        header = _format_strip_header(tl.get("t_start", ""), tl.get("t_end", ""))
+        anchor_count = len(tl.get("anchor_ids") or [])
+        anchor_note = f" · {anchor_count} anchor" + ("s" if anchor_count != 1 else "")
+        rule = "═" * 8
+        blocks.append(f"\n{rule} {header}{anchor_note} {rule}")
+        for d in tl.get("deltas") or []:
+            line = timeline_renderers.render_delta(_normalize_delta(d))
+            if line:
+                blocks.append(line)
+        # Inter-timeline associative tail (placeholder for explicit edges
+        # later — when from:/chain provenance is wired in).
+        if i < len(timelines) - 1:
+            blocks.append("\n  …which led to…")
+
+    return "\n".join(blocks)
+
+
+def _normalize_delta(d) -> dict:
+    """Accept either a dict or a pydantic-shaped object (TimelineDelta
+    arrives over the wire as a dict already, but if anyone passes a
+    pydantic model in tests, handle it)."""
+    if isinstance(d, dict):
+        return d
+    if hasattr(d, "model_dump"):
+        return d.model_dump()
+    return dict(d)
+
+
 def _render_tree(tree: list[dict], deltas_by_step: dict[str, list[dict]]) -> str:
     """Walk tree in order, emit 'relation — header:' blocks of deltas.
 
@@ -463,6 +578,7 @@ async def search(
     conv_context: str = "",
     limit: int = 50,
     threshold: float | None = None,
+    view: str = "deltas",
 ) -> dict:
     """Canonical NL recall.
 
@@ -471,6 +587,13 @@ async def search(
 
     ``threshold`` (shallow only) drops results whose distance > threshold.
 
+    ``view="deltas"`` (default, back-compat) — flat per-step delta lists,
+    rendered as the existing tree-of-blocks ``as_prompt``.
+
+    ``view="timeline"`` — append a timeline expansion to the plan and
+    return chronological strips around each hit. Result gains a
+    ``timelines`` field; ``as_prompt`` becomes the timeline render.
+
     Retrieval counting lives at the delta-store (see delta-store's
     retrievals.py) so the Stats Activity card catches every client.
     """
@@ -478,16 +601,41 @@ async def search(
         return _empty_result()
 
     if depth == "shallow":
-        return await _shallow(text, limit=limit, threshold=threshold)
+        return await _shallow(text, limit=limit, threshold=threshold, view=view)
     return await _deep(
         text,
         conv_context=conv_context,
         session_slug=session_slug,
         limit=limit,
+        view=view,
     )
 
 
-async def _shallow(text: str, *, limit: int, threshold: float | None) -> dict:
+async def _shallow(
+    text: str, *, limit: int, threshold: float | None, view: str = "deltas"
+) -> dict:
+    # Shallow timeline-view runs the search via the plan executor instead
+    # of the bare /search endpoint so the timeline step has a parent to
+    # reference. One round-trip; same hit set as the legacy path because
+    # the executor's _exec_search uses the same noise rerank.
+    if view == "timeline":
+        plan_steps = [
+            {"id": "root", "search": text, "limit": limit, "relation": "surfaced"},
+        ]
+        plan = {"steps": plan_steps}
+        _inject_timeline_step(plan)
+        try:
+            result = await delta_client.plan(plan["steps"])
+        except Exception:
+            return _empty_result(plan=plan)
+        return _build_result_from_plan_response(
+            text=text,
+            plan=plan,
+            response=result,
+            view="timeline",
+            do_sediment=False,
+        )
+
     try:
         data = await delta_client.search(text, limit=limit)
     except Exception:
@@ -526,6 +674,7 @@ async def _shallow(text: str, *, limit: int, threshold: float | None) -> dict:
         "as_prompt": _render_tree(tree, deltas_by_step),
         "thinking_prose": None,
         "thinking_id": None,
+        "timelines": [],
     }
 
 
@@ -535,30 +684,73 @@ async def _deep(
     conv_context: str,
     session_slug: str | None,
     limit: int,
+    view: str = "deltas",
 ) -> dict:
     plan = await _generate_plan(text, conv_context=conv_context, session_slug=session_slug)
     if not plan:
         return _empty_result()
+
+    if view == "timeline":
+        _inject_timeline_step(plan)
 
     try:
         result = await delta_client.plan(plan["steps"])
     except Exception:
         return _empty_result(plan=plan)
 
-    steps_data = result.get("steps", {}) or {}
+    return await _build_result_from_plan_response(
+        text=text,
+        plan=plan,
+        response=result,
+        view=view,
+        do_sediment=True,
+    )
+
+
+async def _build_result_from_plan_response(
+    *,
+    text: str,
+    plan: dict,
+    response: dict,
+    view: str,
+    do_sediment: bool,
+) -> dict:
+    """Shared post-plan processing — used by both deep and shallow-timeline.
+
+    Walks the plan, separates delta-result steps from timeline-result
+    steps, runs sediment-provenance + engagement-cloud + valence rerank
+    on the delta side, and pulls the timeline payload out as a top-level
+    field when present.
+    """
+    steps_data = response.get("steps", {}) or {}
     tree: list[dict] = []
     deltas_by_step: dict[str, list[dict]] = {}
     media_hashes: list[str] = []
-    # Dedupe across steps — a plan's steps overlap heavily (especially on a
-    # small lake), so counting per-step inflates total_count beyond what the
-    # user actually sees in the rendered context.
     seen_ids: set[str] = set()
+    timelines: list[dict] = []
 
     for step in plan["steps"]:
         sid = step["id"]
         action, val = _action_of(step)
-        raw_deltas = (steps_data.get(sid, {}) or {}).get("deltas", []) or []
+        step_payload = steps_data.get(sid, {}) or {}
 
+        if action == "timeline":
+            tls = step_payload.get("timelines") or []
+            timelines.extend(tls)
+            tree.append(
+                {
+                    "id": sid,
+                    "relation": step.get("relation")
+                    or _DEFAULT_RELATION_BY_ACTION.get(action, "the moment around it"),
+                    "parents": _parents_of(step),
+                    "action": action,
+                    "query": val if isinstance(val, str) else None,
+                    "delta_ids": [],
+                }
+            )
+            continue
+
+        raw_deltas = step_payload.get("deltas", []) or []
         cleaned: list[dict] = []
         for d in raw_deltas:
             tags = d.get("tags") or []
@@ -592,7 +784,15 @@ async def _deep(
     await _attach_engagement_clouds(deltas_by_step, seen_ids)
     _apply_valence_rerank(deltas_by_step)
 
-    thinking_prose, thinking_id = await _synthesize_thinking(text, deltas_by_step)
+    if do_sediment:
+        thinking_prose, thinking_id = await _synthesize_thinking(text, deltas_by_step)
+    else:
+        thinking_prose, thinking_id = None, None
+
+    if view == "timeline" and timelines:
+        as_prompt = _render_timelines(timelines, query=text)
+    else:
+        as_prompt = _render_tree(tree, deltas_by_step)
 
     return {
         "plan": plan,
@@ -600,9 +800,10 @@ async def _deep(
         "deltas_by_step": deltas_by_step,
         "total_count": len(seen_ids),
         "media_hashes": media_hashes[:_MAX_MEDIA_HASHES],
-        "as_prompt": _render_tree(tree, deltas_by_step),
+        "as_prompt": as_prompt,
         "thinking_prose": thinking_prose,
         "thinking_id": thinking_id,
+        "timelines": timelines,
     }
 
 
@@ -737,4 +938,5 @@ def _empty_result(plan: dict | None = None) -> dict:
         "as_prompt": "",
         "thinking_prose": None,
         "thinking_id": None,
+        "timelines": [],
     }
