@@ -396,6 +396,45 @@
       font-family: var(--serif); font-size: 14px; line-height: 1.5;
       color: var(--ink); white-space: pre-wrap;
     }
+    /* Active claude-code task strip — bars below the filter, above
+       the feed. Hidden when the Claude Code filter category is off
+       OR when no tasks are active. Each row is clickable. */
+    .claude-code-status { display: flex; flex-direction: column; gap: 0.4rem; margin: 0.5rem 0 0.85rem; }
+    .claude-code-status[hidden] { display: none; }
+    .claude-code-task {
+      display: flex; align-items: center; gap: 0.55rem;
+      background: color-mix(in srgb, var(--surface) 90%, #06b6d4 10%);
+      border-left: 3px solid #06b6d4;
+      border-radius: var(--radius);
+      padding: 0.55rem 0.85rem;
+      font-size: 13px;
+      cursor: pointer;
+      transition: background 0.12s;
+    }
+    .claude-code-task:hover { background: color-mix(in srgb, var(--surface) 80%, #06b6d4 20%); }
+    .claude-code-task .cc-icon { width: 14px; height: 14px; flex-shrink: 0; opacity: 0.85; }
+    .claude-code-task .cc-icon svg { width: 100%; height: 100%; }
+    .claude-code-task .cc-title {
+      flex: 1; min-width: 0;
+      overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+      font-family: var(--serif); color: var(--ink);
+    }
+    .claude-code-task .cc-meta {
+      flex-shrink: 0;
+      font-family: var(--mono); font-size: 10.5px;
+      color: var(--ink-soft);
+    }
+    .claude-code-task .cc-resume {
+      flex-shrink: 0;
+      font-family: var(--mono); font-size: 10.5px;
+      color: var(--ink-faint);
+      background: transparent;
+      border: 1px solid var(--rule);
+      border-radius: 4px;
+      padding: 0.15rem 0.4rem;
+      cursor: pointer;
+    }
+    .claude-code-task .cc-resume:hover { color: var(--ink); border-color: var(--ink-faint); }
     /* Voice-tinted thoughts — the trimurti palette from the experiment. */
     .feed .delta.thought.voice-creator   { border-left-color: #f97316; }
     .feed .delta.thought.voice-creator   .d-kind { color: #f97316; }
@@ -3086,6 +3125,7 @@
                 Chat <span style="margin-left:auto; font-size:10px; opacity:0.7;">always on</span>
               </label>
               <label><input type="checkbox" data-category="card" checked> Cards</label>
+              <label><input type="checkbox" data-category="claude-code" checked> Claude Code</label>
               <div class="filter-group-head">Background</div>
               <label><input type="checkbox" data-category="prompts"> Prompts</label>
               <label><input type="checkbox" data-category="thinking"> Thinking</label>
@@ -3109,6 +3149,14 @@
           <span class="feed-meta-sep" id="feedMetaSep" hidden> · </span>
           <span id="feedMeta"></span>
         </span>
+      </div>
+      <!-- Active claude-code task status bars. One row per live task,
+           populated by loadClaudeCodeTasks(). Hidden when the
+           Claude Code filter category is off. Bars sit beneath the
+           filter so a click on a row scrolls to the latest related
+           message in the feed below. -->
+      <div class="claude-code-status" id="claudeCodeStatus" hidden>
+        <!-- Populated by loadClaudeCodeTasks() -->
       </div>
       <div class="feed">
         <!-- Populated by loadFeedStories() -->
@@ -8029,22 +8077,25 @@ GET  /v1/usage               Usage stats`,
       'crystal':       'identity',
       'mood':          'identity',
       'routine':       'routine',
+      'claude-code':   'claude-code',
     };
     const CATEGORY_LABELS = {
-      'chat':     'Chat',
-      'card':     'Cards',
-      'prompts':  'Prompts',
-      'thinking': 'Thinking',
-      'identity': 'Identity',
-      'routine':  'Routine Activity',
+      'chat':        'Chat',
+      'card':        'Cards',
+      'prompts':     'Prompts',
+      'thinking':    'Thinking',
+      'identity':    'Identity',
+      'routine':     'Routine Activity',
+      'claude-code': 'Claude Code',
     };
     const CATEGORY_DEFAULTS = {
-      'chat':     true,   // always-on; no UI toggle exists for this
-      'card':     true,
-      'prompts':  true,
-      'thinking': false,  // voice/recall/delta firehose — opt in
-      'identity': true,
-      'routine':  true,
+      'chat':        true,   // always-on; no UI toggle exists for this
+      'card':        true,
+      'prompts':     true,
+      'thinking':    false,  // voice/recall/delta firehose — opt in
+      'identity':    true,
+      'routine':     true,
+      'claude-code': true,
     };
     function _categoryOf(kind) {
       return KIND_TO_CATEGORY[kind] || '';
@@ -9123,6 +9174,11 @@ GET  /v1/usage               Usage stats`,
           setEnabledCategory(category, cb.checked);
           applyKindFilter();
           _refreshFilterToggleLabel();
+          // Toggling Claude Code also hides/shows the status strip
+          // above the feed — single switch for the whole concept.
+          if (category === 'claude-code' && typeof _renderClaudeCodeStatus === 'function') {
+            _renderClaudeCodeStatus(_claudeCodeStatusLast);
+          }
         });
       });
       _refreshFilterToggleLabel();
@@ -9365,6 +9421,137 @@ GET  /v1/usage               Usage stats`,
       if (_feedLiveTimer) { clearInterval(_feedLiveTimer); _feedLiveTimer = null; }
     }
 
+    // Active claude-code task strip — polls /v1/loop/claude-code-tasks
+    // every 5s and renders one row per live task. Visibility is gated
+    // on the Claude Code filter category: the same checkbox that
+    // governs whether claude-code feed items render also hides the
+    // strip when toggled off, so the user has one switch for the
+    // whole concept rather than two.
+    const _claudeCodeStatusEl = document.getElementById('claudeCodeStatus');
+    let _claudeCodeStatusTimer = null;
+    let _claudeCodeStatusLast = [];
+
+    function _formatRelative(iso) {
+      // "X ago" — coarsened. Status bars don't need second precision,
+      // and a re-render every 5s already keeps it fresh enough that
+      // a stale-by-a-second label is invisible.
+      if (!iso) return '';
+      const t = Date.parse(iso);
+      if (Number.isNaN(t)) return '';
+      const s = Math.max(0, Math.floor((Date.now() - t) / 1000));
+      if (s < 60)   return `${s}s ago`;
+      if (s < 3600) return `${Math.floor(s / 60)}m ago`;
+      if (s < 86400) return `${Math.floor(s / 3600)}h ago`;
+      return `${Math.floor(s / 86400)}d ago`;
+    }
+
+    function _claudeCodeFilterEnabled() {
+      // Same source of truth as applyKindFilter — the user's checkbox
+      // state in the feed-filter panel. Bypasses applyKindFilter
+      // because the strip isn't a feed item; it's gated independently.
+      const cats = (typeof getEnabledCategories === 'function') ? getEnabledCategories() : {};
+      return !!cats['claude-code'];
+    }
+
+    function _renderClaudeCodeStatus(tasks) {
+      if (!_claudeCodeStatusEl) return;
+      _claudeCodeStatusLast = Array.isArray(tasks) ? tasks : [];
+      const filterOn = _claudeCodeFilterEnabled();
+      const visible = filterOn && _claudeCodeStatusLast.length > 0;
+      _claudeCodeStatusEl.hidden = !visible;
+      if (!visible) {
+        _claudeCodeStatusEl.innerHTML = '';
+        return;
+      }
+      const icon = (typeof PROVIDER_ICONS === 'object' && PROVIDER_ICONS['claude-code'])
+        ? PROVIDER_ICONS['claude-code']
+        : '';
+      const rows = _claudeCodeStatusLast.map(t => {
+        const title = (t.title || '(no prompt yet)').replace(/[<&]/g, c => c === '<' ? '&lt;' : '&amp;');
+        const host = (t.host || '?').replace(/[<&]/g, c => c === '<' ? '&lt;' : '&amp;');
+        const ago = _formatRelative(t.last_message_at);
+        const sid = (t.claude_session_id || '').replace(/[^a-zA-Z0-9-]/g, '');
+        const cwd = (t.project || '').replace(/[<&'"]/g, '');
+        // Resume command — shell-quoted enough for copy-paste safety.
+        // The user runs this on the targeted host themselves.
+        const resumeCmd = cwd
+          ? `cd ${cwd} && claude --resume ${sid}`
+          : `claude --resume ${sid}`;
+        const metaBits = [`on ${host}`];
+        if (ago) metaBits.push(`last message ${ago}`);
+        return `
+          <div class="claude-code-task" data-claude-session-id="${sid}" data-corr="${(t.corr || '').replace(/[<&"]/g, '')}" data-last-message-id="${(t.last_message_id || '').replace(/[<&"]/g, '')}" title="Click to scroll to the latest message in this task">
+            <span class="cc-icon">${icon}</span>
+            <span class="cc-title">${title}</span>
+            <span class="cc-meta">${metaBits.join(' · ')}</span>
+            <button class="cc-resume" type="button" data-resume-cmd="${resumeCmd.replace(/"/g, '&quot;')}" title="Copy resume command">resume</button>
+          </div>`;
+      }).join('');
+      _claudeCodeStatusEl.innerHTML = rows;
+    }
+
+    async function loadClaudeCodeTasks() {
+      try {
+        const r = await fetch(API_BASE + '/v1/loop/claude-code-tasks', {
+          headers: authHeaders(),
+        });
+        if (!r.ok) {
+          // Endpoint not yet deployed (older API) — hide quietly rather
+          // than spamming console errors. The feature degrades to
+          // invisible; no user-facing breakage.
+          _renderClaudeCodeStatus([]);
+          return;
+        }
+        const data = await r.json();
+        _renderClaudeCodeStatus(data.tasks || []);
+      } catch (e) {
+        _renderClaudeCodeStatus([]);
+      }
+    }
+
+    function _startClaudeCodeStatusPoll() {
+      if (_claudeCodeStatusTimer || document.hidden) return;
+      _claudeCodeStatusTimer = setInterval(loadClaudeCodeTasks, 5000);
+    }
+    function _stopClaudeCodeStatusPoll() {
+      if (_claudeCodeStatusTimer) {
+        clearInterval(_claudeCodeStatusTimer);
+        _claudeCodeStatusTimer = null;
+      }
+    }
+
+    // Click delegation: row click → scroll to latest delta from the
+    // task; resume-button click → copy command, suppress row click.
+    if (_claudeCodeStatusEl) {
+      _claudeCodeStatusEl.addEventListener('click', (e) => {
+        const resumeBtn = e.target.closest('.cc-resume');
+        if (resumeBtn) {
+          e.stopPropagation();
+          const cmd = resumeBtn.dataset.resumeCmd || '';
+          if (cmd && navigator.clipboard) {
+            navigator.clipboard.writeText(cmd).then(() => {
+              const orig = resumeBtn.textContent;
+              resumeBtn.textContent = 'copied';
+              setTimeout(() => { resumeBtn.textContent = orig; }, 1200);
+            }).catch(() => {
+              resumeBtn.textContent = 'copy failed';
+            });
+          }
+          return;
+        }
+        const row = e.target.closest('.claude-code-task');
+        if (!row) return;
+        const lastId = row.dataset.lastMessageId || '';
+        if (!lastId) return;
+        // Best-effort scroll to the matching feed item. Items rendered
+        // by _renderPuddleItem don't all carry data-delta-id today, so
+        // this works for chat-shape rows (which do) and silently no-ops
+        // for kinds that don't — fine as a first cut.
+        const target = document.querySelector(`.feed [data-delta-id="${lastId}"]`);
+        if (target) target.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      });
+    }
+
     // _pollFeedLive IS the puddle poll now since the cutover. These
     // start/stop stubs stay as no-ops so the visibilitychange and boot
     // callers don't need to be edited; they'll get pruned in a later
@@ -9377,10 +9564,12 @@ GET  /v1/usage               Usage stats`,
         _stopFeedStatusPoll();
         _stopFeedLivePoll();
         _stopPuddleLivePoll();
+        _stopClaudeCodeStatusPoll();
       } else {
         _startFeedStatusPoll();
         _startFeedLivePoll();
         _startPuddleLivePoll();
+        _startClaudeCodeStatusPoll();
       }
     });
 
@@ -9395,9 +9584,11 @@ GET  /v1/usage               Usage stats`,
     loadMyProfile();
     loadFeedStories(false);
     loadHeroMood();
+    loadClaudeCodeTasks();
     _startFeedStatusPoll();
     _startFeedLivePoll();
     _startPuddleLivePoll();
+    _startClaudeCodeStatusPoll();
     // (legacy /v1/feed/visit ping removed — the feed-loop synthesis
     // pipeline is retired; mark_visit() is a no-op now.)
 
