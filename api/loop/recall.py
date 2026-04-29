@@ -94,7 +94,83 @@ def _is_recall_noise(d: dict) -> bool:
     return False
 
 
-async def _compose_query_from_intent(kind: str, intent_text: str) -> str | None:
+# Sources that should NOT be surfaced as recent-context to the query
+# composer. Telemetry, loop self-references, and synthesis layers are
+# noise here — what we want is the human/agent dialogue and any
+# witness-shaped takes that establish what "this" / "that" / "again"
+# in a bare-deictic intent actually points at.
+_RECENT_CONTEXT_BLACKLIST = {
+    "agent-heartbeat",
+    "fathom-agent",
+    "sysinfo",
+    "laptop-health",
+    "homeassistant",
+    "fathom-mood",
+    "fathom-feed",
+    "fathom-sediment",
+    "fathom-loop",
+    "recall-summary",
+}
+
+
+def _recent_session_context(session_tag: str, *, exclude_id: str = "") -> str:
+    """Compact rendering of the last few puddle items in this convo.
+
+    Used by the query composer so a bare-deictic intent ("try again",
+    "do that one", "huh?") can be grounded against what was actually
+    just happening. Without this, the composer hallucinates plausible-
+    but-wrong queries from no signal.
+
+    Returns at most ~600 chars, oldest-first, blacklisted sources
+    dropped, the originating intent itself excluded.
+    """
+    try:
+        items = puddle.query(tags_include=[session_tag], limit=80)
+    except Exception:
+        return ""
+    # Newest-first by default; reverse to chronological for narrative.
+    items = list(items)
+    items.reverse()
+    lines: list[str] = []
+    used = 0
+    budget = 600
+    for d in items:
+        if d.get("id") == exclude_id:
+            continue
+        src = d.get("source") or ""
+        if src in _RECENT_CONTEXT_BLACKLIST:
+            continue
+        tags = d.get("tags") or []
+        # Voice mid-deliberation thoughts are noisy and shouldn't ground
+        # the next recall query — they're not what the user said.
+        if any(t.startswith("voice:") for t in tags) and "thought" in tags:
+            continue
+        content = (d.get("content") or "").strip().replace("\n", " ")
+        if not content:
+            continue
+        ts = (d.get("timestamp") or "")[11:19]
+        snippet = content[:240]
+        if len(content) > 240:
+            snippet += "…"
+        line = f"  {ts} [{src}] {snippet}"
+        if used + len(line) > budget:
+            break
+        lines.append(line)
+        used += len(line)
+    # Take the LAST 8 lines — most recent context wins. (We built oldest-
+    # first so the LLM reads the narrative in time order, but cap by
+    # recency-from-the-end so a chatty session doesn't push the most
+    # relevant turn off the budget.)
+    return "\n".join(lines[-8:])
+
+
+async def _compose_query_from_intent(
+    kind: str,
+    intent_text: str,
+    *,
+    session_tag: str = "",
+    intent_id: str = "",
+) -> str | None:
     """Compose a lake search query directly from a pending intent.
 
     Voice-driven recall composes from a voice's mid-deliberation thought
@@ -102,6 +178,13 @@ async def _compose_query_from_intent(kind: str, intent_text: str) -> str | None:
     the user's literal frame. This composer reads the intent body
     instead, so first-touch queries get grounded against the user's
     actual words before voices speculate.
+
+    When ``session_tag`` is given, the composer also receives a compact
+    rendering of recent puddle items in that convo. This is critical
+    for bare-deictic intents — "try again", "do that one", "huh?" —
+    that have no standalone signal. Without recent context, the LLM
+    hallucinates queries like "last interaction failed" or "previous
+    request" which surface nothing useful in the lake.
 
     The prompt explicitly nudges the composer to treat names as people
     (not system components) and to remember the lake holds personal
@@ -116,13 +199,27 @@ async def _compose_query_from_intent(kind: str, intent_text: str) -> str | None:
     text = text.split("\n\n[intent-payload]", 1)[0].strip()
     if not text:
         return None
+    recent_context = (
+        _recent_session_context(session_tag, exclude_id=intent_id) if session_tag else ""
+    )
+    if recent_context:
+        recent_block = (
+            "\n\nRecent moments in this conversation (oldest → newest), so you "
+            "can resolve what 'this', 'that', 'again', or other deictic phrases "
+            "in the intent are actually pointing at:\n\n"
+            f"{recent_context}\n"
+        )
+    else:
+        recent_block = ""
     prompt = f"""The user just brought this to Fathom's attention (intent kind: {kind}):
 
   {text[:600]}
-
+{recent_block}
 What ONE concise lake search query (5–15 words) would surface the most useful prior moments from Fathom's memory to ground a real response?
 
 Fathom's lake holds the user's whole life context — work, family, personal notes, vault entries, prior conversations, photos. If the intent mentions a name, search the name directly (it might be a person, not a system). If it asks about a topic, search the topic. Don't restrict to recent work-context.
+
+If the intent is too short or generic to anchor on its own (e.g. "try again", "do that", "huh?"), use the recent context above to compose a query about what the user is referring to — NOT a literal restatement of the intent like "last interaction failed".
 
 Return JUST the query text. No quotes, no preamble, no labels."""
     try:
@@ -436,7 +533,12 @@ async def run_intent_searcher_tick(
                     print(f"[intent-searcher] reply-to:{target_id[:24]} pre-loaded into puddle")
                     total_written += n
 
-        query = await _compose_query_from_intent(kind, text)
+        query = await _compose_query_from_intent(
+            kind,
+            text,
+            session_tag=session_tag,
+            intent_id=intent_id,
+        )
         if not query:
             continue
 
