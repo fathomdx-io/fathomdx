@@ -84,6 +84,20 @@ def _render_feed(payload: dict) -> str:
     return json.dumps(payload, ensure_ascii=False)
 
 
+def _render_claude_code(payload: dict) -> str:
+    """Witness card → prompt body for an agent-side claude-code consumer.
+
+    Same shape as openai — text-only, body-or-empty. The channel-level
+    contract is just "the task body Fathom wants run." The agent-side
+    consumer (kitty plugin today) is responsible for wrapping with a
+    correlation marker and appending a closure-instruction footer at
+    injection time, since closure mechanics differ between agents
+    (kitty injects + waits; a hypothetical headless runner would do
+    something else).
+    """
+    return (payload.get("body") or "").strip()
+
+
 @dataclass(frozen=True)
 class Channel:
     name: str
@@ -91,8 +105,9 @@ class Channel:
 
 
 REGISTRY: dict[str, Channel] = {
-    "openai": Channel(name="openai", render=_render_openai),
-    "feed":   Channel(name="feed",   render=_render_feed),
+    "openai":      Channel(name="openai",      render=_render_openai),
+    "feed":        Channel(name="feed",        render=_render_feed),
+    "claude-code": Channel(name="claude-code", render=_render_claude_code),
 }
 
 
