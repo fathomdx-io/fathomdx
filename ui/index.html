@@ -403,15 +403,15 @@
     .claude-code-status[hidden] { display: none; }
     .claude-code-task {
       display: flex; align-items: center; gap: 0.55rem;
-      background: color-mix(in srgb, var(--surface) 90%, #06b6d4 10%);
-      border-left: 3px solid #06b6d4;
+      background: color-mix(in srgb, var(--surface) 88%, var(--signal) 12%);
+      border-left: 3px solid var(--signal);
       border-radius: var(--radius);
       padding: 0.55rem 0.85rem;
       font-size: 13px;
       cursor: pointer;
       transition: background 0.12s;
     }
-    .claude-code-task:hover { background: color-mix(in srgb, var(--surface) 80%, #06b6d4 20%); }
+    .claude-code-task:hover { background: color-mix(in srgb, var(--surface) 78%, var(--signal) 22%); }
     .claude-code-task .cc-icon { width: 14px; height: 14px; flex-shrink: 0; opacity: 0.85; }
     .claude-code-task .cc-icon svg { width: 100%; height: 100%; }
     .claude-code-task .cc-title {
@@ -436,14 +436,18 @@
     }
     .claude-code-task .cc-resume:hover { color: var(--ink); border-color: var(--ink-faint); }
     /* Claude-code dispatches and replies — terminal-window styling.
-       Dark background, mono throughout, claude-code icon inline-left
-       in the header, blinking cursor rectangle at the end of the body
-       so it reads as a live shell. No left border — the dark surface
-       is the visual signature. */
+       Surface is `--bg-deep` (the DS's "trench" — deepest layer in
+       both themes; trench-black in dark, wet-sand grey in light), so
+       the cards always sit visually deeper than surrounding feed
+       items regardless of theme. Mono throughout. The icon, header
+       chips, arrow, and blinking cursor all use `--signal` (the
+       "alive" token — phosphorescent teal in dark, deep teal in
+       light), echoing the convergence dots and the status strip. */
     .feed .delta.claude-code-dispatch,
     .feed .delta.claude-code-reply {
       border-left: none;
-      background: #0d0d0d;
+      background: var(--bg-deep);
+      border: 1px solid var(--rule-soft);
       border-radius: 6px;
       padding: 0.7rem 0.95rem;
     }
@@ -454,13 +458,13 @@
       gap: 0.5rem;
       margin-bottom: 0.6rem;
       padding-bottom: 0.45rem;
-      border-bottom: 1px solid rgba(6, 182, 212, 0.18);
+      border-bottom: 1px solid color-mix(in srgb, var(--signal) 22%, transparent);
     }
     .feed .delta.claude-code-dispatch .cc-icon,
     .feed .delta.claude-code-reply .cc-icon {
       width: 14px;
       height: 14px;
-      color: #06b6d4;
+      color: var(--signal);
       flex-shrink: 0;
       display: inline-flex;
       align-items: center;
@@ -472,7 +476,7 @@
     }
     .feed .delta.claude-code-dispatch .d-kind,
     .feed .delta.claude-code-reply .d-kind {
-      color: #06b6d4;
+      color: var(--signal);
       font-family: var(--mono);
       font-size: 11px;
       letter-spacing: 0.08em;
@@ -481,11 +485,11 @@
     }
     .feed .delta.claude-code-dispatch .d-ts,
     .feed .delta.claude-code-reply .d-ts {
-      color: rgba(6, 182, 212, 0.55);
+      color: color-mix(in srgb, var(--signal) 65%, transparent);
     }
     .feed .delta.claude-code-dispatch .cc-arrow,
     .feed .delta.claude-code-reply .cc-arrow {
-      color: #06b6d4;
+      color: var(--signal);
       opacity: 0.7;
       margin: 0 0.25em;
     }
@@ -493,19 +497,18 @@
     .feed .delta.claude-code-reply .d-body {
       font-family: var(--mono);
       font-size: 12.5px;
-      color: #d4d4d4;
+      color: var(--ink-soft);
       line-height: 1.55;
       white-space: pre-wrap;
     }
-    /* Blinking-cursor rectangle at the end of the body — cyan to
-       echo the status strip and the chip in the header. */
+    /* Blinking-cursor rectangle at the end of the body. */
     .feed .delta.claude-code-dispatch .cc-cursor,
     .feed .delta.claude-code-reply .cc-cursor {
       display: inline-block;
       width: 0.55em;
       height: 1em;
       vertical-align: text-bottom;
-      background: #06b6d4;
+      background: var(--signal);
       margin-left: 0.2em;
       animation: cc-cursor-blink 1.05s steps(2, jump-none) infinite;
     }
