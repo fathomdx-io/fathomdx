@@ -23,6 +23,7 @@ from pydantic import BaseModel as _BaseModel
 from deltas import backup, retrievals
 from deltas.contacts import ContactsStore
 from deltas.db import close_pool, init_pool
+from deltas.media import ingest
 from deltas.models import (
     BackupAckRequest,
     BackupAckResult,
@@ -345,8 +346,6 @@ class MediaDeltaIn(_BaseModel):
 
 @app.post("/deltas/media", response_model=WriteResult)
 async def write_media_delta_b64(req: MediaDeltaIn):
-    from deltas.media import ingest
-
     try:
         image_bytes = base64.b64decode(req.image_base64)
     except Exception as e:
@@ -365,6 +364,28 @@ async def write_media_delta_b64(req: MediaDeltaIn):
     return WriteResult(id=delta_id, media_hash=media_hash)
 
 
+class MediaUploadResult(_BaseModel):
+    media_hash: str
+
+
+@app.post("/media/upload", response_model=MediaUploadResult)
+async def upload_media_binary(file: UploadFile = File(...)):
+    """Upload image bytes, store content-addressable, return the hash.
+
+    No delta is written — the caller is expected to attach the returned
+    hash to a delta they're authoring (via the `media_hash` field on a
+    text-modality delta, so the rich content and the image share one
+    record). This is the path source plugins should use; writing a
+    parallel image-only delta as a side-effect of upload split feed
+    items into two records and stripped the image from the rich one.
+    """
+    image_bytes = await file.read()
+    if not image_bytes:
+        raise HTTPException(status_code=400, detail="Empty file")
+    media_hash = await asyncio.to_thread(ingest, MEDIA_DIR, image_bytes)
+    return MediaUploadResult(media_hash=media_hash)
+
+
 @app.post("/deltas/media/upload", response_model=WriteResult)
 async def write_media_delta_upload(
     file: UploadFile = File(...),
@@ -373,8 +394,13 @@ async def write_media_delta_upload(
     source: str = Form("unknown"),
     expires_at: str = Form(""),
 ):
-    from deltas.media import ingest
+    """Upload image bytes AND write an image-modality delta.
 
+    Kept for cases where the caller really wants a standalone image
+    delta (chat image-only sends, manual uploads from the dashboard).
+    Source-runner plugins should not use this — they should call
+    /media/upload and attach the hash to their own digest write.
+    """
     image_bytes = await file.read()
     if not image_bytes:
         raise HTTPException(status_code=400, detail="Empty file")
