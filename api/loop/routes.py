@@ -163,6 +163,16 @@ def get_feed(
         # one in the puddle.
         if "agent-heartbeat" in tags:
             continue
+        # Drop engagement events — alerts, read-receipts, scroll-past
+        # markers, crystal-reject deltas. These feed the engagement
+        # crystal and pressure metrics, but as feed rows they're noise:
+        # the user doesn't want to see "you scrolled past card X" or
+        # "viewed-at <timestamp>" rendered alongside chat and cards.
+        # Source matches the post-rename string ("fathom-engagement");
+        # old `consumer-api`-tagged deltas in the lake will TTL out.
+        d_source = d.get("source") or ""
+        if d_source in ("fathom-engagement", "consumer-api"):
+            continue
         # Pull the session tag out so the frontend can cluster items by
         # (kind, session) — that way all voices from one deliberation
         # pile into a single accordion even when recall results

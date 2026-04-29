@@ -33,7 +33,7 @@ from . import delta_client
 # tag existed. New writes always carry the crystal-regen tag.
 LEGACY_REGEN_SOURCES: frozenset[str] = frozenset(
     {
-        "consumer-api",
+        "fathom-engagement",
         "loop-api",
         "fathom-loop",
         "recall-loop",
@@ -125,7 +125,7 @@ async def latest_text() -> str | None:
     return c.get("text") if c else None
 
 
-async def write(text: str, source: str = "consumer-api") -> dict:
+async def write(text: str, source: str = "fathom-engagement") -> dict:
     """Write a fresh crystal regen to the lake.
 
     Carries both tags: identity-crystal (legacy compat for any consumer

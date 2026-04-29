@@ -1030,7 +1030,7 @@ async def _record_rejected_candidate(text: str, reason: str) -> None:
         await delta_client.write(
             content=(text or "(empty)")[:4000] + f"\n\n[rejected: {reason}]",
             tags=["crystal-reject"],
-            source="consumer-api",
+            source="fathom-engagement",
             expires_at=expires_at,
         )
     except Exception:
@@ -1069,7 +1069,7 @@ async def refresh_crystal():
     # Accepted — persist crystal first, then snapshot anchor against the
     # post-write lake (one new delta barely perturbs the centroid, so the
     # ECG's first drift tick reads ~0 as intended).
-    written = await crystal.write(text, source="consumer-api")
+    written = await crystal.write(text, source="fathom-engagement")
     try:
         c = await delta_client.centroid()
         vec = c.get("centroid")

@@ -124,7 +124,7 @@ async def _write_viewed_at(viewer: str, now: datetime) -> str:
     written = await delta_client.write(
         content=now.isoformat(),
         tags=[_READ_RECEIPT_TAG, f"contact:{viewer}"],
-        source="consumer-api",
+        source="fathom-engagement",
     )
     return written.get("id") or ""
 

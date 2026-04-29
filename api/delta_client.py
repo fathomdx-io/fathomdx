@@ -135,7 +135,7 @@ async def embed(texts: list[str]) -> list[list[float]]:
 async def write(
     content: str,
     tags: list[str] | None = None,
-    source: str = "consumer-api",
+    source: str = "fathom-engagement",
     expires_at: str | None = None,
     media_hash: str | None = None,
 ) -> dict:

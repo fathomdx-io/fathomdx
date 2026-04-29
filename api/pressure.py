@@ -37,7 +37,7 @@ SOURCE_WEIGHTS: dict[str, float] = {
     "fathom-source-runner": 0.4,
     "fathom-agent": 0.2,
     "claude-code": 0.8,
-    "consumer-api": 0.8,
+    "fathom-engagement": 0.8,
 }
 USER_TAG_BOOST: float = 0.5
 DEFAULT_WEIGHT: float = 0.3

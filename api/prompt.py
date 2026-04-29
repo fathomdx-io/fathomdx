@@ -596,7 +596,7 @@ the calibration came out cleaner."
   • "An attempt at unified scoring was abandoned in favor of multi-axis."
 
 You will be given a window of recent activity (chat, code work, \
-consumer-api events). Notice what was decided, made, abandoned, or \
+engagement events). Notice what was decided, made, abandoned, or \
 learned. Write reflections that future-Fathom can read back as \
 sediment — terse, specific, factual where possible.
 

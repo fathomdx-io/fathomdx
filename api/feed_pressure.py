@@ -44,9 +44,12 @@ from .settings import settings
 SOURCE_WEIGHTS: dict[str, float] = {
     "fathom-chat": 1.5,
     "claude-code": 1.0,
-    "consumer-api": 0.8,
     "fathom-source-runner": 0.8,  # doubled vs mood — feed is where RSS lands
     "fathom-engagement": 1.5,     # third-law promotion, in numerical form
+                                  # (also covers misc consumer-api writes —
+                                  # alerts, receipts, crystal regens — after
+                                  # the consumer-api → fathom-engagement
+                                  # rename collapsed them into one source)
     "fathom-agent": 0.1,
     "fathom-feed": 0.0,           # exclude — would feedback-loop on its own output
     "fathom-mood": 0.0,           # exclude — mood is its own synthesis stream

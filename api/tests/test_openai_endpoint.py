@@ -115,7 +115,7 @@ def _patched(monkeypatch):
 
     monkeypatch.setattr(delta_client, "query", _query)
 
-    async def _write(content, tags=None, source="consumer-api", **kw):
+    async def _write(content, tags=None, source="fathom-engagement", **kw):
         recorded["writes"].append({"content": content, "tags": tags or [], "source": source})
         return {"id": "fake-write-id"}
 

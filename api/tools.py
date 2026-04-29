@@ -135,13 +135,13 @@ async def execute(name: str, arguments: dict, session_id: str | None = None) -> 
                     filename="upload.bin",
                     content=arguments["content"],
                     tags=arguments.get("tags", []),
-                    source=arguments.get("source", "consumer-api"),
+                    source=arguments.get("source", "fathom-engagement"),
                 )
             else:
                 result = await delta_client.write(
                     content=arguments["content"],
                     tags=arguments.get("tags", []),
-                    source=arguments.get("source", "consumer-api"),
+                    source=arguments.get("source", "fathom-engagement"),
                 )
             return json.dumps(result)
 
