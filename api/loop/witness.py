@@ -26,7 +26,9 @@ from __future__ import annotations
 
 import json
 import re
+import uuid
 from collections import OrderedDict
+from datetime import UTC, datetime, timedelta
 
 from .. import delta_client
 from ..channels import address_tag, extract_channel
@@ -176,18 +178,60 @@ def _render_resonance_block(items: list[dict]) -> str:
     return "\n\n".join(blocks) if blocks else "  (no resonant material in the puddle this fire)"
 
 
+async def _available_claude_code_hosts() -> list[str]:
+    """Distinct hosts that have heartbeated in the last 5 minutes —
+    these are the agents that can receive a `claude-code:<host>`
+    dispatch. Empty list means nothing is online and the witness
+    shouldn't pick that route this tick.
+    """
+    cutoff = (datetime.now(UTC) - timedelta(minutes=5)).isoformat()
+    try:
+        beats = await delta_client.query(
+            tags_include=["agent-heartbeat"],
+            time_start=cutoff,
+            limit=100,
+        )
+    except Exception as e:
+        print(f"[witness] heartbeat query failed: {type(e).__name__}: {e}")
+        return []
+    hosts: set[str] = set()
+    for b in beats:
+        for t in b.get("tags") or []:
+            if t.startswith("host:"):
+                hosts.add(t.split(":", 1)[1])
+                break
+    return sorted(hosts)
+
+
+def _render_hosts_block(hosts: list[str]) -> str:
+    """Format the available-hosts list for injection into the witness
+    prompt. Empty when nothing is online — the prompt then has no
+    `claude-code:<host>` option from the model's POV, since picking
+    a host that doesn't exist would just no-op anyway."""
+    if not hosts:
+        return ""
+    lines = "\n".join(f"  · {h}" for h in hosts)
+    return (
+        "MACHINES — agents currently online that can receive a "
+        "`claude-code:<host>` dispatch:\n"
+        f"{lines}\n\n"
+    )
+
+
 async def _call_witness(
     *,
     intent_block: str,
     voice_blocks: str,
     anchors_block: str,
     resonance_block: str,
+    hosts_block: str,
 ) -> dict | None:
     prompt = WITNESS_PROMPT.format(
         intent_block=intent_block,
         voice_blocks=voice_blocks,
         anchors_block=anchors_block,
         resonance_block=resonance_block,
+        hosts_block=hosts_block,
         settled_status="deliberated",
         settled_descriptor=(
             "The voices took their turns — speak from the integrated take "
@@ -391,11 +435,13 @@ async def run_witness(
     )
     resonance_block = _render_resonance_block(resonant)
 
+    available_hosts = await _available_claude_code_hosts()
     witness = await _call_witness(
         intent_block=intent_block,
         voice_blocks=voice_blocks,
         anchors_block=_render_anchors(),
         resonance_block=resonance_block,
+        hosts_block=_render_hosts_block(available_hosts),
     )
     if witness is None:
         print("[witness] produced nothing")
@@ -473,6 +519,34 @@ async def run_witness(
                     break
         if channel and addressee:
             break
+
+    # Proactive claude-code dispatch — witness picked `claude-code:<host>`
+    # as its route, meaning it wants to spawn a fresh kitty window on
+    # that host with `body` as the prompt. This is the user-asked-for-
+    # hands-on-work path; distinct from the closure-followup case where
+    # the addressed intent already lives on the claude-code channel.
+    #
+    # We override channel/correlation/host with a fresh dispatch tuple
+    # so the existing tag-stamping branches downstream emit the right
+    # `to:claude-code:<corr>` + `host:<H>` + `task-corr:<corr>` set,
+    # and the kitty plugin's `route:claude-code AND host:<myhost>`
+    # query lands the dispatch at the targeted machine.
+    proactive_route_raw = (witness.get("route") or "").strip()
+    if proactive_route_raw.startswith("claude-code:") and available_hosts:
+        target = proactive_route_raw.split(":", 1)[1].strip()
+        if target in available_hosts:
+            channel = "claude-code"
+            correlation = uuid.uuid4().hex[:12]
+            host_for_channel = target
+            print(
+                f"[witness] proactive claude-code dispatch → host={target} "
+                f"corr={correlation}"
+            )
+        else:
+            print(
+                f"[witness] dropped claude-code:{target} dispatch — "
+                f"host not in available hosts {available_hosts}"
+            )
 
     # Channels with a known consumer (kitty for claude-code) need their
     # route to match the consumer's filter even when the witness model's
