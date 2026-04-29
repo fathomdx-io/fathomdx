@@ -535,13 +535,10 @@
     }
     /* Per-cluster label flavors — match the .delta tinting so the
        open accordion's contents and its summary read as one. */
-    .feed .accordion[data-kind="voice-thought"] > summary .accordion-label { color: var(--accent); }
-    .feed .accordion[data-kind="lake-delta"]    > summary .accordion-label { color: var(--signal); }
-    .feed .accordion[data-kind="recall"]        > summary .accordion-label { color: var(--signal); }
-    .feed .accordion[data-kind="crystal"]       > summary .accordion-label { color: #c4b5fd; }
-    .feed .accordion[data-kind="mood"]          > summary .accordion-label { color: var(--accent); }
-    .feed .accordion[data-kind="pass-intent"]   > summary .accordion-label { color: #c4b5fd; }
-    .feed .accordion[data-kind="process-event"] > summary { opacity: 0.7; }
+    .feed .accordion[data-category="thinking"] > summary .accordion-label { color: var(--accent); }
+    .feed .accordion[data-category="identity"] > summary .accordion-label { color: #c4b5fd; }
+    .feed .accordion[data-category="prompts"]  > summary .accordion-label { color: #c4b5fd; }
+    .feed .accordion[data-category="routine"]  > summary .accordion-label { color: var(--signal); }
 
     /* Compact deltas inside accordions: smaller, tighter spacing. */
     .feed .accordion .delta {
@@ -3084,19 +3081,16 @@
               <label class="always-on" title="Alerts always pierce — they reach you whether or not you've checked them">
                 <span class="pierce-mark">⚠</span> Alerts <span style="margin-left:auto; font-size:10px; opacity:0.7;">always on</span>
               </label>
-              <div class="filter-group-head">Conversation</div>
-              <label><input type="checkbox" data-kind="chat" checked> Chat</label>
-              <div class="filter-group-head">Synthesis</div>
-              <label><input type="checkbox" data-kind="card" checked> Cards</label>
-              <div class="filter-group-head">Substrate</div>
-              <label><input type="checkbox" data-kind="pass-intent"> Pass intents</label>
-              <label><input type="checkbox" data-kind="voice-thought"> Voice thoughts</label>
-              <label><input type="checkbox" data-kind="lake-delta"> Deltas</label>
-              <label><input type="checkbox" data-kind="recall"> Recalls</label>
-              <label><input type="checkbox" data-kind="crystal"> Crystal</label>
-              <label><input type="checkbox" data-kind="mood"> Mood</label>
-              <label><input type="checkbox" data-kind="routine"> Routines</label>
-              <div class="filter-note">Default = clean. Check anything to surface it inline. Most types render as compact <code>.delta</code> rows below cards.</div>
+              <div class="filter-group-head">Feed</div>
+              <label class="always-on" title="Chat turns are always visible — like alerts, you can't filter them out">
+                Chat <span style="margin-left:auto; font-size:10px; opacity:0.7;">always on</span>
+              </label>
+              <label><input type="checkbox" data-category="card" checked> Cards</label>
+              <div class="filter-group-head">Background</div>
+              <label><input type="checkbox" data-category="prompts"> Prompts</label>
+              <label><input type="checkbox" data-category="thinking"> Thinking</label>
+              <label><input type="checkbox" data-category="identity"> Identity</label>
+              <label><input type="checkbox" data-category="routine"> Routine Activity</label>
             </div>
           </span>
           <span class="feed-meta-sep"> · </span>
@@ -7376,7 +7370,14 @@ GET  /v1/usage               Usage stats`,
       if (turn.role === 'user') {
         const el = document.createElement('div');
         el.className = 'msg msg-user';
-        el.innerHTML = `<div class="msg-meta">You · ${turn.time}</div><div class="msg-body">${_esc(turn.text)}</div>`;
+        // Origin meta — `from` = contact name (capitalized), `via` =
+        // channel:correlation. Without either we fall back to "You" for
+        // legacy/composer messages whose origin we couldn't recover.
+        const who = turn.from
+          ? turn.from.charAt(0).toUpperCase() + turn.from.slice(1)
+          : 'You';
+        const viaPart = turn.via ? ` · ${_esc(turn.via)}` : '';
+        el.innerHTML = `<div class="msg-meta">${_esc(who)}${viaPart} · ${turn.time}</div><div class="msg-body">${_esc(turn.text)}</div>`;
         return el;
       }
       if (turn.role === 'fathom') {
@@ -7386,7 +7387,15 @@ GET  /v1/usage               Usage stats`,
         const recalledHtml = turn.recalled
           ? `<div class="msg-recalled">${_esc(turn.recalled)}</div>`
           : '';
-        el.innerHTML = `<div class="msg-meta">Fathom · ${turn.time}</div>${recalledHtml}<div class="msg-body">${body}</div>`;
+        // Addressing meta — when Fathom is replying TO a specific
+        // contact (witness stamped `for:<slug>`) and/or via a specific
+        // channel (`to:<channel>:<corr>`), surface that. Reads
+        // "Fathom > Myra · openai:affectionate-glossy-squid · time".
+        const toName = turn.to
+          ? ' > ' + (turn.to.charAt(0).toUpperCase() + turn.to.slice(1))
+          : '';
+        const viaPart = turn.via ? ` · ${_esc(turn.via)}` : '';
+        el.innerHTML = `<div class="msg-meta">Fathom${_esc(toName)}${viaPart} · ${turn.time}</div>${recalledHtml}<div class="msg-body">${body}</div>`;
         return el;
       }
       if (turn.role === 'agent') {
@@ -8002,23 +8011,44 @@ GET  /v1/usage               Usage stats`,
     // Q (.msg-user), chat-reply A (.msg-fathom), and feed-card synthesis
     // outputs are always visible by default; everything else is opt-in,
     // so the feed reads clean unless you've leaned into something.
-    const KIND_DEFAULTS = {
-      // Passive rendering — anything with legible content in the puddle
-      // shows by default. The filter still exists for muting; the
-      // default just stops being prescriptive about what counts as
-      // "feed-worthy." Loop-internal noise (voice thoughts, model-
-      // driven recalls, raw pass-intents) stays off by default since
-      // those are deliberation-internal and would drown the chat.
-      'chat':           true,   // user-message + fathom-message (Q + A as one toggle)
-      'card':           true,   // feed-card route witness outputs (any non-chat-reply route)
-      'lake-delta':     true,   // telepathy mirror of fresh durable lake activity
-      'crystal':        true,   // identity facets refreshed by telepathy
-      'mood':           true,   // current felt-sense
-      'routine':        true,   // routine fires + their summaries
-      'pass-intent':    true,   // pulse directive prompts (reflection/drift/bridging/alert/drop-in)
-      'voice-thought':  false,
-      'recall':         false,
+    // Filter categories — every item kind maps into ONE of these,
+    // and the user toggles whole categories rather than individual
+    // kinds. `chat` is always on (like alerts pierce regardless);
+    // the others are togglable and persist in localStorage.
+    // Keys here are the DOM `data-kind` values stamped by
+    // _renderPuddleItem, NOT the JSON `kind` field returned by the
+    // feed endpoint. The renderer collapses user-message + fathom-
+    // message to data-kind="chat", which is what the filter sees.
+    const KIND_TO_CATEGORY = {
+      'chat':          'chat',
+      'card':          'card',
+      'pass-intent':   'prompts',
+      'voice-thought': 'thinking',
+      'recall':        'thinking',
+      'lake-delta':    'thinking',
+      'crystal':       'identity',
+      'mood':          'identity',
+      'routine':       'routine',
     };
+    const CATEGORY_LABELS = {
+      'chat':     'Chat',
+      'card':     'Cards',
+      'prompts':  'Prompts',
+      'thinking': 'Thinking',
+      'identity': 'Identity',
+      'routine':  'Routine Activity',
+    };
+    const CATEGORY_DEFAULTS = {
+      'chat':     true,   // always-on; no UI toggle exists for this
+      'card':     true,
+      'prompts':  true,
+      'thinking': false,  // voice/recall/delta firehose — opt in
+      'identity': true,
+      'routine':  true,
+    };
+    function _categoryOf(kind) {
+      return KIND_TO_CATEGORY[kind] || '';
+    }
 
     function _extractLevelFromTags(tags) {
       if (!Array.isArray(tags)) return '';
@@ -8034,44 +8064,52 @@ GET  /v1/usage               Usage stats`,
       }
       return '';
     }
-    function getEnabledKinds() {
-      // Persisted as {kind: bool}. Old key (`feedFilterBuckets`) from
-      // the lake-feed era is dropped silently — the cutover invalidated
-      // its bucket-shape anyway.
-      const raw = localStorage.getItem('feedFilterKinds');
+    function getEnabledCategories() {
+      // Persisted as {category: bool}. The `chat` category is always
+      // on — never written to localStorage by the UI, and the filter
+      // loop short-circuits on it regardless of stored state.
+      const raw = localStorage.getItem('feedFilterCategories');
       if (raw) {
         try {
           const parsed = JSON.parse(raw);
           if (parsed && typeof parsed === 'object') {
-            return { ...KIND_DEFAULTS, ...parsed };
+            return { ...CATEGORY_DEFAULTS, ...parsed, chat: true };
           }
         } catch (e) { /* fall through to defaults */ }
       }
-      return { ...KIND_DEFAULTS };
+      return { ...CATEGORY_DEFAULTS };
     }
-    function setEnabledKind(kind, enabled) {
-      const current = getEnabledKinds();
-      current[kind] = !!enabled;
-      localStorage.setItem('feedFilterKinds', JSON.stringify(current));
+    function setEnabledCategory(category, enabled) {
+      if (category === 'chat') return; // always-on; ignore writes
+      const current = getEnabledCategories();
+      current[category] = !!enabled;
+      localStorage.setItem('feedFilterCategories', JSON.stringify(current));
     }
     function applyVerbosityFilter() { applyKindFilter(); }
 
     function applyKindFilter() {
-      const enabled = getEnabledKinds();
-      // Walk every kind-tagged element in the feed. Cards and deltas
-      // both carry data-kind set by _renderPuddleItem; messages
-      // (.msg-user / .msg-fathom) are always visible (no data-kind).
-      const items = document.querySelectorAll('.feed [data-kind]');
+      const enabled = getEnabledCategories();
+      // Walk every category-tagged element. Accordions carry
+      // data-category (set in _renderAccordion); flat .delta /
+      // .msg / .card rows carry data-kind which we map back to a
+      // category. Chat always passes; alerts pierce regardless.
+      // Selector union catches both attribute carriers in one pass.
+      const items = document.querySelectorAll('.feed [data-category], .feed [data-kind]');
+      const seen = new Set();
       let visibleCount = 0;
       items.forEach(el => {
+        if (seen.has(el)) return;
+        seen.add(el);
         const kind = el.dataset.kind || '';
         const lvl = el.dataset.level || '';
-        // ALERT cards pierce regardless of state. Anything matching an
-        // enabled kind passes; default-true kinds carry through unless
-        // the user turned them off.
-        const passes = (lvl === 'ALERT') || !!enabled[kind];
+        const cat = el.dataset.category || _categoryOf(kind);
+        const passes = (lvl === 'ALERT') || cat === 'chat' || !!enabled[cat];
         el.dataset.hidden = passes ? 'false' : 'true';
-        if (passes) visibleCount += 1;
+        // Only count top-level children — accordion bodies hold their
+        // own kid rows with data-kind, but those are gated by the
+        // accordion's display:none cascade and shouldn't count toward
+        // the visible-items total used for the empty-state letter.
+        if (passes && el.parentElement === feed) visibleCount += 1;
       });
       // Empty-state composition:
       //   * filter banner — when items exist but the filter hides them.
@@ -8271,7 +8309,24 @@ GET  /v1/usage               Usage stats`,
 
       // Q (user message) — kind=chat
       if (it.kind === 'user-message') {
-        const el = renderTurn({ role: 'user', time: timeStr, text: it.content || '' });
+        // Pull origin metadata off tags so the meta line shows who's
+        // typing and what wire they're on. `contact:<slug>` → from;
+        // `channel:<name>` + `<name>-session:<id>` → via. Composer
+        // messages with no channel just show the contact name (or
+        // "You" fallback for legacy untagged seeds).
+        const tags = it.tags || [];
+        const contactTag = tags.find(t => t.startsWith('contact:'));
+        const fromName = contactTag ? contactTag.slice('contact:'.length) : '';
+        const channelTag = tags.find(t => t.startsWith('channel:'));
+        const channelName = channelTag ? channelTag.slice('channel:'.length) : '';
+        let via = '';
+        if (channelName) {
+          const sessionTag = tags.find(t => t.startsWith(`${channelName}-session:`));
+          via = sessionTag
+            ? `${channelName}:${sessionTag.slice(`${channelName}-session:`.length)}`
+            : channelName;
+        }
+        const el = renderTurn({ role: 'user', time: timeStr, text: it.content || '', from: fromName, via });
         if (el) {
           el.dataset.fromPuddle = '1';
           el.dataset.puddleId = it.id || '';
@@ -8307,7 +8362,22 @@ GET  /v1/usage               Usage stats`,
       // A (fathom message) — kind=chat
       if (it.kind === 'fathom-message') {
         const html = (typeof renderMd === 'function') ? renderMd(it.body || '') : _esc(it.body || '');
-        const el = renderTurn({ role: 'fathom', time: timeStr, html });
+        // Addressing — `for:<slug>` names the recipient; the channel/
+        // correlation pair is the wire. Renders as
+        // "Fathom > Myra · openai:greedy-clumsy-salamander".
+        const aTags = it.tags || [];
+        const forTag = aTags.find(t => t.startsWith('for:'));
+        const toName = forTag ? forTag.slice('for:'.length) : '';
+        const toAddrTag = aTags.find(t => t.startsWith('to:'));
+        let aVia = '';
+        if (toAddrTag) {
+          // Parse `to:<channel>:<correlation>` — split at most twice
+          // so a correlation containing `:` survives intact.
+          const rest = toAddrTag.slice('to:'.length);
+          const colonIdx = rest.indexOf(':');
+          aVia = colonIdx >= 0 ? `${rest.slice(0, colonIdx)}:${rest.slice(colonIdx + 1)}` : rest;
+        }
+        const el = renderTurn({ role: 'fathom', time: timeStr, html, to: toName, via: aVia });
         if (el) {
           el.dataset.fromPuddle = '1';
           el.dataset.puddleId = it.id || '';
@@ -8472,26 +8542,28 @@ GET  /v1/usage               Usage stats`,
       return null;
     }
 
-    // Kinds that pack into accordions when 2+ adjacent items share
-    // the same kind. Q (chat user-msg), A (chat fathom-msg), and
-    // synthesis cards are never clustered — they're always visible
-    // inline. Everything else is "noisy substrate" and benefits from
-    // being grouped behind a count + label summary.
-    const _CLUSTERABLE_KINDS = new Set([
-      'voice-thought', 'lake-delta', 'recall', 'crystal', 'mood',
-      'pass-intent',
+    // Categories that pack into accordions when 2+ items share the
+    // same (category, session). Chat (user-msg / fathom-msg) and Cards
+    // are always inline; the Background categories (Prompts, Thinking,
+    // Identity, Routine) cluster so the noisy substrate doesn't drown
+    // the conversation. All kinds within a category land in the SAME
+    // accordion — voice thoughts and recalls and deltas mix together
+    // under "Thinking", crystal and mood mix under "Identity".
+    const _CLUSTERABLE_CATEGORIES = new Set([
+      'prompts', 'thinking', 'identity', 'routine',
     ]);
 
     function _renderAccordion(items) {
-      // items is a non-empty list of same-(kind, session) feed items.
-      // Only fires when items.length >= 2; single items render inline.
-      const kind = items[0].kind;
+      // items is a non-empty list of same-(category, session) feed
+      // items. Only fires when items.length >= 2; single items render
+      // inline as flat .delta rows.
+      const cat = _categoryOf(items[0].kind) || items[0].kind;
       const session = items[0].session || '';
       const det = document.createElement('details');
       det.className = 'accordion';
-      det.dataset.kind = kind;
+      det.dataset.category = cat;
       if (session) det.dataset.session = session;
-      const labelText = (typeof _kindLabel === 'function') ? _kindLabel(kind) : kind;
+      const labelText = CATEGORY_LABELS[cat] || cat;
       const summary = document.createElement('summary');
       summary.innerHTML = `<span class="accordion-label">${_esc(labelText)}</span><span class="accordion-stats">${items.length}</span>`;
       const body = document.createElement('div');
@@ -8507,18 +8579,17 @@ GET  /v1/usage               Usage stats`,
       return det;
     }
 
-    // Find an existing same-(kind, session) accordion or .delta that
-    // a new item should merge into. Walks the feed top-to-bottom — the
-    // FIRST hit wins, so we always merge into the most recent matching
-    // cluster (per-session accordion pattern). Returns the element or
-    // null if no match. Same-kind clusters in different sessions stay
-    // separate; clusters with no session (e.g. crystal facets from
-    // telepathy) match other no-session items of the same kind.
-    function _findMergeTarget(kind, session) {
+    // Find an existing same-(category, session) accordion or flat .delta
+    // a new item should merge into. Walks the feed top-to-bottom — first
+    // hit wins, so we always merge into the most recent matching cluster.
+    // Same-category clusters in different sessions stay separate.
+    function _findMergeTarget(category, session) {
       const sessionKey = session || '';
       for (const child of feed.children) {
         if (!child.classList || !child.dataset) continue;
-        if (child.dataset.kind !== kind) continue;
+        const childCat = child.dataset.category
+          || _categoryOf(child.dataset.kind || '');
+        if (childCat !== category) continue;
         const childSession = child.dataset.session || '';
         if (childSession !== sessionKey) continue;
         if (child.classList.contains('accordion') || child.classList.contains('delta')) {
@@ -8528,21 +8599,22 @@ GET  /v1/usage               Usage stats`,
       return null;
     }
 
-    // Merge a node into the matching same-(kind, session) cluster if
-    // one exists; otherwise just prepend at the top. Three cases:
+    // Merge a node into the matching same-(category, session) cluster
+    // if one exists; otherwise just prepend at the top. Three cases:
     //   * match is an accordion → prepend node into its body, bump count
     //   * match is a flat .delta → convert into a 2-item accordion with
     //     the new node (newer) + the existing one (older)
     //   * no match → plain prepend at top of feed
-    // Used by the live-poll prepend path so items arriving one-at-a-
-    // time fold into the existing per-session accordion instead of
-    // stacking as separate rows.
     function _mergeOrPrependNode(node, kind, session) {
-      if (!_CLUSTERABLE_KINDS.has(kind)) {
+      const category = _categoryOf(kind) || kind;
+      // Stamp data-category so future merge lookups can resolve back
+      // to the same group regardless of which kind landed first.
+      if (category) node.dataset.category = category;
+      if (!_CLUSTERABLE_CATEGORIES.has(category)) {
         feed.insertBefore(node, feed.firstChild);
         return;
       }
-      const target = _findMergeTarget(kind, session);
+      const target = _findMergeTarget(category, session);
       if (target && target.classList.contains('accordion')) {
         const body = target.querySelector('.accordion-body');
         if (body) {
@@ -8553,19 +8625,13 @@ GET  /v1/usage               Usage stats`,
         }
       }
       if (target && target.classList.contains('delta')) {
-        // Convert the flat .delta into a 2-item accordion at its
-        // current position, with the new node prepended (newer at
-        // the top of the body, the existing one below). Capture the
-        // anchor (target's next sibling) BEFORE re-parenting target
-        // so the accordion lands exactly where the original .delta
-        // sat in the feed.
         const parent = target.parentNode;
         const anchor = target.nextSibling;
         const det = document.createElement('details');
         det.className = 'accordion';
-        det.dataset.kind = kind;
+        det.dataset.category = category;
         if (session) det.dataset.session = session;
-        const labelText = (typeof _kindLabel === 'function') ? _kindLabel(kind) : kind;
+        const labelText = CATEGORY_LABELS[category] || category;
         const summary = document.createElement('summary');
         summary.innerHTML = `<span class="accordion-label">${_esc(labelText)}</span><span class="accordion-stats">2</span>`;
         const body = document.createElement('div');
@@ -8577,11 +8643,8 @@ GET  /v1/usage               Usage stats`,
         parent.insertBefore(det, anchor);
         return;
       }
-      // No same-(kind, session) target exists yet. Stamp the session
-      // on this flat .delta so the NEXT same-session item arriving in
-      // a later poll can find it via _findMergeTarget and convert this
-      // pair into an accordion. Without this stamp the existing flat
-      // row's dataset.session reads as '' and never matches.
+      // No same-(category, session) target yet. Stamp session so the
+      // NEXT same-(category, session) arrival can find it.
       if (session) node.dataset.session = session;
       feed.insertBefore(node, feed.firstChild);
     }
@@ -8688,11 +8751,12 @@ GET  /v1/usage               Usage stats`,
         return;
       }
 
-      // Append mode — for clusterable items, group by (kind, session)
-      // across the whole batch so all voices from one deliberation
-      // pile into one accordion regardless of recall results that
-      // interleave them chronologically. Non-clusterable items render
-      // inline in original order.
+      // Append mode — for clusterable categories, group by
+      // (category, session) across the whole batch so all the loop's
+      // background activity from one deliberation piles into ONE
+      // accordion (voice thoughts + recalls + deltas all under
+      // "Thinking", crystal + mood under "Identity", etc.).
+      // Non-clusterable kinds render inline in original order.
       const placedIndex = new Set();
       let delayIdx = 0;
       for (let i = 0; i < items.length; i++) {
@@ -8702,18 +8766,20 @@ GET  /v1/usage               Usage stats`,
           placedIndex.add(i);
           continue;
         }
-        if (_CLUSTERABLE_KINDS.has(it.kind)) {
-          // Collect every later item with the same (kind, session)
-          // — these all join one accordion, irrespective of strict
-          // adjacency. Order preserved (newest-first stays newest-first
-          // in the body).
+        const itCat = _categoryOf(it.kind);
+        if (_CLUSTERABLE_CATEGORIES.has(itCat)) {
+          // Collect every later item with the same (category, session)
+          // — irrespective of strict adjacency or specific kind. So a
+          // recall and a voice-thought from the same fire join the
+          // same "Thinking" accordion.
           const run = [it];
           placedIndex.add(i);
           for (let j = i + 1; j < items.length; j++) {
             if (placedIndex.has(j)) continue;
             const other = items[j];
             if (!other || !other.id || _renderedFeedIds.has(other.id)) continue;
-            if (other.kind === it.kind && (other.session || '') === (it.session || '')) {
+            if (_categoryOf(other.kind) === itCat
+                && (other.session || '') === (it.session || '')) {
               run.push(other);
               placedIndex.add(j);
             }
@@ -8724,9 +8790,9 @@ GET  /v1/usage               Usage stats`,
             _renderedFeedIds.add(it.id);
             const node = _renderPuddleItem(it, (delayIdx++) * 0.06);
             if (node) {
-              // Singleton clusterable — stamp data-session so a same-
-              // (kind, session) item arriving in a later poll can find
-              // and merge into this flat .delta via _findMergeTarget.
+              // Singleton — stamp category + session so a later same-
+              // (category, session) arrival can merge into this row.
+              node.dataset.category = itCat;
               if (it.session) node.dataset.session = it.session;
               feed.appendChild(node);
             }
@@ -9026,32 +9092,18 @@ GET  /v1/usage               Usage stats`,
     const _feedFilterPanel = document.getElementById('feedFilterPanel');
     const _feedFilterToggleLabel = document.getElementById('feedFilterToggleLabel');
 
-    function _kindLabel(kind) {
-      return ({
-        chat: 'Chat',
-        card: 'Cards',
-        reflection: 'Reflections',
-        bridging: 'Bridges',
-        drift: 'Drift',
-        discrepancy: 'Discrepancies',
-        'pass-intent': 'Pass intents',
-        'voice-thought': 'Voice thoughts',
-        'lake-delta': 'Deltas',
-        recall: 'Recalls',
-        crystal: 'Crystal',
-        mood: 'Mood',
-      })[kind] || kind;
-    }
     function _refreshFilterToggleLabel() {
       if (!_feedFilterToggleLabel) return;
-      const enabled = getEnabledKinds();
-      const all = Object.keys(KIND_DEFAULTS);
-      const on = all.filter(k => enabled[k]);
+      const enabled = getEnabledCategories();
+      // Togglable categories — exclude `chat` since it's always-on
+      // and shouldn't influence the count or the "All" label.
+      const togglable = Object.keys(CATEGORY_DEFAULTS).filter(c => c !== 'chat');
+      const on = togglable.filter(c => enabled[c]);
       let text;
-      if (on.length === 0) text = 'Alerts only';
-      else if (on.length === 1) text = _kindLabel(on[0]);
-      else if (on.length === all.length) text = 'All kinds';
-      else text = `${on.length} kinds`;
+      if (on.length === 0) text = 'Chat only';
+      else if (on.length === 1) text = CATEGORY_LABELS[on[0]] || on[0];
+      else if (on.length === togglable.length) text = 'All';
+      else text = `${on.length} categories`;
       _feedFilterToggleLabel.textContent = text;
     }
 
@@ -9063,12 +9115,12 @@ GET  /v1/usage               Usage stats`,
 
     if (_feedFilterEl && _feedFilterToggle && _feedFilterPanel) {
       // Restore checkbox state from localStorage on load.
-      const stored = getEnabledKinds();
-      _feedFilterPanel.querySelectorAll('input[type="checkbox"][data-kind]').forEach(cb => {
-        const kind = cb.dataset.kind;
-        cb.checked = !!stored[kind];
+      const stored = getEnabledCategories();
+      _feedFilterPanel.querySelectorAll('input[type="checkbox"][data-category]').forEach(cb => {
+        const category = cb.dataset.category;
+        cb.checked = !!stored[category];
         cb.addEventListener('change', () => {
-          setEnabledKind(kind, cb.checked);
+          setEnabledCategory(category, cb.checked);
           applyKindFilter();
           _refreshFilterToggleLabel();
         });
