@@ -435,6 +435,10 @@
       cursor: pointer;
     }
     .claude-code-task .cc-resume:hover { color: var(--ink); border-color: var(--ink-faint); }
+    /* Claude-code task replies in the feed — visually echoes the
+       status strip's cyan tint so the eye links them. */
+    .feed .delta.claude-code-reply { border-left-color: #06b6d4; }
+    .feed .delta.claude-code-reply .d-kind { color: #06b6d4; }
     /* Voice-tinted thoughts — the trimurti palette from the experiment. */
     .feed .delta.thought.voice-creator   { border-left-color: #f97316; }
     .feed .delta.thought.voice-creator   .d-kind { color: #f97316; }
@@ -8575,6 +8579,28 @@ GET  /v1/usage               Usage stats`,
             <span class="d-ts">${timeStr}</span>
           </header>
           <div class="d-body${isJson ? ' is-json' : ''}">${_esc(bodyText)}</div>
+        `;
+        return el;
+      }
+      // Claude-code task output — closure replies from a tasked
+      // claude-code session. Renders similar to lake-delta but stamps
+      // data-kind so the Claude Code filter category catches it (on
+      // by default) instead of `thinking` (off by default).
+      if (it.kind === 'claude-code') {
+        const el = document.createElement('article');
+        el.className = 'delta claude-code-reply';
+        el.dataset.kind = 'claude-code';
+        el.dataset.fromPuddle = '1';
+        el.dataset.puddleId = it.id || '';
+        if (it.id) el.dataset.deltaId = it.id;
+        const src = it.from_source || 'claude-code:task';
+        const raw = it.content || '';
+        el.innerHTML = `
+          <header class="d-head">
+            <span class="d-kind">claude-code<span class="source-chip">${_esc(src)}</span></span>
+            <span class="d-ts">${timeStr}</span>
+          </header>
+          <div class="d-body">${_esc(raw)}</div>
         `;
         return el;
       }

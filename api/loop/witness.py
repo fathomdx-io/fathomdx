@@ -481,9 +481,23 @@ async def run_witness(
     # routing comes from the `to:<channel>:<corr>` tag pair, which is
     # already stamped above. Here we keep `route:<...>` aligned with
     # the channel so nothing downstream has to special-case it.
-    if channel == "claude-code":
+    #
+    # `closure:true` on an addressed intent means the task already
+    # wrapped (claude wrote its task-complete delta) and the watcher
+    # minted this intent from the closure. Routing back as
+    # `claude-code` here would make kitty respawn the closed task. So
+    # for closure-driven intents we use `chat-reply` instead — the
+    # witness reply lands in the feed as a normal message.
+    is_closure_followup = any(
+        "closure:true" in (it.get("tags") or []) for it in pending
+    )
+    if channel == "claude-code" and not is_closure_followup:
         route_value = "claude-code"
         payload["route"] = "claude-code"
+        payload_json = json.dumps(payload, ensure_ascii=False)
+    elif channel == "claude-code" and is_closure_followup:
+        route_value = "chat-reply"
+        payload["route"] = "chat-reply"
         payload_json = json.dumps(payload, ensure_ascii=False)
 
     # Include `addressing-output` so pending_intents() sees this card

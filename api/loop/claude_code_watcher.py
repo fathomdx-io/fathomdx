@@ -55,43 +55,58 @@ def _tag_value(tags: list[str], prefix: str) -> str:
     return ""
 
 
-async def _active_correlations() -> dict[str, dict]:
-    """Build the active task set from the lake.
+async def _correlation_state() -> tuple[dict[str, dict], dict[str, dict]]:
+    """Build active and closing correlation maps from the lake.
 
-    Returns ``{corr: {claude_session_id, host, project, spawn_iso}}``
-    for each task-spawn delta whose correlation has no matching
-    task-complete.
+    Returns ``(active, closing)``:
+
+      * ``active``: ``{corr: {claude_session_id, host, project, spawn_iso}}``
+        for spawned tasks with no matching closure yet — the watcher
+        polls these for new assistant deltas to mint as intents.
+
+      * ``closing``: same shape but augmented with ``closure_delta`` —
+        spawned tasks whose closure delta has landed. The watcher mints
+        ONE intent per closing correlation (deduped via _last_minted)
+        so the loop wakes on the final task report, not just on
+        intermediate Stop hooks.
     """
     spawns, completes = await asyncio.gather(
         delta_client.query(tags_include=["task-spawn"], limit=200),
         delta_client.query(tags_include=["task-complete"], limit=200),
     )
 
-    completed: set[str] = set()
+    completed_corr_to_delta: dict[str, dict] = {}
     for c in completes:
         corr = _tag_value(c.get("tags") or [], "task-corr:")
-        if corr:
-            completed.add(corr)
+        if corr and corr not in completed_corr_to_delta:
+            # Newest closure wins per corr — if a corr somehow has
+            # multiple `task-complete` deltas, the most recent is the
+            # one we want to mint from. delta_client.query returns
+            # newest-first, so the first hit is right.
+            completed_corr_to_delta[corr] = c
 
     active: dict[str, dict] = {}
+    closing: dict[str, dict] = {}
     for s in spawns:
         tags = s.get("tags") or []
         corr = _tag_value(tags, "task-corr:")
         sid = _tag_value(tags, "claude-code-session:")
-        if not corr or not sid or corr in completed:
+        if not corr or not sid:
             continue
-        # First-write-wins per corr — if the kitty plugin somehow wrote
-        # multiple spawn deltas for one task (it shouldn't), the first
-        # one establishes the binding and subsequent ones are ignored.
-        if corr in active:
+        if corr in active or corr in closing:
             continue
-        active[corr] = {
+        info = {
             "claude_session_id": sid,
             "host": _tag_value(tags, "host:"),
             "project": _tag_value(tags, "project:"),
             "spawn_iso": s.get("timestamp") or "",
         }
-    return active
+        closure = completed_corr_to_delta.get(corr)
+        if closure:
+            closing[corr] = {**info, "closure_delta": closure}
+        else:
+            active[corr] = info
+    return active, closing
 
 
 async def _prime_last_minted() -> None:
@@ -117,13 +132,35 @@ async def _prime_last_minted() -> None:
             _last_minted[corr] = ts
 
 
+def _build_intent_tags(corr: str, sid: str, info: dict, source_id: str, *, closure: bool) -> list[str]:
+    tags = [
+        channel_tag("claude-code"),
+        correlation_tag("claude-code", corr),
+        f"task-corr:{corr}",
+        f"claude-code-session:{sid}",
+        f"reply-to:{source_id}",
+    ]
+    if info.get("host"):
+        tags.append(f"host:{info['host']}")
+    if info.get("project"):
+        tags.append(f"project:{info['project']}")
+    if closure:
+        # Witness reads this to know "the task already wrapped up;
+        # acknowledge in chat rather than dispatching another turn."
+        # Without this marker, route:claude-code on the witness reply
+        # would respawn the task — see kitty plugin's gate.
+        tags.append("closure:true")
+    return tags
+
+
 async def claude_code_watcher_tick() -> None:
-    """One pass: scan active sessions for new assistant deltas, mint
-    intents."""
-    active = await _active_correlations()
-    if not active:
+    """One pass: scan active sessions for new assistant deltas, plus
+    closure deltas for tasks that just wrapped, and mint intents."""
+    active, closing = await _correlation_state()
+    if not active and not closing:
         return
 
+    # ── Active sessions: mint from new assistant Stop-hook deltas ──
     for corr, info in active.items():
         sid = info["claude_session_id"]
         # First mint from a session reaches back to the spawn timestamp;
@@ -156,22 +193,11 @@ async def claude_code_watcher_tick() -> None:
             content = (r.get("content") or "").strip()
             if not content:
                 continue
-            extra_tags = [
-                channel_tag("claude-code"),
-                correlation_tag("claude-code", corr),
-                f"task-corr:{corr}",
-                f"claude-code-session:{sid}",
-                f"reply-to:{r.get('id') or ''}",
-            ]
-            if info.get("host"):
-                extra_tags.append(f"host:{info['host']}")
-            if info.get("project"):
-                extra_tags.append(f"project:{info['project']}")
             try:
                 await write_intent(
                     kind="claude-code-reply",
                     content=content,
-                    extra_tags=extra_tags,
+                    extra_tags=_build_intent_tags(corr, sid, info, r.get("id") or "", closure=False),
                     source="claude-code-watcher",
                 )
                 _last_minted[corr] = ts
@@ -184,6 +210,43 @@ async def claude_code_watcher_tick() -> None:
                     f"[claude-code watcher] write_intent failed: "
                     f"{type(e).__name__}: {e}"
                 )
+
+    # ── Closing sessions: mint ONCE from the closure delta ──
+    # On a tasked dispatch, claude often runs entirely through tool
+    # calls (WebFetch + the closure-delta-write Bash) and emits an
+    # empty assistant Stop hook — no `assistant`-tagged delta exists
+    # to mint from. The closure delta IS the final reply in that case,
+    # and the loop should wake on it just the same.
+    for corr, info in closing.items():
+        closure = info["closure_delta"]
+        closure_id = closure.get("id") or ""
+        closure_ts = closure.get("timestamp") or ""
+        if not closure_id or not closure_ts:
+            continue
+        if _last_minted.get(corr, "") >= closure_ts:
+            continue
+        sid = info["claude_session_id"]
+        content = (closure.get("content") or "").strip()
+        if not content:
+            _last_minted[corr] = closure_ts
+            continue
+        try:
+            await write_intent(
+                kind="claude-code-reply",
+                content=content,
+                extra_tags=_build_intent_tags(corr, sid, info, closure_id, closure=True),
+                source="claude-code-watcher",
+            )
+            _last_minted[corr] = closure_ts
+            print(
+                f"[claude-code watcher] minted CLOSURE intent for corr "
+                f"{corr[:12]} from delta {closure_id[:8]}"
+            )
+        except Exception as e:
+            print(
+                f"[claude-code watcher] write_intent (closure) failed: "
+                f"{type(e).__name__}: {e}"
+            )
 
 
 async def claude_code_watcher_loop() -> None:

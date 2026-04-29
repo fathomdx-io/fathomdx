@@ -17,9 +17,9 @@
  */
 
 import { spawn } from "child_process";
-import { readFileSync, writeFileSync, mkdirSync, existsSync } from "fs";
+import { readFileSync, writeFileSync, renameSync, mkdirSync, existsSync } from "fs";
 import { homedir, hostname } from "os";
-import { join, dirname } from "path";
+import { join, dirname, resolve } from "path";
 
 const STATE_PATH = join(homedir(), ".fathom", "kitty-state.json");
 const SOCKET_DIR = "/tmp";
@@ -96,6 +96,19 @@ const MAX_FIRE_AGE_MS = 6 * 60 * 60 * 1000; // 6h
 // route subsequent session deltas back as intents.
 const openTasks = new Map();
 
+// Set of correlation ids we've seen `task-complete` deltas for during
+// this run. Witness's reply to a closure intent should route as
+// `chat-reply` (the witness branch handles that), but if anything ever
+// re-emits a `to:claude-code:<corr>` for an already-closed corr, this
+// gate makes us refuse to respawn — the task is over; a new window
+// would have no continuity with the prior session anyway.
+//
+// Bounded only by process lifetime — agent restart clears it. That's
+// fine: respawn-after-restart is a rare path, and the cost (one
+// orphaned re-spawn) is small compared to keeping a persistent set
+// across runs.
+const knownCompletedCorrs = new Set();
+
 function loadState() {
   try {
     return JSON.parse(readFileSync(STATE_PATH, "utf8"));
@@ -128,6 +141,46 @@ function expandDefaultDir(p) {
   if (!p || p === "~") return homedir();
   if (p.startsWith("~/")) return join(homedir(), p.slice(2));
   return p;
+}
+
+// Pre-accept claude-code's per-folder workspace-trust dialog so a fresh
+// spawn into a directory the user hasn't manually opened in claude
+// before doesn't block at the "Do you trust this folder?" prompt. The
+// dialog also renders `❯` (its menu cursor), which previously fooled
+// the input-readiness check into injecting the prompt straight into
+// the trust dialog. Pre-writing the trust state in ~/.claude.json is
+// equivalent to the user accepting the dialog manually once: future
+// claude sessions in that directory carry the same accepted state.
+//
+// Atomic write via temp-file + rename so a concurrent claude process
+// reading the config can't observe a half-written file. Failures are
+// logged but never thrown — claude will just show its own dialog,
+// which the user can dismiss.
+function ensureClaudeTrustsDir(rawDir) {
+  if (!rawDir) return;
+  const absDir = resolve(rawDir);
+  const path = join(homedir(), ".claude.json");
+  if (!existsSync(path)) return;
+  let cfg;
+  try {
+    cfg = JSON.parse(readFileSync(path, "utf8"));
+  } catch (e) {
+    console.warn(`  kitty: couldn't parse ~/.claude.json, skipping trust pre-write: ${e.message}`);
+    return;
+  }
+  cfg.projects = cfg.projects || {};
+  const proj = cfg.projects[absDir] || {};
+  if (proj.hasTrustDialogAccepted === true) return;
+  proj.hasTrustDialogAccepted = true;
+  cfg.projects[absDir] = proj;
+  const tmp = `${path}.fathom-tmp.${process.pid}`;
+  try {
+    writeFileSync(tmp, JSON.stringify(cfg, null, 2));
+    renameSync(tmp, path);
+    console.log(`  kitty: pre-trusted ${absDir} in ~/.claude.json`);
+  } catch (e) {
+    console.warn(`  kitty: couldn't write ~/.claude.json: ${e.message}`);
+  }
 }
 
 // Pull the prompt body from a witness card. Witness writes JSON
@@ -300,6 +353,7 @@ async function pollOnce(config, pusher, state) {
   for (const c of taskCloses) {
     const corr = tag(c, "task-corr:");
     if (!corr) continue;
+    knownCompletedCorrs.add(corr);
     const entry = openTasks.get(corr);
     if (!entry) continue;
     console.log(`  🐈 close task ${corr.slice(0, 12)} (task-complete landed)`);
@@ -344,6 +398,15 @@ function dispatchClaudeCodeTask(delta, config, pusher, myHost) {
   }
   if (!corr) {
     console.warn(`  kitty: claude-code dispatch ${delta.id.slice(0, 8)} missing to:claude-code:<corr>`);
+    return;
+  }
+
+  // Refuse to respawn a task that already wrapped. The witness's
+  // reply to a closure intent is supposed to route as `chat-reply`,
+  // but treat that as a soft contract — if anything routes back
+  // here for a known-closed corr, ignore it.
+  if (knownCompletedCorrs.has(corr)) {
+    console.log(`  🐈 ignoring dispatch for already-closed task ${corr.slice(0, 12)}`);
     return;
   }
 
@@ -421,6 +484,11 @@ export function spawnClaudeInKitty({
   pusher, // optional — for logging a launch receipt
   receiptExpiresAt, // optional ISO; receipt delta TTL
 }) {
+  // Pre-accept the workspace trust dialog for this directory so the
+  // injection path doesn't race against (or land inside) claude's
+  // first-run prompt. No-op when already trusted.
+  ensureClaudeTrustsDir(workspaceCwd);
+
   const stamp = Date.now();
   const title = `fathom-${sessionLabel}-${stamp}`;
   const socket = join(SOCKET_DIR, `kitty-${title}`);

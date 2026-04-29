@@ -300,6 +300,19 @@ def get_feed(
                 **common,
             })
             continue
+        # Claude-code task channel — closure deltas from a tasked
+        # claude-code session, plus any other claude-code:task source
+        # output. Routed under its own kind so the Claude Code filter
+        # category (on by default) surfaces them, instead of getting
+        # buried under `thinking` with the rest of the lake-delta noise.
+        if "task-complete" in tags or d.get("source") == "claude-code:task":
+            items.append({
+                "kind": "claude-code",
+                "from_source": "claude-code:task",
+                "content": d.get("content") or "",
+                **common,
+            })
+            continue
         # Lake delta — telepathy mirror of recent durable lake activity
         # (RSS arrivals, claude-code session deltas, anything new in the
         # lake that isn't loop-output noise). Surfaced under its own kind
