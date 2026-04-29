@@ -168,7 +168,9 @@ async function summarizePlugins() {
 
 async function emitHeartbeat(config, pusher, startedAt) {
   const expiryMs = config.expiry_ms || DEFAULT_EXPIRY_MS;
-  const host = config.host || hostname();
+  // Short form keeps this in lockstep with the delta hook's `hostname -s`,
+  // so `host:<x>` tags written by Node and by the shell hook compare equal.
+  const host = config.host || hostname().split(".")[0];
 
   const allPluginConfigs = readPluginConfig();
   const localUi = allPluginConfigs.localui;

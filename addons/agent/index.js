@@ -388,7 +388,7 @@ async function runInit(cliArgs, plugins, existingConfig) {
     existingConfig.api_url ||
     "http://localhost:8201";
   const pairCode = overrides["pair-code"] || overrides.code || "";
-  const host = overrides.host || existingConfig.host || hostname();
+  const host = overrides.host || existingConfig.host || hostname().split(".")[0];
 
   const configExists = existsSync(CONFIG_PATH);
   let branch = "fresh";

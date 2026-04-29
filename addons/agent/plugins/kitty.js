@@ -354,7 +354,7 @@ function fire(delta, config, pusher) {
   // skip fires not addressed to us so every agent's kitty plugin doesn't
   // race to spawn windows for host-pinned routines. Fires with no host tag
   // are fleet-wide and accepted everywhere.
-  const myHost = config.host || hostname();
+  const myHost = config.host || hostname().split(".")[0];
   if (targetHost && targetHost !== myHost) return;
 
   // ── Agent veto ──
