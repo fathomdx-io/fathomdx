@@ -82,6 +82,20 @@ export const CONFIG_SHAPE = {
 const openFires = new Map();
 const MAX_FIRE_AGE_MS = 6 * 60 * 60 * 1000; // 6h
 
+// Map of task-correlation → { socket, claude_session_id, cwd, spawned_at,
+// launched_iso, task_delta_id } for open claude-code-channel tasks.
+//
+// Distinct from openFires because the keys are different (correlation vs
+// fire-delta-id), the close trigger is different (`task-complete` vs
+// `routine-summary`), and the lifecycle supports mid-task continuation —
+// a second `to:claude-code:<corr>` for an already-open task injects into
+// the same window via kittySendText instead of respawning.
+//
+// `claude_session_id` is null until the handshake matches the first hook
+// delta from the spawned session; once set, the loop watcher uses it to
+// route subsequent session deltas back as intents.
+const openTasks = new Map();
+
 function loadState() {
   try {
     return JSON.parse(readFileSync(STATE_PATH, "utf8"));
@@ -116,10 +130,69 @@ function expandDefaultDir(p) {
   return p;
 }
 
+// Pull the prompt body from a witness card. Witness writes JSON
+// {kicker, title, body, tail, ...}; older or hand-written test deltas
+// might be plain text — fall through gracefully.
+function extractTaskBody(delta) {
+  const raw = (delta.content || "").trim();
+  if (!raw) return "";
+  if (raw.startsWith("{")) {
+    try {
+      const payload = JSON.parse(raw);
+      return (payload.body || "").trim();
+    } catch {
+      /* fall through to raw */
+    }
+  }
+  return raw;
+}
+
+// The footer instructs claude to write a closure delta when the task
+// wraps up. The `[fathom-task:<corr>]` line is also the handshake
+// marker — we match on this substring in the first hook delta from
+// the spawned session to learn its claude session id.
+function buildTaskPrompt(body, corr) {
+  return [
+    `[fathom-task:${corr}]`,
+    "",
+    body,
+    "",
+    "---",
+    `When this task is complete, write a closure delta:`,
+    `\`fathom delta write "<your reply or summary>" --tags task-complete,task-corr:${corr},kind:claude-code-reply --source claude-code:task\``,
+    "",
+    "Intermediate progress: write deltas as you go — your normal hook deltas are picked up automatically.",
+  ].join("\n");
+}
+
+// Find the timestamp of the oldest task awaiting handshake. The
+// handshake-candidate poll uses this as time_start so we don't ask
+// for the entire claude-code source history.
+function oldestUnmatchedTaskIso() {
+  let oldest = null;
+  for (const entry of openTasks.values()) {
+    if (entry.claude_session_id) continue;
+    if (!oldest || entry.launched_iso < oldest) oldest = entry.launched_iso;
+  }
+  return oldest;
+}
+
 async function pollOnce(config, pusher, state) {
-  let fires, summaries;
+  const myHost = config.host || hostname().split(".")[0];
+
+  // Backfill new state fields on first run after upgrade — the saved
+  // file from older versions only carries `last_seen` and the routine
+  // bookkeeping. Without these defaults the claude-code queries would
+  // fall back to `time_start: undefined` and re-fetch the world.
+  if (!state.task_seen_at) state.task_seen_at = state.last_seen;
+
+  // Build the handshake-candidate query window only if we actually have
+  // tasks awaiting their session id. Skip the round-trip otherwise.
+  const handshakeWindowStart = oldestUnmatchedTaskIso();
+
+  let fires, summaries, taskDispatches, taskCloses, handshakeCandidates;
   try {
-    [fires, summaries] = await Promise.all([
+    [fires, summaries, taskDispatches, taskCloses, handshakeCandidates] = await Promise.all([
       pusher.query({ tags_include: "routine-fire", time_start: state.last_seen, limit: 50 }),
       // Summaries poll from the earliest open fire, so a slow routine whose
       // summary lands after state.last_seen advances still gets matched.
@@ -128,6 +201,30 @@ async function pollOnce(config, pusher, state) {
         time_start: state.oldest_open_fire || state.last_seen,
         limit: 50,
       }),
+      // Claude-code-channel dispatches — witness cards routed at this
+      // host. AND-semantics on tags_include (route:claude-code AND
+      // host:<myhost>) means each agent only ever sees fires for itself,
+      // even before the per-delta veto runs.
+      pusher.query({
+        tags_include: `route:claude-code,host:${myHost}`,
+        time_start: state.task_seen_at,
+        limit: 50,
+      }),
+      pusher.query({
+        tags_include: "task-complete",
+        time_start: state.oldest_open_task || state.task_seen_at,
+        limit: 50,
+      }),
+      // Handshake candidates: hooks fire on every claude-code session on
+      // this host, so this is potentially noisy. We filter client-side by
+      // the [fathom-task:<corr>] marker we embedded in the spawned prompt.
+      handshakeWindowStart
+        ? pusher.query({
+            source: "claude-code",
+            time_start: handshakeWindowStart,
+            limit: 100,
+          })
+        : Promise.resolve([]),
     ]);
   } catch (e) {
     console.error(`  kitty: poll failed: ${e.message}`);
@@ -156,16 +253,142 @@ async function pollOnce(config, pusher, state) {
     openFires.delete(fireId);
   }
 
+  // ── Claude-code-channel ─────────────────────────────────────────────
+  taskDispatches.sort((a, b) => (a.timestamp || "").localeCompare(b.timestamp || ""));
+
+  for (const d of taskDispatches) {
+    if (d.timestamp <= state.task_seen_at) continue;
+    dispatchClaudeCodeTask(d, config, pusher, myHost);
+    state.task_seen_at = d.timestamp;
+  }
+  if (taskDispatches.length) saveState(state);
+
+  // Match handshake candidates against open unmatched tasks. The
+  // `[fathom-task:<corr>]` substring is the join key — uniqueness comes
+  // from the corr value itself, which is per-task.
+  for (const cand of handshakeCandidates) {
+    const candHost = (cand.tags || []).find((t) => t.startsWith("host:"))?.slice(5);
+    if (candHost && candHost !== myHost) continue;
+    const content = cand.content || "";
+    for (const [corr, entry] of openTasks) {
+      if (entry.claude_session_id) continue;
+      if (!content.includes(`[fathom-task:${corr}]`)) continue;
+      const sid = (cand.tags || []).find((t) => t.startsWith("session:"))?.slice(8);
+      if (!sid) break;
+      const projectTag = (cand.tags || []).find((t) => t.startsWith("project:"))?.slice(8);
+      entry.claude_session_id = sid;
+      if (projectTag) entry.cwd = projectTag;
+      console.log(`  🐈 handshake ${corr.slice(0, 12)} → claude session ${sid.slice(0, 8)}`);
+      // Join delta — the loop's claude-code watcher uses this to know
+      // that subsequent `session:<sid>` deltas belong to this task.
+      pusher?.push?.({
+        content: `[task-spawn] task ${corr} → claude session ${sid} on ${myHost}`,
+        tags: [
+          "task-spawn",
+          `task-corr:${corr}`,
+          `claude-code-session:${sid}`,
+          `host:${myHost}`,
+          ...(projectTag ? [`project:${projectTag}`] : []),
+        ],
+        source: "kitty",
+      });
+      break;
+    }
+  }
+
+  // Close windows whose task just wrote a task-complete delta.
+  for (const c of taskCloses) {
+    const corr = tag(c, "task-corr:");
+    if (!corr) continue;
+    const entry = openTasks.get(corr);
+    if (!entry) continue;
+    console.log(`  🐈 close task ${corr.slice(0, 12)} (task-complete landed)`);
+    closeWindow(entry.socket);
+    openTasks.delete(corr);
+  }
+
   // Prune stale entries whose summary never arrived.
   const now = Date.now();
   for (const [fireId, entry] of openFires) {
     if (now - entry.launched_at > MAX_FIRE_AGE_MS) openFires.delete(fireId);
+  }
+  for (const [corr, entry] of openTasks) {
+    if (now - entry.spawned_at > MAX_FIRE_AGE_MS) openTasks.delete(corr);
   }
   // Track the oldest open fire's delta timestamp so the next summary poll
   // reaches back far enough to catch it.
   state.oldest_open_fire = openFires.size
     ? [...openFires.values()].map((e) => e.launched_iso).sort()[0]
     : null;
+  state.oldest_open_task = openTasks.size
+    ? [...openTasks.values()].map((e) => e.launched_iso).sort()[0]
+    : null;
+}
+
+// Spawn a new claude-code window for a task dispatch, OR — if a window
+// for this correlation is already open — inject the next prompt into it
+// via kittySendText. The "same window for the whole task" property is
+// what lets multi-turn back-and-forth between Fathom and a tasked claude
+// session feel like an actual conversation rather than a chain of
+// disconnected one-shots.
+function dispatchClaudeCodeTask(delta, config, pusher, myHost) {
+  // Pull the corr off the `to:claude-code:<corr>` tag. The witness
+  // stamps this for every claude-code-routed card; without it we have
+  // nothing to track the task by, so skip.
+  let corr = null;
+  for (const t of delta.tags || []) {
+    if (t.startsWith("to:claude-code:")) {
+      corr = t.slice("to:claude-code:".length);
+      break;
+    }
+  }
+  if (!corr) {
+    console.warn(`  kitty: claude-code dispatch ${delta.id.slice(0, 8)} missing to:claude-code:<corr>`);
+    return;
+  }
+
+  const body = extractTaskBody(delta);
+  if (!body) {
+    // Empty body is a meaningful signal at the openai surface (loop
+    // chose silence) but a no-op for the kitty surface — there's
+    // nothing to inject. Skip without spawning.
+    return;
+  }
+
+  const prompt = buildTaskPrompt(body, corr);
+
+  // Mid-task continuation — inject into the existing window.
+  const existing = openTasks.get(corr);
+  if (existing && kittySocketAlive(existing.socket)) {
+    console.log(`  🐈 task-cont ${corr.slice(0, 12)} (sendText into open window)`);
+    kittySendText(existing.socket, prompt, { submit: true });
+    return;
+  }
+
+  // Fresh dispatch — spawn a new window.
+  const cwd = expandDefaultDir(config.default_workspace);
+  console.log(`  🐈 task-spawn ${corr.slice(0, 12)} (cwd: ${cwd})`);
+  const { socket, spawnedAt } = spawnClaudeInKitty({
+    workspaceCwd: cwd,
+    prompt,
+    permissionMode: "auto",
+    sessionLabel: `task-${corr.slice(0, 12)}`,
+    claudeBin: config.claude_command,
+    kittyBin: config.kitty_command,
+    kittyBackground: config.kitty_background,
+    autoSubmit: config.auto_submit !== false,
+    injectReadyTimeoutMs: config.inject_ready_timeout_ms,
+    pusher,
+    receiptExpiresAt: null,
+  });
+  openTasks.set(corr, {
+    socket,
+    claude_session_id: null,
+    cwd,
+    spawned_at: spawnedAt,
+    launched_iso: new Date(spawnedAt).toISOString(),
+    task_delta_id: delta.id,
+  });
 }
 
 export function closeWindow(socket) {
