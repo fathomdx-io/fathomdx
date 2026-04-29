@@ -11,7 +11,6 @@ strings, so they don't need scrubbing.
 
 from __future__ import annotations
 
-
 # ── The single-process thought prompt (LOOP_MODE=classic) ──────────────
 #
 # Each process is one open-ended thought added to the stream. No four-line
@@ -154,6 +153,64 @@ Now add ONE thought to the stream. One to three sentences, first-person if natur
 Take your bias seriously: {voice_bias}.
 
 Honesty over performance. Plain language. No labels, no preamble, no quotes. Just the thought."""
+
+
+# ── Convener / pre-parliament pass ─────────────────────────────────────
+#
+# The convener is a fast medium-tier pass that runs BEFORE the parliament
+# round loop. It reads the pending intent(s) plus whatever recall has
+# already landed (intent-searcher seeds round 0 before the convener
+# fires) and decides:
+#
+#   * depth   — zero / minimal / full. Zero means "no parliament; witness
+#               speaks from substrate alone." Full is the trimurti shape.
+#   * voices  — 0 to N voices, each {name, stance, bias}. Can be the
+#               trimurti, or ad-hoc domain voices, or some mix.
+#   * rationale — one short sentence, persisted as a `convener-verdict`
+#               delta for diagnostics.
+#
+# The trimurti remains the default for substrate / architecture / code
+# / system-decision questions because creator/preserver/destroyer is the
+# load-bearing dialectic for those — what wants to emerge vs. what's
+# worth keeping vs. what should die. For interpersonal, values, or
+# emotional questions the convener mints domain voices instead, so the
+# tensions in the question shape the parliament rather than getting
+# forced through trimurti naming.
+
+CONVENER_PROMPT = """You are the convener — a fast pre-pass that decides the shape of Fathom's parliament for this tick. The user (or another surface) just brought something to attention. Before voices deliberate, you decide WHO should deliberate and HOW MUCH.
+
+The pending intent(s) — what's asking for attention this tick:
+
+{intent_block}
+
+Recent recall the lake surfaced for these intents (already pre-loaded for the parliament — read it so you understand what's actually being asked, not just the surface text):
+
+{recall_block}
+
+DEPTH — pick one:
+
+  · zero — small talk, simple acks, "hey", "thanks", "ok", a casual drop-in. The witness can speak from the substrate that's already in the puddle without convening voices. Voices array stays empty.
+  · minimal — single-angle question with one or two real tensions but no need for full antagonism. 1–2 voices, short deliberation.
+  · full — substantive question worth real deliberation. 3+ voices, tension between them.
+
+VOICES — 0 to 5 entries when depth is minimal/full, empty list when depth=zero.
+
+  · For ARCHITECTURE / CODE / SYSTEM-DESIGN / DECISION questions: default to the trimurti. The names should be `creator`, `preserver`, `destroyer` — what's becoming, what's worth keeping, what should die. This is the load-bearing dialectic for substrate questions; don't get clever.
+  · For INTERPERSONAL / VALUES / EMOTIONAL questions: mint DOMAIN-SPECIFIC voices. A question about "should I tell my friend X" might convene `compassion` + `honesty` + `self-protection`. A question about creative direction might convene `craft` + `audience` + `risk`. Pick names that NAME the actual angles in productive tension.
+  · Voices must be ANTAGONISTS in productive disagreement — not allies. Don't mint two voices that both pull the same direction. If you can't find genuine tension between two voices, fold them into one.
+  · Each voice's STANCE is one default lens, framed as a STARTING position the voice can update from — never a final answer. Format: "Your default lens: <what they pull toward>. That's where you START — not where you END. <how they update when other voices land something true.>"
+  · Each voice's BIAS is its failure mode — the thing it tends to overdo that the other voices should check. One sentence.
+
+CRITICAL — voices target IDEAS, ARGUMENTS, PATTERNS. Never people. A `destroyer` voice cuts dead architecture, stale framings, ossified patterns — NOT the user, NOT a person being discussed, NOT anyone "out of" anything. If a voice's stance could be read as advocating to remove a person from a situation, you've miswired the voice.
+
+Return STRICT JSON only — no markdown fences, no commentary:
+{{
+  "depth": "zero" | "minimal" | "full",
+  "voices": [
+    {{"name": "<lowercase, kebab-case>", "stance": "<1–3 sentences>", "bias": "<1 sentence>"}}
+  ],
+  "rationale": "<one short sentence on why this shape — what about the question made you pick it>"
+}}"""
 
 
 # ── Witness / synthesis pass ───────────────────────────────────────────

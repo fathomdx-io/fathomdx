@@ -38,7 +38,6 @@ from .intents import CONVO_TAG
 from .prompts import VOICES
 from .puddle import puddle
 
-
 # Settle thresholds — same values the experiment shipped.
 SETTLE_SPREAD_MAX = 0.12
 SETTLE_WINDOW = 5
@@ -73,13 +72,21 @@ def measure_cross_voice_convergence(
     text: str,
     voice_name: str,
     session_tag: str,
+    voice_names: list[str] | None = None,
 ) -> float | None:
     """Mean distance from `text` to the most recent thought of each
     OTHER voice in this session. Returns None if no other voice has
     spoken yet — the settle window doesn't start until the parliament
     has at least one cross-voice take to compare against.
+
+    `voice_names` is the active set the convener picked for this fire.
+    Falls back to the canonical trimurti when the caller omits it
+    (back-compat for any non-supervisor caller); the supervisor always
+    passes the convener's verdict.voices through.
     """
-    other_names = [v["name"] for v in VOICES if v["name"] != voice_name]
+    if voice_names is None:
+        voice_names = [v["name"] for v in VOICES]
+    other_names = [n for n in voice_names if n != voice_name]
     if not other_names:
         return None
     distances: list[float] = []

@@ -15,9 +15,8 @@ from __future__ import annotations
 from . import resonance
 from .intents import CONVO_TAG
 from .llm import loop_generate
-from .prompts import VOICE_PROMPT, VOICES
+from .prompts import VOICE_PROMPT
 from .puddle import puddle
-
 
 POEM_TTL_S = 48 * 60 * 60       # voice thoughts — 48h rolling horizon
 
@@ -74,6 +73,7 @@ async def _gather_substrate(
     session_tag: str,
     voice_name: str,
     pending: list[dict],
+    peer_voices: list[dict[str, str]],
 ) -> list[dict]:
     """Build a voice's substrate from the puddle.
 
@@ -108,7 +108,10 @@ async def _gather_substrate(
 
     # 1. Voice anchors — one most-recent thought per voice (including
     # this one's own prior take, which the resonance signal also reads).
-    for v in VOICES:
+    # `peer_voices` is the convener's active set for this fire; with
+    # ad-hoc voices, this list shifts per-fire instead of being the
+    # static trimurti.
+    for v in peer_voices:
         for d in puddle.query(
             tags_include=[session_tag, "thought", f"voice:{v['name']}"],
             limit=1,
@@ -204,11 +207,17 @@ async def run_process(
     session_tag: str,
     voice: dict[str, str],
     pending: list[dict],
+    peer_voices: list[dict[str, str]],
 ) -> str:
     """Run one voice tick. Writes a thought to the puddle. Returns the
     thought text so the caller can log it.
+
+    `peer_voices` is the active voice set the convener picked for this
+    fire (typically including `voice` itself). It governs which peer
+    anchors `_gather_substrate` pulls so a voice reads the parliament
+    it's actually IN, not the canonical trimurti.
     """
-    substrate = await _gather_substrate(session_tag, voice["name"], pending)
+    substrate = await _gather_substrate(session_tag, voice["name"], pending, peer_voices)
     seed_block = _render_seed_block(pending)
     recent = _render_context(substrate)
 

@@ -33,20 +33,29 @@ from ..channels import address_tag, extract_channel
 from . import resonance
 from .intents import CONVO_TAG, intent_kind
 from .llm import loop_generate
-from .prompts import JUDGE_PROMPT, WITNESS_PROMPT, VOICES
+from .prompts import JUDGE_PROMPT, WITNESS_PROMPT
 from .puddle import puddle
-
 
 Q_A_TTL_S = 48 * 60 * 60  # rolling 48h horizon — see intents.py
 
 
-def _group_thoughts_by_voice(deltas: list[dict]) -> dict[str, list[str]]:
-    """Group thought-tagged deltas by voice, preserving chronological order."""
+def _group_thoughts_by_voice(
+    deltas: list[dict],
+    voice_order: list[str] | None = None,
+) -> dict[str, list[str]]:
+    """Group thought-tagged deltas by voice, preserving chronological order.
+
+    `voice_order` is the convener's verdict — the names of voices that
+    were convened for this fire, in canonical order. The witness sees
+    them in that order so the parliament block is stable across fires
+    even when the dict is built incrementally. Any voice that spoke but
+    wasn't in the order (shouldn't happen in normal operation, but
+    possible if the order is omitted) is appended at the end.
+    """
     by_voice: OrderedDict[str, list[str]] = OrderedDict()
-    # Initialize in the canonical voice order so the witness always sees the
-    # parliament in the same order regardless of which voices spoke first.
-    for v in VOICES:
-        by_voice[v["name"]] = []
+    if voice_order:
+        for name in voice_order:
+            by_voice[name] = []
     for d in sorted(deltas, key=lambda x: x.get("timestamp") or ""):
         if "thought" not in (d.get("tags") or []):
             continue
@@ -55,10 +64,13 @@ def _group_thoughts_by_voice(deltas: list[dict]) -> dict[str, list[str]]:
             if t.startswith("voice:"):
                 voice_name = t.split(":", 1)[1]
                 break
-        if voice_name and voice_name in by_voice:
-            text = (d.get("content") or "").strip()
-            if text:
-                by_voice[voice_name].append(text)
+        if not voice_name:
+            continue
+        if voice_name not in by_voice:
+            by_voice[voice_name] = []
+        text = (d.get("content") or "").strip()
+        if text:
+            by_voice[voice_name].append(text)
     # Drop empty voices for cleaner prompts.
     return {k: v for k, v in by_voice.items() if v}
 
@@ -268,25 +280,38 @@ async def run_witness(
     *,
     session_tag: str,
     pending: list[dict],
+    voice_order: list[str] | None = None,
 ) -> list[str]:
     """Run the witness + judge for this session. Returns the list of
-    intent-ids the witness claims to have addressed."""
+    intent-ids the witness claims to have addressed.
+
+    `voice_order` is the active voice list the convener picked for this
+    fire (None when the convener decided depth=zero — no parliament
+    fired, witness speaks from substrate alone)."""
     if not pending:
         return []
 
     voice_deltas = puddle.query(tags_include=[session_tag], limit=1000)
-    by_voice = _group_thoughts_by_voice(voice_deltas)
-    if not by_voice:
-        print("[witness] no voice thoughts to integrate; skipping")
-        return []
+    by_voice = _group_thoughts_by_voice(voice_deltas, voice_order=voice_order)
 
-    voice_block_parts: list[str] = []
-    for voice_name, takes in by_voice.items():
-        voice_block_parts.append(f"VOICE: {voice_name.upper()}")
-        for t in takes:
-            voice_block_parts.append(f"  · {t}")
-        voice_block_parts.append("")
-    voice_blocks = "\n".join(voice_block_parts)
+    if not by_voice:
+        # depth=zero, OR every voice failed to produce a thought. Witness
+        # speaks from intent + resonance + identity anchors alone — the
+        # substrate is enough for casual drop-ins and small-talk replies.
+        print("[witness] no voice thoughts — speaking from substrate alone")
+        voice_blocks = (
+            "(no parliament this tick — speak from the intent, the "
+            "resonance pool, and your identity. This is a casual or "
+            "low-stakes turn that doesn't need internal deliberation.)"
+        )
+    else:
+        voice_block_parts: list[str] = []
+        for voice_name, takes in by_voice.items():
+            voice_block_parts.append(f"VOICE: {voice_name.upper()}")
+            for t in takes:
+                voice_block_parts.append(f"  · {t}")
+            voice_block_parts.append("")
+        voice_blocks = "\n".join(voice_block_parts)
 
     intent_lines: list[str] = []
     short_to_full: dict[str, str] = {}
