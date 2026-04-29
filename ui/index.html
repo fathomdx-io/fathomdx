@@ -435,34 +435,83 @@
       cursor: pointer;
     }
     .claude-code-task .cc-resume:hover { color: var(--ink); border-color: var(--ink-faint); }
-    /* Claude-code dispatches and replies — both share the cyan tint so
-       the eye links them with the status strip. The arrow direction in
-       the header tells the user which way the message is flowing. */
+    /* Claude-code dispatches and replies — terminal-window styling.
+       Dark background, mono throughout, claude-code icon inline-left
+       in the header, blinking cursor rectangle at the end of the body
+       so it reads as a live shell. No left border — the dark surface
+       is the visual signature. */
     .feed .delta.claude-code-dispatch,
     .feed .delta.claude-code-reply {
-      border-left-color: #06b6d4;
+      border-left: none;
+      background: #0d0d0d;
+      border-radius: 6px;
+      padding: 0.7rem 0.95rem;
+    }
+    .feed .delta.claude-code-dispatch .d-head,
+    .feed .delta.claude-code-reply .d-head {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      margin-bottom: 0.6rem;
+      padding-bottom: 0.45rem;
+      border-bottom: 1px solid rgba(6, 182, 212, 0.18);
+    }
+    .feed .delta.claude-code-dispatch .cc-icon,
+    .feed .delta.claude-code-reply .cc-icon {
+      width: 14px;
+      height: 14px;
+      color: #06b6d4;
+      flex-shrink: 0;
+      display: inline-flex;
+      align-items: center;
+    }
+    .feed .delta.claude-code-dispatch .cc-icon svg,
+    .feed .delta.claude-code-reply .cc-icon svg {
+      width: 100%;
+      height: 100%;
     }
     .feed .delta.claude-code-dispatch .d-kind,
     .feed .delta.claude-code-reply .d-kind {
       color: #06b6d4;
       font-family: var(--mono);
       font-size: 11px;
-      letter-spacing: 0.06em;
+      letter-spacing: 0.08em;
       text-transform: lowercase;
+      flex: 1;
+    }
+    .feed .delta.claude-code-dispatch .d-ts,
+    .feed .delta.claude-code-reply .d-ts {
+      color: rgba(6, 182, 212, 0.55);
     }
     .feed .delta.claude-code-dispatch .cc-arrow,
     .feed .delta.claude-code-reply .cc-arrow {
       color: #06b6d4;
-      opacity: 0.8;
-      margin: 0 0.2em;
+      opacity: 0.7;
+      margin: 0 0.25em;
     }
-    /* Dispatch body is a literal prompt — render mono so it reads as
-       instructions to a system, not as chat prose. */
-    .feed .delta.claude-code-dispatch .d-body.cc-prompt {
+    .feed .delta.claude-code-dispatch .d-body,
+    .feed .delta.claude-code-reply .d-body {
       font-family: var(--mono);
-      font-size: 12px;
-      color: var(--ink-soft);
+      font-size: 12.5px;
+      color: #d4d4d4;
+      line-height: 1.55;
       white-space: pre-wrap;
+    }
+    /* Blinking-cursor rectangle at the end of the body — cyan to
+       echo the status strip and the chip in the header. */
+    .feed .delta.claude-code-dispatch .cc-cursor,
+    .feed .delta.claude-code-reply .cc-cursor {
+      display: inline-block;
+      width: 0.55em;
+      height: 1em;
+      vertical-align: text-bottom;
+      background: #06b6d4;
+      margin-left: 0.2em;
+      animation: cc-cursor-blink 1.05s steps(2, jump-none) infinite;
+    }
+    @keyframes cc-cursor-blink {
+      0%, 49%   { opacity: 1; }
+      50%, 100% { opacity: 0; }
     }
     /* Voice-tinted thoughts — the trimurti palette from the experiment. */
     .feed .delta.thought.voice-creator   { border-left-color: #f97316; }
@@ -8632,46 +8681,33 @@ GET  /v1/usage               Usage stats`,
       }
       // Claude-code DISPATCH — Fathom telling a claude-code agent on
       // a specific machine to do work. The body is the literal prompt
-      // claude reads, so we render it mono so it reads as instructions,
-      // not as a chat reply. Header carries the direction (Fathom →
-      // <host>) so the user can tell at a glance which way the message
-      // is flowing.
-      if (it.kind === 'claude-code-dispatch') {
+      // claude reads, rendered as a terminal window: dark surface,
+      // mono everywhere, claude-code icon inline-left in the header,
+      // a blinking cyan cursor rectangle at the end of the body so
+      // the card reads as a live shell waiting for the next line.
+      if (it.kind === 'claude-code-dispatch' || it.kind === 'claude-code-reply') {
         const el = document.createElement('article');
-        el.className = 'delta claude-code-dispatch';
-        el.dataset.kind = 'claude-code-dispatch';
+        const isDispatch = it.kind === 'claude-code-dispatch';
+        el.className = isDispatch ? 'delta claude-code-dispatch' : 'delta claude-code-reply';
+        el.dataset.kind = isDispatch ? 'claude-code-dispatch' : 'claude-code-reply';
         el.dataset.fromPuddle = '1';
         el.dataset.puddleId = it.id || '';
         if (it.id) el.dataset.deltaId = it.id;
         const host = (it.host || '?').replace(/[<>&]/g, c => ({'<':'&lt;','>':'&gt;','&':'&amp;'}[c]));
-        const body = (it.body || it.content || '').toString();
+        const body = (isDispatch ? (it.body || it.content || '') : (it.content || '')).toString();
+        const icon = (typeof PROVIDER_ICONS === 'object' && PROVIDER_ICONS['claude-code'])
+          ? PROVIDER_ICONS['claude-code']
+          : '';
+        const headLabel = isDispatch
+          ? `fathom <span class="cc-arrow">→</span> ${host}`
+          : `${host} <span class="cc-arrow">←</span> claude`;
         el.innerHTML = `
           <header class="d-head">
-            <span class="d-kind">fathom <span class="cc-arrow">→</span> ${host}</span>
+            <span class="cc-icon">${icon}</span>
+            <span class="d-kind">${headLabel}</span>
             <span class="d-ts">${timeStr}</span>
           </header>
-          <div class="d-body cc-prompt">${_esc(body)}</div>
-        `;
-        return el;
-      }
-      // Claude-code REPLY — closure deltas from a tasked claude-code
-      // session. Inverse direction from dispatch (host ← claude). Body
-      // renders as prose since it's claude's narrative response, not
-      // an executable prompt.
-      if (it.kind === 'claude-code-reply') {
-        const el = document.createElement('article');
-        el.className = 'delta claude-code-reply';
-        el.dataset.kind = 'claude-code-reply';
-        el.dataset.fromPuddle = '1';
-        el.dataset.puddleId = it.id || '';
-        if (it.id) el.dataset.deltaId = it.id;
-        const host = (it.host || '?').replace(/[<>&]/g, c => ({'<':'&lt;','>':'&gt;','&':'&amp;'}[c]));
-        el.innerHTML = `
-          <header class="d-head">
-            <span class="d-kind">${host} <span class="cc-arrow">←</span> claude</span>
-            <span class="d-ts">${timeStr}</span>
-          </header>
-          <div class="d-body">${_esc(it.content || '')}</div>
+          <div class="d-body">${_esc(body)}<span class="cc-cursor" aria-hidden="true"></span></div>
         `;
         return el;
       }

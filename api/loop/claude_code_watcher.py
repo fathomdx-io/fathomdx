@@ -70,6 +70,13 @@ async def _mirror_closure_to_puddle(closure: dict, info: dict, corr: str) -> Non
     if existing:
         return
     src_tags = list(closure.get("tags") or [])
+    # Inject `host:<H>` from the task-spawn join — claude writes the
+    # closure via `fathom delta write` and doesn't know its own host,
+    # so the lake-side closure delta has no host tag. Without this
+    # the feed's reply card renders as "? ← claude" instead of
+    # "<host> ← claude".
+    if info.get("host") and not any(t.startswith("host:") for t in src_tags):
+        src_tags.append(f"host:{info['host']}")
     new_tags = src_tags + [
         CONVO_TAG,
         "lake-delta",
