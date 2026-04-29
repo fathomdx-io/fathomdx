@@ -2,12 +2,20 @@
 
 Accepts a JSON query plan with named steps. Each step is one of:
   search, filter, intersect, union, diff, bridge, aggregate, chain,
-  neighbors.
+  neighbors, timeline.
 
 `neighbors` is the region primitive — for each delta in a referenced
 step, fetch the temporally-surrounding deltas (default same source,
 ±30 minutes). Use when the load-bearing context of a hit is its
 neighbors, not the hit alone.
+
+`timeline` is the moment-reconstruction primitive — for each delta in
+a referenced step, fetch ALL surrounding deltas (any source, ambient
+included) and assemble them into chronological strips. Strips trim at
+silences larger than `gap_minutes`, run-length collapse high-frequency
+bursts (heartbeats, sysinfo) named in `collapse_sources`, and merge
+when two anchors' windows are close enough to be the same moment.
+Returns `StepResultTimelines`, not deltas.
 
 Search / bridge / chain results pass through a noise rerank: over-
 fetch by 2× + 10, multiply each row's distance by `_noise_modifier`
@@ -38,6 +46,9 @@ from deltas.models import (
     PlanStep,
     StepResultAggregate,
     StepResultDeltas,
+    StepResultTimelines,
+    Timeline,
+    TimelineDelta,
 )
 from deltas.query import _noise_modifier, get_noise_centroid
 from deltas.store import _format_ts, _vec_to_list
@@ -66,6 +77,11 @@ class PlanExecutor:
         resolved: dict[str, list[dict]] = {}
         # Embeddings computed for search steps — keyed by step id
         embeddings: dict[str, np.ndarray] = {}
+        # Timelines produced by `timeline` steps — keyed by step id.
+        # Each entry is a list of dicts: {id, t_start, t_end, anchor_ids,
+        # deltas (list[TimelineDelta]), _raw_deltas (real deltas only,
+        # for downstream chaining)}.
+        timelines_by_step: dict[str, list[dict]] = {}
         warnings: list[str] = []
 
         for step in steps:
@@ -167,14 +183,62 @@ class PlanExecutor:
                 rows = await self._exec_neighbors(step, source_rows)
                 resolved[step.id] = rows
 
+            elif action == "timeline":
+                source_rows = resolved.get(step.timeline, [])
+                if not source_rows:
+                    warnings.append(
+                        f"step '{step.id}' skipped: input '{step.timeline}' is empty"
+                    )
+                    timelines_by_step[step.id] = []
+                    resolved[step.id] = []
+                    continue
+                tls = await self._exec_timeline(step, source_rows)
+                timelines_by_step[step.id] = tls
+                # Also flatten real (non-collapsed) deltas into resolved so
+                # downstream chain/bridge steps can still reference this
+                # step. Collapsed virtual rows are skipped — they have no
+                # embedding and aren't real lake rows.
+                flat: list[dict] = []
+                seen_ids: set[str] = set()
+                for tl in tls:
+                    for d in tl["_raw_deltas"]:
+                        did = d.get("id")
+                        if not did or did in seen_ids:
+                            continue
+                        seen_ids.add(did)
+                        flat.append(d)
+                resolved[step.id] = flat
+
         # Build response
         elapsed_ms = (time.monotonic() - t0) * 1000
-        step_results: dict[str, StepResultDeltas | StepResultAggregate] = {}
+        step_results: dict[
+            str, StepResultDeltas | StepResultAggregate | StepResultTimelines
+        ] = {}
 
         for step in steps:
             action = self._action_type(step)
-            data = resolved.get(step.id, [])
 
+            if action == "timeline":
+                tls = timelines_by_step.get(step.id, [])
+                count = sum(
+                    1 for tl in tls for d in tl["deltas"] if d.kind != "collapsed"
+                )
+                step_results[step.id] = StepResultTimelines(
+                    count=count,
+                    timelines=[
+                        Timeline(
+                            id=tl["id"],
+                            t_start=tl["t_start"],
+                            t_end=tl["t_end"],
+                            anchor_ids=tl["anchor_ids"],
+                            deltas=tl["deltas"],
+                        )
+                        for tl in tls
+                    ],
+                )
+                continue
+
+            data = resolved.get(step.id, [])
             if action == "aggregate":
                 # data is already a list of AggBucket-like dicts
                 step_results[step.id] = StepResultAggregate(buckets=[AggBucket(**b) for b in data])
@@ -198,7 +262,7 @@ class PlanExecutor:
                 raise ValueError(
                     f"Step '{step.id}' has no action — must set exactly one of: "
                     "search, filter, intersect, union, diff, bridge, aggregate, "
-                    "chain, neighbors"
+                    "chain, neighbors, timeline"
                 )
 
             # Check references point to earlier steps
@@ -221,6 +285,7 @@ class PlanExecutor:
             "aggregate",
             "chain",
             "neighbors",
+            "timeline",
         ):
             if getattr(step, action) is not None:
                 return action
@@ -229,7 +294,7 @@ class PlanExecutor:
     def _get_refs(self, step: PlanStep, action: str) -> list[str]:
         if action in ("intersect", "union", "diff", "bridge"):
             return getattr(step, action, []) or []
-        if action in ("aggregate", "chain", "neighbors"):
+        if action in ("aggregate", "chain", "neighbors", "timeline"):
             val = getattr(step, action, None)
             return [val] if val else []
         return []
@@ -523,6 +588,343 @@ class PlanExecutor:
         merged = [d for _, d in best.values()]
         merged.sort(key=lambda d: d.get("distance", 0.0))
         return merged[: step.limit]
+
+    # ── Timeline execution ───────────────────────────────────────────────
+
+    async def _exec_timeline(
+        self, step: PlanStep, seeds: list[dict]
+    ) -> list[dict]:
+        """For each seed, build a chronological strip of surrounding deltas.
+
+        Returns a list of timeline dicts ordered by t_start, where each
+        dict has shape::
+
+          {"id": "tl_0",
+           "t_start": "ISO",
+           "t_end": "ISO",
+           "anchor_ids": [...],
+           "deltas": [TimelineDelta, ...],
+           "_raw_deltas": [dict, ...]}  # internal: real (non-collapsed)
+                                        # source rows, for downstream chain
+
+        Pipeline per seed:
+          1. SQL fetch: all deltas within ±radius_minutes of the seed,
+             any source (ambient texture comes along), excluding any
+             explicit `exclude_sources`.
+          2. Sort chronologically.
+          3. Gap trim: from the seed outward, stop at any silence
+             larger than `gap_minutes`. The silence is the boundary.
+          4. Per-side cap: take at most `max_per_side` deltas each
+             direction (after gap trim).
+          5. Run-length collapse: consecutive same-source deltas in
+             `collapse_sources` of length ≥2 fold into a single
+             virtual `kind:collapsed` row.
+
+        Then across seeds:
+          6. Sort windows by t_start.
+          7. Interval merge: any two windows whose ranges are within
+             `merge_gap_seconds` of each other become one timeline.
+             Anchor sets union; deltas dedupe by id (real anchor flag
+             OR'd; collapsed runs from different windows that overlap
+             get re-collapsed at merge time).
+        """
+        if not seeds:
+            return []
+
+        # Build seed rows (id, ts, src). Skip seeds without a usable ts.
+        seed_rows: list[tuple[str, datetime, str]] = []
+        for s in seeds:
+            sid = s.get("id")
+            ts_str = s.get("timestamp")
+            src = s.get("source") or ""
+            if not sid or not ts_str:
+                continue
+            try:
+                ts = _parse_ts(ts_str)
+            except Exception:
+                continue
+            seed_rows.append((sid, ts, src))
+        if not seed_rows:
+            return []
+
+        seed_ids = [r[0] for r in seed_rows]
+        seed_ts_by_id = {r[0]: r[1] for r in seed_rows}
+        seed_id_set = set(seed_ids)
+
+        radius_minutes = max(1, int(step.radius_minutes))
+        max_per_side = max(1, int(step.max_per_side))
+        gap_minutes = max(1, int(step.gap_minutes))
+        merge_gap_seconds = max(0, int(step.merge_gap_seconds))
+        collapse_sources = set(step.collapse_sources or [])
+        exclude_sources = step.exclude_sources or []
+
+        # LATERAL fetch: every row in every seed's window, with seed_id
+        # carried through so we can group server-side. NOT source-matched
+        # — ambient is the point of timelines. We always include the seed
+        # itself (no `d.id != s.seed_id` exclusion); it's the anchor.
+        sql = """
+            WITH seeds AS (
+                SELECT * FROM unnest($1::text[], $2::timestamptz[])
+                AS s(seed_id, seed_ts)
+            )
+            SELECT s.seed_id,
+                   d.id, d.timestamp, d.modality, d.content, d.source,
+                   d.tags, d.media_hash, d.expires_at,
+                   EXTRACT(EPOCH FROM (d.timestamp - s.seed_ts)) AS gap_seconds
+            FROM seeds s
+            CROSS JOIN LATERAL (
+                SELECT *
+                FROM deltas dd
+                WHERE dd.timestamp BETWEEN s.seed_ts - ($3 || ' minutes')::interval
+                                       AND s.seed_ts + ($3 || ' minutes')::interval
+                  AND (dd.expires_at IS NULL OR dd.expires_at > NOW())
+                  AND ($4::text[] IS NULL OR NOT (dd.source = ANY($4)))
+                ORDER BY dd.timestamp ASC
+            ) d
+            ORDER BY s.seed_id, d.timestamp ASC
+        """
+        rows = await self._pool.fetch(
+            sql,
+            seed_ids,
+            [seed_ts_by_id[sid] for sid in seed_ids],
+            str(radius_minutes),
+            exclude_sources or None,
+        )
+
+        # Group rows by their seed_id.
+        by_seed: dict[str, list[dict]] = {sid: [] for sid in seed_ids}
+        for r in rows:
+            d = self._row_to_dict(r)
+            by_seed.setdefault(r["seed_id"], []).append(d)
+
+        # Per-seed window: gap-trim around the anchor, cap per side,
+        # collapse high-freq bursts. Produce a window dict.
+        windows: list[dict] = []
+        gap_seconds_threshold = gap_minutes * 60.0
+        for seed_id in seed_ids:
+            ordered = by_seed.get(seed_id, [])
+            if not ordered:
+                # Anchor without any rows in window — can happen if the
+                # anchor itself was deleted or expired; skip.
+                continue
+            # Locate the anchor in the ordered list. If multiple rows
+            # share its id (shouldn't, but defensive), take the first.
+            anchor_idx = next(
+                (i for i, d in enumerate(ordered) if d.get("id") == seed_id),
+                None,
+            )
+            if anchor_idx is None:
+                # Anchor row was filtered (e.g. excluded source matched
+                # the seed's own source). Use the timestamp-nearest row.
+                anchor_idx = self._nearest_index(ordered, seed_ts_by_id[seed_id])
+                if anchor_idx is None:
+                    continue
+
+            trimmed = self._gap_trim(
+                ordered,
+                anchor_idx=anchor_idx,
+                gap_seconds=gap_seconds_threshold,
+                max_per_side=max_per_side,
+            )
+            collapsed = self._collapse_runs(trimmed, collapse_sources)
+            anchor_set = {seed_id}
+            t_start = trimmed[0]["timestamp"]
+            t_end = trimmed[-1]["timestamp"]
+            windows.append(
+                {
+                    "anchor_ids": anchor_set,
+                    "t_start": t_start,
+                    "t_end": t_end,
+                    "rows": collapsed,         # mix of real dicts + collapsed virtuals
+                    "_raw_rows": trimmed,      # real dicts only, pre-collapse
+                }
+            )
+
+        if not windows:
+            return []
+
+        # Sort by t_start, merge overlapping or near-adjacent windows.
+        windows.sort(key=lambda w: _parse_ts(w["t_start"]))
+        merged: list[dict] = []
+        for w in windows:
+            if not merged:
+                merged.append(w)
+                continue
+            prev = merged[-1]
+            prev_end_dt = _parse_ts(prev["t_end"])
+            this_start_dt = _parse_ts(w["t_start"])
+            gap = (this_start_dt - prev_end_dt).total_seconds()
+            if gap <= merge_gap_seconds:
+                # Merge: union anchors, union raw rows (dedup by id),
+                # rebuild collapsed list from the unioned raws.
+                merged_anchors = prev["anchor_ids"] | w["anchor_ids"]
+                seen: set[str] = set()
+                merged_raws: list[dict] = []
+                for d in prev["_raw_rows"] + w["_raw_rows"]:
+                    did = d.get("id")
+                    if not did or did in seen:
+                        continue
+                    seen.add(did)
+                    merged_raws.append(d)
+                merged_raws.sort(key=lambda d: _parse_ts(d["timestamp"]))
+                prev["anchor_ids"] = merged_anchors
+                prev["t_start"] = merged_raws[0]["timestamp"]
+                prev["t_end"] = merged_raws[-1]["timestamp"]
+                prev["_raw_rows"] = merged_raws
+                prev["rows"] = self._collapse_runs(merged_raws, collapse_sources)
+            else:
+                merged.append(w)
+
+        # Convert to the public shape: TimelineDelta list with is_anchor
+        # marked, plus _raw_deltas for downstream chain reuse.
+        out: list[dict] = []
+        for i, w in enumerate(merged):
+            anchor_ids = w["anchor_ids"]
+            tdeltas: list[TimelineDelta] = []
+            for row in w["rows"]:
+                if row.get("kind") == "collapsed":
+                    tdeltas.append(
+                        TimelineDelta(
+                            id=row["id"],
+                            timestamp=row["t_start"],
+                            modality="text",
+                            content=row.get("content", ""),
+                            source=row["source"],
+                            tags=row.get("tags", []),
+                            kind="collapsed",
+                            count=row.get("count"),
+                            t_start=row.get("t_start"),
+                            t_end=row.get("t_end"),
+                        )
+                    )
+                else:
+                    is_anchor = row.get("id") in anchor_ids
+                    tdeltas.append(
+                        TimelineDelta(
+                            id=row["id"],
+                            timestamp=row["timestamp"],
+                            modality=row.get("modality", "text"),
+                            content=row.get("content", ""),
+                            source=row.get("source", ""),
+                            tags=row.get("tags", []),
+                            media_hash=row.get("media_hash"),
+                            expires_at=row.get("expires_at"),
+                            is_anchor=is_anchor,
+                        )
+                    )
+            out.append(
+                {
+                    "id": f"tl_{i}",
+                    "t_start": w["t_start"],
+                    "t_end": w["t_end"],
+                    "anchor_ids": sorted(anchor_ids & seed_id_set),
+                    "deltas": tdeltas,
+                    "_raw_deltas": w["_raw_rows"],
+                }
+            )
+        return out[: step.limit] if step.limit else out
+
+    @staticmethod
+    def _nearest_index(rows: list[dict], target_ts: datetime) -> int | None:
+        if not rows:
+            return None
+        best_i = 0
+        best_gap = float("inf")
+        for i, d in enumerate(rows):
+            try:
+                ts = _parse_ts(d["timestamp"])
+            except Exception:
+                continue
+            gap = abs((ts - target_ts).total_seconds())
+            if gap < best_gap:
+                best_gap = gap
+                best_i = i
+        return best_i
+
+    @staticmethod
+    def _gap_trim(
+        ordered: list[dict],
+        *,
+        anchor_idx: int,
+        gap_seconds: float,
+        max_per_side: int,
+    ) -> list[dict]:
+        """Walk outward from anchor; stop at any neighbor-to-neighbor gap
+        larger than `gap_seconds`. Then cap per side."""
+        n = len(ordered)
+        if n == 0:
+            return []
+        # Walk left.
+        left_bound = anchor_idx
+        for i in range(anchor_idx - 1, -1, -1):
+            try:
+                t_here = _parse_ts(ordered[i]["timestamp"])
+                t_next = _parse_ts(ordered[i + 1]["timestamp"])
+            except Exception:
+                break
+            gap = (t_next - t_here).total_seconds()
+            if gap > gap_seconds:
+                break
+            left_bound = i
+        # Walk right.
+        right_bound = anchor_idx
+        for i in range(anchor_idx + 1, n):
+            try:
+                t_here = _parse_ts(ordered[i]["timestamp"])
+                t_prev = _parse_ts(ordered[i - 1]["timestamp"])
+            except Exception:
+                break
+            gap = (t_here - t_prev).total_seconds()
+            if gap > gap_seconds:
+                break
+            right_bound = i
+        # Apply per-side cap.
+        left_bound = max(left_bound, anchor_idx - max_per_side)
+        right_bound = min(right_bound, anchor_idx + max_per_side)
+        return ordered[left_bound : right_bound + 1]
+
+    @staticmethod
+    def _collapse_runs(
+        rows: list[dict], collapse_sources: set[str]
+    ) -> list[dict]:
+        """Fold runs of ≥2 same-source deltas in `collapse_sources` into a
+        single virtual `kind:collapsed` row. Real rows in other sources
+        pass through unchanged."""
+        if not collapse_sources or not rows:
+            return list(rows)
+        out: list[dict] = []
+        i = 0
+        n = len(rows)
+        run_id = 0
+        while i < n:
+            d = rows[i]
+            src = d.get("source", "")
+            if src in collapse_sources:
+                j = i + 1
+                while j < n and rows[j].get("source") == src:
+                    j += 1
+                run_count = j - i
+                if run_count >= 2:
+                    first = rows[i]
+                    last = rows[j - 1]
+                    out.append(
+                        {
+                            "id": f"_collapsed_{run_id}",
+                            "kind": "collapsed",
+                            "source": src,
+                            "count": run_count,
+                            "t_start": first["timestamp"],
+                            "t_end": last["timestamp"],
+                            "content": f"[{src} × {run_count}]",
+                            "tags": [],
+                        }
+                    )
+                    run_id += 1
+                    i = j
+                    continue
+            out.append(d)
+            i += 1
+        return out
 
     # ── Aggregate execution ──────────────────────────────────────────────
 

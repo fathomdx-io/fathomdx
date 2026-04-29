@@ -173,6 +173,9 @@ class PlanStep(BaseModel):
     - bridge: find deltas close to two step centroids
     - aggregate: group by time bucket / tag / source
     - chain: search outward from a previous step's centroid
+    - neighbors: temporally-surrounding deltas (one merged list)
+    - timeline: per-anchor temporal windows, gap-bounded, collapsed,
+                merged into chronological strips with anchors marked
     """
 
     id: str
@@ -186,6 +189,7 @@ class PlanStep(BaseModel):
     aggregate: str | None = None
     chain: str | None = None
     neighbors: str | None = None
+    timeline: str | None = None
     # Parameters
     radii: PlanRadii | None = None
     tags_include: list[str] | None = None
@@ -202,6 +206,11 @@ class PlanStep(BaseModel):
     source_match: bool = True  # only pull from same source as seed
     exclude_sources: list[str] | None = None  # never pull these sources
     limit_per_seed: int = 6  # cap deltas returned per seed
+    # timeline-only params
+    max_per_side: int = 15  # cap deltas each side of an anchor (after gap trim)
+    gap_minutes: int = 30  # stop expanding past silences larger than this
+    merge_gap_seconds: int = 300  # merge windows within this many seconds
+    collapse_sources: list[str] | None = None  # run-length collapse these sources
 
 
 class PlanRequest(BaseModel):
@@ -229,8 +238,50 @@ class StepResultAggregate(BaseModel):
     buckets: list[AggBucket]
 
 
+class TimelineDelta(BaseModel):
+    """A delta in a timeline — either a real delta or a collapsed run.
+
+    For real deltas the full DeltaSlim fields are present plus `is_anchor`.
+    For collapsed runs of high-frequency same-source deltas, `kind` is
+    "collapsed", `count` is the number of deltas folded together, and
+    `t_start`/`t_end` bound the run; `id`/`content` are synthetic.
+    """
+
+    id: str
+    timestamp: str
+    modality: str = "text"
+    content: str
+    source: str
+    tags: list[str] = Field(default_factory=list)
+    media_hash: str | None = None
+    expires_at: str | None = None
+    is_anchor: bool = False
+    # collapsed-run fields (only set when kind == "collapsed")
+    kind: str | None = None
+    count: int | None = None
+    t_start: str | None = None
+    t_end: str | None = None
+
+
+class Timeline(BaseModel):
+    """A contiguous strip of deltas around one or more anchors."""
+
+    id: str
+    t_start: str
+    t_end: str
+    anchor_ids: list[str]
+    deltas: list[TimelineDelta]
+
+
+class StepResultTimelines(BaseModel):
+    """Result for a timeline step — list of merged chronological strips."""
+
+    count: int  # total real deltas across all timelines (excluding collapsed)
+    timelines: list[Timeline]
+
+
 class PlanResponse(BaseModel):
-    steps: dict[str, StepResultDeltas | StepResultAggregate]
+    steps: dict[str, StepResultDeltas | StepResultAggregate | StepResultTimelines]
     timing_ms: float
     warnings: list[str] = Field(default_factory=list)
 
