@@ -78,12 +78,21 @@ class Puddle:
         source: str,
         ttl_seconds: int | None = None,
         expires_at: str | None = None,
+        embedding: list[float] | None = None,
     ) -> dict:
         """Append a delta. Returns the stored dict (with id, timestamp).
 
         Pass exactly one of `ttl_seconds` or `expires_at`. Omit both for
         a delta that lives until process restart — used sparingly; most
         puddle writes should expire.
+
+        ``embedding``: optional pre-computed embedding to attach. When
+        set, resonance ranking uses this vector verbatim instead of
+        embedding the content text. Used by recall-summary writes whose
+        narrative content is the rendered timeline prose, but whose
+        semantic anchor is the average of the lake passages that
+        actually resonated — late-chunking shape: content carries the
+        meaning, embedding carries the context.
         """
         now = _now()
         if ttl_seconds is not None and expires_at is None:
@@ -96,6 +105,8 @@ class Puddle:
             "timestamp": _iso(now),
             "expires_at": expires_at,
         }
+        if embedding is not None:
+            delta["_embedding"] = list(embedding)
         async with self._lock:
             self._deltas.append(delta)
         # Fan out to subscribers outside the lock so one slow consumer

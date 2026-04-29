@@ -631,7 +631,7 @@ async def _shallow(
             result = await delta_client.plan(plan["steps"])
         except Exception:
             return _empty_result(plan=plan)
-        return _build_result_from_plan_response(
+        return await _build_result_from_plan_response(
             text=text,
             plan=plan,
             response=result,

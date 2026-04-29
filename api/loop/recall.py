@@ -25,9 +25,11 @@ hiccup in one voice's fire shouldn't block the others or the loop.
 
 from __future__ import annotations
 
+import math
 import re
 
 from .. import delta_client
+from ..search import search as nl_search
 from .intents import CONVO_TAG
 from .llm import loop_generate
 from .puddle import puddle
@@ -136,69 +138,184 @@ Return JUST the query text. No quotes, no preamble, no labels."""
     return q if q else None
 
 
-async def _write_recall_results(
+async def _mirror_target_to_puddle(
     *,
     session_tag: str,
-    results: list[dict],
+    target: dict,
     event_id: str,
+) -> int:
+    """Mirror a single user-pointed lake delta into the puddle.
+
+    Used for reply-to: the user clicked a specific delta to respond to,
+    so that delta MUST land in substrate even if semantic recall would
+    never have surfaced it. The user's pointer IS the relevance — no
+    query, no neighborhood expansion, no embedding averaging. Keeps
+    the recall-summary pipeline focused on actual query recall.
+
+    Skips short-noise content and re-mirroring of an already-mirrored
+    target. Returns 1 if a mirror was written, 0 if skipped.
+    """
+    content = (target.get("content") or "").strip()
+    if not content or _is_recall_noise(target):
+        return 0
+    original_id = target.get("id") or ""
+    recalled_short = original_id[:24] if original_id else ""
+    if recalled_short:
+        for d in puddle.query(tags_include=[CONVO_TAG, "recall-result"], limit=200):
+            for t in d.get("tags") or []:
+                if t == f"recalled-id:{recalled_short}":
+                    return 0
+    original_source = target.get("source") or "unknown"
+    tags = [
+        CONVO_TAG,
+        session_tag,
+        "recall-result",
+        "mirror",
+        f"recall-event:{event_id}",
+        "recall-class:reply-target",
+        f"from-source:{original_source}",
+    ]
+    if recalled_short:
+        tags.append(f"recalled-id:{recalled_short}")
+    await puddle.write(
+        content=content,
+        tags=tags,
+        source=f"recall:{original_source}",
+        ttl_seconds=RECALL_TTL_S,
+    )
+    return 1
+
+
+async def _averaged_anchor_embedding(anchor_ids: list[str]) -> list[float] | None:
+    """Pull anchor deltas, embed their content, return the L2-normalized
+    mean vector. Returns None if anything along the way fails — recall
+    falls back to letting the puddle's resonance ranker embed the prose
+    content itself, which is still useful, just less semantically
+    targeted at "what resonated in the lake."
+    """
+    if not anchor_ids:
+        return None
+    try:
+        deltas = await delta_client.batch_get(anchor_ids)
+    except Exception as e:
+        print(
+            f"[recall] anchor batch_get failed: {type(e).__name__}: {e} — "
+            "falling back to content-embed"
+        )
+        return None
+    texts = [(d.get("content") or "").strip()[:1000] for d in deltas]
+    texts = [t for t in texts if t]
+    if not texts:
+        return None
+    try:
+        embs = await delta_client.embed(texts)
+    except Exception as e:
+        print(
+            f"[recall] anchor embed failed: {type(e).__name__}: {e} — "
+            "falling back to content-embed"
+        )
+        return None
+    if not embs:
+        return None
+    n_dims = len(embs[0])
+    if not n_dims:
+        return None
+    sums = [0.0] * n_dims
+    for emb in embs:
+        if len(emb) != n_dims:
+            # Skip vectors that don't match the leading dimension —
+            # safer than padding/truncating and conflating embeddings
+            # from different models.
+            continue
+        for i, v in enumerate(emb):
+            sums[i] += float(v)
+    avg = [s / len(embs) for s in sums]
+    norm = math.sqrt(sum(v * v for v in avg))
+    if norm > 0:
+        avg = [v / norm for v in avg]
+    return avg
+
+
+async def _write_recall_summary(
+    *,
+    session_tag: str,
+    timelines: list[dict],
+    rendered_prose: str,
+    event_id: str,
+    query: str,
     triggering_voice: str | None = None,
 ) -> int:
-    """Write each recall hit into the puddle as a `recall-result` delta.
+    """Write ONE recall-summary delta into the puddle per fire.
 
-    Dedupe: skip if a previous recall in this convo already mirrored
-    the same lake delta id. Append-only — the puddle never loses a
-    recall, but doesn't re-import duplicates.
+    Replaces the old per-hit mirror pattern (one puddle delta per lake
+    hit) with a single narrative entry whose content is the rendered
+    timeline strips and whose embedding is the L2-mean of the anchor
+    passages that resonated. Voices reading substrate now see coherent
+    moments — anchor + ambient context, gap-bounded — instead of the
+    spits-and-spurts of orphan fragments the old mirror flow produced.
 
-    `triggering_voice` (optional): when set, tag each written result
-    with `for-voice:<name>` for provenance. Informational only —
-    resonance ranking at sample time decides which voice actually sees
-    each result; this tag is for diagnostics and doesn't gate access.
+    Late-chunking shape: content carries the narrative the LLM reads,
+    embedding carries the semantic neighborhood the resonance ranker
+    matches against. Decoupled because they serve different jobs.
+
+    Dedupe: skip the write if every anchor in this fire was already
+    referenced by a prior recall-summary in the same convo. Anchor
+    overlap means the substrate already has that resonance; firing
+    again would just duplicate the prose.
+
+    Returns 1 if a summary was written, 0 if skipped (no anchors, no
+    prose, or full overlap with prior fires).
     """
-    # Collect ids already mirrored as recalls in this convo.
-    existing_ids: set[str] = set()
-    for d in puddle.query(tags_include=[CONVO_TAG, "recall-result"], limit=500):
+    if not timelines or not rendered_prose.strip():
+        return 0
+
+    # Collect anchor ids across all timelines, preserving order/uniqueness.
+    seen_in_fire: set[str] = set()
+    anchor_ids: list[str] = []
+    for tl in timelines:
+        for aid in tl.get("anchor_ids") or []:
+            if not aid or aid in seen_in_fire:
+                continue
+            seen_in_fire.add(aid)
+            anchor_ids.append(aid)
+    if not anchor_ids:
+        return 0
+
+    # Anchor-level dedupe — full overlap = nothing new in this fire.
+    existing_short: set[str] = set()
+    for d in puddle.query(tags_include=[CONVO_TAG, "recall-result"], limit=200):
         for t in d.get("tags") or []:
             if t.startswith("recalled-id:"):
-                existing_ids.add(t.split(":", 1)[1])
+                existing_short.add(t.split(":", 1)[1])
+    new_anchors = [aid for aid in anchor_ids if aid[:24] not in existing_short]
+    if not new_anchors:
+        return 0
 
-    written = 0
-    for r in results:
-        if isinstance(r, dict) and "delta" in r:
-            d = r["delta"] or {}
-            klass = r.get("klass") or "first"
-        else:
-            d = r or {}
-            klass = "first"
-        content = (d.get("content") or "").strip()
-        if not content:
-            continue
-        if _is_recall_noise(d):
-            continue
-        original_id = d.get("id") or ""
-        recalled_short = original_id[:24] if original_id else ""
-        if recalled_short and recalled_short in existing_ids:
-            continue
-        original_source = d.get("source") or "unknown"
-        tags = [
-            CONVO_TAG, session_tag,
-            "recall-result", "mirror",
-            f"recall-event:{event_id}",
-            f"recall-class:{klass}",
-            f"from-source:{original_source}",
-        ]
-        if triggering_voice:
-            tags.append(f"for-voice:{triggering_voice}")
-        if recalled_short:
-            tags.append(f"recalled-id:{recalled_short}")
-            existing_ids.add(recalled_short)
-        await puddle.write(
-            content=content,
-            tags=tags,
-            source=f"recall:{original_source}",
-            ttl_seconds=RECALL_TTL_S,
-        )
-        written += 1
-    return written
+    # Embed by what resonated, not by the prose phrasing.
+    avg_emb = await _averaged_anchor_embedding(new_anchors)
+
+    tags = [
+        CONVO_TAG,
+        session_tag,
+        "recall-result",
+        "kind:recall-summary",
+        f"recall-event:{event_id}",
+    ]
+    if triggering_voice:
+        tags.append(f"for-voice:{triggering_voice}")
+    if query:
+        tags.append(f"recall-query:{query[:80]}")
+    for aid in anchor_ids:
+        tags.append(f"recalled-id:{aid[:24]}")
+
+    await puddle.write(
+        content=rendered_prose,
+        tags=tags,
+        source="recall-summary",
+        ttl_seconds=RECALL_TTL_S,
+        embedding=avg_emb,
+    )
+    return 1
 
 
 async def _compose_voice_followup_query(
@@ -310,9 +427,9 @@ async def run_intent_searcher_tick(
                     print(f"[intent-searcher] reply-to fetch failed for {target_id[:24]}: {type(e).__name__}: {e}")
                     target = None
             if target:
-                n = await _write_recall_results(
+                n = await _mirror_target_to_puddle(
                     session_tag=session_tag,
-                    results=[{"delta": target, "klass": "reply-target"}],
+                    target=target,
                     event_id=f"{event_id}-reply-to",
                 )
                 if n:
@@ -325,19 +442,25 @@ async def run_intent_searcher_tick(
 
         print(f"[intent-searcher] {kind}: {query[:80]!r}")
         try:
-            recall = await delta_client.search(query=query, limit=RECALL_LIMIT)
+            result = await nl_search(
+                text=query,
+                depth="shallow",
+                view="timeline",
+                limit=RECALL_LIMIT,
+            )
         except Exception as e:
             print(f"[intent-searcher] lake search failed: {type(e).__name__}: {e}")
             continue
 
-        results = recall.get("results") or []
-        n = await _write_recall_results(
+        n = await _write_recall_summary(
             session_tag=session_tag,
-            results=results,
+            timelines=result.get("timelines") or [],
+            rendered_prose=result.get("as_prompt") or "",
             event_id=event_id,
+            query=query,
         )
         if n:
-            print(f"[intent-searcher] wrote {n} recall-result(s) into the puddle")
+            print(f"[intent-searcher] wrote recall-summary delta into the puddle")
         total_written += n
     return total_written
 
@@ -399,18 +522,24 @@ async def run_voice_followup_tick(
 
     print(f"[voice-searcher:{voice_name}] {query[:80]!r}")
     try:
-        recall = await delta_client.search(query=query, limit=RECALL_LIMIT)
+        result = await nl_search(
+            text=query,
+            depth="shallow",
+            view="timeline",
+            limit=RECALL_LIMIT,
+        )
     except Exception as e:
         print(f"[voice-searcher:{voice_name}] lake search failed: {type(e).__name__}: {e}")
         return 0
 
-    results = recall.get("results") or []
-    n = await _write_recall_results(
+    n = await _write_recall_summary(
         session_tag=session_tag,
-        results=results,
+        timelines=result.get("timelines") or [],
+        rendered_prose=result.get("as_prompt") or "",
         event_id=event_id,
+        query=query,
         triggering_voice=voice_name,
     )
     if n:
-        print(f"[voice-searcher:{voice_name}] wrote {n} recall-result(s) into the puddle")
+        print(f"[voice-searcher:{voice_name}] wrote recall-summary into the puddle")
     return n
