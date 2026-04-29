@@ -450,12 +450,22 @@ async def run_witness(
     # `to:<channel>:<correlation>` on the output so the channel's
     # consumer (OpenAI endpoint poller, etc.) finds it with one tag
     # query without scanning route metadata.
+    #
+    # `host_for_channel` is captured for the claude-code channel: kitty
+    # plugins on each machine query by (route:claude-code AND host:<me>),
+    # so the host tag must propagate from the addressed intent onto the
+    # outbound card. Other channels ignore it.
     channel, correlation = "", ""
     addressee = ""
+    host_for_channel = ""
     for it in pending:
         ch, corr = extract_channel(it.get("tags") or [])
         if ch and not channel:
             channel, correlation = ch, corr
+            for t in (it.get("tags") or []):
+                if t.startswith("host:"):
+                    host_for_channel = t.split(":", 1)[1]
+                    break
         if not addressee:
             for t in (it.get("tags") or []):
                 if t.startswith("contact:"):
@@ -463,6 +473,18 @@ async def run_witness(
                     break
         if channel and addressee:
             break
+
+    # Channels with a known consumer (kitty for claude-code) need their
+    # route to match the consumer's filter even when the witness model's
+    # JSON didn't pick that route explicitly. The route field on the
+    # JSON is still informational for feed rendering; the wire-level
+    # routing comes from the `to:<channel>:<corr>` tag pair, which is
+    # already stamped above. Here we keep `route:<...>` aligned with
+    # the channel so nothing downstream has to special-case it.
+    if channel == "claude-code":
+        route_value = "claude-code"
+        payload["route"] = "claude-code"
+        payload_json = json.dumps(payload, ensure_ascii=False)
 
     # Include `addressing-output` so pending_intents() sees this card
     # as having addressed its intents even after a cold-start restore
@@ -476,6 +498,17 @@ async def run_witness(
     if channel and correlation:
         lake_tags.append(address_tag(channel, correlation))
         lake_tags.append(f"channel:{channel}")
+    # Claude-code consumers (kitty plugin) match on
+    # `route:claude-code AND host:<myhost>`; the host has to ride along
+    # for that filter to land at the right machine. `task-corr:<corr>`
+    # is the cross-cutting key the loop watcher uses to thread replies
+    # to a particular task — present on the witness card, on the kitty
+    # join delta, and on claude's closure delta.
+    if channel == "claude-code":
+        if host_for_channel:
+            lake_tags.append(f"host:{host_for_channel}")
+        if correlation:
+            lake_tags.append(f"task-corr:{correlation}")
     if addressee:
         # `for:<contact>` is the existing addressing convention (see
         # messages.send_message); reusing it means contact-scoped views
@@ -507,6 +540,11 @@ async def run_witness(
     if channel and correlation:
         puddle_tags.append(address_tag(channel, correlation))
         puddle_tags.append(f"channel:{channel}")
+    if channel == "claude-code":
+        if host_for_channel:
+            puddle_tags.append(f"host:{host_for_channel}")
+        if correlation:
+            puddle_tags.append(f"task-corr:{correlation}")
     if addressee:
         puddle_tags.append(f"for:{addressee}")
     for intent_id in full_addressed:
