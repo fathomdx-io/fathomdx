@@ -23,12 +23,35 @@ REPO_DIR="$(cd "${SCRIPT_DIR}/../.." && pwd)"
 
 cd "${REPO_DIR}"
 
+# Pick whichever compose driver the operator actually has. Both expose
+# the same `compose` subcommand surface this script needs, but a
+# Fedora install often ships podman without docker, and a Mac install
+# usually has docker without podman. Letting the script work with
+# either keeps "lost my admin key" recovery from being blocked by a
+# tooling preference.
+if command -v docker >/dev/null 2>&1 && docker compose version >/dev/null 2>&1; then
+  COMPOSE=(docker compose)
+elif command -v podman >/dev/null 2>&1 && podman compose version >/dev/null 2>&1; then
+  COMPOSE=(podman compose)
+else
+  echo "error: neither 'docker compose' nor 'podman compose' is available on PATH." >&2
+  echo "Install one and try again." >&2
+  exit 1
+fi
+
 # Sanity: the api service has to be running for `exec` to reach it.
 # A stopped stack gives a cryptic "service not running" — upgrade that
 # into a friendly nudge.
-if ! docker compose ps --status running --services 2>/dev/null | grep -q "^api$"; then
-  echo "error: fathom-api-1 isn't running. Start the stack first:" >&2
-  echo "    docker compose up -d" >&2
+#
+# `compose ps --status --services` shape differs between docker compose
+# and podman-compose, so check at the engine level: list running
+# containers and look for one whose name matches the compose-generated
+# api container (`<project>_api_1` for podman, `<project>-api-1` for
+# docker). Either separator counts.
+ENGINE="${COMPOSE[0]}"
+if ! "${ENGINE}" ps --filter status=running --format '{{.Names}}' 2>/dev/null | grep -qE '(_|-)api(_|-)1$'; then
+  echo "error: the api service isn't running. Start the stack first:" >&2
+  echo "    ${COMPOSE[*]} up -d" >&2
   exit 1
 fi
 
@@ -54,7 +77,7 @@ esac
 # non-interactive shells. We pass -i (stdin) so the interactive prompt
 # in cmd_mint_key works when called from a real terminal.
 if [ -t 0 ]; then
-  exec docker compose exec api python -m api.cli "${CMD}" "$@"
+  exec "${COMPOSE[@]}" exec api python -m api.cli "${CMD}" "$@"
 else
-  exec docker compose exec -T api python -m api.cli "${CMD}" "$@"
+  exec "${COMPOSE[@]}" exec -T api python -m api.cli "${CMD}" "$@"
 fi
