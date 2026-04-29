@@ -58,8 +58,18 @@ REFRESH_INTERVAL_S = 5 * 60  # re-pull every 5 minutes
 # a fresh boot pulls a day of ambient context instead of just the
 # last 5 minutes; the limit caps total volume so a busy day doesn't
 # flood the puddle.
-MIRROR_WINDOW_S = 24 * 60 * 60
-MIRROR_LIMIT = 200
+MIRROR_WINDOW_S = 48 * 60 * 60  # match ANCHOR_TTL_S — anything in the puddle
+                                # could've been there for up to 48h, so the
+                                # cold-start backfill should reach back as
+                                # far as the puddle's own TTL would let it.
+MIRROR_LIMIT = 1500             # bumped from 200 — even with heartbeats
+                                # excluded server-side, a busy day still
+                                # holds ~600 non-heartbeat deltas
+                                # (homeassistant + sysinfo + sediment +
+                                # rss + claude-code + witness + chat).
+                                # 1500 lets the cold-start backfill reach
+                                # the full 48h horizon. Memory is fine —
+                                # at typical content sizes it's a few MB.
 
 # Sources we never mirror — telepathy's own anchor writes (so we
 # don't loop on our own output). composer / witness / loop-engagement
@@ -270,7 +280,16 @@ async def mirror_recent_activity() -> int:
     from datetime import datetime, timedelta, UTC
     cutoff = (datetime.now(UTC) - timedelta(seconds=MIRROR_WINDOW_S)).isoformat()
     try:
-        items = await delta_client.query(time_start=cutoff, limit=MIRROR_LIMIT)
+        # Exclude heartbeats at the LAKE query level, not after fetch.
+        # On a busy day the lake holds ~1500 agent-heartbeat deltas in
+        # the last 24h; without server-side exclusion they fill the
+        # MIRROR_LIMIT-newest slice and starve the user-facing content
+        # (witness cards, composer seeds, chat) the dashboard needs.
+        items = await delta_client.query(
+            time_start=cutoff,
+            tags_exclude=["agent-heartbeat"],
+            limit=MIRROR_LIMIT,
+        )
     except Exception as e:
         print(f"[telepathy] activity fetch failed: {type(e).__name__}: {e}")
         return 0
@@ -301,6 +320,16 @@ async def mirror_recent_activity() -> int:
         if not content or len(content) < 8:
             continue
         src_tags = list(d.get("tags") or [])
+        # Skip agent heartbeats — they're connection signals, not
+        # substrate. A busy day produces ~1500 of them, and with
+        # MIRROR_LIMIT=200 they crowd out the user-facing content
+        # (witness cards, composer seeds, chat) that the dashboard
+        # actually wants on cold-start. Filtering by the canonical
+        # `agent-heartbeat` tag instead of by source so any future
+        # plugin that emits heartbeat-shaped status under a different
+        # source still gets caught.
+        if "agent-heartbeat" in src_tags:
+            continue
         # Defensive: a lake delta carrying CONVO_TAG would mean some
         # other path scoped this delta into our convo; don't re-mirror.
         if any(t == CONVO_TAG for t in src_tags):

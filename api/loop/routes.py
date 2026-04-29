@@ -157,6 +157,12 @@ def get_feed(
     for d in raw:
         tags = set(d.get("tags") or [])
         ts = d.get("timestamp")
+        # Drop agent heartbeats — they're connection signals, not
+        # feed content. Telepathy already filters them at mirror time,
+        # so this is defensive against any other path that might land
+        # one in the puddle.
+        if "agent-heartbeat" in tags:
+            continue
         # Pull the session tag out so the frontend can cluster items by
         # (kind, session) — that way all voices from one deliberation
         # pile into a single accordion even when recall results
