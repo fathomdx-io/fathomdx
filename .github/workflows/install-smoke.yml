@@ -85,8 +85,15 @@ jobs:
         # prereq check — `docker compose version` is a client-side subcommand
         # and doesn't need a running daemon. We skip autostart below so we
         # never actually try to talk to the daemon.
+        #
+        # Brew's docker-compose ships as a CLI plugin under
+        # $(brew --prefix)/lib/docker/cli-plugins; symlink it into
+        # ~/.docker/cli-plugins so `docker compose` finds it without
+        # needing a config.json entry.
         run: |
           brew install docker docker-compose
+          mkdir -p ~/.docker/cli-plugins
+          ln -sfn "$(brew --prefix)/lib/docker/cli-plugins/docker-compose" ~/.docker/cli-plugins/docker-compose
           docker --version
           docker compose version
 
