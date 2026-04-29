@@ -9200,11 +9200,6 @@ GET  /v1/usage               Usage stats`,
           setEnabledCategory(category, cb.checked);
           applyKindFilter();
           _refreshFilterToggleLabel();
-          // Toggling Claude Code also hides/shows the status strip
-          // above the feed — single switch for the whole concept.
-          if (category === 'claude-code' && typeof _renderClaudeCodeStatus === 'function') {
-            _renderClaudeCodeStatus(_claudeCodeStatusLast);
-          }
         });
       });
       _refreshFilterToggleLabel();
@@ -9471,19 +9466,15 @@ GET  /v1/usage               Usage stats`,
       return `${Math.floor(s / 86400)}d ago`;
     }
 
-    function _claudeCodeFilterEnabled() {
-      // Same source of truth as applyKindFilter — the user's checkbox
-      // state in the feed-filter panel. Bypasses applyKindFilter
-      // because the strip isn't a feed item; it's gated independently.
-      const cats = (typeof getEnabledCategories === 'function') ? getEnabledCategories() : {};
-      return !!cats['claude-code'];
-    }
-
     function _renderClaudeCodeStatus(tasks) {
       if (!_claudeCodeStatusEl) return;
       _claudeCodeStatusLast = Array.isArray(tasks) ? tasks : [];
-      const filterOn = _claudeCodeFilterEnabled();
-      const visible = filterOn && _claudeCodeStatusLast.length > 0;
+      // The strip surfaces whenever a task is live, regardless of the
+      // Claude Code filter. The filter governs whether the closure
+      // replies render in the FEED below; the strip is the
+      // I-can-see-what's-happening status indicator and shouldn't
+      // disappear if the user filtered out the noisier feed rows.
+      const visible = _claudeCodeStatusLast.length > 0;
       _claudeCodeStatusEl.hidden = !visible;
       if (!visible) {
         _claudeCodeStatusEl.innerHTML = '';
