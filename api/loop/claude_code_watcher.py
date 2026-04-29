@@ -192,10 +192,10 @@ async def _correlation_state() -> tuple[dict[str, dict], dict[str, dict]]:
             closing[corr] = {**info, "closure_delta": closure}
         else:
             active[corr] = info
-    # Enrich closing entries with the original dispatch's contact, so
-    # the closure-driven chat-reply has someone to address.
-    for corr, info in closing.items():
-        info["contact"] = await _dispatch_contact_for_corr(corr)
+    # `contact` is filled in lazily only for corrs we're about to mint
+    # (inside the closing loop, gated by _last_minted). Enriching every
+    # closing entry on every tick was an extra lake query per old corr
+    # per 5s — pool-exhausting when test scaffolding piled up.
     return active, closing
 
 
@@ -320,6 +320,10 @@ async def claude_code_watcher_tick() -> None:
             continue
         if _last_minted.get(corr, "") >= closure_ts:
             continue
+        # Lazy contact lookup — only when we're actually minting,
+        # not on every tick for every old corr in the closing map.
+        if "contact" not in info:
+            info["contact"] = await _dispatch_contact_for_corr(corr)
         # Fast-path the closure into the puddle so the feed renders
         # claude's reply within the watcher's 5s tick instead of
         # waiting on telepathy's 5min cadence. Idempotent via
