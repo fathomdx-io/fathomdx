@@ -17,6 +17,7 @@ import asyncio
 import uuid
 
 from . import feed_orient
+from .claude_code_watcher import claude_code_watcher_loop
 from .convener import run_convener
 from .intents import next_intent_group, pending_intents
 from .metric import (
@@ -60,6 +61,7 @@ _supervisor_task: asyncio.Task | None = None
 _reaper_task: asyncio.Task | None = None
 _telepathy_task: asyncio.Task | None = None
 _pressure_task: asyncio.Task | None = None
+_claude_code_task: asyncio.Task | None = None
 _boot_iso: str = ""
 
 
@@ -271,8 +273,9 @@ async def _supervisor() -> None:
 
 def start() -> None:
     """Start supervisor + reaper + telepathy + pressure-watcher +
-    feed-orient regen. Idempotent."""
-    global _supervisor_task, _reaper_task, _telepathy_task, _pressure_task, _boot_iso
+    claude-code-watcher + feed-orient regen. Idempotent."""
+    global _supervisor_task, _reaper_task, _telepathy_task, _pressure_task
+    global _claude_code_task, _boot_iso
     if _supervisor_task is not None:
         return
     _boot_iso = _now_iso()
@@ -280,14 +283,24 @@ def start() -> None:
     _reaper_task = asyncio.create_task(_reaper(), name="loop/reaper")
     _telepathy_task = asyncio.create_task(telepathy_loop(), name="loop/telepathy")
     _pressure_task = asyncio.create_task(pressure_watcher(), name="loop/pressure")
+    _claude_code_task = asyncio.create_task(
+        claude_code_watcher_loop(), name="loop/claude-code-watcher"
+    )
     feed_orient.start()
 
 
 async def stop() -> None:
     """Cancel all background tasks. Idempotent."""
     global _supervisor_task, _reaper_task, _telepathy_task, _pressure_task
+    global _claude_code_task
     await feed_orient.stop()
-    for task in (_supervisor_task, _reaper_task, _telepathy_task, _pressure_task):
+    for task in (
+        _supervisor_task,
+        _reaper_task,
+        _telepathy_task,
+        _pressure_task,
+        _claude_code_task,
+    ):
         if task is None:
             continue
         task.cancel()
@@ -299,3 +312,4 @@ async def stop() -> None:
     _reaper_task = None
     _telepathy_task = None
     _pressure_task = None
+    _claude_code_task = None
