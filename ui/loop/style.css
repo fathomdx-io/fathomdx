@@ -231,70 +231,6 @@ input[type="text"]::placeholder { color: var(--ink-faint); }
   color: var(--ink-faint);
 }
 
-/* Status strip — slim row between the lake and the composer. Holds the
-   convergence dots (the thinking/settled indicator) and phase chips.
-   No graph — the convergence dots are the visualization. */
-.panel-graph {
-  border-top: 1px solid var(--rule);
-  background: var(--bg);
-  flex: 0 0 auto;
-}
-.graph-head {
-  min-height: 0;
-  padding: 0.55rem 1.25rem;
-  border-bottom: 0;
-  background: transparent;
-  justify-content: flex-end;
-}
-.graph-head .phase-label { margin-left: 0; }
-#graph {
-  flex: 1 1 auto;
-  width: 100%;
-  height: 100%;
-}
-#graph .grid       { stroke: var(--rule-soft); stroke-width: 0.5; }
-#graph .axis       { stroke: var(--rule); stroke-width: 1; }
-#graph .tick-label { font-family: var(--mono); font-size: var(--text-xs); fill: var(--ink-faint); }
-#graph .rumination-shade { fill: rgba(255, 20, 147, 0.05); }
-#graph .rumination-line  { stroke: #ff1493; stroke-width: 1; stroke-dasharray: 3 3; }
-#graph .max-line         { stroke: var(--ink-faint); stroke-width: 1; stroke-dasharray: 2 4; }
-
-/* Per-voice line + dot styling. Stroke / fill via class. Color changes
-   are instant (no transition) — when the panel toggles into .settled
-   the lines snap to teal immediately. The flash is a separate decay
-   animation that starts at peak and falls back to normal. */
-#graph .voice-line {
-  fill: none;
-  stroke-width: 2.2;
-  stroke-linecap: round;
-  stroke-linejoin: round;
-  opacity: 0.95;
-}
-#graph .voice-line.voice-creator   { stroke: var(--voice-creator); }
-#graph .voice-line.voice-preserver { stroke: var(--voice-preserver); }
-#graph .voice-line.voice-destroyer { stroke: var(--voice-destroyer); }
-
-#graph .voice-dot.voice-creator   { fill: var(--voice-creator); }
-#graph .voice-dot.voice-preserver { fill: var(--voice-preserver); }
-#graph .voice-dot.voice-destroyer { fill: var(--voice-destroyer); }
-
-/* Settled: instant snap to witness teal — no transition, color flips
-   the moment the panel gets the class. */
-.panel-graph.settled #graph .voice-line { stroke: var(--signal); }
-.panel-graph.settled #graph .voice-dot  { fill:   var(--signal); }
-
-/* Flash: starts at peak brightness, decays to normal over 800ms. */
-@keyframes voice-settle-flash {
-  0%   { stroke-width: 7;   filter: drop-shadow(0 0 16px var(--signal)); opacity: 1; }
-  100% { stroke-width: 2.2; filter: drop-shadow(0 0 0 transparent);      opacity: 0.95; }
-}
-@keyframes voice-dot-flash {
-  0%   { r: 5.5; filter: drop-shadow(0 0 14px var(--signal)); }
-  100% { r: 2.5; filter: drop-shadow(0 0 0 transparent); }
-}
-.panel-graph.settle-flash #graph .voice-line { animation: voice-settle-flash 800ms ease-out; }
-.panel-graph.settle-flash #graph .voice-dot  { animation: voice-dot-flash    800ms ease-out; }
-
 /* ── Composer (chat input at the bottom) ──────────────── */
 
 .composer {
@@ -719,49 +655,23 @@ input[type="text"]::placeholder { color: var(--ink-faint); }
   font-size: var(--text-md);
 }
 
-/* Convergence dots — three single dots (red/green/blue), the live
-   thinking indicator at the bottom of the deliberation list. Each
-   dot's horizontal position tracks its voice's cross-voice similarity;
-   mix-blend-mode makes overlapping dots add to white at convergence.
-   Reads like an ellipsis when the voices have settled. */
+/* Three RGB dots at the bottom of the deliberation list — the live
+   thinking indicator. They sit in place; each pulses on its own phase.
+   When the witness is writing the final message the container gets
+   .settled and the dots snap to teal (still pulsing). */
 .convergence-bars {
-  position: relative;
-  width: 80px;
-  height: 12px;
+  display: flex;
+  gap: 4px;
+  align-items: center;
   flex-shrink: 0;
   align-self: flex-start;
   margin: 0.25rem 0.9rem 0.4rem;
 }
 .convergence-bars[hidden] { display: none !important; }
 
-/* Outer .conv-bar handles horizontal positioning (translateX). Inner
-   span is the actual dot — uses the same `dots` keyframe as the typing
-   indicator (scale + opacity pulse) so the convergence dots breathe
-   while the chorus is thinking. Splitting the two transforms (translate
-   on the parent, scale on the child) lets them coexist without one
-   stomping the other. */
 .conv-bar {
-  position: absolute;
-  top: 50%;
-  left: 0;
-  margin-top: -3.5px;
-  /* No transition by default — during active deliberation the rAF
-     oscillator updates transforms every frame; a slow CSS transition
-     would fight the per-frame target and freeze the dots. */
-  mix-blend-mode: screen;
+  display: inline-flex;
   pointer-events: none;
-  will-change: transform;
-}
-/* On settle: glide to the ellipsis position. */
-.convergence-bars.settled .conv-bar {
-  transition: transform 700ms cubic-bezier(0.34, 1.36, 0.64, 1);
-}
-/* Transitioning: brief transition window between deliberation cycles
-   so the dots don't snap-jump from settled-ellipsis to oscillator's
-   first frame. JS adds .transitioning when a new tick starts and
-   removes it ~700ms later. */
-.convergence-bars.transitioning .conv-bar {
-  transition: transform 700ms cubic-bezier(0.34, 1.36, 0.64, 1);
 }
 .conv-bar > span {
   display: block;
@@ -772,17 +682,13 @@ input[type="text"]::placeholder { color: var(--ink-faint); }
   transition: background 600ms ease-out, box-shadow 600ms ease-out;
 }
 /* Wider phase offsets (0/1/2s) so each voice's dot is visibly on its
-   own beat — voices fire in parallel now, so without offsets they
-   pulse in unison. The animation cycle is 1.2s, so a 1s offset is
-   most of a full cycle — they read as three independent rhythms. */
+   own beat. The animation cycle is 1.2s, so a 1s offset is most of a
+   full cycle — they read as three independent rhythms. */
 .conv-bar.voice-creator   > span { background: #ff0000; animation-delay: 0s; }
 .conv-bar.voice-preserver > span { background: #00ff00; animation-delay: 1s; }
 .conv-bar.voice-destroyer > span { background: #0000ff; animation-delay: 2s; }
 
-/* Settled: dots snap to witness teal but KEEP pulsing — they're now
-   "writing the response" rather than "deliberating". Drop mix-blend so
-   overlapping teal dots stay cleanly teal rather than oversaturating. */
-.convergence-bars.settled .conv-bar { mix-blend-mode: normal; }
+/* Settled: dots flash teal and keep pulsing — "writing the response". */
 .convergence-bars.settled .conv-bar > span {
   background: var(--signal);
   box-shadow: 0 0 4px var(--signal);
@@ -810,6 +716,3 @@ input[type="text"]::placeholder { color: var(--ink-faint); }
   0%, 80%, 100% { opacity: 0.3; transform: scale(0.8); }
   40%           { opacity: 1;   transform: scale(1); }
 }
-/* Push the chips to the right so the dots have the leftmost slot when
-   visible; chips still right-align. */
-.graph-head { gap: 0.5rem; }

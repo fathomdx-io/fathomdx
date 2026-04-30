@@ -218,6 +218,22 @@
 
     /* Feed cards */
     .feed { display: flex; flex-direction: column; gap: 12px; }
+    /* Section-based spacing. Default flex gap is 12px; same-section
+       neighbors tighten via negative margin-top, section transitions
+       widen via positive margin-top.
+         chat        — user/fathom messages
+         feed        — editorial cards
+         background  — claude-code, prompts, thinking, identity, routine
+       Background items cluster flush; chat tightens slightly; cards
+       keep the default. Transitions across sections add ~12px. */
+    .feed > [data-section="background"] + [data-section="background"] { margin-top: -12px; }
+    .feed > [data-section="chat"] + [data-section="chat"] { margin-top: -4px; }
+    .feed > [data-section="chat"] + [data-section="feed"],
+    .feed > [data-section="chat"] + [data-section="background"],
+    .feed > [data-section="feed"] + [data-section="chat"],
+    .feed > [data-section="feed"] + [data-section="background"],
+    .feed > [data-section="background"] + [data-section="chat"],
+    .feed > [data-section="background"] + [data-section="feed"] { margin-top: 12px; }
     .card {
       background: var(--surface); border: 1px solid var(--rule);
       border-radius: var(--radius);
@@ -450,11 +466,37 @@
       border-radius: 6px;
       padding: 0.7rem 0.95rem;
     }
-    .feed .delta.claude-code-dispatch .d-head,
-    .feed .delta.claude-code-reply .d-head {
+    /* Each card is a native <details>. The d-head is the <summary> —
+       click to expand the body. Closed by default; chevron rotates open. */
+    .feed .delta.claude-code-dispatch > summary.d-head,
+    .feed .delta.claude-code-reply > summary.d-head {
+      list-style: none;
+      cursor: pointer;
+      user-select: none;
+    }
+    .feed .delta.claude-code-dispatch > summary.d-head::-webkit-details-marker,
+    .feed .delta.claude-code-reply > summary.d-head::-webkit-details-marker { display: none; }
+    .feed .delta.claude-code-dispatch > summary.d-head::before,
+    .feed .delta.claude-code-reply > summary.d-head::before {
+      content: "▸";
+      display: inline-block;
+      width: 0.9rem;
+      color: var(--signal);
+      opacity: 0.7;
+      transition: transform 160ms;
+    }
+    .feed .delta.claude-code-dispatch[open] > summary.d-head::before,
+    .feed .delta.claude-code-reply[open] > summary.d-head::before { transform: rotate(90deg); }
+    /* Closed: summary alone — drop the divider + bottom margin so the
+       header sits flush. Open: divider returns and body follows. */
+    .feed .delta.claude-code-dispatch > summary.d-head,
+    .feed .delta.claude-code-reply > summary.d-head {
       display: flex;
       align-items: center;
       gap: 0.5rem;
+    }
+    .feed .delta.claude-code-dispatch[open] > summary.d-head,
+    .feed .delta.claude-code-reply[open] > summary.d-head {
       margin-bottom: 0.6rem;
       padding-bottom: 0.45rem;
       border-bottom: 1px solid color-mix(in srgb, var(--signal) 22%, transparent);
@@ -613,7 +655,6 @@
       border-radius: var(--radius);
       font-size: 13.5px;
     }
-    .feed .accordion + .accordion { margin-top: -2px; }
     .feed .accordion > summary {
       list-style: none;
       cursor: pointer;
@@ -3205,8 +3246,8 @@
                 Chat <span style="margin-left:auto; font-size:10px; opacity:0.7;">always on</span>
               </label>
               <label><input type="checkbox" data-category="card" checked> Cards</label>
-              <label><input type="checkbox" data-category="claude-code" checked> Claude Code</label>
               <div class="filter-group-head">Background</div>
+              <label><input type="checkbox" data-category="claude-code" checked> Claude Code</label>
               <label><input type="checkbox" data-category="prompts"> Prompts</label>
               <label><input type="checkbox" data-category="thinking"> Thinking</label>
               <label><input type="checkbox" data-category="identity"> Identity</label>
@@ -8210,6 +8251,25 @@ GET  /v1/usage               Usage stats`,
     function _categoryOf(kind) {
       return KIND_TO_CATEGORY[kind] || '';
     }
+    // Sections drive inter-item spacing in the feed. Three buckets:
+    //   chat        — user/fathom messages (always-on)
+    //   feed        — cards (the editorial layer)
+    //   background  — claude-code, prompts, thinking, identity, routine
+    // Same-section neighbors cluster tight; section transitions get a
+    // wider gap. See the `.feed [data-section=...]` rules in CSS.
+    const _CATEGORY_TO_SECTION = {
+      'chat':        'chat',
+      'card':        'feed',
+      'claude-code': 'background',
+      'prompts':     'background',
+      'thinking':    'background',
+      'identity':    'background',
+      'routine':     'background',
+    };
+    function _sectionOf(kind) {
+      const cat = _categoryOf(kind);
+      return _CATEGORY_TO_SECTION[cat] || '';
+    }
 
     function _extractLevelFromTags(tags) {
       if (!Array.isArray(tags)) return '';
@@ -8695,27 +8755,33 @@ GET  /v1/usage               Usage stats`,
       // a blinking cyan cursor rectangle at the end of the body so
       // the card reads as a live shell waiting for the next line.
       if (it.kind === 'claude-code-dispatch' || it.kind === 'claude-code-reply') {
-        const el = document.createElement('article');
+        // Native <details> — the d-head is the summary (click to expand);
+        // d-body is the content. Closed by default.
+        const el = document.createElement('details');
         const isDispatch = it.kind === 'claude-code-dispatch';
         el.className = isDispatch ? 'delta claude-code-dispatch' : 'delta claude-code-reply';
         el.dataset.kind = isDispatch ? 'claude-code-dispatch' : 'claude-code-reply';
         el.dataset.fromPuddle = '1';
         el.dataset.puddleId = it.id || '';
         if (it.id) el.dataset.deltaId = it.id;
-        const host = (it.host || '?').replace(/[<>&]/g, c => ({'<':'&lt;','>':'&gt;','&':'&amp;'}[c]));
+        const host = (it.host || '').replace(/[<>&]/g, c => ({'<':'&lt;','>':'&gt;','&':'&amp;'}[c]));
         const body = (isDispatch ? (it.body || it.content || '') : (it.content || '')).toString();
         const icon = (typeof PROVIDER_ICONS === 'object' && PROVIDER_ICONS['claude-code'])
           ? PROVIDER_ICONS['claude-code']
           : '';
+        // Dispatch: fathom → host. Reply: fathom ← host (or "claude" if
+        // the closure landed without host provenance, which is rare —
+        // the watcher injects it from the task-spawn join).
+        const peer = host || 'claude';
         const headLabel = isDispatch
-          ? `fathom <span class="cc-arrow">→</span> ${host}`
-          : `${host} <span class="cc-arrow">←</span> claude`;
+          ? `fathom <span class="cc-arrow">→</span> ${peer}`
+          : `fathom <span class="cc-arrow">←</span> ${peer}`;
         el.innerHTML = `
-          <header class="d-head">
+          <summary class="d-head">
             <span class="cc-icon">${icon}</span>
             <span class="d-kind">${headLabel}</span>
             <span class="d-ts">${timeStr}</span>
-          </header>
+          </summary>
           <div class="d-body">${_esc(body)}<span class="cc-cursor" aria-hidden="true"></span></div>
         `;
         return el;
@@ -8758,6 +8824,8 @@ GET  /v1/usage               Usage stats`,
       const det = document.createElement('details');
       det.className = 'accordion';
       det.dataset.category = cat;
+      const sec = _CATEGORY_TO_SECTION[cat];
+      if (sec) det.dataset.section = sec;
       if (session) det.dataset.session = session;
       const labelText = CATEGORY_LABELS[cat] || cat;
       const summary = document.createElement('summary');
@@ -8814,6 +8882,8 @@ GET  /v1/usage               Usage stats`,
       const resolvedKind = node.dataset.kind || kind;
       const category = _categoryOf(resolvedKind);
       if (category) node.dataset.category = category;
+      const sec = _CATEGORY_TO_SECTION[category];
+      if (sec) node.dataset.section = sec;
       if (!category || !_CLUSTERABLE_CATEGORIES.has(category)) {
         feed.insertBefore(node, feed.firstChild);
         return;
@@ -9018,7 +9088,14 @@ GET  /v1/usage               Usage stats`,
         } else {
           _renderedFeedIds.add(it.id);
           const node = _renderPuddleItem(it, (delayIdx++) * 0.06);
-          if (node) feed.appendChild(node);
+          if (node) {
+            const k = node.dataset.kind || it.kind;
+            const cat = _categoryOf(k);
+            if (cat) node.dataset.category = cat;
+            const sec = _CATEGORY_TO_SECTION[cat];
+            if (sec) node.dataset.section = sec;
+            feed.appendChild(node);
+          }
           placedIndex.add(i);
         }
       }

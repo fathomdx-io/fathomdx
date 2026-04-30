@@ -40,7 +40,6 @@ const $lakeEmpty    = $lakeBody.querySelector(".empty");
 const $tplProcess   = document.getElementById("tpl-process");        // may be null (chat layout)
 const $tplDelta     = document.getElementById("tpl-delta");
 const $links        = document.getElementById("links");
-const $graph           = document.getElementById("graph");
 // Phase chips were removed from the HTML — convergence dots are the
 // only state indicator now. These stubs make the legacy toggle lines
 // (e.g. `$settledLabel.hidden = false`) a harmless no-op.
@@ -96,13 +95,7 @@ $seedForm.addEventListener("submit", async (e) => {
   $seedInput.value = "";
   $seedInput.blur();
   // Un-settle for the next chorus — back to RGB pulsing.
-  if ($panelGraph) {
-    $panelGraph.classList.remove("settled");
-    $panelGraph.classList.remove("settle-flash");
-  }
-  if ($convergenceBars) {
-    $convergenceBars.classList.remove("settled");
-  }
+  if ($convergenceBars) $convergenceBars.classList.remove("settled");
   // Hide stale phase chips from the prior run.
   if ($settledLabel)    $settledLabel.hidden    = true;
   if ($unresolvedLabel) $unresolvedLabel.hidden = true;
@@ -113,11 +106,6 @@ $seedForm.addEventListener("submit", async (e) => {
   // Show dots immediately — the seed delta round-trips through the poller
   // in a sec; this avoids an empty pause between submit and the first poll.
   showTypingIndicator();
-  // Reset RGB convergence bars for the next chorus.
-  resetConvergenceBars();
-  metricSeriesByVoice.creator.length = 0;
-  metricSeriesByVoice.preserver.length = 0;
-  metricSeriesByVoice.destroyer.length = 0;
 });
 
 // "new convo" button is now hidden — the grand loop is single-tenant,
@@ -165,17 +153,6 @@ let _currentMirrorBatch = null;
 const _mirrorBatches = new Set();
 let paused = false;
 let lastDeltaTs = null;
-// Single metric series — one point per thought emitted.
-const metricSeries = [];
-// Per-voice metric series, populated only in parliament mode (when metric
-// deltas carry a voice:<name> tag). Keyed by voice name → array of {t, d}.
-const metricSeriesByVoice = { creator: [], preserver: [], destroyer: [] };
-// Voice line colors must match the CSS --voice-* vars.
-const VOICE_COLORS = {
-  creator:   "#f97316",
-  preserver: "#06b6d4",
-  destroyer: "#dc2626",
-};
 let patternTs = null;      // when the monitor announced a stable pattern
 let ruminationTs = null;   // when the monitor announced rumination (near-identical)
 let maxTs = null;          // when the spawn loop hit MAX_PROCESSES without pattern
@@ -1042,28 +1019,10 @@ async function poll() {
       const tags = d.tags || [];
       if (tags.includes("process-event")) continue;
 
-      // Metric deltas → graph series, not the main lake column.
+      // Metric deltas don't render in the main lake column — the dots
+      // pulse RGB on their own; we don't drive their position from data.
       if (tags.includes("metric")) {
-        if (!seenIds.has(d.id)) {
-          try {
-            const payload = JSON.parse(d.content);
-            const dist = payload.distance;
-            if (typeof dist === "number") {
-              const tMs = new Date(d.timestamp).getTime();
-              metricSeries.push({ t: tMs, d: dist });
-              const voice = getVoice(tags) || payload.voice || null;
-              if (voice && metricSeriesByVoice[voice]) {
-                metricSeriesByVoice[voice].push({ t: tMs, d: dist });
-                // Parliament mode detected (voice-tagged metric). If the
-                // session hasn't yet hit pattern/max, mark CONTENDING.
-                if (!patternTs && !maxTs) $contendingLabel.hidden = false;
-                // Slide the corresponding convergence bar to its new x.
-                updateConvergenceBars();
-              }
-            }
-          } catch {/*ignore*/}
-          seenIds.add(d.id);
-        }
+        seenIds.add(d.id);
         continue;
       }
 
@@ -1140,7 +1099,6 @@ async function poll() {
     $statAlive.textContent = alive;
 
     drawLinks();
-    drawGraph();
     updateToolPressures(raw);
   } catch (err) {
     console.error("poll failed:", err);
@@ -1176,268 +1134,26 @@ function updateToolPressures(allDeltas) {
   }
 }
 
-// ── Graph ──────────────────────────────────────────────
+// ── Convergence dots ───────────────────────────────────
 //
-// Monotone cubic interpolation (Fritsch-Carlson). Same algorithm as the
-// dashboard's main-page graphs in fathomdx/ui/index.html. Prevents overshoot
-// at extrema, which matters here because distance values are bounded [0,1].
-function _smoothPath(points) {
-  if (!points || !points.length) return "";
-  const n = points.length;
-  if (n === 1) return "M " + points[0][0] + " " + points[0][1];
-  if (n === 2) {
-    return "M " + points[0][0] + " " + points[0][1] +
-           " L " + points[1][0] + " " + points[1][1];
-  }
-  const dx = new Array(n - 1);
-  const m  = new Array(n - 1);
-  for (let i = 0; i < n - 1; i++) {
-    dx[i] = points[i + 1][0] - points[i][0];
-    m[i]  = dx[i] === 0 ? 0 : (points[i + 1][1] - points[i][1]) / dx[i];
-  }
-  const t = new Array(n);
-  t[0] = m[0];
-  t[n - 1] = m[n - 2];
-  for (let i = 1; i < n - 1; i++) {
-    t[i] = (m[i - 1] * m[i] <= 0) ? 0 : (m[i - 1] + m[i]) / 2;
-  }
-  for (let i = 0; i < n - 1; i++) {
-    if (m[i] === 0) { t[i] = 0; t[i + 1] = 0; continue; }
-    const a = t[i] / m[i];
-    const b = t[i + 1] / m[i];
-    const s = a * a + b * b;
-    if (s > 9) {
-      const tau = 3 / Math.sqrt(s);
-      t[i]     = tau * a * m[i];
-      t[i + 1] = tau * b * m[i];
-    }
-  }
-  let d = "M " + points[0][0] + " " + points[0][1];
-  for (let i = 0; i < n - 1; i++) {
-    const h = dx[i] / 3;
-    const c1x = points[i][0] + h;
-    const c1y = points[i][1] + t[i] * h;
-    const c2x = points[i + 1][0] - h;
-    const c2y = points[i + 1][1] - t[i + 1] * h;
-    d += " C " + c1x + " " + c1y + " " + c2x + " " + c2y +
-         " " + points[i + 1][0] + " " + points[i + 1][1];
-  }
-  return d;
-}
-
-const GRAPH_WINDOW_MS = 30_000;  // 30 sec of active ticks
-
-// When pattern-boundary lands, pause graph rebuilds for ~2s so the CSS
-// flash + fade-to-teal transitions can actually play on the same DOM
-// nodes (otherwise drawGraph rebuilds the SVG and resets them mid-anim).
-let _skipGraphRedraw = false;
-const $panelGraph = document.getElementById("panel-graph");
+// Three RGB dots that sit at the bottom of the deliberation list.
+// They pulse RGB on independent phases while voices are thinking, and
+// snap to teal when the witness is writing the final message. No
+// position math — they stay put; CSS owns the pulse + teal flash.
+const $convergenceBars = document.getElementById("convergence-bars");
 
 function triggerSettleAnimation() {
-  if ($panelGraph) {
-    $panelGraph.classList.add("settled");
-    $panelGraph.classList.add("settle-flash");
-    setTimeout(() => $panelGraph.classList.remove("settle-flash"), 800);
-  }
-  // Convergence dots: snap to teal, keep pulsing — "writing the response".
   if ($convergenceBars) $convergenceBars.classList.add("settled");
-  // Wait a beat after settle, then re-space the dots into a left-aligned
-  // ellipsis. The pulse continues in teal while the witness writes.
-  setTimeout(settleToEllipsis, 900);
-  _skipGraphRedraw = true;
-  setTimeout(() => { _skipGraphRedraw = false; }, 900);
 }
 
-// The thinking indicator IS the convergence dots — no separate typing
-// element. showTypingIndicator/hideTypingIndicator now toggle the
-// convergence-bars container; the dots pulse via CSS while not settled
-// and slide horizontally as voice-similarity data lands.
 function showTypingIndicator() {
   if (!$convergenceBars) return;
   $convergenceBars.hidden = false;
-  // If we were in the post-settle ellipsis-teal state from a prior tick,
-  // un-settle so dots go back to the RGB cross-voice pulse for the new
-  // tick. Without this, ticks 2+ in a chain would render dots as
-  // already-settled (teal, frozen at ellipsis positions) — no movement.
   $convergenceBars.classList.remove("settled");
-  _convInEllipsisMode = false;
-  for (const bar of $convergenceBars.querySelectorAll(".conv-bar")) {
-    bar.style.transform = "";
-  }
-  // Add a brief CSS-transition window so the dots GLIDE from their
-  // last position (e.g. settled-ellipsis) to the oscillator's first
-  // frame, instead of snap-jumping. Removed after the transition
-  // duration so the per-frame oscillator can take over without
-  // transition lag.
-  $convergenceBars.classList.add("transitioning");
-  setTimeout(() => {
-    if ($convergenceBars) $convergenceBars.classList.remove("transitioning");
-  }, 750);
-  // Kick the oscillator so dots animate immediately, even before any
-  // metric delta has landed.
-  _convStartOsc();
 }
+
 function hideTypingIndicator() {
   if ($convergenceBars) $convergenceBars.hidden = true;
-}
-
-// Convergence bars — three single dots (red/green/blue) at the bottom
-// of the chat list. Each dot's x-position is the voice's most recent
-// cross-voice similarity (1 - distance). When voices converge, the
-// dots stack and additive-blend to white via mix-blend-mode:screen.
-// On settle they snap to teal; after a beat they re-space themselves
-// into a left-aligned ellipsis and pulse teal while the witness writes.
-const $convergenceBars = document.getElementById("convergence-bars");
-const CONV_BAR_WIDTH_PX = 80;
-const CONV_BAR_DOT_PX = 7;
-const CONV_BAR_RANGE = CONV_BAR_WIDTH_PX - CONV_BAR_DOT_PX;
-// Evenly-spaced ellipsis positions (left-aligned, 7px dots + 4px gaps).
-const CONV_ELLIPSIS_POSITIONS = { creator: 0, preserver: 11, destroyer: 22 };
-let _convInEllipsisMode = false;
-let _convOscRafId = null;
-
-// While bars are visible and not settled, drive the dots with a slow
-// sine oscillation per voice so movement is visible even when the
-// underlying cross-voice metric is noisy or missing. Real metric data
-// (when it lands via updateConvergenceBars) overrides the oscillation
-// for that frame; the next animation tick picks up where we are.
-function _convAnimate() {
-  if (!$convergenceBars) return;
-  if ($convergenceBars.hidden || _convInEllipsisMode) {
-    _convOscRafId = null;
-    return;
-  }
-  const t = Date.now() / 1000;
-  const voices = ["creator", "preserver", "destroyer"];
-  voices.forEach((voice, i) => {
-    const series = metricSeriesByVoice[voice];
-    let x;
-    if (series && series.length) {
-      // Real metric data — use latest similarity but add a small wobble
-      // so the dot still reads as "alive" rather than frozen at one pos.
-      const latest = series[series.length - 1];
-      const sim = Math.max(0, Math.min(1, 1 - latest.d));
-      x = sim * CONV_BAR_RANGE + 4 * Math.sin(t * 1.5 + i * 2);
-    } else {
-      // No metric yet — oscillate over the bar range so the dot moves
-      // visibly. Each voice on its own phase (i * 2.1 rad) so they
-      // don't unison-march.
-      x = CONV_BAR_RANGE / 2 + (CONV_BAR_RANGE / 2 - 4) * Math.sin(t * 1.2 + i * 2.1);
-    }
-    const bar = $convergenceBars.querySelector(`.conv-bar.voice-${voice}`);
-    if (bar) bar.style.transform = `translateX(${x.toFixed(1)}px)`;
-  });
-  _convOscRafId = requestAnimationFrame(_convAnimate);
-}
-
-function _convStartOsc() {
-  if (_convOscRafId == null) _convOscRafId = requestAnimationFrame(_convAnimate);
-}
-
-function updateConvergenceBars() {
-  if (!$convergenceBars) return;
-  // Ellipsis mode locks dot positions while the witness writes — don't
-  // let trailing metric updates yank them around.
-  if (_convInEllipsisMode) return;
-  // Make sure bars are visible and the oscillator is running. The
-  // oscillator handles all positioning now (real metric data + sine
-  // wobble), so we don't set transforms directly here anymore.
-  $convergenceBars.hidden = false;
-  _convStartOsc();
-}
-
-function settleToEllipsis() {
-  // Wait-a-beat then re-space the (now-teal) dots into a left-aligned
-  // ellipsis. The dots keep pulsing in teal until the witness card
-  // arrives and hides the whole bar.
-  if (!$convergenceBars) return;
-  _convInEllipsisMode = true;
-  for (const [voice, x] of Object.entries(CONV_ELLIPSIS_POSITIONS)) {
-    const bar = $convergenceBars.querySelector(`.conv-bar.voice-${voice}`);
-    if (bar) bar.style.transform = `translateX(${x}px)`;
-  }
-}
-
-function resetConvergenceBars() {
-  if (!$convergenceBars) return;
-  _convInEllipsisMode = false;
-  for (const bar of $convergenceBars.querySelectorAll(".conv-bar")) {
-    bar.style.transform = "";
-  }
-  $convergenceBars.hidden = true;
-}
-
-function drawGraph() {
-  if (_skipGraphRedraw) return;
-  if (!$graph) return;  // line graph removed — function kept as a stub
-  const bbox = $graph.getBoundingClientRect();
-  const W = bbox.width;
-  const H = bbox.height;
-  if (W < 50 || H < 30) return;
-
-  const PAD_L = 8, PAD_R = 8, PAD_T = 8, PAD_B = 8;
-  const innerW = W - PAD_L - PAD_R;
-  const innerH = H - PAD_T - PAD_B;
-
-  // Anchor the right edge to the LATEST actual tick across any voice —
-  // not wall-clock now. When ticks stop, the graph holds steady instead
-  // of scrolling forward over empty time.
-  let tMax = -Infinity;
-  for (const pts of Object.values(metricSeriesByVoice)) {
-    for (const p of pts) if (p.t > tMax) tMax = p.t;
-  }
-  for (const p of metricSeries) if (p.t > tMax) tMax = p.t;
-  if (tMax === -Infinity) {
-    $graph.innerHTML = '';
-    return;
-  }
-  const tMin = tMax - GRAPH_WINDOW_MS;
-  const span = Math.max(tMax - tMin, 1);
-
-  const yOfSim = sim => PAD_T + innerH - (Math.max(0, Math.min(1, sim)) * innerH);
-  const xOfT   = t   => PAD_L + ((t - tMin) / span) * innerW;
-
-  const svgParts = [];
-
-  // Phase shaded regions (only when in window).
-  if (ruminationTs !== null && ruminationTs >= tMin) {
-    const x = xOfT(ruminationTs);
-    svgParts.push(`<rect class="rumination-shade" x="${x.toFixed(1)}" y="${PAD_T}" width="${(W - PAD_R - x).toFixed(1)}" height="${innerH}" />`);
-    svgParts.push(`<line class="rumination-line" x1="${x.toFixed(1)}" y1="${PAD_T}" x2="${x.toFixed(1)}" y2="${PAD_T + innerH}" />`);
-  }
-  if (maxTs !== null && maxTs >= tMin) {
-    const x = xOfT(maxTs);
-    svgParts.push(`<line class="max-line" x1="${x.toFixed(1)}" y1="${PAD_T}" x2="${x.toFixed(1)}" y2="${PAD_T + innerH}" />`);
-  }
-
-  // Faint y gridlines at 0.25 / 0.5 / 0.75 — no axis chrome, the surface
-  // itself is the grid.
-  for (const v of [0.25, 0.5, 0.75]) {
-    const y = yOfSim(v);
-    svgParts.push(`<line class="grid" x1="${PAD_L}" y1="${y}" x2="${W - PAD_R}" y2="${y}" />`);
-  }
-
-  // Per-voice smoothed curves. Each voice's points are filtered to the
-  // 30-sec window and rendered with monotone-cubic interpolation —
-  // really curvy, but stable, no overshoot at extrema. Stroke + fill are
-  // controlled by CSS classes so the panel's .settled state can fade
-  // the voice colors into the witness teal via transition.
-  const voicesWithData = Object.entries(metricSeriesByVoice).filter(([, pts]) => pts.length >= 1);
-  for (const [voiceName, pts] of voicesWithData) {
-    const inWindow = pts.filter(p => p.t >= tMin);
-    if (inWindow.length === 0) continue;
-    const screen = inWindow.map(p => [xOfT(p.t), yOfSim(1 - p.d)]);
-    if (screen.length >= 2) {
-      const d = _smoothPath(screen);
-      svgParts.push(`<path class="voice-line voice-${voiceName}" d="${d}" />`);
-    }
-    for (const [x, y] of screen) {
-      svgParts.push(`<circle class="voice-dot voice-${voiceName}" cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="2.5" />`);
-    }
-  }
-
-  $graph.setAttribute("viewBox", `0 0 ${W} ${H}`);
-  $graph.innerHTML = svgParts.join("");
 }
 
 // ── Controls ───────────────────────────────────────────
