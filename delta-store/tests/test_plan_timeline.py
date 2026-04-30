@@ -255,6 +255,42 @@ def test_collapse_runs_skips_runs_containing_anchors() -> None:
     assert [d.get("id") for d in out] == ["h1", "anchor", "h3"]
 
 
+def test_collapse_runs_handles_already_collapsed_input() -> None:
+    """When _collapse_same_second_bursts has already folded part of the
+    input, the resulting virtual rows carry t_start/t_end instead of
+    timestamp. _collapse_runs must read whichever the row provides so a
+    same-source run of these folds cleanly instead of KeyError'ing."""
+    rows = [
+        {
+            "id": "_samesec_1000",
+            "kind": "collapsed",
+            "source": "agent-heartbeat",
+            "count": 3,
+            "t_start": _ts(0),
+            "t_end": _ts(0),
+            "content": "[agent-heartbeat × 3]",
+            "tags": [],
+        },
+        {
+            "id": "_samesec_1001",
+            "kind": "collapsed",
+            "source": "agent-heartbeat",
+            "count": 2,
+            "t_start": _ts(2),
+            "t_end": _ts(2),
+            "content": "[agent-heartbeat × 2]",
+            "tags": [],
+        },
+    ]
+    out = PlanExecutor._collapse_runs(rows, {"agent-heartbeat"})
+    assert len(out) == 1
+    folded = out[0]
+    assert folded.get("kind") == "collapsed"
+    assert folded.get("count") == 2
+    assert folded.get("t_start") == _ts(0)
+    assert folded.get("t_end") == _ts(2)
+
+
 # ── _nearest_index ─────────────────────────────────────────────────────
 
 

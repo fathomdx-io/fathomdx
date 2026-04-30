@@ -994,14 +994,17 @@ class PlanExecutor:
                 if run_count >= 2 and not run_has_anchor:
                     first = rows[i]
                     last = rows[j - 1]
+                    # Already-collapsed dicts (from _collapse_same_second_bursts
+                    # running first) carry t_start/t_end instead of timestamp.
+                    # Fall back so a same-source run of those folds cleanly.
                     out.append(
                         {
                             "id": f"_collapsed_{run_id}",
                             "kind": "collapsed",
                             "source": src,
                             "count": run_count,
-                            "t_start": first["timestamp"],
-                            "t_end": last["timestamp"],
+                            "t_start": first.get("timestamp") or first.get("t_start"),
+                            "t_end": last.get("timestamp") or last.get("t_end"),
                             "content": f"[{src} × {run_count}]",
                             "tags": [],
                         }
