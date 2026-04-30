@@ -361,8 +361,36 @@ async function pollOnce(config, pusher, state) {
     openTasks.delete(corr);
   }
 
-  // Prune stale entries whose summary never arrived.
+  // Detect tasks whose kitty window the user closed manually (or that
+  // crashed) without writing a task-complete. The dashboard's status
+  // strip filters by spawn-without-complete, so abandoned tasks
+  // otherwise stay lit forever. We emit `task-abandoned` so the strip
+  // can treat it as a closure signal.
+  //
+  // Grace window: kitty creates the socket a beat or two after spawn,
+  // so a too-eager check would false-positive on every fresh task.
+  // 15s is well clear of cold-start jitter.
   const now = Date.now();
+  const ABANDON_GRACE_MS = 15 * 1000;
+  for (const [corr, entry] of openTasks) {
+    if (now - entry.spawned_at < ABANDON_GRACE_MS) continue;
+    if (kittySocketAlive(entry.socket)) continue;
+    console.log(`  🐈 abandon task ${corr.slice(0, 12)} (window gone, no task-complete)`);
+    knownCompletedCorrs.add(corr);
+    openTasks.delete(corr);
+    pusher?.push?.({
+      content: `[task-abandoned] task ${corr} closed without writing a completion delta on ${myHost}`,
+      tags: [
+        "task-abandoned",
+        `task-corr:${corr}`,
+        `host:${myHost}`,
+        ...(entry.claude_session_id ? [`claude-code-session:${entry.claude_session_id}`] : []),
+      ],
+      source: "kitty",
+    });
+  }
+
+  // Prune stale entries whose summary never arrived.
   for (const [fireId, entry] of openFires) {
     if (now - entry.launched_at > MAX_FIRE_AGE_MS) openFires.delete(fireId);
   }
