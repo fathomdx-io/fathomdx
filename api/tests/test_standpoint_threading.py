@@ -101,11 +101,13 @@ def test_convener_prompt_formats_with_standpoint_block() -> None:
     out = CONVENER_PROMPT.format(
         standpoint_block="(test standpoint)",
         voice_priors_block="(test priors)",
+        judge_history_block="(test history)",
         intent_block="intent",
         recall_block="recall",
     )
     assert "(test standpoint)" in out
     assert "(test priors)" in out
+    assert "(test history)" in out
     assert "intent" in out
 
 

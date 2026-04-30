@@ -38,10 +38,12 @@ from dataclasses import dataclass, field
 from typing import Literal
 
 from .intents import CONVO_TAG, intent_kind
+from .judge_history import recent_judge_stats_by_kind, render_judge_history_for_prompt
 from .llm import loop_generate
 from .prompts import CONVENER_PROMPT, VOICES
 from .puddle import puddle
 from .voice_priors import get_voice_priors, render_priors_for_prompt
+from .voice_stances import get_voice_stances
 
 VERDICT_TTL_S = 48 * 60 * 60
 
@@ -76,9 +78,32 @@ def _render_standpoint_for_prompt(sp) -> str:
 
 
 def _fallback_verdict(reason: str) -> ConvenerVerdict:
+    """Sync fallback — used for empty-pending and bootstrap paths.
+    Returns the static trimurti shape. The async path uses
+    `_async_fallback_verdict` which reads lake-stored stances."""
     return ConvenerVerdict(
         depth="full",
         voices=[dict(v) for v in VOICES],
+        rationale=f"convener fallback — {reason}",
+    )
+
+
+async def _async_fallback_verdict(reason: str) -> ConvenerVerdict:
+    """Async fallback — pulls latest lake-stored voice stances when
+    available, falls back to static VOICES otherwise. Used by the
+    LLM-error / malformed-output paths inside run_convener so the
+    fallback parliament reflects whatever drift has accumulated.
+
+    Soft-fails to the static trimurti on any lake error — the loop
+    must never deadlock on a fallback."""
+    try:
+        voices = await get_voice_stances()
+    except Exception as e:
+        print(f"[convener] async fallback lake load failed: {type(e).__name__}: {e}")
+        voices = [dict(v) for v in VOICES]
+    return ConvenerVerdict(
+        depth="full",
+        voices=voices,
         rationale=f"convener fallback — {reason}",
     )
 
@@ -221,9 +246,28 @@ async def run_convener(
         "territory, pick voices fresh from the question's tensions)"
     )
 
+    # Phase 5b — judge history per intent kind. Convener uses past
+    # fires of the same kind to pick depth that historically settled
+    # with confidence. Soft-fall to empty on lake error.
+    pending_kinds = []
+    for it in pending:
+        k = intent_kind(it)
+        if k and k not in pending_kinds:
+            pending_kinds.append(k)
+    try:
+        judge_stats = await recent_judge_stats_by_kind(pending_kinds)
+    except Exception as e:
+        print(f"[convener] judge_history load failed: {type(e).__name__}: {e}")
+        judge_stats = {}
+    judge_history_block = render_judge_history_for_prompt(judge_stats) or (
+        "  (no recent judge history for these kinds — pick depth from "
+        "the question's content alone)"
+    )
+
     prompt = CONVENER_PROMPT.format(
         standpoint_block=standpoint_block,
         voice_priors_block=voice_priors_block,
+        judge_history_block=judge_history_block,
         intent_block=_render_intent_block(pending),
         recall_block=_render_recall_block(session_tag),
     )
@@ -244,7 +288,7 @@ async def run_convener(
         )
     except Exception as e:
         print(f"[convener] LLM call failed: {type(e).__name__}: {e}")
-        return _fallback_verdict(f"llm error: {type(e).__name__}")
+        return await _async_fallback_verdict(f"llm error: {type(e).__name__}")
 
     parsed = _parse_verdict(raw)
     if parsed is None:
@@ -254,11 +298,30 @@ async def run_convener(
             f"[convener] no parsable JSON; "
             f"raw[:200]={raw[:200]!r} raw[-120:]={raw[-120:]!r} len={len(raw)}"
         )
-        return _fallback_verdict("malformed verdict")
+        return await _async_fallback_verdict("malformed verdict")
 
     verdict = _normalize(parsed)
     if verdict is None:
-        return _fallback_verdict("inconsistent shape")
+        return await _async_fallback_verdict("inconsistent shape")
+
+    # Phase 5a — override LLM-supplied stance/bias with lake-stored
+    # versions when the voice name matches a known voice. The convener
+    # decides WHICH voices to convene; the stance prose itself drifts
+    # from lake (regenerated periodically from accumulated affirmation
+    # history). Voices the LLM minted that have no lake counterpart
+    # (fresh domain voices) keep the LLM's freshly-written stance.
+    try:
+        lake_stances = await get_voice_stances()
+        by_name = {v["name"]: v for v in lake_stances}
+        for v in verdict.voices:
+            name = v.get("name") or ""
+            lake_v = by_name.get(name)
+            if lake_v:
+                v["stance"] = lake_v["stance"]
+                v["bias"] = lake_v["bias"]
+    except Exception as e:
+        # Non-fatal — verdict still has the LLM's stance text.
+        print(f"[convener] stance override failed: {type(e).__name__}: {e}")
 
     try:
         await puddle.write(

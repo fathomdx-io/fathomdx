@@ -191,6 +191,10 @@ Voices with recent standing (each one earned an affirmation tag in the past week
 
 {voice_priors_block}
 
+Judge history for the kinds of intent firing this tick — how recent fires of the same kind have gone. If past fires of this kind consistently scored low confidence at full depth, try minimal. If past fires settled cleanly at minimal, don't blow up to full now. If a kind has no recent history (cold-start), pick from the question's tensions alone.
+
+{judge_history_block}
+
 The pending intent(s) — what's asking for attention this tick:
 
 {intent_block}
