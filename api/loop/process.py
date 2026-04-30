@@ -32,10 +32,10 @@ INPUT_SAMPLE_K = 8
 def _intent_prefix(intent: dict) -> str:
     """Render origin metadata — who's asking and how it arrived — as a
     bracketed prefix on the intent line. Voices need both to ground
-    their take: contact differentiates Myra-asking from Nova-asking;
-    channel differentiates browser-composer from openai-client. Without
-    these the LLM confabulates ("the user", "claude-code") because the
-    raw content alone doesn't carry origin."""
+    their take: contact differentiates one human from another; channel
+    differentiates browser-composer from openai-client. Without these
+    the LLM confabulates ("the user", "claude-code") because the raw
+    content alone doesn't carry origin."""
     from ..channels import extract_channel
     parts: list[str] = []
     contact = ""

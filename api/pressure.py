@@ -38,6 +38,13 @@ SOURCE_WEIGHTS: dict[str, float] = {
     "fathom-agent": 0.2,
     "claude-code": 0.8,
     "fathom-engagement": 0.8,
+    "witness": 0.0,        # exclude — same loop self-amplification as
+                           # fathom-mood: witness cards shouldn't tip the
+                           # mood-pressure that fires more witnesses
+    "fathom-self": 0.0,    # exclude — attestations / mood-shifts / etc.
+    "fathom-sediment": 0.0,
+    "fathom-loop": 0.0,
+    "judge": 0.0,
 }
 USER_TAG_BOOST: float = 0.5
 DEFAULT_WEIGHT: float = 0.3

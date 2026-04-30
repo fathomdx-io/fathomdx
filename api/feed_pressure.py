@@ -53,6 +53,18 @@ SOURCE_WEIGHTS: dict[str, float] = {
     "fathom-agent": 0.1,
     "fathom-feed": 0.0,           # exclude — would feedback-loop on its own output
     "fathom-mood": 0.0,           # exclude — mood is its own synthesis stream
+    "witness": 0.0,               # exclude — witness cards are this loop's own
+                                  # output; counting them as activity is what
+                                  # makes pressure tip on its own writes and
+                                  # re-fire pulse passes about the loop's own
+                                  # recent outputs (compounded by multi-card)
+    "fathom-self": 0.0,           # exclude — attestations, mood-shifts, voice
+                                  # affirmations, engagement-attests; same
+                                  # self-amplification as witness
+    "fathom-sediment": 0.0,       # exclude — auto-sediment from deep recall;
+                                  # high-volume self-output, same pattern
+    "fathom-loop": 0.0,           # exclude — loop's own thinking-aloud writes
+    "judge": 0.0,                 # exclude — kind:judge-axes side-channel
 }
 USER_TAG_BOOST: float = 0.5
 DEFAULT_WEIGHT: float = 0.3

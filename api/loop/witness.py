@@ -149,6 +149,17 @@ async def _gather_witness_resonance(
         if did and did not in seen_ids:
             candidates.append(d)
             seen_ids.add(did)
+    # Drop the witness's own recent card bodies from the resonance pool.
+    # Self-state writes (standpoint attestations, mood shifts, voice
+    # affirmations) already carry forward what the witness needs to know
+    # about its own integration; presenting the literal card content as
+    # substrate makes the next fire re-derive a take on the same theme,
+    # which compounds when multi-card lets each fire emit several. Anti-
+    # narcissus filter — Fathom can read about the world, not loop on
+    # reading itself.
+    candidates = [
+        d for d in candidates if (d.get("source") or "") != "witness"
+    ]
     if not candidates:
         return []
 
@@ -276,7 +287,7 @@ async def _call_witness(
         raw = await loop_generate(
             prompt=prompt,
             tier="hard",
-            max_tokens=4096,
+            max_tokens=8192,
             temperature=0.7,
             json_mode=True,
         )
@@ -299,24 +310,32 @@ async def _call_witness(
         except Exception as e:
             print(f"[witness] JSON parse failed: {type(e).__name__}: {e}")
             return None
-    body = (parsed.get("body") or "").strip()
-    if not body:
+    cards_raw = parsed.get("cards")
+    if not isinstance(cards_raw, list):
+        print(f"[witness] expected `cards` list; got {type(cards_raw).__name__}")
         return None
+    cards: list[dict] = []
+    for card in cards_raw:
+        if not isinstance(card, dict):
+            continue
+        body = (card.get("body") or "").strip()
+        if not body:
+            continue
+        cards.append({
+            "kicker": (card.get("kicker") or "").strip(),
+            "title": (card.get("title") or "").strip(),
+            "body": body,
+            "tail": (card.get("tail") or "").strip(),
+            "body_image": (card.get("body_image") or "").strip(),
+            "link": (card.get("link") or "").strip(),
+            "links": card.get("links") or [],
+            "route": (card.get("route") or "chat-reply").strip(),
+            "addresses": card.get("addresses") or [],
+        })
     return {
-        "kicker": (parsed.get("kicker") or "").strip(),
-        "title": (parsed.get("title") or "").strip(),
-        "body": body,
-        "tail": (parsed.get("tail") or "").strip(),
-        "body_image": (parsed.get("body_image") or "").strip(),
-        "link": (parsed.get("link") or "").strip(),
-        "links": parsed.get("links") or [],
-        "route": (parsed.get("route") or "chat-reply").strip(),
-        "addresses": parsed.get("addresses") or [],
-        # Self-state fields — Phase 3 of the River refactor. Each fire is
-        # also a constituting act: writes a small contribution into all
-        # four self-systems (identity / affect / values / understanding).
-        # All four optional — older models or budget-truncated outputs
-        # may omit them; that's a graceful degradation, not an error.
+        "cards": cards,
+        # Self-state is fire-level — one integrating self regardless of
+        # how many cards came out. Phase 3 of the River refactor.
         "attestation": (parsed.get("attestation") or "").strip(),
         "mood_shift": _parse_mood_shift(parsed.get("mood_shift")),
         "cited_ids": _clean_id_list(parsed.get("cited_ids")),
@@ -721,52 +740,116 @@ async def run_witness(
         print("[witness] produced nothing")
         return []
 
-    addresses_raw = witness.get("addresses") or []
+    cards = witness.get("cards") or []
+    if not cards:
+        # NEIFAMA / silence — the integrating self looked at the substrate
+        # and chose not to emit. Self-state writes still happen below if
+        # the fire registered any drift.
+        print("[witness] empty cards list — silent fire (NEIFAMA)")
+
+    full_addressed_union: list[str] = []
+    seen_addressed: set[str] = set()
+    first_lake_id: str = ""
+    for card in cards:
+        lake_id, claimed = await _dispatch_card(
+            card=card,
+            pending=pending,
+            short_to_full=short_to_full,
+            available_hosts=available_hosts,
+            session_tag=session_tag,
+            primary_intent=primary_intent,
+            voice_order=voice_order,
+        )
+        for cid in claimed:
+            if cid and cid not in seen_addressed:
+                seen_addressed.add(cid)
+                full_addressed_union.append(cid)
+        if lake_id and not first_lake_id:
+            first_lake_id = lake_id
+
+    # Self-state is fire-level: one integrating self regardless of how
+    # many cards came out. Anchored to the first card's lake_id so the
+    # standpoint endorsement reader has provenance to the actual output.
+    # If no card landed (NEIFAMA, or all writes failed), self-state
+    # skips — the next fire will pick up whatever DID land.
+    if first_lake_id:
+        try:
+            await _write_constituting_writes(
+                lake_card_id=first_lake_id,
+                attestation=witness.get("attestation") or "",
+                mood_shift=witness.get("mood_shift"),
+                cited_ids=witness.get("cited_ids") or [],
+                dropped_ids=witness.get("dropped_ids") or [],
+            )
+        except Exception as e:
+            print(
+                f"[witness] constituting-act writes failed: "
+                f"{type(e).__name__}: {e}"
+            )
+
+    return full_addressed_union
+
+
+async def _dispatch_card(
+    *,
+    card: dict,
+    pending: list[dict],
+    short_to_full: dict[str, str],
+    available_hosts: list[str],
+    session_tag: str,
+    primary_intent: str,
+    voice_order: list[str] | None,
+) -> tuple[str, list[str]]:
+    """Write one witness card to lake + puddle and schedule its judge.
+
+    Returns (lake_id, claimed_intent_ids). lake_id is empty if the lake
+    write failed; claimed_intent_ids is the resolved (full-id) list this
+    card addresses. Pulled out of run_witness so multi-card fires share
+    one piece of dispatch logic per card."""
+    addresses_raw = card.get("addresses") or []
     full_addressed: list[str] = []
     for a in addresses_raw:
         if isinstance(a, str) and a in short_to_full:
             full_addressed.append(short_to_full[a])
-    # Default-claim-all when the witness leaves addresses empty — the
-    # parliament deliberated on every pending intent and producing one
-    # body claims them by virtue of integration. Dropping intents on the
-    # floor would make them re-fire the same deliberation forever.
-    if not full_addressed:
+    # Default-claim-all only when this card claimed nothing AND it's the
+    # only kind of card worth defaulting (chat-reply / claude-code).
+    # Pulse-pass cards (feed-card / alert / drift) routinely emit without
+    # claiming a specific intent — they're ambient observations, not
+    # responses. Letting them sweep all pending intents would silently
+    # consume user questions that should belong to a chat-reply card.
+    route_value = (card.get("route") or "chat-reply").strip()
+    is_responsive_route = (
+        route_value == "chat-reply"
+        or route_value.startswith("claude-code:")
+        or route_value == "claude-code"
+    )
+    if not full_addressed and is_responsive_route:
         full_addressed = [it.get("id") for it in pending if it.get("id")]
 
-    # The judge runs in the background after dispatch (see _post_dispatch
-    # below). The card writes immediately with axes={} so the user's
-    # response isn't gated on a 5–9s rating call. judge_history reads the
-    # axes via the side-channel `kind:judge-axes` delta when the card's
-    # inline axes are empty.
     payload = {
-        "kicker": witness.get("kicker") or "",
-        "title": witness.get("title") or "",
-        "body": witness["body"],
-        "tail": witness.get("tail") or "",
-        "body_image": witness.get("body_image") or "",
-        "link": witness.get("link") or "",
-        "links": witness.get("links") or [],
-        "route": witness.get("route") or "chat-reply",
+        "kicker": card.get("kicker") or "",
+        "title": card.get("title") or "",
+        "body": card["body"],
+        "tail": card.get("tail") or "",
+        "body_image": card.get("body_image") or "",
+        "link": card.get("link") or "",
+        "links": card.get("links") or [],
+        "route": route_value,
         "axes": {},
     }
     payload_json = json.dumps(payload, ensure_ascii=False)
-    route_value = witness.get("route") or "chat-reply"
 
-    # Read channel/correlation off the addressed intents — supervisor
-    # groups by (channel, correlation) so every intent in this fire
-    # carries the same pair (or none, for ambient fires). Stamp
-    # `to:<channel>:<correlation>` on the output so the channel's
-    # consumer (OpenAI endpoint poller, etc.) finds it with one tag
-    # query without scanning route metadata.
-    #
-    # `host_for_channel` is captured for the claude-code channel: kitty
-    # plugins on each machine query by (route:claude-code AND host:<me>),
-    # so the host tag must propagate from the addressed intent onto the
-    # outbound card. Other channels ignore it.
+    # Channel / correlation / host derived per-card from the intents THIS
+    # card claims — not from all pending. Two cards in one fire can land
+    # on different channels (a chat-reply addressing the openai intent +
+    # a feed-card addressing nothing channel-bound).
+    claim_set = set(full_addressed)
     channel, correlation = "", ""
     addressee = ""
     host_for_channel = ""
     for it in pending:
+        if it.get("id") not in claim_set:
+            continue
         ch, corr = extract_channel(it.get("tags") or [])
         if ch and not channel:
             channel, correlation = ch, corr
@@ -782,20 +865,11 @@ async def run_witness(
         if channel and addressee:
             break
 
-    # Proactive claude-code dispatch — witness picked `claude-code:<host>`
-    # as its route, meaning it wants to spawn a fresh kitty window on
-    # that host with `body` as the prompt. This is the user-asked-for-
-    # hands-on-work path; distinct from the closure-followup case where
-    # the addressed intent already lives on the claude-code channel.
-    #
-    # We override channel/correlation/host with a fresh dispatch tuple
-    # so the existing tag-stamping branches downstream emit the right
-    # `to:claude-code:<corr>` + `host:<H>` + `task-corr:<corr>` set,
-    # and the kitty plugin's `route:claude-code AND host:<myhost>`
-    # query lands the dispatch at the targeted machine.
-    proactive_route_raw = (witness.get("route") or "").strip()
-    if proactive_route_raw.startswith("claude-code:") and available_hosts:
-        target = proactive_route_raw.split(":", 1)[1].strip()
+    # Proactive claude-code dispatch — card picked `claude-code:<host>`
+    # as its route. Mint a fresh correlation; kitty plugin on the named
+    # host will pick it up via (route:claude-code AND host:<me>).
+    if route_value.startswith("claude-code:") and available_hosts:
+        target = route_value.split(":", 1)[1].strip()
         if target in available_hosts:
             channel = "claude-code"
             correlation = uuid.uuid4().hex[:12]
@@ -810,28 +884,15 @@ async def run_witness(
                 f"host not in available hosts {available_hosts}"
             )
 
-    # Channels with a known consumer (kitty for claude-code) need their
-    # route to match the consumer's filter even when the witness model's
-    # JSON didn't pick that route explicitly. The route field on the
-    # JSON is still informational for feed rendering; the wire-level
-    # routing comes from the `to:<channel>:<corr>` tag pair, which is
-    # already stamped above. Here we keep `route:<...>` aligned with
-    # the channel so nothing downstream has to special-case it.
-    #
-    # `closure:true` on an addressed intent means the task already
-    # wrapped (claude wrote its task-complete delta) and the watcher
-    # minted this intent from the closure. Routing back as
-    # `claude-code` here would make kitty respawn the closed task. So
-    # for closure-driven intents we use `chat-reply` instead — the
-    # witness reply lands in the feed as a normal message.
+    # closure:true on a claimed intent → don't redispatch claude-code,
+    # rewrite to chat-reply with `about-task-corr:` linkage so the
+    # dashboard can render "Fathom (about task on <host>)" without
+    # respawning the closed task.
     is_closure_followup = any(
-        "closure:true" in (it.get("tags") or []) for it in pending
+        it.get("id") in claim_set
+        and "closure:true" in (it.get("tags") or [])
+        for it in pending
     )
-    # `about_corr` / `about_host` carry the closure's task linkage onto
-    # the chat-reply as informational tags (`about-task-corr:` /
-    # `about-host:`) so the renderer can show "Fathom (about task on
-    # <host>)" without misrepresenting the chat-reply as if it were
-    # addressed to claude-code as a wire.
     about_corr = ""
     about_host = ""
     if channel == "claude-code" and not is_closure_followup:
@@ -842,21 +903,12 @@ async def run_witness(
         route_value = "chat-reply"
         payload["route"] = "chat-reply"
         payload_json = json.dumps(payload, ensure_ascii=False)
-        # The closure-driven chat-reply addresses the user via `for:`
-        # (the contact propagated by the watcher), not claude-code as
-        # a destination. Drop the channel/correlation/host stamps; the
-        # `about-task-corr` link below preserves the threading.
         about_corr = correlation
         about_host = host_for_channel
         channel = ""
         correlation = ""
         host_for_channel = ""
 
-    # Include `addressing-output` so pending_intents() sees this card
-    # as having addressed its intents even after a cold-start restore
-    # (telepathy preserves these tags when mirroring the lake delta
-    # back into a fresh puddle). Without it, the loop would re-fire
-    # on questions it already answered.
     lake_tags = [
         "feed-card", "synthesis", "addressing-output",
         f"route:{route_value}",
@@ -864,12 +916,6 @@ async def run_witness(
     if channel and correlation:
         lake_tags.append(address_tag(channel, correlation))
         lake_tags.append(f"channel:{channel}")
-    # Claude-code consumers (kitty plugin) match on
-    # `route:claude-code AND host:<myhost>`; the host has to ride along
-    # for that filter to land at the right machine. `task-corr:<corr>`
-    # is the cross-cutting key the loop watcher uses to thread replies
-    # to a particular task — present on the witness card, on the kitty
-    # join delta, and on claude's closure delta.
     if channel == "claude-code":
         if host_for_channel:
             lake_tags.append(f"host:{host_for_channel}")
@@ -880,10 +926,6 @@ async def run_witness(
         if about_host:
             lake_tags.append(f"about-host:{about_host}")
     if addressee:
-        # `for:<contact>` is the existing addressing convention (see
-        # messages.send_message); reusing it means contact-scoped views
-        # see Fathom's reply alongside any direct messages for the
-        # same person. Also lets the dashboard render "Fathom > Myra".
         lake_tags.append(f"for:{addressee}")
     for intent_id in full_addressed:
         lake_tags.append(f"addresses:{intent_id}")
@@ -897,37 +939,7 @@ async def run_witness(
         if isinstance(lake_delta, dict):
             lake_id = lake_delta.get("id") or ""
     except Exception as e:
-        # Lake write is non-fatal — a transient lake hiccup must not
-        # take the loop offline. The puddle copy still lands; the
-        # card is just ephemeral for this fire.
         print(f"[witness] lake write failed (puddle still writing): {type(e).__name__}: {e}")
-
-    # Phase 3 of the River refactor: the witness fire is also a
-    # self-constituting act. After the main card writes, emit the small
-    # side-effect deltas that drift identity, affect, and committed
-    # values for future fires. lake_id is the provenance anchor;
-    # without it (lake write failed) the side-effects skip — the next
-    # fire's standpoint will pick up whatever DID land.
-    if lake_id:
-        try:
-            await _write_constituting_writes(
-                lake_card_id=lake_id,
-                attestation=witness.get("attestation") or "",
-                mood_shift=witness.get("mood_shift"),
-                cited_ids=witness.get("cited_ids") or [],
-                dropped_ids=witness.get("dropped_ids") or [],
-            )
-        except Exception as e:
-            # Side-effect writes are non-fatal — the card still landed.
-            # Log loudly so the loss is visible; the loop continues.
-            print(
-                f"[witness] constituting-act writes failed: "
-                f"{type(e).__name__}: {e}"
-            )
-        # Phase 4a — voice priors. Deferred to the background judge task
-        # below since affirmations are gated on judge axes. Was inline
-        # before; moving it off the dispatch path saves the user the
-        # judge call's 5–9s on every fire.
 
     puddle_tags = [
         CONVO_TAG, session_tag,
@@ -951,10 +963,6 @@ async def run_witness(
     for intent_id in full_addressed:
         puddle_tags.append(f"addresses:{intent_id}")
     if lake_id:
-        # Back-reference to the durable counterpart. recalled-id is the
-        # canonical telepathy-dedupe tag (telepathy skips lake deltas
-        # whose short id is already represented in the puddle); lake-id
-        # carries the full id for engagement to look up directly.
         puddle_tags.append(f"lake-id:{lake_id}")
         puddle_tags.append(f"recalled-id:{lake_id[:24]}")
     await puddle.write(
@@ -968,25 +976,19 @@ async def run_witness(
         f"body[{len(payload['body'])}c] lake-id={lake_id[:24] or 'none'}"
     )
 
-    # Fire the judge in the background after the dispatch has landed.
-    # The user's response is already on the wire; the judge axes feed
-    # downstream metadata (voice affirmations, judge_history aggregates
-    # for future convener decisions) — none of that needs to be in the
-    # critical path. Side-channel `kind:judge-axes` delta carries the
-    # axes back, linked to the card via `for-card:<lake_id>`.
     if lake_id:
         asyncio.create_task(
             _judge_and_followup(
                 lake_card_id=lake_id,
-                kicker=witness.get("kicker") or "",
-                body=witness["body"],
+                kicker=card.get("kicker") or "",
+                body=card["body"],
                 seed=primary_intent,
-                route=witness.get("route") or "chat-reply",
+                route=route_value,
                 voice_order=voice_order,
             )
         )
 
-    return full_addressed
+    return lake_id, full_addressed
 
 
 async def _judge_and_followup(

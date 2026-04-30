@@ -20,8 +20,8 @@ convener mints DOMAIN voices (compassion / boundaries / honesty / etc)
 so the deliberation tracks the actual tensions in the question instead
 of forcing them through a creator/preserver/destroyer mold that doesn't
 fit. The trimurti debating "should I be honest with my friend about X"
-is what surfaces things like "lift Myra out of the architecture" —
-destroyer's framing applied to a person because nothing in the prompt
+is what surfaces things like "lift this person out of the architecture"
+— destroyer's framing applied to a human because nothing in the prompt
 constrained what was eligible for cutting.
 
 Failure mode: convener LLM call crashes, returns malformed output, or

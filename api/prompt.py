@@ -318,7 +318,7 @@ Example for "remember when nova stretched mozzarella":
 ]}
 
 When a hit is meaningful only with surrounding context, follow it with \
-neighbors. Example for "what did Myra say about the migration on Thursday":
+neighbors. Example for "what did the team say about the migration on Thursday":
 {"steps": [
   {"id": "a", "search": "migration database Thursday discussion plan",
    "limit": 8, "tags_exclude": ["assistant"],
