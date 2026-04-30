@@ -3977,9 +3977,16 @@
     async function api(path, opts = {}) {
       const url = API_BASE + path;
       const authH = _authToken ? { 'Authorization': 'Bearer ' + _authToken } : {};
+      // Spread `opts` FIRST so its method/body land — then headers AFTER,
+      // because the careful merge below (Content-Type + auth + caller's
+      // headers) is what we actually want. The previous order put `headers`
+      // before `...opts`, which let `opts.headers` overwrite the merged
+      // version on PUT/POST callers that passed their own Content-Type —
+      // dropping the Authorization token and 401-redirecting the user to
+      // the login page on every model-picker click.
       const r = await fetch(url, {
-        headers: { 'Content-Type': 'application/json', ...authH, ...opts.headers },
         ...opts,
+        headers: { 'Content-Type': 'application/json', ...authH, ...opts.headers },
       });
       if (r.status === 401) {
         _clearAuthToken();
