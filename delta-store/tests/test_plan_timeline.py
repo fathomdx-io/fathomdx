@@ -159,6 +159,102 @@ def test_collapse_no_sources_listed_is_passthrough() -> None:
     assert PlanExecutor._collapse_runs(rows, set()) == rows
 
 
+# ── _collapse_same_second_bursts ────────────────────────────────────────
+
+
+def _ts_at(year: int, month: int, day: int, h: int, m: int, s: int, micro: int = 0) -> str:
+    return datetime(year, month, day, h, m, s, micro, tzinfo=UTC).isoformat()
+
+
+def test_same_second_collapses_chunker_burst() -> None:
+    """The vault chunker stamps many deltas at one import second from a
+    single source. They should fold into one virtual collapsed row even
+    though `vault/fathom` isn't on the heartbeat collapse list."""
+    base = _ts_at(2026, 4, 5, 12, 52, 4)
+    rows = [
+        {"id": "v1", "source": "vault/fathom", "timestamp": base, "content": "## A"},
+        {"id": "v2", "source": "vault/fathom", "timestamp": base, "content": "## B"},
+        {"id": "v3", "source": "vault/fathom", "timestamp": base, "content": "## C"},
+        {"id": "user1", "source": "claude-code", "timestamp": _ts_at(2026, 4, 5, 12, 52, 6)},
+    ]
+    out = PlanExecutor._collapse_same_second_bursts(rows)
+    ids = [d.get("id") for d in out]
+    # The 3 vault/fathom deltas at 12:52:04 fold; the claude-code at
+    # 12:52:06 stays separate.
+    assert len(out) == 2
+    assert ids[0].startswith("_samesec_")
+    assert out[0].get("kind") == "collapsed"
+    assert out[0].get("count") == 3
+    assert out[0].get("source") == "vault/fathom"
+    assert ids[1] == "user1"
+
+
+def test_same_second_distinct_sources_do_not_collapse() -> None:
+    """Different sources at the same second is coincident timing, not a
+    chunking artifact. They stay separate."""
+    base = _ts_at(2026, 4, 5, 12, 52, 4)
+    rows = [
+        {"id": "a", "source": "X", "timestamp": base},
+        {"id": "b", "source": "Y", "timestamp": base},
+        {"id": "c", "source": "Z", "timestamp": base},
+    ]
+    out = PlanExecutor._collapse_same_second_bursts(rows)
+    assert [d.get("id") for d in out] == ["a", "b", "c"]
+
+
+def test_same_second_singleton_passes_through() -> None:
+    rows = [{"id": "a", "source": "X", "timestamp": _ts_at(2026, 4, 5, 12, 52, 4)}]
+    out = PlanExecutor._collapse_same_second_bursts(rows)
+    assert out == rows
+
+
+def test_same_second_handles_subsecond_jitter() -> None:
+    """Microsecond differences within the same second still collapse —
+    we truncate to second resolution before comparing."""
+    rows = [
+        {"id": "a", "source": "X", "timestamp": _ts_at(2026, 4, 5, 12, 52, 4, 100000)},
+        {"id": "b", "source": "X", "timestamp": _ts_at(2026, 4, 5, 12, 52, 4, 800000)},
+    ]
+    out = PlanExecutor._collapse_same_second_bursts(rows)
+    assert len(out) == 1
+    assert out[0].get("kind") == "collapsed"
+    assert out[0].get("count") == 2
+
+
+def test_same_second_empty_input() -> None:
+    assert PlanExecutor._collapse_same_second_bursts([]) == []
+
+
+def test_same_second_skips_runs_containing_anchors() -> None:
+    """Anchor deltas are load-bearing — a run that contains one stays
+    uncollapsed even if the rest of the run would normally fold."""
+    base = _ts_at(2026, 4, 5, 12, 52, 4)
+    rows = [
+        {"id": "v1", "source": "vault/fathom", "timestamp": base, "content": "header A"},
+        {"id": "anchor-x", "source": "vault/fathom", "timestamp": base, "content": "the anchor"},
+        {"id": "v3", "source": "vault/fathom", "timestamp": base, "content": "header C"},
+    ]
+    out = PlanExecutor._collapse_same_second_bursts(rows, protected_ids={"anchor-x"})
+    # All three pass through unchanged — the run can't collapse because
+    # one of its members is the anchor.
+    assert [d.get("id") for d in out] == ["v1", "anchor-x", "v3"]
+    assert all(d.get("kind") != "collapsed" for d in out)
+
+
+def test_collapse_runs_skips_runs_containing_anchors() -> None:
+    rows = [
+        {"id": "h1", "source": "agent-heartbeat", "timestamp": _ts(0)},
+        {"id": "anchor", "source": "agent-heartbeat", "timestamp": _ts(2)},
+        {"id": "h3", "source": "agent-heartbeat", "timestamp": _ts(4)},
+    ]
+    out = PlanExecutor._collapse_runs(
+        rows, {"agent-heartbeat"}, protected_ids={"anchor"}
+    )
+    # All three survive — anchor in the middle of a heartbeat run blocks
+    # the collapse so the anchor itself isn't lost into a count.
+    assert [d.get("id") for d in out] == ["h1", "anchor", "h3"]
+
+
 # ── _nearest_index ─────────────────────────────────────────────────────
 
 

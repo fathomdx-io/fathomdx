@@ -74,9 +74,42 @@ def _short_ts(d: dict) -> str:
     return ts[:8]
 
 
-def _content_oneline(d: dict, cap: int = 220) -> str:
-    """Compact single line: collapse whitespace, truncate."""
+_HTML_TAG_RE = __import__("re").compile(r"<[a-zA-Z/][^>]*>")
+_HTML_ENTITY_RE = __import__("re").compile(r"&(?:nbsp|amp|lt|gt|quot|apos|#\d+);")
+
+
+def _looks_like_html(s: str) -> bool:
+    """Heuristic: content is HTML-laden if it contains a tag-like
+    pattern. Avoids false positives on plain text mentioning ``<3``
+    or comparison operators by requiring a letter or `/` right after
+    the opening ``<``."""
+    return _HTML_TAG_RE.search(s) is not None
+
+
+def _strip_html(s: str) -> str:
+    """Cheap HTML stripper for delta content. Drops tags and common
+    entities; not a sanitizer — just keeps the readable text. Applied
+    universally in ``_content_oneline`` when content looks HTML-laden,
+    so ANY source emitting HTML (RSS, any feed, scraped pages, agent
+    output that happens to wrap in tags) renders cleanly.
+    """
+    s = _HTML_TAG_RE.sub(" ", s)
+    s = _HTML_ENTITY_RE.sub(" ", s)
+    return s
+
+
+def _content_oneline(d: dict, cap: int = 130) -> str:
+    """Compact single line: detect-and-strip HTML, collapse whitespace,
+    truncate.
+
+    The 130-char default is tight by design — the witness substrate
+    truncates each candidate's full content to 600 chars, so 4–5
+    anchor lines need to fit comfortably under that cap. Renderers
+    that want more room pass a larger ``cap`` explicitly.
+    """
     s = (d.get("content") or "").strip()
+    if _looks_like_html(s):
+        s = _strip_html(s)
     s = " ".join(s.split())
     if len(s) > cap:
         s = s[: cap - 1] + "…"

@@ -353,14 +353,22 @@ def _inject_timeline_step(plan: dict) -> str | None:
             "timeline": anchor_id,
             "relation": "the moment around it",
             "radius_minutes": 20,
-            "max_per_side": 15,
-            "gap_minutes": 30,
+            "max_per_side": 6,
+            "gap_minutes": 15,
             "merge_gap_seconds": 300,
             "collapse_sources": _TIMELINE_COLLAPSE_SOURCES,
-            "limit": 50,
+            "limit": 12,
         }
     )
     return sid
+
+
+# Hard cap on the rendered timeline prose. Beyond this, trailing strips
+# get truncated with an "… (N more strips)" suffix. Keeps `as_prompt`
+# from blowing context for MCP / chat-LLM / web-chat consumers — the
+# witness substrate's own 600-char per-item truncation is upstream of
+# this; this cap is for everyone else who reads the full render.
+_TIMELINE_RENDER_BUDGET_CHARS = 6000
 
 
 # ── Rendering ───────────────────────────────────
@@ -513,6 +521,14 @@ def _render_timelines(timelines: list[dict], *, query: str) -> str:
 
     Anchor lines carry a ``▸`` marker; ambient lines do not. Tag-keyed
     dispatch in ``timeline_renderers`` formats each line.
+
+    Honors a hard char budget (``_TIMELINE_RENDER_BUDGET_CHARS``):
+    strips render in order until the budget is exhausted, then a
+    summary line reports how many more strips were skipped. Anchors
+    of a partially-rendered strip always emit; ambient is the first
+    thing dropped. Per-strip the dispatch caps individual lines, so
+    the budget acts as a strip-count limiter rather than a per-line
+    truncator.
     """
     from . import timeline_renderers
 
@@ -521,32 +537,71 @@ def _render_timelines(timelines: list[dict], *, query: str) -> str:
 
     blocks: list[str] = []
     blocks.append(f'your query "{query}" returned')
+    used = len(blocks[0])
+    skipped_strips = 0
+    rule = "═" * 8
 
     for i, tl in enumerate(timelines):
         header = _format_strip_header(tl.get("t_start", ""), tl.get("t_end", ""))
         anchor_count = len(tl.get("anchor_ids") or [])
         anchor_note = f" · {anchor_count} anchor" + ("s" if anchor_count != 1 else "")
-        rule = "═" * 8
-        blocks.append(f"\n{rule} {header}{anchor_note} {rule}")
+        header_line = f"\n{rule} {header}{anchor_note} {rule}"
 
         deltas = tl.get("deltas") or []
         anchors = [d for d in deltas if _normalize_delta(d).get("is_anchor")]
         ambient = [d for d in deltas if not _normalize_delta(d).get("is_anchor")]
 
-        for d in anchors:
-            line = timeline_renderers.render_delta(_normalize_delta(d))
-            if line:
-                blocks.append(line)
+        anchor_lines = [
+            timeline_renderers.render_delta(_normalize_delta(d)) for d in anchors
+        ]
+        anchor_lines = [ln for ln in anchor_lines if ln]
+        anchor_block_size = len(header_line) + sum(len(ln) + 1 for ln in anchor_lines)
+
+        # If even the anchor block alone won't fit, skip this strip and
+        # all that follow — count them in skipped_strips for the tail.
+        if used + anchor_block_size > _TIMELINE_RENDER_BUDGET_CHARS and i > 0:
+            skipped_strips = len(timelines) - i
+            break
+
+        blocks.append(header_line)
+        used += len(header_line)
+        for ln in anchor_lines:
+            blocks.append(ln)
+            used += len(ln) + 1
+
+        # Ambient is the first thing dropped under budget pressure.
         if anchors and ambient:
-            blocks.append("  ── surrounding context ──")
-        for d in ambient:
-            line = timeline_renderers.render_delta(_normalize_delta(d))
-            if line:
-                blocks.append(line)
+            ambient_lines = [
+                timeline_renderers.render_delta(_normalize_delta(d)) for d in ambient
+            ]
+            ambient_lines = [ln for ln in ambient_lines if ln]
+            divider = "  ── surrounding context ──"
+            divider_emitted = False
+            for ln in ambient_lines:
+                projected = used + (0 if divider_emitted else len(divider) + 1) + len(ln) + 1
+                if projected > _TIMELINE_RENDER_BUDGET_CHARS:
+                    break
+                if not divider_emitted:
+                    blocks.append(divider)
+                    used += len(divider) + 1
+                    divider_emitted = True
+                blocks.append(ln)
+                used += len(ln) + 1
+
         # Inter-timeline associative tail (placeholder for explicit edges
         # later — when from:/chain provenance is wired in).
         if i < len(timelines) - 1:
-            blocks.append("\n  …which led to…")
+            tail = "\n  …which led to…"
+            if used + len(tail) <= _TIMELINE_RENDER_BUDGET_CHARS:
+                blocks.append(tail)
+                used += len(tail)
+
+    if skipped_strips > 0:
+        blocks.append(
+            f"\n  … ({skipped_strips} more strip"
+            + ("s" if skipped_strips != 1 else "")
+            + " not shown — budget cap)"
+        )
 
     return "\n".join(blocks)
 

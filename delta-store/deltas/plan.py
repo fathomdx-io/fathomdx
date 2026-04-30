@@ -726,7 +726,13 @@ class PlanExecutor:
                 gap_seconds=gap_seconds_threshold,
                 max_per_side=max_per_side,
             )
-            collapsed = self._collapse_runs(trimmed, collapse_sources)
+            collapsed = self._collapse_runs(
+                self._collapse_same_second_bursts(
+                    trimmed, protected_ids={seed_id}
+                ),
+                collapse_sources,
+                protected_ids={seed_id},
+            )
             anchor_set = {seed_id}
             t_start = trimmed[0]["timestamp"]
             t_end = trimmed[-1]["timestamp"]
@@ -771,7 +777,14 @@ class PlanExecutor:
                 prev["t_start"] = merged_raws[0]["timestamp"]
                 prev["t_end"] = merged_raws[-1]["timestamp"]
                 prev["_raw_rows"] = merged_raws
-                prev["rows"] = self._collapse_runs(merged_raws, collapse_sources)
+                merged_anchor_set = set(prev["anchor_ids"]) | set(w["anchor_ids"])
+                prev["rows"] = self._collapse_runs(
+                    self._collapse_same_second_bursts(
+                        merged_raws, protected_ids=merged_anchor_set
+                    ),
+                    collapse_sources,
+                    protected_ids=merged_anchor_set,
+                )
             else:
                 merged.append(w)
 
@@ -884,14 +897,87 @@ class PlanExecutor:
         return ordered[left_bound : right_bound + 1]
 
     @staticmethod
+    def _collapse_same_second_bursts(
+        rows: list[dict],
+        *,
+        protected_ids: set[str] | None = None,
+    ) -> list[dict]:
+        """Fold runs of ≥2 same-source deltas sharing a second-resolution
+        timestamp into a single virtual ``kind:collapsed`` row.
+
+        Catches the import-artifact case: a vault chunker that emits one
+        delta per markdown header lands many deltas at the same import
+        second. None of those sources belong on the heartbeat-style
+        collapse list, but they're still structurally bursty in a way
+        that drowns conversational signal in a strip. Distinct-source
+        deltas at the same second do NOT collapse — that's just
+        coincident timing across the substrate, not a chunking artifact.
+
+        ``protected_ids`` (anchors): a run that contains any protected id
+        is emitted as-is, NOT collapsed. Anchors are the load-bearing
+        signal of a strip; folding them into a `× N` count erases the
+        match. The same-second neighbors stay alongside the anchor.
+        """
+        if not rows:
+            return list(rows)
+        protected = protected_ids or set()
+        out: list[dict] = []
+        i = 0
+        n = len(rows)
+        run_id = 1000  # offset to avoid id-collision with _collapse_runs
+        while i < n:
+            d = rows[i]
+            src = d.get("source", "")
+            ts = d.get("timestamp", "") or ""
+            sec = ts[:19]  # "YYYY-MM-DDTHH:MM:SS"
+            j = i + 1
+            while j < n:
+                nxt = rows[j]
+                nxt_ts = nxt.get("timestamp", "") or ""
+                if nxt.get("source", "") != src or nxt_ts[:19] != sec:
+                    break
+                j += 1
+            run_count = j - i
+            run_has_anchor = any(rows[k].get("id") in protected for k in range(i, j))
+            if run_count >= 2 and src and sec and not run_has_anchor:
+                first = rows[i]
+                last = rows[j - 1]
+                out.append(
+                    {
+                        "id": f"_samesec_{run_id}",
+                        "kind": "collapsed",
+                        "source": src,
+                        "count": run_count,
+                        "t_start": first["timestamp"],
+                        "t_end": last["timestamp"],
+                        "content": f"[{src} × {run_count} at {sec[11:19]}]",
+                        "tags": [],
+                    }
+                )
+                run_id += 1
+                i = j
+                continue
+            out.append(d)
+            i += 1
+        return out
+
+    @staticmethod
     def _collapse_runs(
-        rows: list[dict], collapse_sources: set[str]
+        rows: list[dict],
+        collapse_sources: set[str],
+        *,
+        protected_ids: set[str] | None = None,
     ) -> list[dict]:
         """Fold runs of ≥2 same-source deltas in `collapse_sources` into a
         single virtual `kind:collapsed` row. Real rows in other sources
-        pass through unchanged."""
+        pass through unchanged.
+
+        ``protected_ids`` (anchors): runs containing a protected id pass
+        through uncollapsed, so anchors survive even if their source is
+        somehow on the collapse list."""
         if not collapse_sources or not rows:
             return list(rows)
+        protected = protected_ids or set()
         out: list[dict] = []
         i = 0
         n = len(rows)
@@ -904,7 +990,8 @@ class PlanExecutor:
                 while j < n and rows[j].get("source") == src:
                     j += 1
                 run_count = j - i
-                if run_count >= 2:
+                run_has_anchor = any(rows[k].get("id") in protected for k in range(i, j))
+                if run_count >= 2 and not run_has_anchor:
                     first = rows[i]
                     last = rows[j - 1]
                     out.append(

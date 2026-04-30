@@ -212,6 +212,158 @@ def test_render_empty_returns_empty_string() -> None:
     assert _render_timelines([], query="anything") == ""
 
 
+def test_html_strip_applies_universally_regardless_of_source() -> None:
+    """Any source emitting HTML-laden content gets cleaned up — RSS
+    feeds, scraped pages, agent output that wraps in tags, etc."""
+    sources_with_html = [
+        "rss",
+        "rss/self-hosted",
+        "fathom-feed",
+        "scraper/some-site",
+        "claude-code",
+        "anything-really",
+    ]
+    for src in sources_with_html:
+        delta = {
+            "id": "x",
+            "timestamp": "2026-04-29T14:00:00Z",
+            "source": src,
+            "tags": [],
+            "content": (
+                '<table><tr><td><a href="https://example.com">'
+                "I &amp; Linux: tips &nbsp; tricks</a></td></tr></table>"
+            ),
+        }
+        out = timeline_renderers.render_delta(delta)
+        assert "<" not in out, f"HTML leaked for source={src}"
+        assert "&amp;" not in out, f"entity leaked for source={src}"
+        assert "&nbsp;" not in out, f"entity leaked for source={src}"
+        assert "Linux" in out, f"text dropped for source={src}"
+
+
+def test_html_strip_does_not_eat_plain_comparisons() -> None:
+    """Plain text using ``<`` for comparison ("if x < 3") is NOT
+    treated as HTML — the heuristic requires a letter or ``/`` after
+    the ``<``."""
+    delta = {
+        "id": "x",
+        "timestamp": "2026-04-29T14:00:00Z",
+        "source": "claude-code",
+        "tags": [],
+        "content": "the loop fires when count < 3 and pressure > threshold",
+    }
+    out = timeline_renderers.render_delta(delta)
+    assert "< 3" in out
+    assert "> threshold" in out
+
+
+def test_render_budget_truncates_trailing_strips() -> None:
+    """When the cumulative render would exceed the budget, trailing
+    strips drop out and a "… N more strips not shown" tail appears."""
+    from api.search import _TIMELINE_RENDER_BUDGET_CHARS, _render_timelines
+
+    # Build enough strips that even after per-line truncation, the
+    # cumulative render exceeds the budget. The renderer caps each
+    # delta line at 130 chars; with header (~50) + anchor line (~150)
+    # per strip ≈ ~200 chars/strip. ~50 strips clears 6K easily.
+    long_content = "A" * 500
+    timelines = []
+    for i in range(50):
+        timelines.append(
+            {
+                "id": f"tl_{i}",
+                "t_start": f"2026-04-29T14:{i % 60:02d}:00Z",
+                "t_end": f"2026-04-29T14:{i % 60:02d}:30Z",
+                "anchor_ids": [f"a{i}"],
+                "deltas": [
+                    {
+                        "id": f"a{i}",
+                        "timestamp": f"2026-04-29T14:{i % 60:02d}:00Z",
+                        "source": "claude-code",
+                        "content": long_content,
+                        "tags": ["user"],
+                        "is_anchor": True,
+                    }
+                ],
+            }
+        )
+    out = _render_timelines(timelines, query="x")
+    assert len(out) <= _TIMELINE_RENDER_BUDGET_CHARS + 200  # tolerate the tail line
+    assert "more strip" in out and "not shown" in out
+
+
+def test_render_budget_does_not_truncate_when_small() -> None:
+    """A short render fits within budget and emits no tail."""
+    from api.search import _render_timelines
+
+    out = _render_timelines(
+        [
+            {
+                "id": "tl_0",
+                "t_start": "2026-04-29T14:00:00Z",
+                "t_end": "2026-04-29T14:01:00Z",
+                "anchor_ids": ["a"],
+                "deltas": [
+                    {
+                        "id": "a",
+                        "timestamp": "2026-04-29T14:00:00Z",
+                        "source": "claude-code",
+                        "content": "short",
+                        "tags": ["user"],
+                        "is_anchor": True,
+                    }
+                ],
+            }
+        ],
+        query="x",
+    )
+    assert "not shown" not in out
+
+
+def test_render_budget_drops_ambient_before_anchors() -> None:
+    """Budget pressure drops ambient-block content first; anchor lines
+    in already-emitted strips always emit fully."""
+    from api.search import _render_timelines
+
+    long_content = "Z" * 800
+    deltas = [
+        {
+            "id": "anchor",
+            "timestamp": "2026-04-29T14:00:00Z",
+            "source": "claude-code",
+            "content": "the anchor said something specific",
+            "tags": ["user"],
+            "is_anchor": True,
+        }
+    ]
+    # Pile on ambient that should get clipped.
+    for i in range(30):
+        deltas.append(
+            {
+                "id": f"amb{i}",
+                "timestamp": f"2026-04-29T14:00:{i:02d}Z",
+                "source": "rss/big",
+                "content": long_content,
+                "tags": [],
+                "is_anchor": False,
+            }
+        )
+    out = _render_timelines(
+        [
+            {
+                "id": "tl_0",
+                "t_start": "2026-04-29T14:00:00Z",
+                "t_end": "2026-04-29T14:00:30Z",
+                "anchor_ids": ["anchor"],
+                "deltas": deltas,
+            }
+        ],
+        query="x",
+    )
+    # Anchor always emits, even with hostile ambient.
+    assert "the anchor said something specific" in out
+
+
 def test_render_includes_collapsed_rows() -> None:
     out = _render_timelines(
         [
