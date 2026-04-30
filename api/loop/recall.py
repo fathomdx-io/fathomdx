@@ -274,11 +274,15 @@ async def _mirror_target_to_puddle(
     ]
     if recalled_short:
         tags.append(f"recalled-id:{recalled_short}")
+    # Carry through the lake's stored embedding so resonance ranking can
+    # score this mirror without re-embedding it later.
+    emb = target.get("embedding") or None
     await puddle.write(
         content=content,
         tags=tags,
         source=f"recall:{original_source}",
         ttl_seconds=RECALL_TTL_S,
+        embedding=emb,
     )
     return 1
 

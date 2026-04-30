@@ -349,11 +349,18 @@ async def mirror_recent_activity() -> int:
             f"recalled-id:{short}",
         ]
 
+        # Carry the lake's stored embedding into the puddle so resonance
+        # ranking can score this mirror without re-embedding it. The lake
+        # /deltas response already includes embedding bytes; passing them
+        # through eliminates a /embed round-trip per lake-mirror per voice
+        # per round (and the CPU forward pass it would queue against).
+        emb = d.get("embedding") or None
         await puddle.write(
             content=content,
             tags=new_tags,
             source=src or "unknown",
             ttl_seconds=ANCHOR_TTL_S,
+            embedding=emb,
         )
         existing_short_ids.add(short)
         written += 1
