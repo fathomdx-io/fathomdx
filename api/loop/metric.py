@@ -127,14 +127,112 @@ async def emit_metric(
     )
 
 
-def settle_window_check(samples: list[float]) -> tuple[bool, float | None]:
+def settle_window_check(
+    samples: list[float],
+    *,
+    spread_max: float | None = None,
+) -> tuple[bool, float | None]:
     """Returns (settled, level). Settled when the last SETTLE_WINDOW
-    samples span less than SETTLE_SPREAD_MAX. `level` is the mean of
-    that window — recorded as the settle level, not used as a gate."""
+    samples span less than `spread_max` (or SETTLE_SPREAD_MAX when
+    not specified). `level` is the mean of that window — recorded as
+    the settle level, not used as a gate.
+
+    `spread_max` (Phase 4b): the supervisor passes a session-aware
+    threshold computed from recent metric history. Hard-problem
+    sessions (where past spreads consistently ran wide) get a looser
+    bar; quiet sessions (where convergence has been tight) get a
+    tighter one. Falls back to the static default when no value is
+    supplied — preserves existing behavior for legacy/test callers.
+    """
+    threshold = SETTLE_SPREAD_MAX if spread_max is None else max(0.01, spread_max)
     if len(samples) < SETTLE_WINDOW:
         return False, None
     window = samples[-SETTLE_WINDOW:]
     spread = max(window) - min(window)
-    if spread < SETTLE_SPREAD_MAX:
+    if spread < threshold:
         return True, sum(window) / len(window)
     return False, None
+
+
+# Phase 4b — session-aware settle threshold drift.
+#
+# How recently to look when computing the drifted threshold. Two hours
+# is enough to capture a working-session arc; older spreads aren't
+# representative of the current cadence (a hard-problem morning
+# shouldn't permanently loosen the threshold for a quiet evening).
+_DRIFT_LOOKBACK_HOURS = 2
+
+# Minimum spreads needed before drift kicks in. Below this we use the
+# static SETTLE_SPREAD_MAX default — small samples are too noisy to
+# trust as a signal about current cadence.
+_DRIFT_MIN_SAMPLES = 8
+
+# Drift cap — how far the threshold can move from the static default.
+# 50% in either direction (so 0.06–0.18 around 0.12) is a meaningful
+# range without letting outliers run the loop into deadlock or
+# false-settle.
+_DRIFT_MAX_FACTOR = 1.5
+_DRIFT_MIN_FACTOR = 0.5
+
+
+def session_aware_spread_max() -> float:
+    """Compute a drifted SETTLE_SPREAD_MAX based on recent puddle
+    metric deltas. Returns the static default when not enough recent
+    samples exist to drift confidently.
+
+    Hard-problem hours (median spread runs high) loosen the threshold
+    so the parliament isn't hammering itself against an unreachable
+    convergence. Quiet hours (median spread runs low) tighten it so
+    we don't flag small early ripples as settled when there's actually
+    more deliberation to do.
+
+    Reads from the puddle (session-process-scoped). Across-session
+    drift would require lake-durable metrics; this is intentionally
+    in-session because what's "hard right now" is a within-process
+    signal, not a longitudinal one.
+
+    Soft-fails to the static default on any error.
+    """
+    from datetime import UTC, datetime, timedelta
+
+    try:
+        since = (
+            datetime.now(UTC) - timedelta(hours=_DRIFT_LOOKBACK_HOURS)
+        ).isoformat()
+        rows = puddle.query(
+            tags_include=["metric"],
+            time_start=since,
+            limit=200,
+        )
+    except Exception:
+        return SETTLE_SPREAD_MAX
+
+    if not rows or len(rows) < _DRIFT_MIN_SAMPLES:
+        return SETTLE_SPREAD_MAX
+
+    spreads: list[float] = []
+    for d in rows:
+        content = d.get("content") or ""
+        if not content:
+            continue
+        # Metric deltas store the per-voice convergence distance as
+        # JSON {"distance": float, "voice": str}. Parse forgivingly.
+        try:
+            payload = json.loads(content)
+            dist = float(payload.get("distance", 0.0))
+            spreads.append(dist)
+        except (ValueError, TypeError, json.JSONDecodeError):
+            continue
+
+    if len(spreads) < _DRIFT_MIN_SAMPLES:
+        return SETTLE_SPREAD_MAX
+
+    spreads.sort()
+    median = spreads[len(spreads) // 2]
+    # Drift toward median — if past spreads ran 0.20, threshold loosens
+    # toward that; if they ran 0.04, it tightens. Clamp by factor so
+    # the threshold can't drift wildly.
+    drifted = SETTLE_SPREAD_MAX * 0.5 + median * 0.8
+    floor = SETTLE_SPREAD_MAX * _DRIFT_MIN_FACTOR
+    ceil = SETTLE_SPREAD_MAX * _DRIFT_MAX_FACTOR
+    return max(floor, min(ceil, drifted))

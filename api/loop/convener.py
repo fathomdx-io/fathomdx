@@ -41,6 +41,7 @@ from .intents import CONVO_TAG, intent_kind
 from .llm import loop_generate
 from .prompts import CONVENER_PROMPT, VOICES
 from .puddle import puddle
+from .voice_priors import get_voice_priors, render_priors_for_prompt
 
 VERDICT_TTL_S = 48 * 60 * 60
 
@@ -206,8 +207,23 @@ async def run_convener(
         return _fallback_verdict("no pending intents")
 
     standpoint_block = _render_standpoint_for_prompt(standpoint)
+    # Voice priors — past-fire signal on which voices have earned
+    # standing. Empty string when cold-start or all priors are below
+    # the noise floor. The CONVENER_PROMPT renders the empty case
+    # gracefully ("no recent standing yet — pick fresh").
+    try:
+        priors = await get_voice_priors()
+    except Exception as e:
+        print(f"[convener] voice_priors load failed: {type(e).__name__}: {e}")
+        priors = {}
+    voice_priors_block = render_priors_for_prompt(priors) or (
+        "  (no voices with recent standing — this is cold-start "
+        "territory, pick voices fresh from the question's tensions)"
+    )
+
     prompt = CONVENER_PROMPT.format(
         standpoint_block=standpoint_block,
+        voice_priors_block=voice_priors_block,
         intent_block=_render_intent_block(pending),
         recall_block=_render_recall_block(session_tag),
     )

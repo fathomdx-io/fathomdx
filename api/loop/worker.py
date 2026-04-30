@@ -24,6 +24,7 @@ from .intents import next_intent_group, pending_intents
 from .metric import (
     emit_metric,
     measure_cross_voice_convergence,
+    session_aware_spread_max,
     settle_window_check,
 )
 from .pressure import pressure_watcher
@@ -251,10 +252,17 @@ async def _run_one_fire() -> bool:
                     print(f"[metric] emit crashed: {type(e).__name__}: {e}")
 
             # Settle check — exits when the last SETTLE_WINDOW samples
-            # span less than SETTLE_SPREAD_MAX. With a 2-voice minimal
-            # pass the window may not even fill before rounds_cap; the
-            # witness still fires either way.
-            ok, level = settle_window_check(convergence_samples)
+            # span less than the session-aware threshold. Phase 4b: the
+            # threshold drifts based on recent puddle metric history —
+            # hard-problem hours loosen it so the parliament isn't
+            # banging against an unreachable convergence; quiet hours
+            # tighten it so early ripples don't false-settle. Falls
+            # back to the static SETTLE_SPREAD_MAX when there's not
+            # enough recent history to drift confidently.
+            ok, level = settle_window_check(
+                convergence_samples,
+                spread_max=session_aware_spread_max(),
+            )
             if ok:
                 settled = True
                 settle_level = level

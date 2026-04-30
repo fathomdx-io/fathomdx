@@ -187,6 +187,10 @@ The standpoint Fathom is deliberating from — read this as a constraint on parl
 
 {standpoint_block}
 
+Voices with recent standing (each one earned an affirmation tag in the past week — they were named in fires the judge rated well: salience + resonance + confidence above floor). The trimurti will usually appear here once they've fired enough; ad-hoc domain voices accumulate standing too if they keep producing well-rated fires. Prefer voices with standing for substantive deliberation when their tensions actually fit this question — they've earned the seat. Don't FORCE them in; if the question genuinely needs different angles, mint fresh voices.
+
+{voice_priors_block}
+
 The pending intent(s) — what's asking for attention this tick:
 
 {intent_block}

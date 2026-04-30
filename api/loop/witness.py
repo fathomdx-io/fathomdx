@@ -411,6 +411,66 @@ async def _call_judge(*, kicker: str, body: str, seed: str) -> dict[str, float]:
     return out
 
 
+# Threshold for emitting voice-affirmation deltas. Average of
+# (salience, resonance, confidence) — three judge axes that together
+# describe "this fire produced something worth grounding on." Below
+# this floor the parliament's shape didn't earn affirmation; the
+# voices walk away without standing rather than getting credit they
+# didn't earn. Tuned conservatively — Phase 4a wants voice priors
+# to mean SOMETHING, so the bar is real.
+_VOICE_AFFIRM_FLOOR = 0.55
+
+
+async def _write_voice_affirmations(
+    *,
+    lake_card_id: str,
+    voice_order: list[str] | None,
+    axes: dict,
+) -> None:
+    """Phase 4a — for fires the judge rated well, write one
+    `kind:voice-affirmation` delta per active voice.
+
+    These deltas accumulate in the lake and are read by the convener
+    on subsequent fires (via `voice_priors.get_voice_priors`). Voices
+    that consistently contribute to high-rated fires earn standing,
+    making the convener more likely to pick them again. Voices whose
+    parliament outputs the judge rates poorly accumulate no signal —
+    standing is a moving average of past quality, not a list.
+
+    Skipped when `voice_order` is empty (depth=zero fires don't
+    convene, so no voice deserves credit) or when the average of
+    (salience, resonance, confidence) is below `_VOICE_AFFIRM_FLOOR`.
+    Comfort and novelty are not in the score — comfort isn't quality
+    (a tough truth can be uncomfortable), novelty alone doesn't make
+    a take well-grounded.
+    """
+    if not voice_order or not lake_card_id:
+        return
+    salience = float(axes.get("salience", 0.0) or 0.0)
+    resonance = float(axes.get("resonance", 0.0) or 0.0)
+    confidence = float(axes.get("confidence", 0.0) or 0.0)
+    score = (salience + resonance + confidence) / 3.0
+    if score < _VOICE_AFFIRM_FLOOR:
+        return
+
+    for voice_name in voice_order:
+        if not voice_name:
+            continue
+        await delta_client.write(
+            content=(
+                f"voice {voice_name} contributed to a fire judged "
+                f"salience={salience:.2f} resonance={resonance:.2f} "
+                f"confidence={confidence:.2f} (score={score:.2f})"
+            ),
+            tags=[
+                "kind:voice-affirmation",
+                f"voice:{voice_name}",
+                f"from:{lake_card_id}",
+            ],
+            source="fathom-self",
+        )
+
+
 async def _write_constituting_writes(
     *,
     lake_card_id: str,
@@ -857,6 +917,20 @@ async def run_witness(
             # Log loudly so the loss is visible; the loop continues.
             print(
                 f"[witness] constituting-act writes failed: "
+                f"{type(e).__name__}: {e}"
+            )
+        # Phase 4a — voice priors. Separate from the constituting writes
+        # because the predicate is different (judge axes, not witness
+        # JSON). Soft-fails independently.
+        try:
+            await _write_voice_affirmations(
+                lake_card_id=lake_id,
+                voice_order=voice_order,
+                axes=axes,
+            )
+        except Exception as e:
+            print(
+                f"[witness] voice-affirmation writes failed: "
                 f"{type(e).__name__}: {e}"
             )
 
