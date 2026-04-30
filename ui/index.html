@@ -8583,6 +8583,13 @@ GET  /v1/usage               Usage stats`,
       card.dataset.kind = 'proposal';
       card.dataset.fromPuddle = '1';
       card.dataset.puddleId = it.id || '';
+      // Proposal endpoints query the lake, not the puddle. The witness
+      // mints `lake-id:<full>` onto the puddle item so we can target the
+      // durable delta from the dashboard. Fall back to the puddle id if
+      // for some reason the cross-pointer didn't land — better to try
+      // and 404 than to silently render dead buttons.
+      const proposalId = it.lake_id || it.id || '';
+      card.dataset.proposalId = proposalId;
       if (it.id) card.dataset.deltaId = it.id;
       const tool = it.tool || '';
       const args = (it.tool_args && typeof it.tool_args === 'object') ? it.tool_args : {};
@@ -8590,8 +8597,8 @@ GET  /v1/usage               Usage stats`,
       card.dataset.toolArgs = JSON.stringify(args);
       _proposalRender(card, it, args, 'pending');
       // Async — fetch latest decision so a reload reflects approved/denied state.
-      if (it.id) {
-        api(`/v1/proposals/${encodeURIComponent(it.id)}`).then(data => {
+      if (proposalId) {
+        api(`/v1/proposals/${encodeURIComponent(proposalId)}`).then(data => {
           if (!data || !data.decision) return;
           const dec = data.decision;
           const status = (dec.tags || []).find(t => t.startsWith('proposal-status:'));
@@ -8744,10 +8751,11 @@ GET  /v1/usage               Usage stats`,
     }
 
     async function _proposalApprove(card, it, args) {
-      if (!it.id) return;
+      const proposalId = card.dataset.proposalId || it.lake_id || it.id || '';
+      if (!proposalId) return;
       _proposalSetBusy(card, 'approving…');
       try {
-        await api(`/v1/proposals/${encodeURIComponent(it.id)}/approve`, {
+        await api(`/v1/proposals/${encodeURIComponent(proposalId)}/approve`, {
           method: 'POST',
           body: JSON.stringify({ tool_args: args }),
         });
@@ -8758,12 +8766,13 @@ GET  /v1/usage               Usage stats`,
     }
 
     async function _proposalDeny(card, it) {
-      if (!it.id) return;
+      const proposalId = card.dataset.proposalId || it.lake_id || it.id || '';
+      if (!proposalId) return;
       const reason = prompt('Reason (optional):', '') || '';
       _proposalSetBusy(card, 'denying…');
       try {
         const args = _readArgsFromCard(card);
-        await api(`/v1/proposals/${encodeURIComponent(it.id)}/deny`, {
+        await api(`/v1/proposals/${encodeURIComponent(proposalId)}/deny`, {
           method: 'POST',
           body: JSON.stringify({ reason }),
         });

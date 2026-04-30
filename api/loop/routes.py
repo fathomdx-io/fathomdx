@@ -273,13 +273,22 @@ def get_feed(
                 # one has landed) onto the item so the dashboard can render
                 # Edit/Deny/Approve buttons. The decision delta lives
                 # separately tagged `proposal-decision decides:<id>`.
+                #
+                # Surface lake_id so the UI can target /v1/proposals/<id>
+                # against the durable lake delta — the puddle copy is
+                # ephemeral and the proposals endpoint reads from the lake.
                 tool = next(
                     (t.split(":", 1)[1] for t in tags if t.startswith("tool:")),
+                    "",
+                )
+                lake_id = next(
+                    (t.split(":", 1)[1] for t in tags if t.startswith("lake-id:")),
                     "",
                 )
                 items.append({
                     "kind": "proposal",
                     "tool": tool,
+                    "lake_id": lake_id,
                     **base,
                 })
             else:
