@@ -17,13 +17,10 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
-import logging
 import time
 
 from . import routines as routines_mod
 from .settings import settings
-
-log = logging.getLogger(__name__)
 
 _task: asyncio.Task | None = None
 _stop_event: asyncio.Event | None = None
@@ -55,8 +52,12 @@ async def _hydrate_last_fires() -> None:
     """
     try:
         fires = await routines_mod._fire_deltas()
-    except Exception:
-        log.warning("routine-scheduler: lake unreachable on hydrate, starting cold")
+    except Exception as e:
+        print(
+            f"[routine-scheduler] lake unreachable on hydrate "
+            f"({type(e).__name__}: {e}), starting cold",
+            flush=True,
+        )
         return
     for d in fires:
         rid = routines_mod._routine_id_from_tags(d.get("tags") or [])
@@ -71,8 +72,12 @@ async def _check_once() -> None:
     """One scheduler pass — fire any routine whose next-cron has elapsed."""
     try:
         specs = await routines_mod._spec_deltas()
-    except Exception:
-        log.warning("routine-scheduler: lake unreachable, skipping tick")
+    except Exception as e:
+        print(
+            f"[routine-scheduler] lake unreachable, skipping tick "
+            f"({type(e).__name__}: {e})",
+            flush=True,
+        )
         return
 
     # Latest spec per routine-id (matches list_routines logic).
@@ -102,51 +107,66 @@ async def _check_once() -> None:
             continue
 
         try:
-            log.info(
-                "routine-scheduler: firing %s (cron=%r, last_fire=%.0f, next=%.0f)",
-                rid, schedule, _last_fire_at.get(rid, 0.0), next_fire,
+            print(
+                f"[routine-scheduler] firing {rid} (cron={schedule!r}, "
+                f"last_fire={_last_fire_at.get(rid, 0.0):.0f}, "
+                f"next={next_fire:.0f})",
+                flush=True,
             )
             await routines_mod.fire(rid)
             _last_fire_at[rid] = now
-        except Exception:
-            log.exception("routine-scheduler: fire failed for %s", rid)
+        except Exception as e:
+            print(
+                f"[routine-scheduler] fire failed for {rid}: "
+                f"{type(e).__name__}: {e}",
+                flush=True,
+            )
             continue
 
         if meta.get("single_fire"):
             try:
                 await routines_mod.soft_delete(rid)
-                log.info("routine-scheduler: single_fire tombstoned %s", rid)
-            except Exception:
-                log.exception(
-                    "routine-scheduler: single_fire tombstone failed for %s", rid
+                print(
+                    f"[routine-scheduler] single_fire tombstoned {rid}",
+                    flush=True,
+                )
+            except Exception as e:
+                print(
+                    f"[routine-scheduler] single_fire tombstone failed "
+                    f"for {rid}: {type(e).__name__}: {e}",
+                    flush=True,
                 )
 
 
 async def _loop() -> None:
-    log.info(
-        "routine-scheduler loop starting (poll=%ds)",
-        settings.routine_scheduler_poll_seconds,
+    print(
+        f"[routine-scheduler] loop starting "
+        f"(poll={settings.routine_scheduler_poll_seconds}s)",
+        flush=True,
     )
     assert _stop_event is not None
     await _hydrate_last_fires()
     while not _stop_event.is_set():
         try:
             await _check_once()
-        except Exception:
-            log.exception("routine-scheduler poll error")
+        except Exception as e:
+            print(
+                f"[routine-scheduler] poll error: {type(e).__name__}: {e}",
+                flush=True,
+            )
         with contextlib.suppress(TimeoutError):
             await asyncio.wait_for(
                 _stop_event.wait(),
                 timeout=settings.routine_scheduler_poll_seconds,
             )
-    log.info("routine-scheduler loop stopped")
+    print("[routine-scheduler] loop stopped", flush=True)
 
 
 def start() -> None:
     """Kick off the scheduler. Idempotent."""
     global _task, _stop_event, _boot_time
     if not settings.routine_scheduler_enabled:
-        log.info("routine-scheduler disabled by settings")
+        print("[routine-scheduler] disabled by settings", flush=True)
         return
     if _task is not None and not _task.done():
         return
