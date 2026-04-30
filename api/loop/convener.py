@@ -57,6 +57,23 @@ class ConvenerVerdict:
     rationale: str = ""
 
 
+def _render_standpoint_for_prompt(sp) -> str:
+    """Render the convener's view of the standpoint.
+
+    Tighter than the witness's view — convener doesn't need full
+    crystal text, just posture / affect / identity-headlines that
+    bias depth and voice selection. Returns an empty fallback string
+    when no standpoint is supplied (preserves test/legacy callers
+    that don't yet thread it).
+    """
+    if sp is None:
+        return "(standpoint unavailable this fire — proceed from intent alone)"
+    from ..standpoint import render_for_prompt
+
+    rendered = render_for_prompt(sp, char_budget=600)
+    return rendered or "(standpoint empty — proceed from intent alone)"
+
+
 def _fallback_verdict(reason: str) -> ConvenerVerdict:
     return ConvenerVerdict(
         depth="full",
@@ -171,8 +188,16 @@ async def run_convener(
     *,
     session_tag: str,
     pending: list[dict],
+    standpoint=None,
 ) -> ConvenerVerdict:
     """Decide the parliament's shape for this fire.
+
+    ``standpoint`` (optional Standpoint snapshot) — when supplied, the
+    convener reads identity / affect / posture as a constraint on
+    parliament shape. Tired affect leans depth toward minimal; wired
+    or focused posture can carry full. Identity facets bias which
+    voices a domain question should mint. Falls back to a posture-less
+    prompt if not given (preserves test/legacy callers).
 
     On any error path — empty intents, LLM failure, malformed JSON,
     inconsistent shape — fall back to the trimurti at full depth.
@@ -180,7 +205,9 @@ async def run_convener(
     if not pending:
         return _fallback_verdict("no pending intents")
 
+    standpoint_block = _render_standpoint_for_prompt(standpoint)
     prompt = CONVENER_PROMPT.format(
+        standpoint_block=standpoint_block,
         intent_block=_render_intent_block(pending),
         recall_block=_render_recall_block(session_tag),
     )

@@ -43,7 +43,6 @@ import logging
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 
-from . import crystal as crystal_mod
 from . import delta_client
 from . import mood as mood_mod
 
@@ -191,12 +190,41 @@ def _infer_posture(identity: Identity, affect: Affect) -> str:
 
 
 async def _load_identity() -> Identity:
-    """Pull the latest crystal and split into facets."""
+    """Pull the latest IDENTITY crystal and split into facets.
+
+    Goes directly to the lake rather than `crystal.latest()` because
+    that helper currently matches anything tagged `crystal-regen`,
+    which the feed-orient module also writes — so calling it returns
+    whichever was most recent, and the feed-orient regenerates much
+    more often. We need the identity crystal specifically. Filter
+    inline by excluding the feed-orient tag and by source.
+    """
     try:
-        delta = await crystal_mod.latest(force=False)
+        rows = await delta_client.query(
+            tags_include=["crystal-regen"],
+            limit=20,
+        )
     except Exception:
-        log.exception("standpoint: crystal load failed")
+        log.exception("standpoint: identity crystal query failed")
         return Identity()
+
+    delta: dict | None = None
+    for row in rows:
+        tags = row.get("tags") or []
+        # Skip feed-orient and any other non-identity crystal regens.
+        if "crystal:feed-orient" in tags:
+            continue
+        # Identity crystals carry `identity-crystal` (legacy) and/or
+        # `crystal:identity` (new). If neither tag is present, also
+        # accept anything from the canonical identity-regen sources.
+        if (
+            "identity-crystal" in tags
+            or "crystal:identity" in tags
+            or row.get("source") in {"loop-api", "fathom-engagement", "fathom-self"}
+        ):
+            delta = row
+            break
+
     if not delta:
         return Identity()
     text = (delta.get("content") or "").strip()

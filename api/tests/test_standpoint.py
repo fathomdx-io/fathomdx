@@ -62,15 +62,18 @@ def test_identity_loads_with_h2_facet_split() -> None:
         "Practical solutions over theoretical ones.\n"
     )
 
-    async def _fake_latest(force=False):
-        return {
-            "id": "abc123",
-            "content": crystal_text,
-            "timestamp": "2026-04-29T12:00:00Z",
-        }
+    async def _fake_query(tags_include=None, **kwargs):
+        return [
+            {
+                "id": "abc123",
+                "content": crystal_text,
+                "timestamp": "2026-04-29T12:00:00Z",
+                "tags": ["crystal-regen", "identity-crystal"],
+                "source": "loop-api",
+            }
+        ]
 
-    with patch.object(sp_mod, "crystal_mod") as crystal_mock:
-        crystal_mock.latest = _fake_latest
+    with patch.object(sp_mod.delta_client, "query", _fake_query):
         out = asyncio.run(sp_mod._load_identity())
     assert out.text == crystal_text.strip()
     assert "Who I Am" in out.facets
@@ -79,15 +82,41 @@ def test_identity_loads_with_h2_facet_split() -> None:
     assert out.delta_id == "abc123"
 
 
+def test_identity_skips_feed_orient_crystal() -> None:
+    """Feed-orient crystals share the `crystal-regen` tag but are NOT
+    the identity crystal. The loader filters them out and falls
+    through to the next matching identity-tagged crystal."""
+
+    async def _fake_query(tags_include=None, **kwargs):
+        return [
+            {
+                "id": "feed-orient-most-recent",
+                "content": "feed-orient JSON not what we want",
+                "tags": ["crystal-regen", "crystal:feed-orient"],
+                "source": "feed-orient",
+            },
+            {
+                "id": "identity-older",
+                "content": "## Self\nI am Fathom.",
+                "tags": ["crystal-regen", "identity-crystal"],
+                "source": "loop-api",
+            },
+        ]
+
+    with patch.object(sp_mod.delta_client, "query", _fake_query):
+        out = asyncio.run(sp_mod._load_identity())
+    assert out.delta_id == "identity-older"
+    assert "I am Fathom" in out.text
+
+
 def test_identity_missing_crystal_yields_empty_object() -> None:
-    """No crystal in lake → empty Identity, not None. Consumers can
-    safely read .text / .facets without nil checks."""
+    """No identity crystal in lake → empty Identity, not None.
+    Consumers can safely read .text / .facets without nil checks."""
 
-    async def _fake_latest(force=False):
-        return None
+    async def _fake_query(tags_include=None, **kwargs):
+        return []
 
-    with patch.object(sp_mod, "crystal_mod") as crystal_mock:
-        crystal_mock.latest = _fake_latest
+    with patch.object(sp_mod.delta_client, "query", _fake_query):
         out = asyncio.run(sp_mod._load_identity())
     assert isinstance(out, Identity)
     assert out.text == ""
@@ -95,14 +124,13 @@ def test_identity_missing_crystal_yields_empty_object() -> None:
     assert out.delta_id is None
 
 
-def test_identity_load_soft_fails_on_crystal_exception() -> None:
-    """Crystal load throws → empty Identity, no propagation."""
+def test_identity_load_soft_fails_on_query_exception() -> None:
+    """Query throws → empty Identity, no propagation."""
 
-    async def _fake_latest(force=False):
+    async def _fake_query(tags_include=None, **kwargs):
         raise RuntimeError("crystal store down")
 
-    with patch.object(sp_mod, "crystal_mod") as crystal_mock:
-        crystal_mock.latest = _fake_latest
+    with patch.object(sp_mod.delta_client, "query", _fake_query):
         out = asyncio.run(sp_mod._load_identity())
     assert isinstance(out, Identity)
     assert out.text == ""
@@ -278,9 +306,6 @@ def test_current_gathers_all_components_in_one_object() -> None:
     populated from its corresponding loader, and posture inferred from
     identity+affect."""
 
-    async def _fake_latest(force=False):
-        return {"id": "c", "content": "## Self\nI am.", "timestamp": "t"}
-
     async def _fake_latest_mood():
         return {
             "state": "wired",
@@ -302,12 +327,21 @@ def test_current_gathers_all_components_in_one_object() -> None:
                     "timestamp": "t",
                 }
             ]
+        if tags_include and "crystal-regen" in tags_include:
+            return [
+                {
+                    "id": "c",
+                    "content": "## Self\nI am.",
+                    "tags": ["crystal-regen", "identity-crystal"],
+                    "source": "loop-api",
+                    "timestamp": "t",
+                }
+            ]
         return [_engagement_delta(["affirms:abc11111"])]
 
-    with patch.object(sp_mod, "crystal_mod") as crystal_mock, patch.object(
-        sp_mod, "mood_mod"
-    ) as mood_mock, patch.object(sp_mod.delta_client, "query", _fake_query):
-        crystal_mock.latest = _fake_latest
+    with patch.object(sp_mod, "mood_mod") as mood_mock, patch.object(
+        sp_mod.delta_client, "query", _fake_query
+    ):
         mood_mock.latest_mood = _fake_latest_mood
         out = asyncio.run(sp_mod.current(session_tag="chat:test"))
 

@@ -185,6 +185,19 @@ async def _gather_substrate(
     return picks
 
 
+def _render_standpoint_for_voice(sp) -> str:
+    """Compact standpoint for a voice's prompt — tighter than the
+    witness's render, focused on posture + affect + identity-essence
+    so the voice speaks AS this Fathom rather than as a generic
+    deliberator. Empty fallback for legacy/test callers."""
+    if sp is None:
+        return "(standpoint unavailable — speak as Fathom-default)"
+    from ..standpoint import render_for_prompt
+
+    rendered = render_for_prompt(sp, char_budget=500)
+    return rendered or "(standpoint empty — speak as Fathom-default)"
+
+
 def _render_context(deltas: list[dict]) -> str:
     """[source · timestamp · tags]\\ncontent format the loop has used."""
     if not deltas:
@@ -208,6 +221,7 @@ async def run_process(
     voice: dict[str, str],
     pending: list[dict],
     peer_voices: list[dict[str, str]],
+    standpoint=None,
 ) -> str:
     """Run one voice tick. Writes a thought to the puddle. Returns the
     thought text so the caller can log it.
@@ -216,12 +230,20 @@ async def run_process(
     fire (typically including `voice` itself). It governs which peer
     anchors `_gather_substrate` pulls so a voice reads the parliament
     it's actually IN, not the canonical trimurti.
+
+    `standpoint` (optional Standpoint snapshot) — read at the top of
+    the voice's prompt as the self that's speaking. Voices that read
+    this stop deliberating in a vacuum; they speak from THIS Fathom's
+    affect, identity, and recent commitments, then add their lens on
+    top. Falls back to a stub when not supplied (legacy/test path).
     """
     substrate = await _gather_substrate(session_tag, voice["name"], pending, peer_voices)
     seed_block = _render_seed_block(pending)
     recent = _render_context(substrate)
+    standpoint_block = _render_standpoint_for_voice(standpoint)
 
     prompt = VOICE_PROMPT.format(
+        standpoint_block=standpoint_block,
         seed_block=seed_block,
         recent_thoughts=recent,
         voice_name=voice["name"],

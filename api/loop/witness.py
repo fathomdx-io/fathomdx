@@ -218,6 +218,25 @@ def _render_hosts_block(hosts: list[str]) -> str:
     )
 
 
+def _render_standpoint_for_witness(sp) -> str:
+    """Render the standpoint as the witness's integration frame.
+
+    The witness gets the most generous budget of any consumer because
+    it speaks AS the standpoint — its reply needs to sound like THIS
+    self. Identity gets full first-paragraph room; recent commitments
+    and conclusions surface alongside affect.
+
+    Empty fallback is a one-line stub when no standpoint is supplied,
+    so the existing anchors_block pathway still carries integration
+    context (telepathy-mirrored crystal/mood is still feeding it).
+    """
+    if sp is None:
+        return ""
+    from ..standpoint import render_for_prompt
+
+    return render_for_prompt(sp, char_budget=1400)
+
+
 async def _call_witness(
     *,
     intent_block: str,
@@ -225,8 +244,11 @@ async def _call_witness(
     anchors_block: str,
     resonance_block: str,
     hosts_block: str,
+    standpoint_block: str = "",
 ) -> dict | None:
     prompt = WITNESS_PROMPT.format(
+        standpoint_block=standpoint_block
+        or "(standpoint unavailable — integrate from anchors alone)",
         intent_block=intent_block,
         voice_blocks=voice_blocks,
         anchors_block=anchors_block,
@@ -325,13 +347,19 @@ async def run_witness(
     session_tag: str,
     pending: list[dict],
     voice_order: list[str] | None = None,
+    standpoint=None,
 ) -> list[str]:
     """Run the witness + judge for this session. Returns the list of
     intent-ids the witness claims to have addressed.
 
     `voice_order` is the active voice list the convener picked for this
     fire (None when the convener decided depth=zero — no parliament
-    fired, witness speaks from substrate alone)."""
+    fired, witness speaks from substrate alone).
+
+    `standpoint` (optional Standpoint) is the self the witness speaks
+    AS. Threaded into the witness prompt as the integration frame —
+    not just context, but the voice the reply lands in. Falls back to
+    a stub block when not supplied (legacy/test path)."""
     if not pending:
         return []
 
@@ -436,12 +464,14 @@ async def run_witness(
     resonance_block = _render_resonance_block(resonant)
 
     available_hosts = await _available_claude_code_hosts()
+    standpoint_block = _render_standpoint_for_witness(standpoint)
     witness = await _call_witness(
         intent_block=intent_block,
         voice_blocks=voice_blocks,
         anchors_block=_render_anchors(),
         resonance_block=resonance_block,
         hosts_block=_render_hosts_block(available_hosts),
+        standpoint_block=standpoint_block,
     )
     if witness is None:
         print("[witness] produced nothing")

@@ -16,6 +16,7 @@ from __future__ import annotations
 import asyncio
 import uuid
 
+from .. import standpoint as standpoint_mod
 from . import feed_orient
 from .claude_code_watcher import claude_code_watcher_loop
 from .convener import run_convener
@@ -106,6 +107,25 @@ async def _run_one_fire() -> bool:
         f"(of {len(all_pending)} total across groups)"
     )
 
+    # Standpoint — gather Fathom's self-state ONCE at fire start and
+    # pass the same snapshot through every stage. This is the River
+    # principle in code: the convener, voices, and witness all read
+    # FROM one consistent self-view rather than each re-fetching mid-
+    # fire and risking a torn read if a slow-clock regen lands part
+    # way through. Soft-fails: any sub-loader exception inside
+    # standpoint.current() yields an empty component, never propagates.
+    try:
+        standpoint = await standpoint_mod.current(session_tag=session_tag)
+        print(
+            f"[loop fire] standpoint: posture={standpoint.posture} "
+            f"affect={standpoint.affect.state} "
+            f"endorsements={len(standpoint.endorsements)} "
+            f"understanding={len(standpoint.understanding)}"
+        )
+    except Exception as e:
+        print(f"[loop fire] standpoint gather crashed: {type(e).__name__}: {e}")
+        standpoint = None
+
     convergence_samples: list[float] = []
     settled = False
     settle_level: float | None = None
@@ -126,10 +146,12 @@ async def _run_one_fire() -> bool:
         print(f"[loop fire] intent-searcher seed crashed: {type(e).__name__}: {e}")
 
     # Convener — picks the parliament's shape for this fire. Reads the
-    # intent + the recall just seeded above; returns depth + voices.
-    # On any error path it falls back to the trimurti at full depth, so
-    # this call can never block the loop.
-    verdict = await run_convener(session_tag=session_tag, pending=pending)
+    # intent + the recall just seeded above + the standpoint; returns
+    # depth + voices. On any error path it falls back to the trimurti
+    # at full depth, so this call can never block the loop.
+    verdict = await run_convener(
+        session_tag=session_tag, pending=pending, standpoint=standpoint
+    )
     active_voices = verdict.voices
     voice_names = [v["name"] for v in active_voices]
     print(
@@ -171,6 +193,7 @@ async def _run_one_fire() -> bool:
                     voice=v,
                     pending=pending,
                     peer_voices=active_voices,
+                    standpoint=standpoint,
                 )
                 for v in active_voices
             ]
@@ -247,6 +270,7 @@ async def _run_one_fire() -> bool:
             session_tag=session_tag,
             pending=pending,
             voice_order=voice_names or None,
+            standpoint=standpoint,
         )
     except Exception as e:
         print(f"[loop fire] witness crashed: {type(e).__name__}: {e}")
