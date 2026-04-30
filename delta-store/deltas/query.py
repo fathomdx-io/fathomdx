@@ -255,19 +255,61 @@ NOISE_SEEDS = (
     "what's up",
     "hi",
     "hello",
+    "hello!",
+    "howdy",
+    "hola",
     "thanks",
     "ty",
     "nvm",
     "nevermind",
     "actually",
+    "test",
+    "testing",
+    "please",
+    "gold",
+    "confirmed",
+    "approved",
+    "got it",
+    "agreed",
+    "exactly",
+    "perfect",
+    "great",
+    "cool",
+    "done",
+    "noted",
+    "go ahead",
+    "sure go",
+    "sure, go",
+    "do it",
+    "do it again",
+    "lgtm",
+    "looks good",
+    "sounds good",
+    "ship it",
+    "merge it",
     "that's not what i wanted",
     "no not that",
-    "do it again",
 )
 NOISE_ALPHA = 0.35  # max additional fraction added to distance from centroid term
 NOISE_FLOOR = 0.55  # cosine similarity below this contributes nothing
 LENGTH_THRESHOLD = 24  # chars; below → length penalty kicks in
 LENGTH_PENALTY = 0.20  # multiplicative bump from length term
+
+# Hard drop — a result that only matched because it's generic noise should
+# not be in the candidate set at all. Softly down-ranking it isn't enough:
+# when the lake has nothing better to offer for a query, "hello" still
+# crowds onto the page. Hard drop runs alongside the soft modifier.
+#
+# We drop on length and exact-seed match only, NOT on centroid similarity:
+# the seed centroid sits in the "short generic text" region of embedding
+# space, and so does plenty of legitimate short content (dates, short
+# questions, the query "alerts" itself sims at 0.87). A centroid threshold
+# tight enough to catch "hello" is also tight enough to catch the load-
+# bearing stuff. The exact-match check (NOISE_SEEDS includes the actual
+# offenders) plus the length floor catches the right things without
+# false-positives.
+LENGTH_DROP_THRESHOLD = 10  # content shorter than this → drop
+_NOISE_SEED_NORMALIZED = frozenset(s.strip().lower() for s in NOISE_SEEDS)
 
 # Process-wide cache of the seed-centroid. The seeds are constants, so
 # every QueryEngine and PlanExecutor in this process can share a single
@@ -328,6 +370,28 @@ def _noise_modifier(
         scale = max(1.0 - NOISE_FLOOR, 0.001)
         factor *= 1.0 + NOISE_ALPHA * (excess / scale)
     return factor
+
+
+def _is_pure_noise(
+    content: str | None,
+    embedding: list[float],
+    noise_centroid: list[float],
+) -> bool:
+    """Hard-drop check — the row only matched because it's generic noise.
+
+    Triggers on:
+      • content shorter than LENGTH_DROP_THRESHOLD chars
+      • content (stripped, lowercased) matches a noise seed exactly
+    """
+    del embedding, noise_centroid  # reserved for future centroid-based rules
+    text = (content or "").strip()
+    if not text:
+        return True
+    if len(text) < LENGTH_DROP_THRESHOLD:
+        return True
+    if text.lower() in _NOISE_SEED_NORMALIZED:
+        return True
+    return False
 
 
 def _valence_modifier(cloud: list[dict]) -> float:
@@ -604,6 +668,11 @@ class QueryEngine:
             p_dist = _cosine_distance(origin_provenance, d.get("provenance_embedding", []))
 
             if t_dist > r_t or s_dist > r_s or p_dist > r_p:
+                continue
+
+            if suppress_noise and _is_pure_noise(
+                d.get("content"), d.get("embedding") or [], noise_centroid
+            ):
                 continue
 
             max_r = max(r_t, r_s, r_p, 0.001)

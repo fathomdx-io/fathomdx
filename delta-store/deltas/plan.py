@@ -50,7 +50,7 @@ from deltas.models import (
     Timeline,
     TimelineDelta,
 )
-from deltas.query import _noise_modifier, get_noise_centroid
+from deltas.query import _is_pure_noise, _noise_modifier, get_noise_centroid
 from deltas.store import _format_ts, _vec_to_list
 
 # Compositional steps that produce semantic distances — search/bridge/chain.
@@ -1140,17 +1140,20 @@ class PlanExecutor:
         if not rows:
             return rows
         centroid = get_noise_centroid()
+        kept: list[dict] = []
         for d in rows:
-            base = d.get("distance")
-            if base is None:
+            if _is_pure_noise(d.get("content"), d.get("embedding") or [], centroid):
                 continue
-            d["distance"] = float(base) * _noise_modifier(
-                d.get("content"), d.get("embedding") or [], centroid
-            )
+            base = d.get("distance")
+            if base is not None:
+                d["distance"] = float(base) * _noise_modifier(
+                    d.get("content"), d.get("embedding") or [], centroid
+                )
+            kept.append(d)
         # Stable sort by distance ascending; rows missing distance keep
         # their relative order at the end of the list.
-        rows.sort(key=lambda d: (d.get("distance") is None, d.get("distance") or 0.0))
-        return rows[:target_limit]
+        kept.sort(key=lambda d: (d.get("distance") is None, d.get("distance") or 0.0))
+        return kept[:target_limit]
 
 
 def _parse_ts(ts: str) -> datetime:
