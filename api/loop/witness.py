@@ -263,11 +263,6 @@ async def _call_witness(
         anchors_block=anchors_block,
         feed_block=feed_block,
         hosts_block=hosts_block,
-        settled_status="deliberated",
-        settled_descriptor=(
-            "The voices took their turns — speak from the integrated take "
-            "without performing consensus you didn't earn."
-        ),
     )
     try:
         raw = await loop_generate(
@@ -609,9 +604,9 @@ async def run_witness(
         # substrate is enough for casual drop-ins and small-talk replies.
         print("[witness] no voice thoughts — speaking from substrate alone")
         voice_blocks = (
-            "(no parliament this tick — speak from the intent, the "
-            "resonance pool, and your identity. This is a casual or "
-            "low-stakes turn that doesn't need internal deliberation.)"
+            "(no parliament this tick — speak from the feed, the tally, "
+            "and your identity. This is a casual or low-stakes turn that "
+            "doesn't need internal deliberation.)"
         )
     else:
         voice_block_parts: list[str] = []
