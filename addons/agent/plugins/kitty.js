@@ -211,8 +211,14 @@ function buildTaskPrompt(body, corr) {
     body,
     "",
     "---",
-    `When this task is complete, write a closure delta:`,
-    `\`fathom delta write "<your reply or summary>" --tags task-complete,task-corr:${corr},kind:claude-code-reply --source claude-code:task\``,
+    `When this task is complete, write a closure delta. Prefer the MCP tool; fall back to the CLI only if MCP is unavailable.`,
+    "",
+    `MCP (preferred):`,
+    `  tool: mcp__fathom__write`,
+    `  args: { content: "<your reply or summary>", tags: ["task-complete", "task-corr:${corr}", "kind:claude-code-reply"], source: "claude-code:task" }`,
+    "",
+    `CLI (fallback):`,
+    `  \`fathom delta write "<your reply or summary>" --tags task-complete,task-corr:${corr},kind:claude-code-reply --source claude-code:task\``,
     "",
     "Intermediate progress: write deltas as you go — your normal hook deltas are picked up automatically.",
   ].join("\n");
@@ -713,8 +719,14 @@ function fire(delta, config, pusher) {
   const footer = [
     "",
     "---",
-    "When you finish, write a one-line summary delta with these tags so the dashboard can link it to this run:",
-    `\`fathom delta write "[${routineId}] <one-sentence summary>" --tags routine-summary,routine-id:${routineId},fire-delta:${delta.id} --source claude-code:routine\``,
+    "When you finish, write a one-line summary delta so the dashboard can link it to this run. Prefer MCP; fall back to CLI only if MCP is unavailable.",
+    "",
+    "MCP (preferred):",
+    "  tool: mcp__fathom__write",
+    `  args: { content: "[${routineId}] <one-sentence summary>", tags: ["routine-summary", "routine-id:${routineId}", "fire-delta:${delta.id}"], source: "claude-code:routine" }`,
+    "",
+    "CLI (fallback):",
+    `  \`fathom delta write "[${routineId}] <one-sentence summary>" --tags routine-summary,routine-id:${routineId},fire-delta:${delta.id} --source claude-code:routine\``,
   ].join("\n");
   const prompt = `${body}\n${footer}`;
 
