@@ -70,6 +70,36 @@ async def recent_judge_stats_by_kind(
         log.exception("judge_history: card query failed")
         return {}
 
+    # Side-channel axes: the judge runs in the background after the card
+    # writes, so most cards land with payload axes={}. The judge later
+    # writes a `kind:judge-axes` delta with `for-card:<lake_id>` linking
+    # back. Fetch all such side-channel deltas in the same window and
+    # build a card_id → axes map; we'll prefer the card's inline axes
+    # (legacy / depth=zero cards include them) but fall through to the
+    # side channel.
+    side_axes: dict[str, dict] = {}
+    try:
+        side_deltas = await delta_client.query(
+            tags_include=["kind:judge-axes"],
+            time_start=since,
+            limit=_FETCH_LIMIT * 2,
+        )
+    except Exception:
+        log.exception("judge_history: side-axes query failed")
+        side_deltas = []
+    for s in side_deltas:
+        target = ""
+        for t in s.get("tags") or []:
+            if isinstance(t, str) and t.startswith("for-card:"):
+                target = t.split(":", 1)[1]
+                break
+        if not target:
+            continue
+        try:
+            side_axes[target] = json.loads(s.get("content") or "{}")
+        except (ValueError, TypeError):
+            continue
+
     # For each card, pull the addresses ids and the intent's kind.
     # Cards carry `addresses:<id>` tags; we'd need to fetch each
     # intent to read its kind. Heavy. Instead, use a lighter heuristic:
@@ -96,11 +126,17 @@ async def recent_judge_stats_by_kind(
         if not kind:
             continue
 
-        # Parse axes from card payload JSON.
+        # Parse axes — inline payload first (back-compat for cards from
+        # before the deferred-judge change), then side-channel.
+        axes: dict = {}
         try:
             payload = json.loads(c.get("content") or "{}")
             axes = payload.get("axes") or {}
         except (ValueError, TypeError):
+            axes = {}
+        if not axes:
+            axes = side_axes.get(c.get("id") or "", {})
+        if not axes:
             continue
 
         salience = float(axes.get("salience", 0.0) or 0.0)

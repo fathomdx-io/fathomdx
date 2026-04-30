@@ -24,6 +24,7 @@ let the witness write from the integrated take alone.
 
 from __future__ import annotations
 
+import asyncio
 import json
 import re
 import uuid
@@ -732,23 +733,11 @@ async def run_witness(
     if not full_addressed:
         full_addressed = [it.get("id") for it in pending if it.get("id")]
 
-    if witness.get("route") == "unknown":
-        axes = {"salience": 0.3, "novelty": 0.0, "resonance": 0.0,
-                "confidence": 0.0, "comfort": 0.5}
-    else:
-        axes = await _call_judge(
-            kicker=witness.get("kicker") or "",
-            body=witness["body"],
-            seed=primary_intent,
-        )
-
-    # Write the routed output as a feed-card delta. Dual-write:
-    # Dual-write the witness card to lake (durable, no TTL) + puddle
-    # (working memory, TTL'd). Engagement is now a marker delta with
-    # an `engages:<lake_id>` pointer at this card, so the card itself
-    # has to live durably or the pointer dangles. The judge axes still
-    # get computed and stored on the card payload — useful for ranking
-    # later — but they no longer gate whether the card survives.
+    # The judge runs in the background after dispatch (see _post_dispatch
+    # below). The card writes immediately with axes={} so the user's
+    # response isn't gated on a 5–9s rating call. judge_history reads the
+    # axes via the side-channel `kind:judge-axes` delta when the card's
+    # inline axes are empty.
     payload = {
         "kicker": witness.get("kicker") or "",
         "title": witness.get("title") or "",
@@ -758,7 +747,7 @@ async def run_witness(
         "link": witness.get("link") or "",
         "links": witness.get("links") or [],
         "route": witness.get("route") or "chat-reply",
-        "axes": axes,
+        "axes": {},
     }
     payload_json = json.dumps(payload, ensure_ascii=False)
     route_value = witness.get("route") or "chat-reply"
@@ -935,20 +924,10 @@ async def run_witness(
                 f"[witness] constituting-act writes failed: "
                 f"{type(e).__name__}: {e}"
             )
-        # Phase 4a — voice priors. Separate from the constituting writes
-        # because the predicate is different (judge axes, not witness
-        # JSON). Soft-fails independently.
-        try:
-            await _write_voice_affirmations(
-                lake_card_id=lake_id,
-                voice_order=voice_order,
-                axes=axes,
-            )
-        except Exception as e:
-            print(
-                f"[witness] voice-affirmation writes failed: "
-                f"{type(e).__name__}: {e}"
-            )
+        # Phase 4a — voice priors. Deferred to the background judge task
+        # below since affirmations are gated on judge axes. Was inline
+        # before; moving it off the dispatch path saves the user the
+        # judge call's 5–9s on every fire.
 
     puddle_tags = [
         CONVO_TAG, session_tag,
@@ -988,4 +967,83 @@ async def run_witness(
         f"[witness] addressed={len(full_addressed)} route={route_value!r} "
         f"body[{len(payload['body'])}c] lake-id={lake_id[:24] or 'none'}"
     )
+
+    # Fire the judge in the background after the dispatch has landed.
+    # The user's response is already on the wire; the judge axes feed
+    # downstream metadata (voice affirmations, judge_history aggregates
+    # for future convener decisions) — none of that needs to be in the
+    # critical path. Side-channel `kind:judge-axes` delta carries the
+    # axes back, linked to the card via `for-card:<lake_id>`.
+    if lake_id:
+        asyncio.create_task(
+            _judge_and_followup(
+                lake_card_id=lake_id,
+                kicker=witness.get("kicker") or "",
+                body=witness["body"],
+                seed=primary_intent,
+                route=witness.get("route") or "chat-reply",
+                voice_order=voice_order,
+            )
+        )
+
     return full_addressed
+
+
+async def _judge_and_followup(
+    *,
+    lake_card_id: str,
+    kicker: str,
+    body: str,
+    seed: str,
+    route: str,
+    voice_order: list[str] | None,
+) -> None:
+    """Background continuation: rate the card and emit downstream signals.
+
+    Runs after the witness card has already landed in the lake/puddle so
+    the user-facing response is unblocked. Emits two things:
+
+      1. A `kind:judge-axes` lake delta carrying the five-axis JSON,
+         linked to the card via `for-card:<lake_card_id>`. judge_history
+         picks this up via a side-channel lookup when the card's inline
+         axes payload is empty.
+      2. Voice-affirmation deltas for fires the judge rated above
+         `_VOICE_AFFIRM_FLOOR` — same Phase 4a behaviour as before, just
+         deferred.
+
+    Soft-fails independently — the card already exists; this is metadata.
+    """
+    if route == "unknown":
+        axes = {"salience": 0.3, "novelty": 0.0, "resonance": 0.0,
+                "confidence": 0.0, "comfort": 0.5}
+    else:
+        try:
+            axes = await _call_judge(kicker=kicker, body=body, seed=seed)
+        except Exception as e:
+            print(f"[judge] background call crashed: {type(e).__name__}: {e}")
+            return
+
+    try:
+        await delta_client.write(
+            content=json.dumps(axes, ensure_ascii=False),
+            tags=[
+                "kind:judge-axes",
+                f"for-card:{lake_card_id}",
+                f"engages:{lake_card_id}",
+            ],
+            source="judge",
+        )
+    except Exception as e:
+        print(f"[judge] axes side-channel write failed: {type(e).__name__}: {e}")
+
+    try:
+        await _write_voice_affirmations(
+            lake_card_id=lake_card_id,
+            voice_order=voice_order,
+            axes=axes,
+        )
+    except Exception as e:
+        print(
+            f"[witness] voice-affirmation writes failed: "
+            f"{type(e).__name__}: {e}"
+        )
