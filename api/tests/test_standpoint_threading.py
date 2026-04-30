@@ -119,6 +119,7 @@ def test_witness_prompt_formats_with_standpoint_block() -> None:
         anchors_block="anchors",
         feed_block="feed",
         hosts_block="hosts",
+        routines_block="",
     )
     assert "(test standpoint)" in out
     assert "anchors" in out

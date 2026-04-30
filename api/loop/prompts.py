@@ -263,7 +263,7 @@ Intent kinds:
 
 # WHAT TO PRODUCE
 
-{hosts_block}Routes: chat-reply | feed-card | dm:<slug> | alert:<level> | routine-fire:<id> | tool:<name> | claude-code:<host>
+{hosts_block}{routines_block}Routes: chat-reply | feed-card | dm:<slug> | alert:<level> | routine-fire:<id> | tool:<name> | claude-code:<host>
 
   · claude-code:<host> — PICK THIS, NOT chat-reply, whenever the ask needs the live world: a current price, latest news, today's weather, fresh API data, a file edit, a shell command, a git operation, OR phrasings like "look it up", "look up X", "fetch X", "run Y", "check on Z", "find out", "search for", "go look", "go get", "what's new", "what's happening", "what's new in <topic>", "any news on X", "anything new". Substrate is stale; guessing from memory at "AI news today" or "what's new in <topic>" is a wrong answer. Don't ask clarifying questions when the feed or recall already gives you the topic — if the user asks "what's new in the singularity news space" and recall surfaces both AI-singularity and math-singularity material, pick the AI one (news = current events, not philosophy) and dispatch a fetch. The body is task instructions, not a chat reply.
 
