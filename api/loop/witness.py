@@ -169,12 +169,23 @@ def _render_resonance_block(items: list[dict]) -> str:
         if not content:
             continue
         from_source = "lake"
+        # Lake-id makes the item durable and addressable — engagement
+        # attestations from the constituting act (Phase 3) need this id
+        # to point cited_ids/dropped_ids at a real lake delta. Items
+        # without a lake counterpart (pure puddle voice thoughts, etc.)
+        # render with no id; the witness can still read the content but
+        # can't cite them as engagement targets.
+        lake_id_short = ""
         for t in (d.get("tags") or []):
             if t.startswith("from-source:"):
                 from_source = t.split(":", 1)[1]
-                break
+            elif t.startswith("lake-id:"):
+                lake_id_short = t.split(":", 1)[1][:24]
+            elif t.startswith("recalled-id:") and not lake_id_short:
+                lake_id_short = t.split(":", 1)[1][:24]
         snippet = content[:600] + ("…" if len(content) > 600 else "")
-        blocks.append(f"  [{from_source}] {snippet}")
+        prefix = f"[{from_source} · id={lake_id_short}]" if lake_id_short else f"[{from_source}]"
+        blocks.append(f"  {prefix} {snippet}")
     return "\n\n".join(blocks) if blocks else "  (no resonant material in the puddle this fire)"
 
 
@@ -300,7 +311,65 @@ async def _call_witness(
         "links": parsed.get("links") or [],
         "route": (parsed.get("route") or "chat-reply").strip(),
         "addresses": parsed.get("addresses") or [],
+        # Self-state fields — Phase 3 of the River refactor. Each fire is
+        # also a constituting act: writes a small contribution into all
+        # four self-systems (identity / affect / values / understanding).
+        # All four optional — older models or budget-truncated outputs
+        # may omit them; that's a graceful degradation, not an error.
+        "attestation": (parsed.get("attestation") or "").strip(),
+        "mood_shift": _parse_mood_shift(parsed.get("mood_shift")),
+        "cited_ids": _clean_id_list(parsed.get("cited_ids")),
+        "dropped_ids": _clean_id_list(parsed.get("dropped_ids")),
     }
+
+
+def _parse_mood_shift(raw) -> dict | None:
+    """Validate the mood_shift sub-object. None when missing / empty /
+    malformed — caller will skip the corresponding write."""
+    if not isinstance(raw, dict) or not raw:
+        return None
+    direction = raw.get("direction")
+    if direction not in ("+", "-"):
+        return None
+    axis = (raw.get("axis") or "").strip()
+    if not axis:
+        return None
+    try:
+        magnitude = float(raw.get("magnitude") or 0.0)
+    except (TypeError, ValueError):
+        return None
+    # Clamp magnitude to a sane range — small drifts only. The witness
+    # is asked for 0.05-0.2; if it returns something outside [0, 1] it's
+    # confused or trying to overwrite mood.
+    magnitude = max(0.0, min(1.0, magnitude))
+    if magnitude == 0.0:
+        return None
+    reason = (raw.get("reason") or "").strip()[:160]
+    return {
+        "direction": direction,
+        "axis": axis[:32],
+        "magnitude": magnitude,
+        "reason": reason,
+    }
+
+
+def _clean_id_list(raw) -> list[str]:
+    """Coerce to a list of short (24-char) delta ids. Drops anything
+    non-string and dedupes preserving order. Used for cited_ids and
+    dropped_ids — both are lists of provenance pointers."""
+    if not isinstance(raw, list):
+        return []
+    seen: set[str] = set()
+    out: list[str] = []
+    for x in raw:
+        if not isinstance(x, str):
+            continue
+        s = x.strip()[:24]
+        if not s or s in seen:
+            continue
+        seen.add(s)
+        out.append(s)
+    return out
 
 
 _JUDGE_FALLBACK = {
@@ -340,6 +409,104 @@ async def _call_judge(*, kicker: str, body: str, seed: str) -> dict[str, float]:
         v = parsed.get(k)
         out[k] = max(0.0, min(1.0, float(v))) if isinstance(v, (int, float)) else default
     return out
+
+
+async def _write_constituting_writes(
+    *,
+    lake_card_id: str,
+    attestation: str,
+    mood_shift: dict | None,
+    cited_ids: list[str],
+    dropped_ids: list[str],
+) -> None:
+    """Emit the four small per-fire writes that turn the witness fire
+    into a self-constituting act.
+
+    This is Phase 3 of the River refactor. Every successful witness
+    fire writes (in addition to the card itself):
+
+      1. kind:standpoint-attestation — 1-2 sentences in first-person
+         on what this fire taught about who I am. Slow-clock crystal
+         regen will eventually read accumulated attestations.
+
+      2. kind:mood-shift — small numeric drift on one affect axis.
+         Mood synthesis (slow-clock) reads accumulated shifts since
+         last regen.
+
+      3. engagement deltas — for each cited_id an `affirms:<id>` delta;
+         for each dropped_id a `refutes:<id>` delta. Both carry
+         `from:<card-id>` provenance pointing at the witness card.
+         Standpoint._load_endorsements picks these up on the next
+         fire — fast-clock value-formation.
+
+    Each write is independent and soft-fails — a failure on one
+    doesn't block the others. The lake_card_id is the anchor every
+    side-effect points back to; without it (main card write failed)
+    none of these would have provenance, so the caller skips this
+    helper entirely.
+
+    Caller logs the aggregate failure if any sub-write raises (we
+    raise here on the first failure to surface the issue; Phase 4
+    can move to per-write try/except if witness becomes load-bearing
+    for emit volume).
+    """
+    short_id = lake_card_id[:24]
+
+    if attestation:
+        await delta_client.write(
+            content=attestation,
+            tags=[
+                "kind:standpoint-attestation",
+                f"from:{lake_card_id}",
+            ],
+            source="fathom-self",
+        )
+
+    if mood_shift:
+        # Encode the structured shift as JSON content; tags carry the
+        # axis + direction for cheap filtering by mood synthesis.
+        await delta_client.write(
+            content=json.dumps(mood_shift, ensure_ascii=False),
+            tags=[
+                "kind:mood-shift",
+                f"mood-axis:{mood_shift['axis']}",
+                f"mood-direction:{mood_shift['direction']}",
+                f"from:{lake_card_id}",
+            ],
+            source="fathom-self",
+        )
+
+    # Engagement attestations — one delta per cited / dropped id. The
+    # body is the witness's own commit-language; the engagement tag
+    # is what makes it a value-formation act in the eyes of the
+    # standpoint's endorsement reader on the next fire.
+    for cid in cited_ids:
+        if not cid:
+            continue
+        await delta_client.write(
+            content=f"witness leaned on {cid[:8]} as integration ground",
+            tags=[
+                "kind:engagement-attest",
+                f"affirms:{cid}",
+                f"from:{lake_card_id}",
+                f"witness-card:{short_id}",
+            ],
+            source="fathom-self",
+        )
+
+    for did in dropped_ids:
+        if not did:
+            continue
+        await delta_client.write(
+            content=f"witness considered {did[:8]} and rejected — off-thread or stale",
+            tags=[
+                "kind:engagement-attest",
+                f"refutes:{did}",
+                f"from:{lake_card_id}",
+                f"witness-card:{short_id}",
+            ],
+            source="fathom-self",
+        )
 
 
 async def run_witness(
@@ -669,6 +836,29 @@ async def run_witness(
         # take the loop offline. The puddle copy still lands; the
         # card is just ephemeral for this fire.
         print(f"[witness] lake write failed (puddle still writing): {type(e).__name__}: {e}")
+
+    # Phase 3 of the River refactor: the witness fire is also a
+    # self-constituting act. After the main card writes, emit the small
+    # side-effect deltas that drift identity, affect, and committed
+    # values for future fires. lake_id is the provenance anchor;
+    # without it (lake write failed) the side-effects skip — the next
+    # fire's standpoint will pick up whatever DID land.
+    if lake_id:
+        try:
+            await _write_constituting_writes(
+                lake_card_id=lake_id,
+                attestation=witness.get("attestation") or "",
+                mood_shift=witness.get("mood_shift"),
+                cited_ids=witness.get("cited_ids") or [],
+                dropped_ids=witness.get("dropped_ids") or [],
+            )
+        except Exception as e:
+            # Side-effect writes are non-fatal — the card still landed.
+            # Log loudly so the loss is visible; the loop continues.
+            print(
+                f"[witness] constituting-act writes failed: "
+                f"{type(e).__name__}: {e}"
+            )
 
     puddle_tags = [
         CONVO_TAG, session_tag,
