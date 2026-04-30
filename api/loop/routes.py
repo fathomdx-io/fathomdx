@@ -714,9 +714,10 @@ async def get_claude_code_tasks() -> dict:
         ...
       ]}
     """
-    spawns, completes = await asyncio.gather(
+    spawns, completes, abandoned = await asyncio.gather(
         delta_client.query(tags_include=["task-spawn"], limit=200),
         delta_client.query(tags_include=["task-complete"], limit=200),
+        delta_client.query(tags_include=["task-abandoned"], limit=200),
     )
 
     def _tag_value(tags: list[str], prefix: str) -> str:
@@ -725,8 +726,11 @@ async def get_claude_code_tasks() -> dict:
                 return t[len(prefix):]
         return ""
 
+    # Both `task-complete` (claude wrote a closure delta) and
+    # `task-abandoned` (the kitty plugin noticed the window died with no
+    # closure) are closure signals — either one clears the strip.
     completed: set[str] = set()
-    for c in completes:
+    for c in (*completes, *abandoned):
         corr = _tag_value(c.get("tags") or [], "task-corr:")
         if corr:
             completed.add(corr)
