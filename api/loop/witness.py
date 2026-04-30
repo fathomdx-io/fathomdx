@@ -609,15 +609,37 @@ async def run_witness(
     by_voice = _group_thoughts_by_voice(voice_deltas, voice_order=voice_order)
 
     if not by_voice:
-        # depth=zero, OR every voice failed to produce a thought. Witness
-        # speaks from intent + resonance + identity anchors alone — the
-        # substrate is enough for casual drop-ins and small-talk replies.
+        # depth=zero, OR every voice failed to produce a thought. Without
+        # the parliament's takes, the witness needs SOMETHING about the
+        # broader lake or it'll speak from identity vibes only. Pull the
+        # recall-result deltas the intent-searcher pre-loaded into the
+        # puddle and surface them in the voice-takes slot — labeled so
+        # the witness reads them as recall-substrate, not deliberation.
         print("[witness] no voice thoughts — speaking from substrate alone")
-        voice_blocks = (
-            "(no parliament this tick — speak from the feed, the tally, "
-            "and your identity. This is a casual or low-stakes turn that "
-            "doesn't need internal deliberation.)"
+        recall_items = puddle.query(
+            tags_include=[session_tag, "recall-result"],
+            limit=12,
         )
+        if recall_items:
+            blocks: list[str] = [
+                "(no parliament this tick — speaking from intent-searcher recall, "
+                "the feed, and identity. Casual or low-stakes turn.)",
+                "",
+                "RECALL — what the lake surfaced for this intent:",
+            ]
+            for d in recall_items:
+                content = (d.get("content") or "").strip().replace("\n", " ")
+                if not content:
+                    continue
+                snippet = content[:400] + ("…" if len(content) > 400 else "")
+                src = d.get("source") or "lake"
+                blocks.append(f"  · [{src}] {snippet}")
+            voice_blocks = "\n".join(blocks)
+        else:
+            voice_blocks = (
+                "(no parliament this tick and no recall surfaced — speak "
+                "from the feed, the tally, and your identity.)"
+            )
     else:
         voice_block_parts: list[str] = []
         for voice_name, takes in by_voice.items():
