@@ -382,11 +382,15 @@ _JUDGE_FALLBACK = {
 
 
 async def _call_judge(*, kicker: str, body: str, seed: str) -> dict[str, float]:
+    # Medium tier (Flash) is plenty for a 5-axis JSON rating at temp=0;
+    # the hard tier was leftover from when the judge was authority-bearing.
+    # Flash measures ~5–6s vs Pro's ~9s on this prompt shape, and the axes
+    # are downstream metadata, not the user-facing response.
     prompt = JUDGE_PROMPT.format(kicker=kicker, body=body, seed=seed)
     try:
         raw = await loop_generate(
             prompt=prompt,
-            tier="hard",
+            tier="medium",
             max_tokens=2048,
             temperature=0.0,
             json_mode=True,
