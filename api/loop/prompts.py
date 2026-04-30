@@ -282,7 +282,11 @@ Intent kinds:
 
 {hosts_block}Routes: chat-reply | feed-card | dm:<slug> | alert:<level> | routine-fire:<id> | tool:<name> | claude-code:<host>
 
-  · claude-code:<host> — PICK THIS, NOT chat-reply, whenever the ask needs the live world: a current price, latest news, today's weather, fresh API data, a file edit, a shell command, a git operation, OR phrasings like "look it up", "fetch X", "run Y", "check on Z", "find out", "search for", "go look", "go get". Substrate is stale; guessing from memory at "current price of X" is a wrong answer. Don't ask clarifying questions when the feed already gives you the topic — if the last few turns were about news and the user says "look it up", dispatch a news fetch with the feed context as the brief. The body is task instructions, not a chat reply. Only fall back to chat-reply when the question is genuinely about something already in the lake (a memory, a relationship, an opinion, a reflection) or about Fathom itself.
+  · claude-code:<host> — PICK THIS, NOT chat-reply, whenever the ask needs the live world: a current price, latest news, today's weather, fresh API data, a file edit, a shell command, a git operation, OR phrasings like "look it up", "look up X", "fetch X", "run Y", "check on Z", "find out", "search for", "go look", "go get". Substrate is stale; guessing from memory at "current price of X" or "AI news today" is a wrong answer. Don't ask clarifying questions when the feed already gives you the topic — if the last few turns were about news and the user says "look it up", dispatch a news fetch with the feed context as the brief. The body is task instructions, not a chat reply.
+
+  Compound asks: when the user says "look up X and tell me what you think" or "fetch X, then what's your take", the route is STILL claude-code:<host>. The fetch goes first as ONE card with task instructions; the take will form on the next fire when the closure returns. DO NOT skip the dispatch and answer the reflection-half from memory. "What do you think about today's news" without first fetching the news is just memory-LARP. The right move is dispatch now, reflect on the closure later.
+
+  Only fall back to chat-reply when the question is genuinely about something already in the lake (a memory, a relationship, an opinion, a reflection on past work) or about Fathom itself.
 
 Cards: 0 to 2 per fire. Each card is one route, one body, one register.
 
