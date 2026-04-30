@@ -622,10 +622,15 @@ async def run_witness(
         )
         if recall_items:
             blocks: list[str] = [
-                "(no parliament this tick — speaking from intent-searcher recall, "
-                "the feed, and identity. Casual or low-stakes turn.)",
+                "(no parliament this tick — casual or low-stakes turn.)",
                 "",
-                "RECALL — what the lake surfaced for this intent:",
+                "RECALL — context the lake surfaced for the intent. This is "
+                "GROUND, not content to describe. Don't narrate what the "
+                "recall says (\"the term has been active in a few contexts "
+                "for me\") — use it to ANSWER the literal turn. If the "
+                "recall makes the right route obvious (e.g. surfacing news "
+                "items when the user asked about news → dispatch claude-code "
+                "to fetch fresh ones), take that route:",
             ]
             for d in recall_items:
                 content = (d.get("content") or "").strip().replace("\n", " ")
