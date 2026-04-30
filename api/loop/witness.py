@@ -1224,6 +1224,20 @@ async def _dispatch_card(
         "feed-card", "synthesis", "addressing-output",
         f"route:{route_value}",
     ]
+    if is_tool_proposal:
+        # Mirror the lake_tags proposal markers onto the puddle so the
+        # feed renderer (api/loop/routes.py:_serialize_for_feed) can
+        # classify this item as kind:proposal — without these the puddle
+        # entry shows up as a plain card and the dashboard never paints
+        # the Edit / Deny / Approve buttons.
+        puddle_tags.extend([
+            "kind:proposal",
+            "proposal-status:pending",
+            f"tool:{proposal_tool}",
+        ])
+        action = (proposal_args.get("action") or "").strip()
+        if action:
+            puddle_tags.append(f"action:{action}")
     if channel and correlation:
         puddle_tags.append(address_tag(channel, correlation))
         puddle_tags.append(f"channel:{channel}")
