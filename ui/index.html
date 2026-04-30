@@ -8742,8 +8742,11 @@ GET  /v1/usage               Usage stats`,
 
     function _renderAccordion(items) {
       // items is a non-empty list of same-(category, session) feed
-      // items. Only fires when items.length >= 2; single items render
-      // inline as flat .delta rows.
+      // items. Singletons in clusterable categories also pack into an
+      // accordion (a 1-count "Thinking" / "Identity" / "Routine" row),
+      // so the feed always reads as a stack of categorical clusters
+      // even when only one item has landed in a category yet — and a
+      // later same-category arrival flows naturally into the body.
       const cat = _categoryOf(items[0].kind) || items[0].kind;
       const session = items[0].session || '';
       const det = document.createElement('details');
@@ -8838,10 +8841,26 @@ GET  /v1/usage               Usage stats`,
         parent.insertBefore(det, anchor);
         return;
       }
-      // No same-(category, session) target yet. Stamp session so the
-      // NEXT same-(category, session) arrival can find it.
-      if (session) node.dataset.session = session;
-      feed.insertBefore(node, feed.firstChild);
+      // No same-(category, session) target yet. Wrap clusterable
+      // singletons in a 1-count accordion so the feed reads as a stack
+      // of categorical clusters from the first arrival, and later
+      // same-(category, session) prepends fold into the body via the
+      // accordion branch above instead of triggering a flat→accordion
+      // swap. Non-clusterable categories were handled at the top of
+      // this function and never reach here.
+      const det = document.createElement('details');
+      det.className = 'accordion';
+      det.dataset.category = category;
+      if (session) det.dataset.session = session;
+      const labelText = CATEGORY_LABELS[category] || category;
+      const summary = document.createElement('summary');
+      summary.innerHTML = `<span class="accordion-label">${_esc(labelText)}</span><span class="accordion-stats">1</span>`;
+      const body = document.createElement('div');
+      body.className = 'accordion-body';
+      body.appendChild(node);
+      det.appendChild(summary);
+      det.appendChild(body);
+      feed.insertBefore(det, feed.firstChild);
     }
 
     // Engagement projection: feed-engagement deltas are diffs that
@@ -8985,19 +9004,11 @@ GET  /v1/usage               Usage stats`,
               placedIndex.add(j);
             }
           }
-          if (run.length >= 2) {
-            feed.appendChild(_renderAccordion(run));
-          } else {
-            _renderedFeedIds.add(it.id);
-            const node = _renderPuddleItem(it, (delayIdx++) * 0.06);
-            if (node) {
-              // Singleton — stamp category + session so a later same-
-              // (category, session) arrival can merge into this row.
-              node.dataset.category = itCat;
-              if (it.session) node.dataset.session = it.session;
-              feed.appendChild(node);
-            }
-          }
+          // Always render clusterable categories as an accordion, even
+          // for singletons. Keeps the feed visually grouped by category
+          // and lets later same-(category, session) arrivals fold in
+          // through _mergeOrPrependNode without a flat→accordion swap.
+          feed.appendChild(_renderAccordion(run));
         } else {
           _renderedFeedIds.add(it.id);
           const node = _renderPuddleItem(it, (delayIdx++) * 0.06);
