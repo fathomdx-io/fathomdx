@@ -56,7 +56,7 @@ fathomdx's internal vocabulary. Use these terms in docs, code comments, commit m
 | **plugin** | A host-side extension loaded by `addons/agent`. Each plugin owns a category of deltas (heartbeat, sysinfo, kitty, vault, etc.). |
 | **helper** | A named capability Fathom can invoke to perform a task — fetching weather, drafting text, calling a model, running a routine body. Helpers generate deltas purposefully as a side effect of their work. |
 | **hook** | A shell command fired on a lifecycle event (e.g., claude-code's UserPromptSubmit). Writes deltas for things that otherwise wouldn't be observed. |
-| **routine** | A scheduled prompt fired on a local machine via the agent's `kitty` plugin. Lands as a `routine-fire` delta; the agent picks it up and spawns a claude-code session to execute the body. Independent of chat sessions — see [`reference/routine-spec.md`](./reference/routine-spec.md). |
+| **routine** | A scheduled prompt fired INTO the River. Cron tick writes a `routine-due` intent; the witness deliberates and routes — claude-code dispatch, feed-card from substrate, alert, chat-reply, tool proposal, or silence. The "Fire Now" button still uses the legacy direct-to-claude-code path (`routine-fire` delta consumed by kitty). Independent of chat sessions — see [`reference/routine-spec.md`](./reference/routine-spec.md). |
 | **agent** | The `addons/agent` daemon on a host. Runs plugins; executes routines; heartbeats. Not the same as "an LLM agent" in the general AI sense. |
 
 ## Analysis primitives

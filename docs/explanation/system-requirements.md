@@ -26,7 +26,7 @@ Fathom also runs on a small VPS (1 vCPU, 2 GB RAM). It's tighter; expect the api
 
 Linux, macOS, or Windows-with-WSL. The api stack runs in containers, so the host distro almost doesn't matter as long as Docker (or Podman) works.
 
-For routines (the kitty-spawn-Claude-Code flow): Linux or macOS only. kitty doesn't run on Windows. Heartbeats, sources, MCP, and hooks all work on Windows-WSL; routines specifically don't.
+For routines that route through claude-code (when the witness picks `claude-code:<host>` for fetch / file work / shell): Linux or macOS only. kitty doesn't run on Windows. Heartbeats, sources, MCP, and hooks all work on Windows-WSL. Substrate-only routines (those the witness routes to feed-card / chat-reply / alert / tool-proposal) need none of this and run inside the api container.
 
 ## Required software
 
@@ -37,7 +37,7 @@ For routines (the kitty-spawn-Claude-Code flow): Linux or macOS only. kitty does
 
 Optional, depending on what you want to do:
 
-- **kitty** for routine execution.
+- **kitty** for routines that route through claude-code (and for any other claude-code dispatch the witness emits).
 - **Claude Code** for the MCP-and-hooks integration in [tutorial 2](../tutorials/02-fathom-knows-whats-going-on.md).
 - **Obsidian** if you want the vault source plugin to ingest a notes vault.
 - **Home Assistant** if you want the HA bridge to ingest sensor and state changes.
