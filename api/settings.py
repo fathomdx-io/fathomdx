@@ -140,8 +140,12 @@ class Settings(BaseSettings):
     # Starting threshold is slightly above mood's because feed weights
     # tilt heavier on content surfaces (RSS doubled, engagement at 1.5);
     # the same lake-flow produces a higher feed-volume than mood-volume.
-    # Tune after a few days of real data.
-    feed_pressure_threshold: float = 30.0
+    # Bumped from 30 → 60: at 30, every 1-2 user messages was tipping a
+    # pulse-pass intent (drift / bridging / reflection), making chat
+    # feel like every reply was answering ambient observations on top
+    # of the actual question. 60 spaces pulses to ~30 min of active
+    # conversation, ~hours when quiet.
+    feed_pressure_threshold: float = 60.0
     feed_pressure_decay_half_life_seconds: int = 10800  # 3 hours
     feed_pressure_contrast_wake_seconds: int = 28800  # 8 hours
     feed_pressure_state_path: str = "/data/feed-pressure-state.json"
