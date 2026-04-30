@@ -281,8 +281,17 @@ def get_feed(
                     (t.split(":", 1)[1] for t in tags if t.startswith("tool:")),
                     "",
                 )
+                # `lake-id:<full>` is the witness's own dual-write cross-
+                # pointer; `recalled-id:<short>` is what telepathy stamps
+                # when it mirrors a durable lake delta back into the puddle
+                # (e.g. after an api restart wipes the puddle and telepathy
+                # re-hydrates from the lake). Either tag identifies the
+                # same lake delta, so check both.
                 lake_id = next(
                     (t.split(":", 1)[1] for t in tags if t.startswith("lake-id:")),
+                    "",
+                ) or next(
+                    (t.split(":", 1)[1] for t in tags if t.startswith("recalled-id:")),
                     "",
                 )
                 items.append({
