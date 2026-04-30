@@ -32,16 +32,16 @@ def _stance_delta(voice_name: str, stance: str, bias: str, ts: str = "2026-04-29
 
 
 def test_get_voice_stances_falls_back_to_static_when_lake_empty() -> None:
-    """No lake stances → returns the static trimurti unchanged."""
+    """No lake stances → returns the static dyad unchanged."""
 
     async def _fake_query(**kwargs):
         return []
 
     with patch.object(vs_mod.delta_client, "query", _fake_query):
         out = asyncio.run(get_voice_stances())
-    assert len(out) == 3
+    assert len(out) == 2
     names = [v["name"] for v in out]
-    assert names == ["creator", "preserver", "destroyer"]
+    assert names == ["creator", "preserver"]
     # Static stance text is the prompts.py default
     assert "what new pattern wants to emerge" in out[0]["stance"]
 
@@ -60,7 +60,7 @@ def test_get_voice_stances_uses_lake_when_available() -> None:
     by_name = {v["name"]: v for v in out}
     assert by_name["creator"]["stance"] == lake_stance
     assert by_name["creator"]["bias"] == lake_bias
-    # Preserver and destroyer keep static
+    # Preserver keeps static
     assert "what existing structure should be defended" in by_name["preserver"]["stance"]
 
 
@@ -76,10 +76,10 @@ def test_get_voice_stances_appends_domain_voices_after_trimurti() -> None:
     with patch.object(vs_mod.delta_client, "query", _fake_query):
         out = asyncio.run(get_voice_stances())
     names = [v["name"] for v in out]
-    # Trimurti first
-    assert names[:3] == ["creator", "preserver", "destroyer"]
+    # Static dyad first
+    assert names[:2] == ["creator", "preserver"]
     # Domain voices alphabetical after
-    assert names[3:] == ["compassion", "honesty"]
+    assert names[2:] == ["compassion", "honesty"]
 
 
 def test_get_voice_stances_latest_per_voice_wins() -> None:

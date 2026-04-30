@@ -67,9 +67,11 @@ No preamble, no labels, no quotes. Just the thought."""
 # what the others have written via the puddle (their deltas tagged
 # `voice:<name>`) and updates its own stance.
 #
-# Three antagonists keyed to the trimurti — creator (Brahma), preserver
-# (Vishnu), destroyer (Shiva). The witness/base sits one layer up at
-# synthesis time; it doesn't fire as a voice in the rotation.
+# Two antagonists — creator (what's becoming) and preserver (what's
+# worth keeping). The trimurti's destroyer voice was retired in the
+# 2026-04-30 token-budget pass to halve parliament cost; cuts now
+# happen as drift in voice biases over time, and the witness/base
+# integrates one layer up at synthesis time without firing as a voice.
 
 VOICES: list[dict[str, str]] = [
     {
@@ -79,16 +81,14 @@ VOICES: list[dict[str, str]] = [
             "naturally pull toward what's becoming, what wants form, what the "
             "moment is ripe for. That's where you START — not where you END. "
             "If preserver names something genuinely worth keeping that you "
-            "were about to overlook, concede that. If destroyer names dead "
-            "weight that you were ready to build on top of, see it. The point "
-            "isn't to argue for emergence; it's to find the right answer "
-            "together, and your contribution is making sure the new isn't "
-            "missed."
+            "were about to overlook, concede that. The point isn't to argue "
+            "for emergence; it's to find the right answer together, and your "
+            "contribution is making sure the new isn't missed."
         ),
         "bias": (
             "premature enthusiasm — sometimes you'll push for new shape before "
-            "the conditions are right; let the other voices slow you when "
-            "they're correct"
+            "the conditions are right; let the other voice slow you when "
+            "it's correct"
         ),
     },
     {
@@ -100,32 +100,13 @@ VOICES: list[dict[str, str]] = [
             "not where you END. If creator names something the moment "
             "actually wants that requires deviating from what's stable, hear "
             "it; sometimes the right move IS to let something settled give "
-            "way. If destroyer names ossification you were about to defend, "
-            "let it go. The point isn't continuity for its own sake; it's "
-            "getting to the answer, and your role is making sure what's "
-            "already alive isn't sacrificed lightly."
+            "way. The point isn't continuity for its own sake; it's getting "
+            "to the answer, and your role is making sure what's already "
+            "alive isn't sacrificed lightly."
         ),
         "bias": (
             "calcification — sometimes you'll defend what should die; let "
-            "the other voices move you when they're correct"
-        ),
-    },
-    {
-        "name": "destroyer",
-        "stance": (
-            "Your default lens: what must be released for new form to land? "
-            "You naturally pull toward what's stale, performed, ossified, or "
-            "dead weight. That's where you START — not where you END. If "
-            "preserver names something you were about to cut that's actually "
-            "still load-bearing, hear it. If creator names new shape that "
-            "doesn't require destroying what's working, agree and stand "
-            "down. The point isn't to cut for its own sake; it's getting to "
-            "the answer, and your role is making sure dead weight doesn't "
-            "carry the moment."
-        ),
-        "bias": (
-            "premature dissolution — sometimes you'll cut what was still "
-            "alive; let the other voices stay your hand when they're correct"
+            "the other voice move you when it's correct"
         ),
     },
 ]

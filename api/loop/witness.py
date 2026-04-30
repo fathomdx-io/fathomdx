@@ -33,6 +33,7 @@ from datetime import UTC, datetime, timedelta
 
 from .. import delta_client
 from ..channels import address_tag, extract_channel
+from ..settings import settings
 from .intents import CONVO_TAG, intent_kind
 from .llm import loop_generate
 from .prompts import JUDGE_PROMPT, WITNESS_PROMPT
@@ -114,7 +115,7 @@ def _render_anchors() -> str:
 
 
 _FEED_USER_SOURCES = {"openai-compat", "fathom-chat", "claude-code"}
-_FEED_WINDOW_LIMIT = 30
+_FEED_WINDOW_LIMIT = 15
 
 
 def _gather_conversation_feed(session_tag: str) -> list[dict]:
@@ -953,7 +954,7 @@ async def _dispatch_card(
         f"body[{len(payload['body'])}c] lake-id={lake_id[:24] or 'none'}"
     )
 
-    if lake_id:
+    if lake_id and settings.judge_enabled:
         asyncio.create_task(
             _judge_and_followup(
                 lake_card_id=lake_id,

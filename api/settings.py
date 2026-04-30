@@ -137,18 +137,23 @@ class Settings(BaseSettings):
 
     # Feed-layer pressure — same primitive as mood, tuned for content
     # synthesis. See api/feed_pressure.py for weights and rationale.
-    # Starting threshold is slightly above mood's because feed weights
-    # tilt heavier on content surfaces (RSS doubled, engagement at 1.5);
-    # the same lake-flow produces a higher feed-volume than mood-volume.
-    # Bumped from 30 → 60: at 30, every 1-2 user messages was tipping a
-    # pulse-pass intent (drift / bridging / reflection), making chat
-    # feel like every reply was answering ambient observations on top
-    # of the actual question. 60 spaces pulses to ~30 min of active
-    # conversation, ~hours when quiet.
-    feed_pressure_threshold: float = 60.0
+    # Bumped from 60 → 100 in the 2026-04-30 token-budget pass: pulse
+    # passes were still firing every 1-2 user messages on Pro, and
+    # combined with the parliament cuts, a higher threshold lets the
+    # loop stay genuinely quiet between bursts. Spaces pulses to ~50
+    # min of active conversation, hours when quiet.
+    feed_pressure_threshold: float = 100.0
     feed_pressure_decay_half_life_seconds: int = 10800  # 3 hours
     feed_pressure_contrast_wake_seconds: int = 28800  # 8 hours
     feed_pressure_state_path: str = "/data/feed-pressure-state.json"
+
+    # Independent judge gate. The judge runs in the background after every
+    # witness fire and writes a `kind:judge-axes` delta + voice-affirmation
+    # attestations. Default off as part of the 2026-04-30 token-budget pass:
+    # convener gracefully degrades to "no recent judge history" fallback,
+    # voice-affirmations stop accumulating (voice priors freeze), dashboard
+    # renders missing axes as "?" placeholders. Flip to True to restore.
+    judge_enabled: bool = Field(False, validation_alias="LOOP_JUDGE_ENABLED")
 
     # Crystal auto-regeneration.
     # Auto-regen fires when (drift / threshold) >= red_ratio AND the last

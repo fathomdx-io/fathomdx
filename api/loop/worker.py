@@ -168,27 +168,21 @@ async def _run_one_fire() -> bool:
         # anchors plus mood is enough for casual drop-ins / small talk.
         print("[loop fire] depth=zero — skipping parliament")
     else:
-        # Pick the round cap. Single-voice parliaments can't measure
-        # cross-voice convergence (the metric requires at least one OTHER
-        # voice), so cap them at 1 round to avoid running to MAX. Minimal
-        # caps tighter than full to keep focused passes from grinding.
-        if len(active_voices) <= 1:
-            rounds_cap = 1
-        elif verdict.depth == "minimal":
-            rounds_cap = MAX_ROUNDS_MINIMAL
-        else:
-            rounds_cap = MAX_ROUNDS_PER_FIRE
+        # Token-budget pass 2026-04-30: hard-cap parliament at 1 round at
+        # all depths. Two voices x 1 round still produces meaningful
+        # divergence; multi-round refinement was 4-7× the token cost for
+        # marginal gain. The convergence metric below noops on a single
+        # round (no spread to measure) — that's expected.
+        rounds_cap = 1
 
         for round_idx in range(rounds_cap):
             rounds_run = round_idx + 1
-            # Fire all voices + recall in parallel for this round. Each
-            # voice reads the puddle as it stands at round-start (the
-            # prior round's takes plus telepathy mirrors plus any recall-
-            # results already landed — round 0 sees the intent-seed pull
-            # above). The followup searcher then re-anchors on the
-            # original intent and refines, so by the time witness fires
-            # the substrate has been enriched by both voices and recall
-            # together.
+            # Fire all voices in parallel for this round. Each voice reads
+            # the puddle as it stands at round-start (telepathy mirrors +
+            # any recall-results from the intent-seed pull above). The
+            # per-voice followup searcher was retired in the token-budget
+            # pass; voices reason on the intent-seed substrate plus
+            # whatever resonance the witness's feed-window surfaces.
             voice_coros = [
                 run_process(
                     pid=f"{round_idx}-{v['name']}-{uuid.uuid4().hex[:6]}",
@@ -200,35 +194,14 @@ async def _run_one_fire() -> bool:
                 )
                 for v in active_voices
             ]
-            voice_searcher_coros = [
-                run_voice_followup_tick(
-                    session_tag=session_tag,
-                    event_id=f"{session_tag.split(':', 1)[1]}-r{round_idx}-{v['name']}",
-                    voice_name=v["name"],
-                    voice_stance=v["stance"],
-                    intents=pending,
-                )
-                for v in active_voices
-            ]
-            results = await asyncio.gather(
-                *voice_coros, *voice_searcher_coros, return_exceptions=True
-            )
+            results = await asyncio.gather(*voice_coros, return_exceptions=True)
 
-            # First len(active_voices) results are voice thoughts;
-            # remaining are per-voice searcher results.
-            n_voices = len(active_voices)
             voice_thoughts: list[tuple[str, str]] = []
-            for v, res in zip(active_voices, results[:n_voices]):
+            for v, res in zip(active_voices, results):
                 if isinstance(res, Exception):
                     print(f"[loop fire] {v['name']} crashed: {type(res).__name__}: {res}")
                     continue
                 voice_thoughts.append((v["name"], res or ""))
-            for v, res in zip(active_voices, results[n_voices:]):
-                if isinstance(res, Exception):
-                    print(
-                        f"[loop fire] voice-searcher:{v['name']} crashed: "
-                        f"{type(res).__name__}: {res}"
-                    )
 
             # Per-voice convergence sample — measured against the OTHER
             # voices' takes for this fire's active set. Append samples
