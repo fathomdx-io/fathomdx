@@ -32,6 +32,7 @@ from .process import run_process
 from .puddle import puddle
 from .recall import run_intent_searcher_tick, run_voice_followup_tick
 from .telepathy import telepathy_loop
+from .voice_stances import stance_regen_watcher
 from .witness import run_witness
 
 # Maximum parliament rounds per fire. With settle detection in place
@@ -64,6 +65,7 @@ _reaper_task: asyncio.Task | None = None
 _telepathy_task: asyncio.Task | None = None
 _pressure_task: asyncio.Task | None = None
 _claude_code_task: asyncio.Task | None = None
+_stance_regen_task: asyncio.Task | None = None
 _boot_iso: str = ""
 
 
@@ -305,9 +307,10 @@ async def _supervisor() -> None:
 
 def start() -> None:
     """Start supervisor + reaper + telepathy + pressure-watcher +
-    claude-code-watcher + feed-orient regen. Idempotent."""
+    claude-code-watcher + feed-orient regen + stance-regen watcher.
+    Idempotent."""
     global _supervisor_task, _reaper_task, _telepathy_task, _pressure_task
-    global _claude_code_task, _boot_iso
+    global _claude_code_task, _stance_regen_task, _boot_iso
     if _supervisor_task is not None:
         return
     _boot_iso = _now_iso()
@@ -318,13 +321,19 @@ def start() -> None:
     _claude_code_task = asyncio.create_task(
         claude_code_watcher_loop(), name="loop/claude-code-watcher"
     )
+    # Phase 5c — slow-clock stance regen. Voices that accumulate
+    # affirmations get their stance/bias text refined every ~6h.
+    # This is the schedule for the activity built in Phase 5a.
+    _stance_regen_task = asyncio.create_task(
+        stance_regen_watcher(), name="loop/stance-regen"
+    )
     feed_orient.start()
 
 
 async def stop() -> None:
     """Cancel all background tasks. Idempotent."""
     global _supervisor_task, _reaper_task, _telepathy_task, _pressure_task
-    global _claude_code_task
+    global _claude_code_task, _stance_regen_task
     await feed_orient.stop()
     for task in (
         _supervisor_task,
@@ -332,6 +341,7 @@ async def stop() -> None:
         _telepathy_task,
         _pressure_task,
         _claude_code_task,
+        _stance_regen_task,
     ):
         if task is None:
             continue
@@ -345,3 +355,4 @@ async def stop() -> None:
     _telepathy_task = None
     _pressure_task = None
     _claude_code_task = None
+    _stance_regen_task = None

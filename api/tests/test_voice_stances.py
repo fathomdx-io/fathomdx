@@ -244,6 +244,86 @@ def test_regenerate_voice_stance_no_op_when_unchanged() -> None:
     assert not write_mock.called
 
 
+# ── Watcher eligibility ─────────────────────────────────────────────
+
+
+def _aff(voice: str, ts: str) -> dict:
+    return {
+        "id": "x",
+        "tags": ["kind:voice-affirmation", f"voice:{voice}"],
+        "timestamp": ts,
+    }
+
+
+def test_watcher_picks_voice_with_most_recent_affirmations_above_gate() -> None:
+    """Voice with >= gate affirmations newer than its last stance is
+    eligible. Highest count wins."""
+    affirmations = (
+        [_aff("creator", f"2026-04-29T{i:02d}:00:00Z") for i in range(20, 27)]
+        + [_aff("preserver", f"2026-04-29T{i:02d}:00:00Z") for i in range(20, 23)]
+    )
+
+    async def _fake_query(tags_include=None, **kwargs):
+        if tags_include and "kind:voice-affirmation" in tags_include:
+            return affirmations
+        # No prior stance writes — eligibility is automatic
+        return []
+
+    with patch.object(vs_mod.delta_client, "query", _fake_query):
+        out = asyncio.run(vs_mod._voices_eligible_for_regen())
+    # creator has 7 (>= 5 gate); preserver has 3 (< gate). Only creator
+    # surfaces.
+    assert out == ["creator"]
+
+
+def test_watcher_skips_voices_below_gate() -> None:
+    """A voice with affirmations but below the gate is not eligible."""
+    affirmations = [_aff("creator", f"2026-04-29T{i:02d}:00:00Z") for i in range(20, 23)]
+
+    async def _fake_query(tags_include=None, **kwargs):
+        if tags_include and "kind:voice-affirmation" in tags_include:
+            return affirmations
+        return []
+
+    with patch.object(vs_mod.delta_client, "query", _fake_query):
+        out = asyncio.run(vs_mod._voices_eligible_for_regen())
+    # 3 affirmations < gate of 5
+    assert out == []
+
+
+def test_watcher_skips_voices_with_recent_stance_write() -> None:
+    """If the voice's latest kind:voice-stance is newer than its
+    latest affirmation, no regen needed — we already drifted."""
+    affirmations = [_aff("creator", "2026-04-29T10:00:00Z") for _ in range(7)]
+
+    async def _fake_query(tags_include=None, **kwargs):
+        if tags_include and "kind:voice-affirmation" in tags_include:
+            return affirmations
+        if tags_include and "kind:voice-stance" in tags_include:
+            return [
+                _stance_delta(
+                    "creator",
+                    "already drifted stance",
+                    "already drifted bias",
+                    ts="2026-04-29T15:00:00Z",  # newer than affirmations
+                )
+            ]
+        return []
+
+    with patch.object(vs_mod.delta_client, "query", _fake_query):
+        out = asyncio.run(vs_mod._voices_eligible_for_regen())
+    assert out == []
+
+
+def test_watcher_returns_empty_on_lake_error() -> None:
+    async def _fake_query(**kwargs):
+        raise RuntimeError("lake down")
+
+    with patch.object(vs_mod.delta_client, "query", _fake_query):
+        out = asyncio.run(vs_mod._voices_eligible_for_regen())
+    assert out == []
+
+
 def test_regenerate_voice_stance_handles_llm_malformed_json() -> None:
     affirmation = {
         "id": "aff1",

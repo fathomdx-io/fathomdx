@@ -26,9 +26,11 @@ function; when to call them is policy.
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import re
+from datetime import UTC, datetime, timedelta
 
 from .. import delta_client
 from .llm import loop_generate
@@ -324,3 +326,132 @@ async def regenerate_voice_stance(voice_name: str) -> str | None:
         log.exception("voice_stances: regen write failed")
         return None
     return (written or {}).get("id")
+
+
+# ── Watcher / scheduler ──────────────────────────────────────────────
+
+
+# How often the watcher wakes. Stance regen is slow-clock by design —
+# voices don't drift session-to-session, they drift across days. 6h
+# matches the cadence at which the loop produces enough new
+# affirmations for a refinement to be more than noise.
+_WATCHER_POLL_HOURS = 6
+
+# Per-voice gate: only regenerate when this many NEW affirmations have
+# landed since the voice's last stance write. Prevents back-to-back
+# regens on tiny signal — the LLM's no-op detection helps but it's
+# expensive to fire one LLM call to learn there's nothing to refine.
+_REGEN_AFFIRMATION_GATE = 5
+
+# Window for "new affirmations since last stance." Matched roughly
+# to the watcher poll cadence so a quiet six hours doesn't hide a
+# real burst.
+_AFFIRMATION_LOOKBACK_HOURS = 24
+
+
+async def _voices_eligible_for_regen() -> list[str]:
+    """Pick voices that have accumulated enough new affirmations to
+    justify a regen pass. Returns at most one voice per call so a
+    busy watcher tick doesn't fire many LLM calls in parallel — the
+    next poll picks up the next eligible voice.
+
+    Eligibility: voice has >= _REGEN_AFFIRMATION_GATE affirmations in
+    the lookback window AND those affirmations are newer than the
+    voice's last kind:voice-stance write (or no stance write exists).
+    """
+    since = (
+        datetime.now(UTC) - timedelta(hours=_AFFIRMATION_LOOKBACK_HOURS)
+    ).isoformat()
+    try:
+        affirmations = await delta_client.query(
+            tags_include=["kind:voice-affirmation"],
+            time_start=since,
+            limit=200,
+        )
+    except Exception:
+        log.exception("voice_stances watcher: affirmation query failed")
+        return []
+    if not affirmations:
+        return []
+
+    # Count affirmations per voice and capture each voice's latest
+    # affirmation timestamp.
+    counts: dict[str, int] = {}
+    latest_aff_ts: dict[str, str] = {}
+    for d in affirmations:
+        for t in d.get("tags") or []:
+            if isinstance(t, str) and t.startswith("voice:"):
+                name = t.split(":", 1)[1].strip()
+                if not name:
+                    continue
+                counts[name] = counts.get(name, 0) + 1
+                ts = d.get("timestamp") or ""
+                if ts > latest_aff_ts.get(name, ""):
+                    latest_aff_ts[name] = ts
+                break
+
+    # For each voice over the gate, check whether their last stance
+    # write predates the most recent affirmation. If yes, eligible.
+    lake_stances = await _load_lake_stances()
+    candidates: list[tuple[str, int]] = []
+    for name, count in counts.items():
+        if count < _REGEN_AFFIRMATION_GATE:
+            continue
+        last_stance_ts = (lake_stances.get(name) or {}).get("timestamp") or ""
+        last_aff_ts = latest_aff_ts.get(name, "")
+        if last_aff_ts > last_stance_ts:
+            candidates.append((name, count))
+
+    if not candidates:
+        return []
+    # Highest-affirmation-count first — voice with the most signal
+    # gets refined first. Ties broken by name for stability.
+    candidates.sort(key=lambda kv: (-kv[1], kv[0]))
+    return [candidates[0][0]]
+
+
+async def stance_regen_watcher() -> None:
+    """Background task — periodically refines voice stances based on
+    accumulated affirmation history.
+
+    Slow-clock by design: voice stances don't change moment-to-moment,
+    they drift over days. Each poll picks at most one voice and
+    refines it; a busy convene-pace doesn't get torn-stance reads
+    mid-fire because Standpoint snapshots once per fire.
+
+    Soft-fails any individual regen — a single bad voice doesn't
+    cancel the watcher.
+    """
+    poll_seconds = _WATCHER_POLL_HOURS * 3600
+    print(f"[stance regen watcher armed] poll={_WATCHER_POLL_HOURS}h")
+    while True:
+        try:
+            await asyncio.sleep(poll_seconds)
+        except asyncio.CancelledError:
+            return
+        try:
+            eligible = await _voices_eligible_for_regen()
+        except Exception as e:
+            print(
+                f"[stance regen watcher] eligibility crashed: "
+                f"{type(e).__name__}: {e}"
+            )
+            continue
+        if not eligible:
+            continue
+        for voice_name in eligible:
+            try:
+                stance_id = await regenerate_voice_stance(voice_name)
+            except asyncio.CancelledError:
+                return
+            except Exception as e:
+                print(
+                    f"[stance regen watcher] regen for {voice_name} crashed: "
+                    f"{type(e).__name__}: {e}"
+                )
+                continue
+            if stance_id:
+                print(
+                    f"[stance regen] {voice_name} drifted → new stance "
+                    f"delta {stance_id[:24]}"
+                )
