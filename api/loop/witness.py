@@ -197,11 +197,27 @@ def _render_conversation_feed(items: list[dict]) -> str:
     return "\n\n".join(blocks) if blocks else "  (no prior turns in this conversation — first fire)"
 
 
+DISPATCH_CAPABILITY_TAG = "plugin:kitty"
+
+
 async def _available_claude_code_hosts() -> list[str]:
-    """Distinct hosts that have heartbeated in the last 5 minutes —
-    these are the agents that can receive a `claude-code:<host>`
-    dispatch. Empty list means nothing is online and the witness
-    shouldn't pick that route this tick.
+    """Distinct hosts that have heartbeated in the last 5 minutes AND
+    self-report the kitty plugin — these are the agents that can
+    actually receive a `claude-code:<host>` dispatch and spawn the task.
+
+    Heartbeating alone is not enough: hosts without kitty (e.g. a
+    headless server) still show up in the lake as alive, but a dispatch
+    to them no-ops because the kitty plugin is what reads the
+    `route:claude-code` deltas and spawns claude. Filtering here keeps
+    the witness's MACHINES block honest — it lists only hosts capable
+    of carrying out the task.
+
+    Latest-heartbeat-per-host wins: a host that just disabled kitty is
+    excluded immediately on its next beat, even if older beats in the
+    5-minute window still showed the plugin enabled.
+
+    Empty list means nothing dispatch-capable is online and the
+    witness shouldn't pick the claude-code route this tick.
     """
     cutoff = (datetime.now(UTC) - timedelta(minutes=5)).isoformat()
     try:
@@ -213,13 +229,24 @@ async def _available_claude_code_hosts() -> list[str]:
     except Exception as e:
         print(f"[witness] heartbeat query failed: {type(e).__name__}: {e}")
         return []
-    hosts: set[str] = set()
+    # delta_client.query returns newest-first; first beat seen per host
+    # is the most recent — keep that one as authoritative.
+    seen_host: dict[str, list[str]] = {}
     for b in beats:
+        host = ""
         for t in b.get("tags") or []:
             if t.startswith("host:"):
-                hosts.add(t.split(":", 1)[1])
+                host = t.split(":", 1)[1]
                 break
-    return sorted(hosts)
+        if not host or host in seen_host:
+            continue
+        seen_host[host] = b.get("tags") or []
+    capable = [
+        host
+        for host, tags in seen_host.items()
+        if DISPATCH_CAPABILITY_TAG in tags
+    ]
+    return sorted(capable)
 
 
 def _render_hosts_block(hosts: list[str]) -> str:
@@ -731,6 +758,30 @@ async def run_witness(
             meta_parts.append(f"via: {ch}:{corr}")
         elif ch:
             meta_parts.append(f"via: {ch}")
+        # REPLY-TO destination — when an intent carries originating-channel
+        # tags (closure-followup intents forwarded by claude_code_watcher
+        # from the originating chat surface), the witness must address
+        # THIS intent so the routing layer lands the chat-reply back on
+        # that surface. Without surfacing it, the witness only sees
+        # `via: claude-code:<task-corr>` (where the work happened), not
+        # `openai:<sid>` (where the user is actually waiting).
+        orig_ch = ""
+        orig_corr = ""
+        for t in (it.get("tags") or []):
+            if t.startswith("originating-channel:") and not orig_ch:
+                orig_ch = t.split(":", 1)[1]
+            elif t.startswith("originating-correlation:") and not orig_corr:
+                orig_corr = t.split(":", 1)[1]
+        if orig_ch and orig_corr:
+            meta_parts.append(
+                f"REPLY-TO: {orig_ch}:{orig_corr} (the user is waiting "
+                f"on this surface — address THIS intent so the reply "
+                f"lands there)"
+            )
+        elif orig_ch:
+            meta_parts.append(
+                f"REPLY-TO: {orig_ch} (address this intent to close it out)"
+            )
         meta_suffix = (" · " + " · ".join(meta_parts)) if meta_parts else ""
         intent_lines.append(f"  [intent-id: {iid_short} · kind: {kind}{meta_suffix}] {text}")
     intent_block = "\n".join(intent_lines)
@@ -861,6 +912,17 @@ async def _dispatch_card(
     channel, correlation = "", ""
     addressee = ""
     host_for_channel = ""
+    # Origin info — captured from the claimed chat-channel intent BEFORE
+    # `channel`/`correlation` get reassigned to a fresh claude-code corr
+    # for a dispatch. Stamped onto the dispatch card so the watcher can
+    # forward it onto the closure intent without round-tripping through
+    # the lake (puddle ids never resolve there). Closure-followup
+    # routing in claude_code_watcher / witness reads these to land the
+    # final chat-reply back on the chat surface where the user is
+    # actually waiting.
+    originating_channel = ""
+    originating_correlation = ""
+    originating_intent_id = ""
     for it in pending:
         if it.get("id") not in claim_set:
             continue
@@ -871,12 +933,23 @@ async def _dispatch_card(
                 if t.startswith("host:"):
                     host_for_channel = t.split(":", 1)[1]
                     break
+        # Capture the FIRST chat-channel intent in the claim set as the
+        # origin. claude-code-reply intents have channel:claude-code as
+        # their own channel — those are NOT origins, so skip them.
+        if (
+            ch
+            and ch != "claude-code"
+            and not originating_channel
+        ):
+            originating_channel = ch
+            originating_correlation = corr
+            originating_intent_id = it.get("id") or ""
         if not addressee:
             for t in (it.get("tags") or []):
                 if t.startswith("contact:"):
                     addressee = t.split(":", 1)[1]
                     break
-        if channel and addressee:
+        if channel and addressee and originating_channel:
             break
 
     # Proactive claude-code dispatch — card picked `claude-code:<host>`
@@ -961,6 +1034,18 @@ async def _dispatch_card(
             lake_tags.append(f"host:{host_for_channel}")
         if correlation:
             lake_tags.append(f"task-corr:{correlation}")
+        # Forward the originating chat surface onto the dispatch card so
+        # the watcher can read it directly when minting the closure
+        # intent. Without this, the closure-followup chat-reply never
+        # learns where the user is and lands as a plain dashboard card.
+        if originating_channel:
+            lake_tags.append(f"originating-channel:{originating_channel}")
+        if originating_channel and originating_correlation:
+            lake_tags.append(
+                f"originating-correlation:{originating_correlation}"
+            )
+        if originating_intent_id:
+            lake_tags.append(f"originating-intent:{originating_intent_id}")
     if about_corr:
         lake_tags.append(f"about-task-corr:{about_corr}")
         if about_host:

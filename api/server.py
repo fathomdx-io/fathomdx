@@ -6,6 +6,7 @@ import asyncio
 import hashlib
 import json
 import logging
+import os
 import re
 import time
 import uuid
@@ -71,6 +72,55 @@ class ChatRequest(BaseModel):
     max_tokens: int | None = None
     temperature: float | None = None
     image_uploaded: bool = False  # Skip user message persist — image upload already wrote it
+
+
+# OpenWebUI fires hidden auxiliary completions to auto-title chats and
+# auto-tag conversations. Those payloads carry instructions like
+# `### Task:` and dump the entire conversation back inside
+# `<chat_history>...</chat_history>` blocks. Fathom does not title or
+# tag for OWUI — and when those payloads land in the puddle as user
+# intents, they pollute the river and the lake with garbage substrate.
+# Reject at the door.
+_OWUI_REJECT_MARKERS = ("### Task:", "</chat_history>")
+
+
+def _message_text(msg: Message) -> str:
+    """Flatten a message's content to a string for marker scanning.
+
+    OpenAI's vision shape lets `content` be a list of parts. Join the
+    text parts so multi-part payloads can't sneak markers past the
+    scan.
+    """
+    c = msg.content
+    if c is None:
+        return ""
+    if isinstance(c, str):
+        return c
+    parts: list[str] = []
+    for part in c:
+        if isinstance(part, str):
+            parts.append(part)
+        elif isinstance(part, dict):
+            t = part.get("text")
+            if isinstance(t, str):
+                parts.append(t)
+    return "\n".join(parts)
+
+
+def _is_owui_auxiliary(messages: list[Message]) -> bool:
+    """Detect OpenWebUI's title / tag auxiliary completions.
+
+    Markers can appear in any role (system or user) depending on how
+    OWUI templates the call, so scan everything.
+    """
+    for m in messages:
+        text = _message_text(m)
+        if not text:
+            continue
+        for marker in _OWUI_REJECT_MARKERS:
+            if marker in text:
+                return True
+    return False
 
 
 # ── App ─────────────────────────────────────────
@@ -583,12 +633,16 @@ async def fathom_think(
 
 # ── OpenAI-compat helpers ───────────────────────
 
-# Max time we'll wait for the witness card before returning an empty
-# completion. The Grand Loop runs parliament (3 voices × N rounds) +
-# judge + witness — typically 15-45s, with tool-heavy or unsettled
-# rounds pushing higher. 180s gives the loop room without letting
-# clients hang on a stuck supervisor.
-_OPENAI_REPLY_TIMEOUT_S = 180.0
+# Max time we'll hold the completion open before closing out with
+# whatever's been streamed. Covers the full turn — first chat-reply +
+# any claude-code dispatch + closure-followup. Parliament + judge +
+# witness alone is typically 15-45s; a fetch-and-reflect dispatch
+# pushes that up by another 30-90s. 300s default gives genuine
+# research room without unbounded hold. Override with
+# `FATHOM_OPENAI_DEADLINE_S` if you regularly hit the cap.
+_OPENAI_REPLY_TIMEOUT_S = float(
+    os.environ.get("FATHOM_OPENAI_DEADLINE_S", "300")
+)
 _OPENAI_REPLY_POLL_S = 0.5
 
 
@@ -656,43 +710,127 @@ def _render_witness_payload(content: str) -> str:
     return _RECALLED_RE.sub("", text).strip()
 
 
+async def _openai_turn_pending(intent_id: str) -> bool:
+    """True if Fathom is still working on this turn — i.e. a
+    `route:claude-code` dispatch addressing this intent has been
+    written, but no closure-followup chat-reply for that dispatch has
+    been written yet.
+
+    The loop-level "done" signal is "the question is gone from the
+    tally": every intent that derives from this turn (the original
+    question + any closure-followup intent the watcher mints when a
+    dispatched task wraps) is addressed by some witness card. We
+    watch for that via the witness's own `about-task-corr:<corr>`
+    stamp on the followup chat-reply card — the canonical "this
+    thread is wrapped" marker — rather than racing the watcher's
+    mid-flight puddle state.
+
+    Returns False when no dispatch was issued for this turn (Fathom
+    answered from memory) — the OpenAI completion can finish as soon
+    as the first chat-reply lands.
+    """
+    try:
+        dispatches = await delta_client.query(
+            tags_include=["route:claude-code", f"addresses:{intent_id}"],
+            limit=5,
+        )
+    except Exception as e:
+        log.warning("openai-compat: dispatch lookup failed: %s", e)
+        return False
+    for d in dispatches:
+        corr = ""
+        for t in d.get("tags") or []:
+            if t.startswith("task-corr:"):
+                corr = t.split(":", 1)[1]
+                break
+        if not corr:
+            continue
+        try:
+            followups = await delta_client.query(
+                tags_include=[
+                    f"about-task-corr:{corr}",
+                    f"addresses:{intent_id}",
+                ],
+                limit=1,
+            )
+        except Exception as e:
+            log.warning("openai-compat: followup lookup failed: %s", e)
+            continue
+        if not followups:
+            return True
+    return False
+
+
 async def _await_witness_reply(
     session_id: str,
     intent_id: str,
     after_iso: str,
     timeout_s: float = _OPENAI_REPLY_TIMEOUT_S,
+    *,
+    request: Request | None = None,
 ) -> tuple[str, str]:
-    """Poll the lake for the witness card addressing this request's intent.
+    """Poll the lake for witness card(s) addressing this request's intent.
 
     Returns (finish_reason, content). Reasons:
-      "stop"    — witness wrote a card addressing this intent. content
-                  is the rendered body (may be empty if the loop chose
-                  silence — route:unknown).
+      "stop"    — at least one card was rendered. Content concatenates
+                  every chat-reply card addressed to this turn, in
+                  timestamp order, separated by blank lines. May be
+                  empty if every card was silence (route:unknown).
       "timeout" — no witness output within timeout_s.
 
+    Why concatenate: the witness can speak in stages — an
+    acknowledgment now, a closure-followup later when a dispatched
+    task wraps. The OpenAI contract is one completion per user turn,
+    so we wait until no claude-code dispatch addressing this turn is
+    still in flight, then return everything Fathom said in one body.
+    Streaming clients see the same sequence as separate chunks; this
+    is the non-stream rendezvous.
+
     The polling key is (to:openai:<sid>, addresses:<intent_id>) — the
-    address tag scopes to this conversation, the addresses tag scopes to
-    THIS specific request so a later request in the same session won't
-    accidentally pick up an earlier reply.
+    address tag scopes to this conversation, the addresses tag scopes
+    to THIS specific request so a later request in the same session
+    won't accidentally pick up an earlier reply.
     """
     address = channels_mod.address_tag("openai", session_id)
     deadline = time.monotonic() + timeout_s
+    seen_ids: set[str] = set()
+    parts: list[str] = []
     while time.monotonic() < deadline:
+        # Bail if the client closed the connection — no point polling
+        # for a card to deliver into a dead pipe. The supervisor still
+        # processes the intent in the background, so the answer lands
+        # in the lake regardless.
+        if request is not None and await request.is_disconnected():
+            log.info(
+                "openai-compat: client disconnected during wait "
+                "(session=%s intent=%s)", session_id, intent_id,
+            )
+            return "stop" if parts else "timeout", "\n\n".join(parts)
         try:
             fresh = await delta_client.query(
                 tags_include=[address, f"addresses:{intent_id}"],
                 time_start=after_iso,
-                limit=5,
+                limit=20,
             )
         except Exception as e:
             log.warning("openai-compat: poll failed: %s", e)
             fresh = []
         for d in sorted(fresh, key=lambda x: x.get("timestamp") or ""):
+            did = d.get("id") or ""
+            if not did or did in seen_ids:
+                continue
             ts = d.get("timestamp") or ""
             if ts <= after_iso:
                 continue
-            return "stop", _render_witness_payload(d.get("content") or "")
+            seen_ids.add(did)
+            text = _render_witness_payload(d.get("content") or "")
+            if text:
+                parts.append(text)
+        if parts and not await _openai_turn_pending(intent_id):
+            return "stop", "\n\n".join(parts)
         await asyncio.sleep(_OPENAI_REPLY_POLL_S)
+    if parts:
+        return "stop", "\n\n".join(parts)
     return "timeout", ""
 
 
@@ -724,13 +862,21 @@ async def _openai_stream(
     intent_id: str,
     after_iso: str,
     model: str,
+    request: Request | None = None,
 ):
     """SSE generator for `stream: true`.
 
-    The Grand Loop produces one witness card, not token-by-token output,
-    so we emit a single content chunk once the card lands, then [DONE].
-    A heartbeat keep-alive frame every 15s prevents client/proxy idle
-    timeouts during the (often 30s+) parliament + witness deliberation.
+    Holds one OpenAI completion open and streams every chat-reply
+    card the loop writes for this turn as content chunks, separated
+    by a blank line. Closes with `finish_reason: stop` once the
+    question is gone from the tally — i.e. no claude-code dispatch
+    addressing this intent is still missing its closure-followup
+    card. Cards in the same fire (an acknowledgment + a dispatch)
+    appear as the first chunk; the closure-followup card from the
+    later fire appears as a subsequent chunk in the same response.
+
+    A heartbeat keep-alive frame every 15s prevents client/proxy
+    idle timeouts during long deliberations or task waits.
     """
     chunk_id = f"chatcmpl-{uuid.uuid4().hex}"
     created = int(time.time())
@@ -758,28 +904,48 @@ async def _openai_stream(
     address = channels_mod.address_tag("openai", session_id)
     deadline = time.monotonic() + _OPENAI_REPLY_TIMEOUT_S
     last_heartbeat = time.monotonic()
+    seen_ids: set[str] = set()
+    sent_any = False
     finish_reason = "timeout"
-    reply_text = ""
     while time.monotonic() < deadline:
+        # Client gave up — stop polling for cards to push into a dead
+        # pipe. The supervisor still processes the intent; the answer
+        # lands in the lake regardless.
+        if request is not None and await request.is_disconnected():
+            log.info(
+                "openai-compat stream: client disconnected "
+                "(session=%s intent=%s)", session_id, intent_id,
+            )
+            return
         try:
             fresh = await delta_client.query(
                 tags_include=[address, f"addresses:{intent_id}"],
                 time_start=after_iso,
-                limit=5,
+                limit=20,
             )
         except Exception as e:
             log.warning("openai-compat stream: poll failed: %s", e)
             fresh = []
-        landed = False
         for d in sorted(fresh, key=lambda x: x.get("timestamp") or ""):
+            did = d.get("id") or ""
+            if not did or did in seen_ids:
+                continue
             ts = d.get("timestamp") or ""
             if ts <= after_iso:
                 continue
+            seen_ids.add(did)
+            text = _render_witness_payload(d.get("content") or "")
+            if not text:
+                continue
+            if sent_any:
+                # Cards are separate paragraphs in one response — keep
+                # the original blank-line separator the non-stream path
+                # uses so the rendering matches across surfaces.
+                yield _chunk({"content": "\n\n"})
+            yield _chunk({"content": text})
+            sent_any = True
+        if sent_any and not await _openai_turn_pending(intent_id):
             finish_reason = "stop"
-            reply_text = _render_witness_payload(d.get("content") or "")
-            landed = True
-            break
-        if landed:
             break
         now = time.monotonic()
         if now - last_heartbeat >= 15.0:
@@ -788,8 +954,11 @@ async def _openai_stream(
             last_heartbeat = now
         await asyncio.sleep(_OPENAI_REPLY_POLL_S)
 
-    if reply_text:
-        yield _chunk({"content": reply_text})
+    if sent_any and finish_reason != "stop":
+        # Hit the deadline with content already streamed — close out
+        # honestly. The user got SOMETHING; "stop" is more accurate
+        # than "timeout" here.
+        finish_reason = "stop"
     yield _chunk({}, finish=finish_reason)
     yield "data: [DONE]\n\n"
 
@@ -826,6 +995,15 @@ async def chat_completions(req: ChatRequest, request: Request):
     internal dashboard UI (which calls this same endpoint) can lock onto
     the session for its own polling cycle without caring about `choices`.
     """
+    # Reject OpenWebUI's auto-title / auto-tag auxiliary completions
+    # before any state is touched. These never become substrate — see
+    # `_is_owui_auxiliary` for the marker rationale.
+    if _is_owui_auxiliary(req.messages):
+        raise HTTPException(
+            status_code=400,
+            detail="Fathom does not service OpenWebUI auto-title or auto-tag completions.",
+        )
+
     session_id = req.session_id
     if session_id:
         session = await db.get_session(session_id)
@@ -932,12 +1110,14 @@ async def chat_completions(req: ChatRequest, request: Request):
 
     if req.stream:
         return StreamingResponse(
-            _openai_stream(session_id, intent_id, request_start_iso, model_label),
+            _openai_stream(
+                session_id, intent_id, request_start_iso, model_label, request
+            ),
             media_type="text/event-stream",
         )
 
     finish_reason, reply_text = await _await_witness_reply(
-        session_id, intent_id, request_start_iso
+        session_id, intent_id, request_start_iso, request=request
     )
     return _openai_completion_response(reply_text, session_id, model_label, finish_reason)
 

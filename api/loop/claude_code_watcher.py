@@ -123,12 +123,13 @@ async def _dispatch_origin_for_corr(corr: str) -> dict:
 
     The witness card that started the task carries:
       • `for:<slug>` — the user who asked
-      • `addresses:<original_intent_id>` — the user's question
-      The original question itself carries `channel:<x>` +
-      `<x>-session:<id>` if it came from a chat surface (openai,
-      fathom-chat). Without forwarding those, the closure-followup
-      chat-reply lands as a feed-card with `for:<slug>` only and the
-      OpenWebUI poller never sees it.
+      • `addresses:<original_intent_id>` — the user's question (puddle id)
+      • `originating-channel:<x>` / `originating-correlation:<id>` /
+        `originating-intent:<id>` — forwarded by witness from the
+        originating chat surface so closure-followup chat-replies can
+        land back where the user is waiting (e.g. OpenWebUI). Without
+        these, the followup card lands as a plain dashboard feed-card
+        and the chat-surface poller never sees it.
 
     Returns a dict with whatever was found:
       `{"contact": "...", "channel": "...", "correlation": "...",
@@ -147,31 +148,16 @@ async def _dispatch_origin_for_corr(corr: str) -> dict:
             f"{type(e).__name__}: {e}"
         )
         return out
-    addressed_intent_id = ""
     for d in dispatches:
         for t in d.get("tags") or []:
             if t.startswith("for:") and "contact" not in out:
                 out["contact"] = t.split(":", 1)[1]
-            elif t.startswith("addresses:") and not addressed_intent_id:
-                addressed_intent_id = t.split(":", 1)[1]
-    if not addressed_intent_id:
-        return out
-    out["intent_id"] = addressed_intent_id
-    # Fetch the original intent delta to read its channel/correlation.
-    try:
-        intent_delta = await delta_client.get_delta(addressed_intent_id)
-    except Exception:
-        intent_delta = None
-    if not intent_delta:
-        return out
-    for t in intent_delta.get("tags") or []:
-        if t.startswith("channel:") and "channel" not in out:
-            out["channel"] = t.split(":", 1)[1]
-        # channel-session correlation tag is "<channel>-session:<id>"
-        if "-session:" in t and "correlation" not in out:
-            ch_part, _, sid = t.partition("-session:")
-            if ch_part and sid:
-                out["correlation"] = sid
+            elif t.startswith("originating-channel:") and "channel" not in out:
+                out["channel"] = t.split(":", 1)[1]
+            elif t.startswith("originating-correlation:") and "correlation" not in out:
+                out["correlation"] = t.split(":", 1)[1]
+            elif t.startswith("originating-intent:") and "intent_id" not in out:
+                out["intent_id"] = t.split(":", 1)[1]
     return out
 
 

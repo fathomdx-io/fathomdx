@@ -243,6 +243,8 @@ This is what you're responding to — the literal thing(s) that triggered this f
 
 If a line is preceded by `↩ replying to: "..."`, the user clicked a specific feed moment to respond to it. Land cleanly against THAT thread.
 
+If a tally line names a `REPLY-TO: <channel>:<corr>` (e.g. `REPLY-TO: openai:proud-sprightly-partridge`), that's where the user is actually sitting — a chat surface they fired a question into. Your card MUST list this intent's id in `addresses` so the routing layer lands the reply back on that surface. Without that, your beautiful synthesis lands in the dashboard feed and the user — who is staring at OpenWebUI / their chat client — never sees it. Cross the intent out by addressing it.
+
 Intent kinds:
   · question — the user asked. Answer them.
   · drop-in — the user said something outside Q/A frame. Reply naturally.

@@ -300,3 +300,94 @@ async def test_concurrent_sessions_get_their_own_replies(_patched, client):
     assert body_beta["session_id"] == "s-beta"
     assert body_alpha["choices"][0]["message"]["content"] == "alpha-reply"
     assert body_beta["choices"][0]["message"]["content"] == "beta-reply"
+
+
+# ── OpenWebUI auxiliary-completion rejection ─────
+
+
+OWUI_TITLE_PROMPT = """### Task:
+Generate a concise, 3-5 word title with an emoji summarizing the chat history.
+### Chat History:
+<chat_history>
+USER: hello
+ASSISTANT: hi there
+</chat_history>"""
+
+
+OWUI_TAG_PROMPT = """### Task:
+Generate 1-3 broad tags categorizing the main themes of the chat history.
+<chat_history>
+USER: tell me about postgres
+</chat_history>"""
+
+
+async def test_owui_title_request_is_rejected(_patched, client):
+    """OWUI auto-titling fires `### Task: Generate a concise ... title`
+    against the chat completions endpoint. Reject at the door — never
+    fire the loop, never write to the lake or puddle."""
+    r = await client.post(
+        "/v1/chat/completions",
+        json={"messages": [{"role": "user", "content": OWUI_TITLE_PROMPT}]},
+    )
+    assert r.status_code == 400
+    # No substrate touched.
+    assert _patched["intents"] == []
+    assert _patched["writes"] == []
+
+
+async def test_owui_tag_request_is_rejected(_patched, client):
+    """Same for OWUI's auto-tag pass."""
+    r = await client.post(
+        "/v1/chat/completions",
+        json={"messages": [{"role": "user", "content": OWUI_TAG_PROMPT}]},
+    )
+    assert r.status_code == 400
+    assert _patched["intents"] == []
+    assert _patched["writes"] == []
+
+
+async def test_owui_marker_in_system_message_is_rejected(_patched, client):
+    """OWUI sometimes templates `### Task:` into the system role with a
+    benign user turn. Scan every role — not just the latest user turn."""
+    r = await client.post(
+        "/v1/chat/completions",
+        json={
+            "messages": [
+                {"role": "system", "content": OWUI_TITLE_PROMPT},
+                {"role": "user", "content": "hi"},
+            ],
+        },
+    )
+    assert r.status_code == 400
+    assert _patched["intents"] == []
+
+
+async def test_owui_marker_in_multipart_content_is_rejected(_patched, client):
+    """Vision-shaped content (list of parts) must still be scanned —
+    a marker hidden in a text part shouldn't sneak past."""
+    r = await client.post(
+        "/v1/chat/completions",
+        json={
+            "messages": [
+                {
+                    "role": "user",
+                    "content": [
+                        {"type": "text", "text": OWUI_TAG_PROMPT},
+                    ],
+                }
+            ],
+        },
+    )
+    assert r.status_code == 400
+    assert _patched["intents"] == []
+
+
+async def test_normal_request_with_innocuous_text_still_works(_patched, client):
+    """Negative control — a request that mentions neither marker passes
+    through to the loop unchanged."""
+    r = await client.post(
+        "/v1/chat/completions",
+        json={"messages": [{"role": "user", "content": "what's the weather like"}]},
+    )
+    assert r.status_code == 200
+    assert len(_patched["intents"]) == 1
