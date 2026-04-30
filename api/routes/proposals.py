@@ -34,11 +34,26 @@ def _proposal_action(tags: list[str]) -> str:
 
 
 async def _load_proposal(delta_id: str) -> dict:
-    """Fetch the original proposal-card delta. 404 if missing or wrong shape."""
+    """Fetch the original proposal-card delta. 404 if missing or wrong shape.
+
+    Tries the lake first (the durable home). Falls back to the puddle so
+    proposal cards work even when the witness's `lake-id:<full>` cross-
+    pointer didn't land — e.g. a transient lake-write hiccup that still
+    reached the puddle, or older puddle entries written before the
+    proposal route gained its lake_id surfacing. The puddle copy carries
+    the same tool/tool_args payload, so approve/deny can still reach
+    the right tool handler.
+    """
     try:
         d = await delta_client.get_delta(delta_id)
-    except Exception as e:
-        raise HTTPException(status_code=404, detail="proposal not found") from e
+    except Exception:
+        d = None
+    if d is None:
+        from ..loop.puddle import puddle as _puddle  # lazy — avoids cycle
+
+        d = _puddle.get(delta_id)
+    if d is None:
+        raise HTTPException(status_code=404, detail="proposal not found")
     tags = d.get("tags") or []
     if "kind:proposal" not in tags:
         raise HTTPException(
