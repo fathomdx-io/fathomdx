@@ -117,13 +117,14 @@ def test_witness_prompt_formats_with_standpoint_block() -> None:
         intent_block="intent",
         voice_blocks="voices",
         anchors_block="anchors",
-        resonance_block="res",
+        feed_block="feed",
         hosts_block="hosts",
         settled_status="deliberated",
         settled_descriptor="desc",
     )
     assert "(test standpoint)" in out
     assert "anchors" in out
+    assert "feed" in out
 
 
 def test_voice_prompt_places_standpoint_before_question() -> None:

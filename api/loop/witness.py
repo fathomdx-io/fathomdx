@@ -33,7 +33,6 @@ from datetime import UTC, datetime, timedelta
 
 from .. import delta_client
 from ..channels import address_tag, extract_channel
-from . import resonance
 from .intents import CONVO_TAG, intent_kind
 from .llm import loop_generate
 from .prompts import JUDGE_PROMPT, WITNESS_PROMPT
@@ -114,91 +113,78 @@ def _render_anchors() -> str:
     return block + "\n\n" if block else ""
 
 
-RESONANCE_BUDGET = 8
+_FEED_USER_SOURCES = {"openai-compat", "fathom-chat", "claude-code"}
+_FEED_WINDOW_LIMIT = 30
 
 
-async def _gather_witness_resonance(
-    session_tag: str,
-    voice_blocks: str,
-    intent_text: str,
-) -> list[dict]:
-    """Build the witness's resonance pool — puddle items most aligned
-    with the parliament's collective take + the user's intent.
-
-    Same architecture as voice substrate: candidate union of recall-
-    results and lake-mirrors, ranked by similarity to a signal text.
-    Witness signal is the integrated voice block (where the parliament
-    has gone) plus the intent (the durable anchor) — what the witness
-    is integrating, against the lake material that bears on it.
+def _gather_conversation_feed(session_tag: str) -> list[dict]:
+    """Return the user-visible conversation feed for THIS session,
+    chronological. Same shape the dashboard's Cards + Claude-code feed
+    filter renders: prior witness cards in this thread + user turns
+    that came in. Excludes the firehose substrate the parliament works
+    over (recall results, telepathy lake-mirrors, sediment, routine
+    fires, agent telemetry). The witness reads the conversation arc;
+    the parliament integrates the rest.
     """
-    candidates: list[dict] = []
-    seen_ids: set[str] = set()
-    for d in puddle.query(
-        tags_include=[session_tag, "recall-result"],
-        limit=80,
-    ):
+    items: list[dict] = []
+    seen: set[str] = set()
+    # Pull session puddle items in one query, filter by source. We don't
+    # rank by similarity — the feed is chronological, not relevance-
+    # ranked. The witness reads it like a transcript.
+    for d in puddle.query(tags_include=[session_tag], limit=_FEED_WINDOW_LIMIT * 4):
         did = d.get("id") or ""
-        if did and did not in seen_ids:
-            candidates.append(d)
-            seen_ids.add(did)
-    for d in puddle.query(
-        tags_include=[CONVO_TAG, "lake-delta"],
-        limit=80,
-    ):
-        did = d.get("id") or ""
-        if did and did not in seen_ids:
-            candidates.append(d)
-            seen_ids.add(did)
-    # Drop the witness's own recent card bodies from the resonance pool.
-    # Self-state writes (standpoint attestations, mood shifts, voice
-    # affirmations) already carry forward what the witness needs to know
-    # about its own integration; presenting the literal card content as
-    # substrate makes the next fire re-derive a take on the same theme,
-    # which compounds when multi-card lets each fire emit several. Anti-
-    # narcissus filter — Fathom can read about the world, not loop on
-    # reading itself.
-    candidates = [
-        d for d in candidates if (d.get("source") or "") != "witness"
-    ]
-    if not candidates:
-        return []
+        if not did or did in seen:
+            continue
+        src = d.get("source") or ""
+        tags = d.get("tags") or []
+        is_witness_card = src == "witness" and "feed-card" in tags
+        is_user_turn = src in _FEED_USER_SOURCES and "feed-card" not in tags
+        if not (is_witness_card or is_user_turn):
+            continue
+        seen.add(did)
+        items.append(d)
 
-    signal = (intent_text or "").strip()
-    if voice_blocks:
-        signal = f"{signal}\n\n{voice_blocks}".strip()
-    if not signal:
-        return []
+    def _ts(d: dict) -> str:
+        return d.get("timestamp") or d.get("created_at") or ""
 
-    return await resonance.rank(signal, candidates, top_k=RESONANCE_BUDGET)
+    items.sort(key=_ts)
+    return items[-_FEED_WINDOW_LIMIT:]
 
 
-def _render_resonance_block(items: list[dict]) -> str:
+def _render_conversation_feed(items: list[dict]) -> str:
+    """Chronological transcript of the conversation so far. One line per
+    turn (or one block if the body is long). Witness cards render their
+    `body` field, not the full JSON payload."""
     if not items:
-        return "  (no resonant material in the puddle this fire)"
+        return "  (no prior turns in this conversation — first fire)"
     blocks: list[str] = []
     for d in items:
+        ts_full = d.get("timestamp") or d.get("created_at") or ""
+        ts = ts_full[11:16] if len(ts_full) >= 16 else ts_full
+        src = d.get("source") or "?"
         content = (d.get("content") or "").strip()
+        # Witness cards are JSON payloads — pull `body` so the transcript
+        # reads as prose, not a serialized blob.
+        if src == "witness" and content.startswith("{"):
+            try:
+                p = json.loads(content)
+                if isinstance(p, dict):
+                    body = (p.get("body") or "").strip()
+                    if body:
+                        content = body
+            except Exception:
+                pass
         if not content:
             continue
-        from_source = "lake"
-        # Lake-id makes the item durable and addressable — engagement
-        # attestations from the constituting act (Phase 3) need this id
-        # to point cited_ids/dropped_ids at a real lake delta. Items
-        # without a lake counterpart (pure puddle voice thoughts, etc.)
-        # render with no id; the witness can still read the content but
-        # can't cite them as engagement targets.
-        lake_id_short = ""
-        for t in (d.get("tags") or []):
-            if t.startswith("from-source:"):
-                from_source = t.split(":", 1)[1]
-            elif t.startswith("lake-id:"):
-                lake_id_short = t.split(":", 1)[1][:24]
-            elif t.startswith("recalled-id:") and not lake_id_short:
-                lake_id_short = t.split(":", 1)[1][:24]
         snippet = content[:600] + ("…" if len(content) > 600 else "")
-        prefix = f"[{from_source} · id={lake_id_short}]" if lake_id_short else f"[{from_source}]"
-        blocks.append(f"  {prefix} {snippet}")
-    return "\n\n".join(blocks) if blocks else "  (no resonant material in the puddle this fire)"
+        if src in _FEED_USER_SOURCES:
+            speaker = "you"
+        elif src == "witness":
+            speaker = "fathom"
+        else:
+            speaker = src
+        blocks.append(f"  [{ts} · {speaker}] {snippet}")
+    return "\n\n".join(blocks) if blocks else "  (no prior turns in this conversation — first fire)"
 
 
 async def _available_claude_code_hosts() -> list[str]:
@@ -265,7 +251,7 @@ async def _call_witness(
     intent_block: str,
     voice_blocks: str,
     anchors_block: str,
-    resonance_block: str,
+    feed_block: str,
     hosts_block: str,
     standpoint_block: str = "",
 ) -> dict | None:
@@ -275,7 +261,7 @@ async def _call_witness(
         intent_block=intent_block,
         voice_blocks=voice_blocks,
         anchors_block=anchors_block,
-        resonance_block=resonance_block,
+        feed_block=feed_block,
         hosts_block=hosts_block,
         settled_status="deliberated",
         settled_descriptor=(
@@ -719,12 +705,8 @@ async def run_witness(
     primary_intent = (pending[0].get("content") or "").strip()
     primary_intent_clean = primary_intent.split("\n\n[intent-payload]", 1)[0].strip()
 
-    resonant = await _gather_witness_resonance(
-        session_tag=session_tag,
-        voice_blocks=voice_blocks,
-        intent_text=primary_intent_clean,
-    )
-    resonance_block = _render_resonance_block(resonant)
+    feed_items = _gather_conversation_feed(session_tag=session_tag)
+    feed_block = _render_conversation_feed(feed_items)
 
     available_hosts = await _available_claude_code_hosts()
     standpoint_block = _render_standpoint_for_witness(standpoint)
@@ -732,7 +714,7 @@ async def run_witness(
         intent_block=intent_block,
         voice_blocks=voice_blocks,
         anchors_block=_render_anchors(),
-        resonance_block=resonance_block,
+        feed_block=feed_block,
         hosts_block=_render_hosts_block(available_hosts),
         standpoint_block=standpoint_block,
     )
