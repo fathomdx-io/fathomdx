@@ -3,8 +3,22 @@
 Walks every enabled routine spec each tick. For each one, computes
 `next_fire_after(cron, pivot)` where pivot is the routine's last-fire
 timestamp (or the scheduler boot time, whichever is later). If that
-next-fire moment has already passed, write a routine-fire delta — the
-fathom-agent kitty plugin picks it up from there.
+next-fire moment has already passed, the scheduler writes:
+
+  · `routine-due` intent into the puddle — the River picks this up,
+    deliberates, and dispatches whatever needs to happen (a
+    claude-code task, a feed card from substrate, a tool call,
+    silence — the witness decides). The routine prompt becomes the
+    intent body; tags carry routine-id and host pin.
+  · `routine-tick` marker delta into the lake — purely for hydration
+    on restart so we don't re-fire a routine whose cron window has
+    already closed. Kitty doesn't consume these.
+
+The legacy `routine-fire` shape (consumed by the kitty plugin to spawn
+claude-code directly) stays as the manual override path — Fire Now
+button + chat-tool fire still write that shape and bypass the River.
+That's deliberate: sometimes you want to run a routine RIGHT NOW
+without the witness deliberating.
 
 `single_fire: true` routines are soft-deleted (tombstone delta) right
 after they fire, so the next tick won't see them in the spec list.
@@ -19,7 +33,9 @@ import asyncio
 import contextlib
 import time
 
+from . import delta_client
 from . import routines as routines_mod
+from .loop.intents import write_intent
 from .settings import settings
 
 _task: asyncio.Task | None = None
@@ -49,23 +65,99 @@ async def _hydrate_last_fires() -> None:
     Without this, a process restart would re-fire any routine whose
     next-cron-after-boot has already passed (e.g. a daily 10:10 routine
     that already fired today would fire again on a 10:30 restart).
+
+    Reads BOTH:
+      · routine-tick — what cron writes today (the new River-mediated path)
+      · routine-fire — what manual Fire Now still writes (legacy path
+        + still authoritative for the rare case where the cron-mediated
+        scheduler hadn't yet been deployed but a fire happened)
+    Whichever is more recent per routine wins.
     """
+    seen: dict[str, float] = {}
+    for tag in ("routine-tick", "routine-fire"):
+        try:
+            deltas = await delta_client.query(
+                limit=500, tags_include=[tag]
+            )
+        except Exception as e:
+            print(
+                f"[routine-scheduler] lake unreachable on hydrate ({tag}, "
+                f"{type(e).__name__}: {e}), starting cold for this tag",
+                flush=True,
+            )
+            continue
+        for d in deltas:
+            rid = routines_mod._routine_id_from_tags(d.get("tags") or [])
+            if not rid:
+                continue
+            ts_epoch = float(routines_mod._ts_to_epoch(d.get("timestamp")))
+            if ts_epoch > seen.get(rid, 0.0):
+                seen[rid] = ts_epoch
+    for rid, ts in seen.items():
+        if ts > _last_fire_at.get(rid, 0.0):
+            _last_fire_at[rid] = ts
+
+
+async def _fire_into_river(rid: str, meta: dict, prompt_body: str) -> None:
+    """Hand the routine to the River.
+
+    Two writes per fire:
+      · routine-due intent in the puddle — the witness picks it up and
+        decides what to do (claude-code dispatch, feed-card, chat-reply,
+        alert, tool call, silence). The body is the routine's stored
+        prompt; the witness reads it as the user-given instruction.
+      · routine-tick marker in the lake — a durable receipt for
+        hydration on restart. Kitty doesn't consume these.
+
+    Routine specs that pin a host stamp host:<x> on both writes so the
+    witness's claude-code dispatch (if it picks one) goes to the right
+    machine. Without a host pin the routine is fleet-wide and the
+    witness picks any available host.
+    """
+    name = (meta.get("name") or rid).strip()
+    host = (meta.get("host") or "").strip()
+    permission_mode = (meta.get("permission_mode") or "auto").strip()
+
+    intent_tags: list[str] = [f"routine-id:{rid}"]
+    if host:
+        intent_tags.append(f"host:{host}")
+    if permission_mode:
+        intent_tags.append(f"permission-mode:{permission_mode}")
+
+    summary = f"[routine-due: {name}]\n{prompt_body or ''}".strip()
+    payload = {
+        "routine_id": rid,
+        "name": name,
+        "host": host,
+        "permission_mode": permission_mode,
+    }
+    await write_intent(
+        kind="routine-due",
+        content=summary,
+        payload=payload,
+        extra_tags=intent_tags,
+        source="routine-scheduler",
+    )
+
+    tick_tags = ["routine-tick", f"routine-id:{rid}"]
+    if host:
+        tick_tags.append(f"host:{host}")
     try:
-        fires = await routines_mod._fire_deltas()
+        await delta_client.write(
+            content=f"routine-tick: {rid}",
+            tags=tick_tags,
+            source="routine-scheduler",
+        )
     except Exception as e:
+        # Tick is hydration-only; failing to land it just means we may
+        # re-fire on the next restart. The intent already landed in the
+        # puddle so the routine itself isn't lost — the witness will
+        # handle it on this tick.
         print(
-            f"[routine-scheduler] lake unreachable on hydrate "
-            f"({type(e).__name__}: {e}), starting cold",
+            f"[routine-scheduler] tick-write failed for {rid}: "
+            f"{type(e).__name__}: {e} (intent still wrote)",
             flush=True,
         )
-        return
-    for d in fires:
-        rid = routines_mod._routine_id_from_tags(d.get("tags") or [])
-        if not rid:
-            continue
-        ts_epoch = routines_mod._ts_to_epoch(d.get("timestamp"))
-        if ts_epoch > _last_fire_at.get(rid, 0.0):
-            _last_fire_at[rid] = float(ts_epoch)
 
 
 async def _check_once() -> None:
@@ -113,7 +205,7 @@ async def _check_once() -> None:
                 f"next={next_fire:.0f})",
                 flush=True,
             )
-            await routines_mod.fire(rid)
+            await _fire_into_river(rid, meta, _body)
             _last_fire_at[rid] = now
         except Exception as e:
             print(
