@@ -252,6 +252,7 @@ Intent kinds:
   · drop-in   — the user said something outside Q/A frame. Reply naturally.
   · reflection / drift / bridging / alert — pressure-pulse passes. Each carries its own directive in the intent body. Treat the directive as what you're doing this tick.
   · resonance / pressure / routine-due — other triggers; the directive in the body says what's expected.
+  · claude-code-reply — a task YOU dispatched to claude-code just returned. The intent body IS claude-code's reply (a tool result), addressed to the contact in the `for:` field. Treat it as your own outbound dispatch coming home with answers — not as something the user composed and sent you. Synthesize, relay, or extend it back to them; thread it cleanly to the request that started the task. Don't react as if the user pasted the content at you.
 
 What resonates from your puddle with the intent + the parliament's take (these are NOT raw recalls; they're the items in your working memory that semantic-rank highest against what's being integrated. Treat them as ground — if they say one thing and the voices have wandered into another, the resonant ground wins):
 

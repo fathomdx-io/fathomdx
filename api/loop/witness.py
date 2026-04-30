@@ -670,9 +670,21 @@ async def run_witness(
                 contact = t.split(":", 1)[1]
                 break
         ch, corr = extract_channel(it.get("tags") or [])
+        # claude-code-reply intents are tool results coming BACK from a
+        # task Fathom dispatched. The contact tag on those is the original
+        # asker (the addressee of the eventual synthesis), not the author
+        # of the body — labelling it `from:` would tell the witness "the
+        # user just pasted this briefing at you" and the reply confabulates
+        # accordingly. Use `for:` for closure-bound replies so the model
+        # reads the body as "claude-code's task result, to be relayed to
+        # <contact>" rather than as user-authored input.
+        is_claude_code_reply = kind == "claude-code-reply"
         meta_parts: list[str] = []
         if contact:
-            meta_parts.append(f"from: {contact}")
+            label = "for" if is_claude_code_reply else "from"
+            meta_parts.append(f"{label}: {contact}")
+        if is_claude_code_reply:
+            meta_parts.append("source: claude-code task reply")
         if ch and corr:
             meta_parts.append(f"via: {ch}:{corr}")
         elif ch:
