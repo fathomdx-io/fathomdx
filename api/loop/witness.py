@@ -41,6 +41,15 @@ from .puddle import puddle
 
 Q_A_TTL_S = 48 * 60 * 60  # rolling 48h horizon — see intents.py
 
+# Pulse-pass and feed-card outputs are durable-but-disposable: useful
+# for ~30 days as conversation context, then they GC if nothing has
+# referenced them. Engagement-extension (affirms / from / reply-to
+# bumping `expires_at`) is a planned follow-up. Routes outside this
+# set (chat-reply, claude-code:<host>, dm:<slug>, claude-code-reply)
+# remain authored — they're parts of the user-visible thread, not
+# ambient observations.
+FEED_CARD_TTL_S = 30 * 24 * 60 * 60  # 30 days
+
 
 def _group_thoughts_by_voice(
     deltas: list[dict],
@@ -907,12 +916,21 @@ async def _dispatch_card(
         lake_tags.append(f"for:{addressee}")
     for intent_id in full_addressed:
         lake_tags.append(f"addresses:{intent_id}")
+    # Pulse-pass and feed-card writes get a 30-day TTL by default.
+    # Chat-reply, claude-code dispatch, dm:, and claude-code-reply stay
+    # authored (no TTL) because they're parts of the user-visible thread.
+    expires_at_iso: str | None = None
+    if route_value == "feed-card" or route_value.startswith("alert:"):
+        expires_at_iso = (
+            datetime.now(UTC) + timedelta(seconds=FEED_CARD_TTL_S)
+        ).isoformat()
     lake_id = ""
     try:
         lake_delta = await delta_client.write(
             content=payload_json,
             tags=lake_tags,
             source="witness",
+            expires_at=expires_at_iso,
         )
         if isinstance(lake_delta, dict):
             lake_id = lake_delta.get("id") or ""
