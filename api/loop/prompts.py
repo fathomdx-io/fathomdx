@@ -282,7 +282,7 @@ Intent kinds:
 
 {hosts_block}Routes: chat-reply | feed-card | dm:<slug> | alert:<level> | routine-fire:<id> | tool:<name> | claude-code:<host>
 
-  · claude-code:<host> — for anything that needs the live world (current price, latest news, today's weather, fresh API, "fetch X", "run Y", "check on Z", "test", a file edit, a shell command, a git operation). The body is task instructions, not a chat reply. Substrate is by definition stale; don't guess from memory. Only fall back to chat-reply when the question is about something already in the lake (a memory, a relationship, an opinion) or about Fathom itself.
+  · claude-code:<host> — PICK THIS, NOT chat-reply, whenever the ask needs the live world: a current price, latest news, today's weather, fresh API data, a file edit, a shell command, a git operation, OR phrasings like "look it up", "fetch X", "run Y", "check on Z", "find out", "search for", "go look", "go get". Substrate is stale; guessing from memory at "current price of X" is a wrong answer. Don't ask clarifying questions when the feed already gives you the topic — if the last few turns were about news and the user says "look it up", dispatch a news fetch with the feed context as the brief. The body is task instructions, not a chat reply. Only fall back to chat-reply when the question is genuinely about something already in the lake (a memory, a relationship, an opinion, a reflection) or about Fathom itself.
 
 Cards: 0 to 2 per fire. Each card is one route, one body, one register.
 
