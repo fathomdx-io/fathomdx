@@ -116,19 +116,26 @@ def _tag_value(tags: list[str], prefix: str) -> str:
     return ""
 
 
-async def _dispatch_contact_for_corr(corr: str) -> str:
-    """Pull the addressed contact from the original dispatch card so
-    the closure intent can propagate it forward.
+async def _dispatch_origin_for_corr(corr: str) -> dict:
+    """Pull the originating channel/correlation/contact/intent off the
+    original dispatch card so the closure intent can propagate them
+    forward.
 
-    The witness card that started the task carries `for:<slug>` (the
-    user who asked, threaded from the chain origin). When the watcher
-    mints a closure intent for that task, this lets the closure intent
-    be tagged `contact:<slug>` too — the witness's chat-reply on the
-    closure then renders as "Fathom > <slug>" instead of bare "Fathom".
+    The witness card that started the task carries:
+      • `for:<slug>` — the user who asked
+      • `addresses:<original_intent_id>` — the user's question
+      The original question itself carries `channel:<x>` +
+      `<x>-session:<id>` if it came from a chat surface (openai,
+      fathom-chat). Without forwarding those, the closure-followup
+      chat-reply lands as a feed-card with `for:<slug>` only and the
+      OpenWebUI poller never sees it.
 
-    Returns empty string when the dispatch can't be found or has no
-    for-tag (e.g., feed-pulse-driven dispatches with no human author).
+    Returns a dict with whatever was found:
+      `{"contact": "...", "channel": "...", "correlation": "...",
+        "intent_id": "..."}`. Missing keys → not found / not a chat-
+    surface dispatch (e.g. feed-pulse-driven with no human author).
     """
+    out: dict = {}
     try:
         dispatches = await delta_client.query(
             tags_include=["route:claude-code", f"task-corr:{corr}"],
@@ -139,12 +146,40 @@ async def _dispatch_contact_for_corr(corr: str) -> str:
             f"[claude-code watcher] dispatch lookup failed for {corr[:12]}: "
             f"{type(e).__name__}: {e}"
         )
-        return ""
+        return out
+    addressed_intent_id = ""
     for d in dispatches:
         for t in d.get("tags") or []:
-            if t.startswith("for:"):
-                return t.split(":", 1)[1]
-    return ""
+            if t.startswith("for:") and "contact" not in out:
+                out["contact"] = t.split(":", 1)[1]
+            elif t.startswith("addresses:") and not addressed_intent_id:
+                addressed_intent_id = t.split(":", 1)[1]
+    if not addressed_intent_id:
+        return out
+    out["intent_id"] = addressed_intent_id
+    # Fetch the original intent delta to read its channel/correlation.
+    try:
+        intent_delta = await delta_client.get_delta(addressed_intent_id)
+    except Exception:
+        intent_delta = None
+    if not intent_delta:
+        return out
+    for t in intent_delta.get("tags") or []:
+        if t.startswith("channel:") and "channel" not in out:
+            out["channel"] = t.split(":", 1)[1]
+        # channel-session correlation tag is "<channel>-session:<id>"
+        if "-session:" in t and "correlation" not in out:
+            ch_part, _, sid = t.partition("-session:")
+            if ch_part and sid:
+                out["correlation"] = sid
+    return out
+
+
+async def _dispatch_contact_for_corr(corr: str) -> str:
+    """Backwards-compat shim — use `_dispatch_origin_for_corr` for the
+    full origin record."""
+    origin = await _dispatch_origin_for_corr(corr)
+    return origin.get("contact", "")
 
 
 async def _correlation_state() -> tuple[dict[str, dict], dict[str, dict]]:
@@ -295,6 +330,21 @@ def _build_intent_tags(corr: str, sid: str, info: dict, source_id: str, *, closu
         contact = info.get("contact")
         if contact:
             tags.append(f"contact:{contact}")
+        # Forward the originating chat-channel onto the closure intent
+        # so the closure-followup chat-reply can route back to the
+        # surface that started the dispatch (e.g. OpenWebUI). Without
+        # these tags, the followup card lands tagged for:<contact>
+        # only and the openai-endpoint poller never sees it.
+        origin = info.get("origin") or {}
+        orig_channel = origin.get("channel")
+        orig_corr = origin.get("correlation")
+        orig_intent = origin.get("intent_id")
+        if orig_channel:
+            tags.append(f"originating-channel:{orig_channel}")
+        if orig_channel and orig_corr:
+            tags.append(f"originating-correlation:{orig_corr}")
+        if orig_intent:
+            tags.append(f"originating-intent:{orig_intent}")
     return tags
 
 
@@ -370,10 +420,15 @@ async def claude_code_watcher_tick() -> None:
             continue
         if _last_minted.get(corr, "") >= closure_ts:
             continue
-        # Lazy contact lookup — only when we're actually minting,
-        # not on every tick for every old corr in the closing map.
-        if "contact" not in info:
-            info["contact"] = await _dispatch_contact_for_corr(corr)
+        # Lazy origin lookup — only when we're actually minting, not on
+        # every tick for every old corr in the closing map. Pulls the
+        # originating channel/correlation/intent_id off the dispatch
+        # card so the closure-followup chat-reply can route back to
+        # the surface that started this (e.g. OpenWebUI) instead of
+        # only landing in the dashboard feed.
+        if "origin" not in info:
+            info["origin"] = await _dispatch_origin_for_corr(corr)
+            info["contact"] = info["origin"].get("contact", "")
         # Fast-path the closure into the puddle so the feed renders
         # claude's reply within the watcher's 5s tick instead of
         # waiting on telepathy's 5min cadence. Idempotent via

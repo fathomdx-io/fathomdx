@@ -922,6 +922,32 @@ async def _dispatch_card(
         channel = ""
         correlation = ""
         host_for_channel = ""
+        # If the closure-followup intent carries originating-channel
+        # tags (forwarded by claude_code_watcher from the original
+        # dispatch card), route the chat-reply back to that surface.
+        # Without this, the OpenWebUI / web-chat poller never sees
+        # the closure result and the user is stuck on "fetching…"
+        # forever.
+        orig_channel = ""
+        orig_correlation = ""
+        orig_intent_id = ""
+        for it in pending:
+            if it.get("id") not in claim_set:
+                continue
+            for t in it.get("tags") or []:
+                if t.startswith("originating-channel:") and not orig_channel:
+                    orig_channel = t.split(":", 1)[1]
+                elif t.startswith("originating-correlation:") and not orig_correlation:
+                    orig_correlation = t.split(":", 1)[1]
+                elif t.startswith("originating-intent:") and not orig_intent_id:
+                    orig_intent_id = t.split(":", 1)[1]
+            if orig_channel and orig_correlation:
+                break
+        if orig_channel and orig_correlation:
+            channel = orig_channel
+            correlation = orig_correlation
+        if orig_intent_id and orig_intent_id not in full_addressed:
+            full_addressed.append(orig_intent_id)
 
     lake_tags = [
         "feed-card", "synthesis", "addressing-output",
