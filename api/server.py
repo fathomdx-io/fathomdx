@@ -218,6 +218,7 @@ from .routes import contacts as _contacts_routes  # noqa: E402
 from .routes import lake as _lake_routes  # noqa: E402
 from .routes import media as _media_routes  # noqa: E402
 from .routes import messages as _messages_routes  # noqa: E402
+from .routes import proposals as _proposals_routes  # noqa: E402
 from .routes import routines as _routines_routes  # noqa: E402
 from .routes import sources as _sources_routes  # noqa: E402
 from .routes import stack as _stack_routes  # noqa: E402
@@ -232,6 +233,7 @@ app.include_router(_contacts_routes.router)
 app.include_router(_lake_routes.router)
 app.include_router(_media_routes.router)
 app.include_router(_messages_routes.router)
+app.include_router(_proposals_routes.router)
 app.include_router(_routines_routes.router)
 app.include_router(_sources_routes.router)
 app.include_router(_stack_routes.router)

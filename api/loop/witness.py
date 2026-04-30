@@ -400,6 +400,8 @@ async def _call_witness(
         body = (card.get("body") or "").strip()
         if not body:
             continue
+        tool_args_raw = card.get("tool_args")
+        tool_args = tool_args_raw if isinstance(tool_args_raw, dict) else {}
         cards.append({
             "kicker": (card.get("kicker") or "").strip(),
             "title": (card.get("title") or "").strip(),
@@ -410,6 +412,8 @@ async def _call_witness(
             "links": card.get("links") or [],
             "route": (card.get("route") or "chat-reply").strip(),
             "addresses": card.get("addresses") or [],
+            "tool": (card.get("tool") or "").strip(),
+            "tool_args": tool_args,
         })
     return {
         "cards": cards,
@@ -954,6 +958,22 @@ async def _dispatch_card(
     if not full_addressed and is_responsive_route:
         full_addressed = [it.get("id") for it in pending if it.get("id")]
 
+    # Tool proposals — when route is `tool:<name>`, the card is a
+    # propose-vs-commit form for the user. The tool_args field carries
+    # the structured payload (mirrors the OpenAI tool schema), and the
+    # body is the witness's natural-language framing. The card lands as
+    # `kind:proposal` with `proposal-status:pending`; the dashboard
+    # renders Edit / Deny / Approve buttons. Approve calls the tool
+    # handler with confirm:true.
+    is_tool_proposal = route_value.startswith("tool:")
+    proposal_tool = ""
+    proposal_args: dict = {}
+    if is_tool_proposal:
+        proposal_tool = route_value.split(":", 1)[1].strip()
+        raw_args = card.get("tool_args") or {}
+        if isinstance(raw_args, dict):
+            proposal_args = raw_args
+
     payload = {
         "kicker": card.get("kicker") or "",
         "title": card.get("title") or "",
@@ -965,6 +985,9 @@ async def _dispatch_card(
         "route": route_value,
         "axes": {},
     }
+    if is_tool_proposal:
+        payload["tool"] = proposal_tool
+        payload["tool_args"] = proposal_args
     payload_json = json.dumps(payload, ensure_ascii=False)
 
     # Channel / correlation / host derived per-card from the intents THIS
@@ -1136,6 +1159,15 @@ async def _dispatch_card(
         "feed-card", "synthesis", "addressing-output",
         f"route:{route_value}",
     ]
+    if is_tool_proposal:
+        lake_tags.extend([
+            "kind:proposal",
+            "proposal-status:pending",
+            f"tool:{proposal_tool}",
+        ])
+        action = (proposal_args.get("action") or "").strip()
+        if action:
+            lake_tags.append(f"action:{action}")
     if channel and correlation:
         lake_tags.append(address_tag(channel, correlation))
         lake_tags.append(f"channel:{channel}")

@@ -267,6 +267,21 @@ def get_feed(
                 items.append({"kind": "claude-code-dispatch", "host": host, **base})
             elif route == "chat-reply":
                 items.append({"kind": "fathom-message", **base})
+            elif "kind:proposal" in tags:
+                # Tool-call proposal — witness asked the user to confirm a
+                # state change. Carry tool name + tool_args + decision (if
+                # one has landed) onto the item so the dashboard can render
+                # Edit/Deny/Approve buttons. The decision delta lives
+                # separately tagged `proposal-decision decides:<id>`.
+                tool = next(
+                    (t.split(":", 1)[1] for t in tags if t.startswith("tool:")),
+                    "",
+                )
+                items.append({
+                    "kind": "proposal",
+                    "tool": tool,
+                    **base,
+                })
             else:
                 items.append({"kind": "card", **base})
             continue

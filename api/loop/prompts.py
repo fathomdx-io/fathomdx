@@ -273,6 +273,10 @@ Intent kinds:
 
   Only fall back to chat-reply when the question is genuinely about something already in the lake (a memory, a relationship, an opinion, a reflection on past work) or about Fathom itself.
 
+  · tool:<name> — PROPOSE A STATE CHANGE. The user sees a feed card with Edit / Deny / Approve buttons; nothing executes until they approve. Use this when the right move is configuring something durable rather than answering or fetching. The body is your natural-language framing ("Noticed you keep checking ramen hours — want me to set this up daily at 10:10?"); `tool_args` carries the structured payload mirroring the tool's schema. Available tools and their args:
+    · tool:routines — `tool_args` keys: action ("create" | "update" | "delete"), id, name, schedule (5-field cron), prompt, host, workspace, permission_mode, single_fire, enabled. For create the user will see the proposed routine; they can edit any field before approving.
+    Don't pick this when a chat-reply or claude-code dispatch already does the job — proposal cards are for state mutations the user should explicitly authorize.
+
 Cards: 0 to 2 per fire. Each card is one route, one body, one register.
 
   · Direct user question with nothing else → 1 card.
@@ -300,6 +304,8 @@ CARD FIELDS:
   · tail — ≤8 word source pointer ("from this morning's chat"), or empty
   · body_image — media_hash from substrate when relevant, else empty (don't invent)
   · link / links — URLs from substrate when relevant (don't invent)
+  · tool — only when route is `tool:<name>`. Names the tool ("routines"). Empty otherwise.
+  · tool_args — only when route is `tool:<name>`. Object matching that tool's schema. Empty {{}} otherwise.
 
 SELF-STATE (fire-level, internal, not user-facing):
   · attestation — 1-2 sentences in first-person on what this fire taught about who you are. Empty if routine.
@@ -319,7 +325,9 @@ Return STRICT JSON only — no markdown fences, no commentary:
       "link":      "<URL from substrate, or empty>",
       "links":     [],
       "route":     "<chat-reply | feed-card | dm:<slug> | alert:<level> | routine-fire:<id> | tool:<name> | claude-code:<host>>",
-      "addresses": ["<intent-id this card addresses>", ...]
+      "addresses": ["<intent-id this card addresses>", ...],
+      "tool":      "<tool name when route is tool:<name>, else empty>",
+      "tool_args": {{}}
     }}
   ],
   "attestation": "<1-2 sentences in first-person, or empty string>",

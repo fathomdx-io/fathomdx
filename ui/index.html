@@ -306,6 +306,69 @@
     .msg[data-engaged="less"] .engagement-btn[data-kind="less"] {
       color: var(--bg, #1a1a1a); background: var(--signal); border-color: var(--signal);
     }
+    /* Proposal cards — Edit/Deny/Approve. Same outer shape as a regular
+       card but with a tinted accent rule and a tray of buttons replacing
+       the engagement +/-. */
+    .card-proposal { border-left: 3px solid var(--signal, #d97706); }
+    .card-proposal .proposal-summary {
+      margin: 10px 0 6px; padding: 10px 12px; border-radius: 6px;
+      background: var(--surface-2, rgba(127,127,127,0.06));
+      font-family: var(--mono); font-size: 12px; line-height: 1.5;
+    }
+    .card-proposal .proposal-row {
+      display: grid; grid-template-columns: 110px 1fr; gap: 8px; padding: 2px 0;
+    }
+    .card-proposal .proposal-row-key { color: var(--ink-faint); }
+    .card-proposal .proposal-row-val { color: var(--ink); word-break: break-word; white-space: pre-wrap; }
+    .card-proposal .proposal-actions {
+      display: flex; gap: 8px; justify-content: flex-end; margin-top: 12px;
+    }
+    .card-proposal .proposal-btn {
+      font-family: var(--mono); font-size: 12px; line-height: 1;
+      padding: 6px 14px; border-radius: 14px;
+      border: 1px solid var(--rule); background: transparent;
+      color: var(--ink-faint); cursor: pointer;
+      transition: color 120ms ease, border-color 120ms ease, background 120ms ease;
+    }
+    .card-proposal .proposal-btn:hover { color: var(--ink); border-color: var(--ink-faint); }
+    .card-proposal .proposal-approve {
+      color: var(--signal, #d97706); border-color: var(--signal, #d97706);
+    }
+    .card-proposal .proposal-approve:hover {
+      color: var(--bg, #1a1a1a); background: var(--signal, #d97706);
+    }
+    .card-proposal .proposal-deny:hover {
+      color: #dc2626; border-color: #dc2626;
+    }
+    .card-proposal .proposal-status {
+      margin-top: 10px; font-family: var(--mono); font-size: 11px;
+      color: var(--ink-faint);
+    }
+    .card-proposal .proposal-status-approved { color: var(--signal, #16a34a); }
+    .card-proposal .proposal-status-denied { color: #dc2626; }
+    .card-proposal .proposal-status-error { color: #dc2626; }
+    .card-proposal .proposal-form { display: flex; flex-direction: column; gap: 8px; }
+    .card-proposal .proposal-field {
+      display: flex; flex-direction: column; gap: 2px;
+    }
+    .card-proposal .proposal-field-inline {
+      flex-direction: row; align-items: center; gap: 8px;
+    }
+    .card-proposal .proposal-field-label {
+      font-size: 10px; text-transform: uppercase; letter-spacing: 0.06em;
+      color: var(--ink-faint);
+    }
+    .card-proposal .proposal-input {
+      font-family: var(--mono); font-size: 12px;
+      padding: 6px 8px; border-radius: 4px;
+      border: 1px solid var(--rule); background: var(--bg);
+      color: var(--ink); width: 100%; box-sizing: border-box;
+    }
+    .card-proposal textarea.proposal-input { resize: vertical; min-height: 60px; }
+    .card-proposal .proposal-args-json,
+    .card-proposal .proposal-args-edit {
+      white-space: pre-wrap; font-size: 11px; max-height: 180px; overflow: auto;
+    }
     /* Feed filter — a click-to-open dropdown panel of checkboxes for
        the kinds of synthesis output the user wants to see. Each
        checkbox toggles a bucket of card kinds (Default feed =
@@ -8207,6 +8270,7 @@ GET  /v1/usage               Usage stats`,
     const KIND_TO_CATEGORY = {
       'chat':                  'chat',
       'card':                  'card',
+      'proposal':              'card',
       'pass-intent':           'prompts',
       'voice-thought':         'thinking',
       'recall':                'thinking',
@@ -8502,6 +8566,222 @@ GET  /v1/usage               Usage stats`,
     // rendering ones already on screen.
     const _renderedFeedIds = new Set();
 
+    // ── Proposal cards (witness-emitted state-change requests) ─────
+    //
+    // Witness picks `route:tool:<name>` → card lands with kind:proposal +
+    // tool_args in the payload. The dashboard renders an Edit/Deny/Approve
+    // tray in place of the engagement +/-. Edit swaps the body for a form
+    // prefilled from tool_args; Approve POSTs to /v1/proposals/<id>/approve
+    // (with edited args if the user changed anything); Deny POSTs to /deny.
+    // Both endpoints write a `proposal-decision` delta linked back via
+    // `decides:<id>`; on next render we swap the buttons for a status banner.
+
+    function _renderProposalCard(it, delay) {
+      const card = document.createElement('article');
+      card.className = 'card surfacing card-proposal';
+      if (delay) card.style.animationDelay = delay + 's';
+      card.dataset.kind = 'proposal';
+      card.dataset.fromPuddle = '1';
+      card.dataset.puddleId = it.id || '';
+      if (it.id) card.dataset.deltaId = it.id;
+      const tool = it.tool || '';
+      const args = (it.tool_args && typeof it.tool_args === 'object') ? it.tool_args : {};
+      card.dataset.tool = tool;
+      card.dataset.toolArgs = JSON.stringify(args);
+      _proposalRender(card, it, args, 'pending');
+      // Async — fetch latest decision so a reload reflects approved/denied state.
+      if (it.id) {
+        api(`/v1/proposals/${encodeURIComponent(it.id)}`).then(data => {
+          if (!data || !data.decision) return;
+          const dec = data.decision;
+          const status = (dec.tags || []).find(t => t.startsWith('proposal-status:'));
+          const code = status ? status.split(':', 2)[1] : 'unknown';
+          if (code === 'approved' || code === 'denied') {
+            _proposalRender(card, it, args, code, dec);
+          }
+        }).catch(() => { /* offline / 404 — keep pending UI */ });
+      }
+      return card;
+    }
+
+    function _proposalRender(card, it, args, status, decision) {
+      const kicker = it.kicker || 'Proposal';
+      const title = it.title || _proposalSummary(it.tool, args) || 'Proposal';
+      const body = it.body || '';
+      const summaryHtml = _proposalSummaryHtml(it.tool, args);
+      let actionHtml = '';
+      if (status === 'pending') {
+        actionHtml = `
+          <div class="proposal-actions">
+            <button class="proposal-btn proposal-edit" type="button">Edit</button>
+            <button class="proposal-btn proposal-deny" type="button">Deny</button>
+            <button class="proposal-btn proposal-approve" type="button">Approve</button>
+          </div>`;
+      } else if (status === 'approved') {
+        actionHtml = `<div class="proposal-status proposal-status-approved">Approved${decision && decision.timestamp ? ` · ${_relTime(decision.timestamp)}` : ''}</div>`;
+      } else if (status === 'denied') {
+        actionHtml = `<div class="proposal-status proposal-status-denied">Denied${decision && decision.timestamp ? ` · ${_relTime(decision.timestamp)}` : ''}</div>`;
+      }
+      card.innerHTML = `
+        <div class="card-body">
+          <div class="kicker">${_esc(kicker)}</div>
+          <h3>${_esc(title)}</h3>
+          ${body ? `<p>${_esc(body)}</p>` : ''}
+          <div class="proposal-summary">${summaryHtml}</div>
+          ${actionHtml}
+        </div>`;
+      // Wire buttons (only present when status === 'pending')
+      const editBtn = card.querySelector('.proposal-edit');
+      const denyBtn = card.querySelector('.proposal-deny');
+      const approveBtn = card.querySelector('.proposal-approve');
+      if (editBtn) editBtn.addEventListener('click', e => { e.stopPropagation(); _proposalEnterEdit(card, it, args); });
+      if (denyBtn) denyBtn.addEventListener('click', e => { e.stopPropagation(); _proposalDeny(card, it); });
+      if (approveBtn) approveBtn.addEventListener('click', e => { e.stopPropagation(); _proposalApprove(card, it, _readArgsFromCard(card)); });
+    }
+
+    function _proposalSummary(tool, args) {
+      if (tool === 'routines') {
+        const action = (args.action || '').trim();
+        const id = args.id || '';
+        const name = args.name || id;
+        if (action === 'create') return `Create routine: ${name}`;
+        if (action === 'update') return `Update routine: ${name || id}`;
+        if (action === 'delete') return `Delete routine: ${name || id}`;
+      }
+      return '';
+    }
+
+    function _proposalSummaryHtml(tool, args) {
+      if (tool === 'routines') {
+        const rows = [];
+        if (args.id) rows.push(['id', args.id]);
+        if (args.name) rows.push(['name', args.name]);
+        if (args.schedule) rows.push(['schedule', args.schedule]);
+        if (args.host) rows.push(['host', args.host]);
+        if (args.workspace) rows.push(['workspace', args.workspace]);
+        if (args.permission_mode) rows.push(['permission mode', args.permission_mode]);
+        if (typeof args.single_fire === 'boolean') rows.push(['single fire', args.single_fire ? 'yes' : 'no']);
+        if (typeof args.enabled === 'boolean') rows.push(['enabled', args.enabled ? 'yes' : 'no']);
+        if (args.prompt) rows.push(['prompt', args.prompt]);
+        return rows.map(([k, v]) =>
+          `<div class="proposal-row"><span class="proposal-row-key">${_esc(k)}</span><span class="proposal-row-val">${_esc(String(v))}</span></div>`
+        ).join('');
+      }
+      return `<pre class="proposal-args-json">${_esc(JSON.stringify(args, null, 2))}</pre>`;
+    }
+
+    function _proposalEnterEdit(card, it, args) {
+      const tool = it.tool || '';
+      const summaryEl = card.querySelector('.proposal-summary');
+      const actionsEl = card.querySelector('.proposal-actions');
+      if (!summaryEl || !actionsEl) return;
+      let formHtml = '';
+      if (tool === 'routines') {
+        const fields = [
+          ['id', 'id', 'text'],
+          ['name', 'name', 'text'],
+          ['schedule', 'schedule (cron)', 'text'],
+          ['host', 'host', 'text'],
+          ['workspace', 'workspace', 'text'],
+          ['permission_mode', 'permission mode', 'text'],
+        ];
+        formHtml = fields.map(([key, label, type]) =>
+          `<label class="proposal-field">
+             <span class="proposal-field-label">${_esc(label)}</span>
+             <input class="proposal-input" data-arg="${_esc(key)}" type="${type}" value="${_esc(args[key] || '')}" />
+           </label>`).join('');
+        formHtml += `<label class="proposal-field">
+            <span class="proposal-field-label">prompt</span>
+            <textarea class="proposal-input proposal-prompt" data-arg="prompt" rows="4">${_esc(args.prompt || '')}</textarea>
+          </label>`;
+        formHtml += `<label class="proposal-field proposal-field-inline">
+            <input class="proposal-input" data-arg="single_fire" type="checkbox" ${args.single_fire ? 'checked' : ''} />
+            <span>single fire (delete after firing once)</span>
+          </label>`;
+        formHtml += `<label class="proposal-field proposal-field-inline">
+            <input class="proposal-input" data-arg="enabled" type="checkbox" ${args.enabled === false ? '' : 'checked'} />
+            <span>enabled</span>
+          </label>`;
+      } else {
+        formHtml = `<textarea class="proposal-input proposal-args-edit" data-arg="__json">${_esc(JSON.stringify(args, null, 2))}</textarea>`;
+      }
+      summaryEl.innerHTML = `<div class="proposal-form">${formHtml}</div>`;
+      actionsEl.innerHTML = `
+        <button class="proposal-btn proposal-cancel" type="button">Cancel</button>
+        <button class="proposal-btn proposal-deny" type="button">Deny</button>
+        <button class="proposal-btn proposal-approve" type="button">Save &amp; Approve</button>`;
+      actionsEl.querySelector('.proposal-cancel').addEventListener('click', e => {
+        e.stopPropagation();
+        _proposalRender(card, it, args, 'pending');
+      });
+      actionsEl.querySelector('.proposal-deny').addEventListener('click', e => {
+        e.stopPropagation();
+        _proposalDeny(card, it);
+      });
+      actionsEl.querySelector('.proposal-approve').addEventListener('click', e => {
+        e.stopPropagation();
+        _proposalApprove(card, it, _readArgsFromCard(card));
+      });
+    }
+
+    function _readArgsFromCard(card) {
+      const tool = card.dataset.tool || '';
+      let base = {};
+      try { base = JSON.parse(card.dataset.toolArgs || '{}'); } catch { base = {}; }
+      const inputs = card.querySelectorAll('.proposal-input');
+      if (!inputs.length) return base;
+      const merged = { ...base };
+      for (const inp of inputs) {
+        const key = inp.dataset.arg;
+        if (!key) continue;
+        if (key === '__json') {
+          try { return { ...base, ...JSON.parse(inp.value || '{}') }; } catch { return base; }
+        }
+        if (inp.type === 'checkbox') merged[key] = inp.checked;
+        else merged[key] = inp.value;
+      }
+      return merged;
+    }
+
+    async function _proposalApprove(card, it, args) {
+      if (!it.id) return;
+      _proposalSetBusy(card, 'approving…');
+      try {
+        await api(`/v1/proposals/${encodeURIComponent(it.id)}/approve`, {
+          method: 'POST',
+          body: JSON.stringify({ tool_args: args }),
+        });
+        _proposalRender(card, it, args, 'approved', { timestamp: new Date().toISOString() });
+      } catch (e) {
+        _proposalSetError(card, String(e && e.message || e));
+      }
+    }
+
+    async function _proposalDeny(card, it) {
+      if (!it.id) return;
+      const reason = prompt('Reason (optional):', '') || '';
+      _proposalSetBusy(card, 'denying…');
+      try {
+        const args = _readArgsFromCard(card);
+        await api(`/v1/proposals/${encodeURIComponent(it.id)}/deny`, {
+          method: 'POST',
+          body: JSON.stringify({ reason }),
+        });
+        _proposalRender(card, it, args, 'denied', { timestamp: new Date().toISOString() });
+      } catch (e) {
+        _proposalSetError(card, String(e && e.message || e));
+      }
+    }
+
+    function _proposalSetBusy(card, text) {
+      const actionsEl = card.querySelector('.proposal-actions');
+      if (actionsEl) actionsEl.innerHTML = `<div class="proposal-status">${_esc(text)}</div>`;
+    }
+    function _proposalSetError(card, text) {
+      const actionsEl = card.querySelector('.proposal-actions');
+      if (actionsEl) actionsEl.innerHTML = `<div class="proposal-status proposal-status-error">${_esc(text)}</div>`;
+    }
+
     // Render dispatch for puddle feed items. Several shapes flow through
     // the same .feed container, all carrying data-kind so applyKindFilter
     // can show/hide them. Default-visible shapes — chat (Q+A) and cards
@@ -8629,6 +8909,12 @@ GET  /v1/usage               Usage stats`,
           if (it.engagement) card.dataset.engaged = it.engagement;
         }
         return card;
+      }
+      // Tool proposal — witness asked for a state change. Render Edit /
+      // Deny / Approve buttons. Edit transforms the card body into an
+      // inline form; Approve / Deny POST to /v1/proposals/<id>/...
+      if (it.kind === 'proposal') {
+        return _renderProposalCard(it, delay);
       }
 
       // ── Auxiliary types — compact .delta rows ───────────────
