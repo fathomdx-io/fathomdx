@@ -103,6 +103,14 @@ _facet_texts: list[str] = []
 _facet_embeddings: list[list[float]] = []
 _facet_http = None
 
+# Serialize CLIP forward passes across the /embed endpoint AND the
+# background embed_loop. PyTorch's CPU intra-op parallelism wants every
+# core for one forward pass; running two or three in parallel thrashes
+# the threadpool catastrophically (measured: 3 concurrent 10-text /embed
+# calls went from 250ms each in isolation to 130–150s each). One mutex
+# turns concurrent fights into a clean queue.
+_embed_lock = asyncio.Lock()
+
 # ── Resonance source allow-list ─────────────────────────────────────────────
 # Only deltas whose `source` is in this set can trigger facet activation.
 # Default: empty (no resonance). Managed via GET/POST /hooks/activation/sources
@@ -225,8 +233,9 @@ async def embed_loop():
 
             contents = [d["content"] for d in batch]
             tag_strings = [" ".join(d["tags"]) or "unknown" for d in batch]
-            text_embs = await asyncio.to_thread(embed_texts, contents)
-            prov_embs = await asyncio.to_thread(embed_texts, tag_strings)
+            async with _embed_lock:
+                text_embs = await asyncio.to_thread(embed_texts, contents)
+                prov_embs = await asyncio.to_thread(embed_texts, tag_strings)
 
             batch_candidates: list[dict] = []
             for i, d in enumerate(batch):
@@ -234,7 +243,8 @@ async def embed_loop():
                 if d.get("media_hash"):
                     path = resolve_media(MEDIA_DIR, d["media_hash"])
                     if path:
-                        img_emb = await asyncio.to_thread(embed_image, str(path))
+                        async with _embed_lock:
+                            img_emb = await asyncio.to_thread(embed_image, str(path))
                         if d["content"] and not d["content"].startswith("[image:"):
                             emb = _blend(emb, img_emb)
                         else:
@@ -783,7 +793,8 @@ async def embed(req: EmbedRequest):
 
     if not req.texts:
         return {"embeddings": []}
-    embeddings = await asyncio.to_thread(embed_texts, req.texts)
+    async with _embed_lock:
+        embeddings = await asyncio.to_thread(embed_texts, req.texts)
     return {"embeddings": embeddings}
 
 

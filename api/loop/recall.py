@@ -284,11 +284,17 @@ async def _mirror_target_to_puddle(
 
 
 async def _averaged_anchor_embedding(anchor_ids: list[str]) -> list[float] | None:
-    """Pull anchor deltas, embed their content, return the L2-normalized
-    mean vector. Returns None if anything along the way fails — recall
+    """Pull anchor deltas, return the L2-normalized mean of their stored
+    embeddings. Returns None if anything along the way fails — recall
     falls back to letting the puddle's resonance ranker embed the prose
     content itself, which is still useful, just less semantically
     targeted at "what resonated in the lake."
+
+    Uses the embeddings already persisted on each delta (populated by
+    delta-store's embed_loop at write time). Re-embedding the prose
+    here would queue against the CLIP encoder on the delta-store side
+    and — under three concurrent voice-searcher fires — thrash CPU
+    parallelism into multi-minute hangs.
     """
     if not anchor_ids:
         return None
@@ -300,24 +306,14 @@ async def _averaged_anchor_embedding(anchor_ids: list[str]) -> list[float] | Non
             "falling back to content-embed"
         )
         return None
-    texts = [(d.get("content") or "").strip()[:1000] for d in deltas]
-    texts = [t for t in texts if t]
-    if not texts:
-        return None
-    try:
-        embs = await delta_client.embed(texts)
-    except Exception as e:
-        print(
-            f"[recall] anchor embed failed: {type(e).__name__}: {e} — "
-            "falling back to content-embed"
-        )
-        return None
+    embs = [d.get("embedding") for d in deltas if d.get("embedding")]
     if not embs:
         return None
     n_dims = len(embs[0])
     if not n_dims:
         return None
     sums = [0.0] * n_dims
+    counted = 0
     for emb in embs:
         if len(emb) != n_dims:
             # Skip vectors that don't match the leading dimension —
@@ -326,7 +322,10 @@ async def _averaged_anchor_embedding(anchor_ids: list[str]) -> list[float] | Non
             continue
         for i, v in enumerate(emb):
             sums[i] += float(v)
-    avg = [s / len(embs) for s in sums]
+        counted += 1
+    if not counted:
+        return None
+    avg = [s / counted for s in sums]
     norm = math.sqrt(sum(v * v for v in avg))
     if norm > 0:
         avg = [v / norm for v in avg]
