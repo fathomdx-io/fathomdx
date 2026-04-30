@@ -1168,24 +1168,16 @@
       --voice-destroyer: #dc2626;
     }
     .convergence-bars {
-      position: relative;
-      display: inline-block;
-      width: 80px; height: 12px;
+      display: inline-flex;
+      gap: 4px;
+      align-items: center;
       vertical-align: middle;
       margin-right: 4px;
     }
     .convergence-bars[hidden] { display: none !important; }
     .conv-bar {
-      position: absolute;
-      top: 50%; left: 0;
-      margin-top: -3.5px;
-      mix-blend-mode: screen;
+      display: inline-flex;
       pointer-events: none;
-      will-change: transform;
-    }
-    .convergence-bars.settled .conv-bar,
-    .convergence-bars.transitioning .conv-bar {
-      transition: transform 700ms cubic-bezier(0.34, 1.36, 0.64, 1);
     }
     .conv-bar > span {
       display: block;
@@ -1197,7 +1189,6 @@
     .conv-bar.voice-creator   > span { background: #ff0000; animation-delay: 0s; }
     .conv-bar.voice-preserver > span { background: #00ff00; animation-delay: 1s; }
     .conv-bar.voice-destroyer > span { background: #0000ff; animation-delay: 2s; }
-    .convergence-bars.settled .conv-bar { mix-blend-mode: normal; }
     .convergence-bars.settled .conv-bar > span {
       background: var(--signal);
       box-shadow: 0 0 4px var(--signal);
@@ -3232,6 +3223,14 @@
       <div class="section-head">
         <h2>What I noticed</h2>
         <span class="meta section-meta-group">
+          <!-- Convergence dots — three RGB dots in a fixed row. Pulse
+               on staggered phases while the loop has pending intents,
+               snap to teal when the witness is writing the final card. -->
+          <span class="convergence-bars" id="convergenceBars" aria-hidden="true" hidden>
+            <span class="conv-bar voice-creator"><span></span></span>
+            <span class="conv-bar voice-preserver"><span></span></span>
+            <span class="conv-bar voice-destroyer"><span></span></span>
+          </span>
           <span class="feed-filter" id="feedFilter" data-open="false">
             <button type="button" class="feed-filter-toggle" id="feedFilterToggle" aria-haspopup="true" aria-expanded="false" aria-controls="feedFilterPanel" title="Pick what shows in the feed">
               <span id="feedFilterToggleLabel">Filter</span>
@@ -3253,18 +3252,6 @@
               <label><input type="checkbox" data-category="identity"> Identity</label>
               <label><input type="checkbox" data-category="routine"> Routine Activity</label>
             </div>
-          </span>
-          <span class="feed-meta-sep"> · </span>
-          <!-- Convergence dots — three RGB dots that oscillate while the
-               loop has pending intents (the parliament is deliberating),
-               snap to teal and glide to a left-aligned ellipsis when
-               the queue empties. Lifted from the experiments/loop-
-               experiment viz. mix-blend-mode:screen makes overlapping
-               dots additively combine to white at convergence. -->
-          <span class="convergence-bars" id="convergenceBars" aria-hidden="true" hidden>
-            <span class="conv-bar voice-creator"><span></span></span>
-            <span class="conv-bar voice-preserver"><span></span></span>
-            <span class="conv-bar voice-destroyer"><span></span></span>
           </span>
           <button class="fire-pulse-btn" id="firePulseBtn" type="button" title="Fire a feed synthesis pulse — drops one intent per pass (reflection / drift / bridging / alert) into the puddle. Same primitive the pressure-watcher fires automatically when substrate pressure crosses threshold.">fire</button>
           <span class="feed-meta-sep" id="feedMetaSep" hidden> · </span>
@@ -9447,87 +9434,19 @@ GET  /v1/usage               Usage stats`,
     }
 
     // ── Convergence dots ─────────────────────────
-    // Three RGB dots in the feed status strip. Animation strategy lifted
-    // from the loop-experiment viz: while pending intents exist, the
-    // bars are visible and a per-frame rAF oscillator drives each dot's
-    // x-position with a sine wave (each voice on its own phase). When
-    // the queue empties, .settled flips on — dots snap to witness teal
-    // and glide to a left-aligned ellipsis position, still pulsing as
-    // "writing." When new pending lands, .settled flips off and a brief
-    // .transitioning window keeps the glide from snapping back to the
-    // first oscillator frame. Cross-voice metric data could feed real
-    // x-positions later; for now the shape lives on the sine fallback.
+    // Three RGB dots in the feed status strip. They sit in fixed
+    // positions, pulse RGB on staggered phases while the loop is
+    // deliberating, and snap to teal when the witness is writing the
+    // final card. No position math — CSS owns the pulse + teal flash.
     const _convBars = document.getElementById('convergenceBars');
-    const CONV_BAR_WIDTH_PX = 80;
-    const CONV_BAR_DOT_PX = 7;
-    const CONV_BAR_RANGE = CONV_BAR_WIDTH_PX - CONV_BAR_DOT_PX;
-    const CONV_ELLIPSIS_POSITIONS = { creator: 0, preserver: 11, destroyer: 22 };
-    let _convOscRafId = null;
-    let _convInEllipsisMode = false;
 
-    // Per-voice metric series — populated by _pollLoopStatus. Each
-    // entry is {timestamp, distance}; the latest distance drives the
-    // dot's x-position. Empty → pure sine fallback (the spike state).
-    const _metricByVoice = { creator: [], preserver: [], destroyer: [] };
-
-    function _convAnimate() {
-      if (!_convBars || _convBars.hidden || _convInEllipsisMode) {
-        _convOscRafId = null;
-        return;
-      }
-      const t = Date.now() / 1000;
-      const voices = ['creator', 'preserver', 'destroyer'];
-      voices.forEach((voice, i) => {
-        const series = _metricByVoice[voice];
-        let x;
-        if (series && series.length) {
-          // Real metric data — x = (1 - distance) * range + small wobble
-          // so the dot reads as alive rather than frozen at one position.
-          // Lower distance → voices saying overlapping things → dots
-          // cluster left. Higher distance → distinct stances → dots
-          // spread. mix-blend-mode:screen makes overlapping dots
-          // additively combine to white at convergence.
-          const latest = series[series.length - 1];
-          const sim = Math.max(0, Math.min(1, 1 - (latest.distance || 0)));
-          x = sim * CONV_BAR_RANGE + 4 * Math.sin(t * 1.5 + i * 2);
-        } else {
-          // No metric yet — pure sine over the bar range so the dot
-          // moves visibly. Each voice on its own phase so they don't
-          // unison-march.
-          x = CONV_BAR_RANGE / 2 + (CONV_BAR_RANGE / 2 - 4) * Math.sin(t * 1.2 + i * 2.1);
-        }
-        const bar = _convBars.querySelector(`.conv-bar.voice-${voice}`);
-        if (bar) bar.style.transform = `translateX(${x.toFixed(1)}px)`;
-      });
-      _convOscRafId = requestAnimationFrame(_convAnimate);
-    }
-    function _convStartOsc() {
-      if (_convOscRafId == null) _convOscRafId = requestAnimationFrame(_convAnimate);
-    }
     function _convShowDeliberating() {
       if (!_convBars) return;
       _convBars.hidden = false;
-      // If we were in the post-settle ellipsis-teal state, un-settle so
-      // dots return to RGB pulse for the new tick. Without this, ticks
-      // 2+ in a chain would stay frozen at ellipsis positions.
       _convBars.classList.remove('settled');
-      _convInEllipsisMode = false;
-      // Brief CSS-transition window so dots glide from their last
-      // position (ellipsis) to the oscillator's first frame instead of
-      // snap-jumping. Removed after 750ms so per-frame oscillator can
-      // take over without transition lag.
-      _convBars.classList.add('transitioning');
-      setTimeout(() => { _convBars && _convBars.classList.remove('transitioning'); }, 750);
-      _convStartOsc();
     }
-    function _convSettleToEllipsis() {
-      if (!_convBars) return;
-      _convBars.classList.add('settled');
-      _convInEllipsisMode = true;
-      for (const [voice, x] of Object.entries(CONV_ELLIPSIS_POSITIONS)) {
-        const bar = _convBars.querySelector(`.conv-bar.voice-${voice}`);
-        if (bar) bar.style.transform = `translateX(${x}px)`;
-      }
+    function _convSettle() {
+      if (_convBars) _convBars.classList.add('settled');
     }
     function _convHide() {
       if (_convBars) _convBars.hidden = true;
@@ -9542,13 +9461,9 @@ GET  /v1/usage               Usage stats`,
     let _convLastPending = -1;
     async function _pollLoopStatus() {
       try {
-        // Two reads: pending intents drive show/settle/hide; metrics
-        // drive the dot positions. One Promise.all so they refresh in
-        // lockstep at the 1.5s status cadence.
-        const [intentsR, metricsR] = await Promise.all([
-          fetch(API_BASE + '/v1/puddle/intents', { headers: authHeaders() }),
-          fetch(API_BASE + '/v1/puddle/metrics', { headers: authHeaders() }),
-        ]);
+        // Pending intents drive show / settle / hide. The dots' visual
+        // (RGB pulse → teal) is purely CSS — no metrics needed.
+        const intentsR = await fetch(API_BASE + '/v1/puddle/intents', { headers: authHeaders() });
         if (intentsR.ok) {
           const data = await intentsR.json();
           const pending = (data.intents || []).length;
@@ -9558,10 +9473,10 @@ GET  /v1/usage               Usage stats`,
             }
             _convSettleHideAt = 0;
           } else {
-            // Just transitioned from pending → idle: settle to
-            // ellipsis, keep visible briefly, then fade.
+            // Just transitioned from pending → idle: snap to teal and
+            // keep visible briefly as "writing", then fade.
             if (_convLastPending > 0) {
-              _convSettleToEllipsis();
+              _convSettle();
               _convSettleHideAt = Date.now() + 6000;
             } else if (_convSettleHideAt && Date.now() >= _convSettleHideAt) {
               _convHide();
@@ -9569,13 +9484,6 @@ GET  /v1/usage               Usage stats`,
             }
           }
           _convLastPending = pending;
-        }
-        if (metricsR.ok) {
-          const m = await metricsR.json();
-          const voices = (m && m.voices) || {};
-          for (const v of ['creator', 'preserver', 'destroyer']) {
-            _metricByVoice[v] = voices[v] || [];
-          }
         }
       } catch (e) { /* best-effort */ }
     }
