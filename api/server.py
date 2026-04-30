@@ -186,13 +186,16 @@ async def lifespan(_app: FastAPI):
         _spawn_task(_backfill_once(resolved_admin), name="lifespan/contact-backfill")
 
     from .loop import worker as loop_worker
+    from . import routine_scheduler
 
     auto_regen.start()
+    routine_scheduler.start()
     loop_worker.start()
     try:
         yield
     finally:
         await loop_worker.stop()
+        await routine_scheduler.stop()
         await auto_regen.stop()
         await delta_client.close()
 
