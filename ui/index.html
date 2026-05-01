@@ -644,14 +644,13 @@
        see the prompt / summary text. Clicking the routine name itself
        (the highlighted span) jumps to the routine detail page. */
     /* Routines — "log entry" feel. Lighter surface (not bg-deep, which
-       claude-code owns), serif routine name, signal-tint accent rule
-       on the left. Reads as "an entry in the routine log" rather than
-       "a tool dispatched a session." Same accordion shape, distinct
+       claude-code owns). Orange kicker prefix + white routine name,
+       no left border, no leading icon. Reads as a labeled record
+       rather than a tool dispatch. Same accordion shape, distinct
        weight from claude-code's terminal cards. */
     .feed .delta.routine {
       background: color-mix(in srgb, var(--surface) 92%, var(--signal) 8%);
       border: 1px solid var(--rule-soft);
-      border-left: 2px solid color-mix(in srgb, var(--signal) 70%, transparent);
       border-radius: 4px;
       padding: 0.5rem 0.85rem;
     }
@@ -673,23 +672,16 @@
       transition: transform 160ms;
     }
     .feed .delta.routine[open] > summary.d-head::before { transform: rotate(90deg); }
-    .feed .delta.routine .routine-icon {
-      color: var(--signal);
-      opacity: 0.85;
-      font-size: 13px;
-      width: 14px;
-      text-align: center;
-      flex-shrink: 0;
-    }
-    /* Header: small uppercase prefix ("routine ·") then the routine name
-       in serif, then the variant label in faint mono. Mixed-typography
-       cue — the serif name is the focus, the surrounding scaffolding
-       reads as metadata. */
+    /* Leading icon was a refresh-style cue that pulled visual weight
+       from the routine name. The orange kicker is sufficient. */
+    .feed .delta.routine .routine-icon { display: none; }
+    /* Header: orange uppercase kicker ("ROUTINE ·"), then the routine
+       name in white, then the variant label in dim signal. */
     .feed .delta.routine .d-kind {
       flex: 1;
       font-family: var(--mono);
       font-size: 10.5px;
-      color: var(--ink-faint);
+      color: var(--signal);
       letter-spacing: 0.06em;
       text-transform: uppercase;
       overflow: hidden;
@@ -715,7 +707,7 @@
     }
     .feed .delta.routine .routine-variant {
       color: var(--signal);
-      opacity: 0.75;
+      opacity: 0.6;
     }
     .feed .delta.routine .d-ts {
       color: var(--ink-faint);
@@ -723,8 +715,8 @@
       font-size: 10.5px;
       letter-spacing: 0.04em;
     }
-    /* Body — serif when expanded, like reading the routine's own page.
-       Distinct from claude-code's mono terminal-pre body. */
+    /* Body — small metadata grid (host, permission mode), serif when
+       there's narrative content to show. */
     .feed .delta.routine .d-body {
       margin-top: 0.6rem;
       padding-top: 0.55rem;
@@ -735,6 +727,22 @@
       line-height: 1.55;
       white-space: pre-wrap;
     }
+    .feed .delta.routine .routine-meta {
+      display: grid;
+      grid-template-columns: max-content 1fr;
+      column-gap: 14px;
+      row-gap: 4px;
+      font-family: var(--mono);
+      font-size: 11.5px;
+    }
+    .feed .delta.routine .routine-meta-key {
+      color: var(--ink-faint);
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      font-size: 10.5px;
+      align-self: center;
+    }
+    .feed .delta.routine .routine-meta-val { color: var(--ink); }
     /* Crystal — purple accent on the surface tint. */
     .feed .delta.crystal {
       border-left-color: #a78bfa;
@@ -9550,14 +9558,40 @@ GET  /v1/usage               Usage stats`,
         variant === 'fire'    ? 'fire' :
         variant
       );
-      const body = (content || '').toString();
+
+      // Body content varies by variant:
+      //   · routine-due / fired — the raw content is a routine-tick stub
+      //     ("routine-tick: <id>") which has no human value. Pull host +
+      //     permission_mode off the cached routine spec so the expanded
+      //     body shows what's meaningful: where it ran, in what mode.
+      //   · summary — the actual narrative claude-code wrote on closure.
+      //     Render as markdown.
+      //   · fire (legacy) — the raw routine prompt body. Render as
+      //     markdown for readability.
+      const cached = (typeof _routineCache !== 'undefined' && _routineCache)
+        ? _routineCache.find(x => x.id === routineId)
+        : null;
+      let bodyHtml;
+      if (variant === 'fired' && cached) {
+        const host = (cached.host || '').trim() || 'fleet (any host)';
+        const mode = (cached.permission_mode || 'auto').trim();
+        bodyHtml = `
+          <div class="routine-meta">
+            <div class="routine-meta-key">host</div>
+            <div class="routine-meta-val">${_esc(host)}</div>
+            <div class="routine-meta-key">permission</div>
+            <div class="routine-meta-val">${_esc(mode)}</div>
+          </div>`;
+      } else {
+        bodyHtml = renderMd((content || '').toString());
+      }
+
       el.innerHTML = `
         <summary class="d-head">
-          <span class="routine-icon">↻</span>
           <span class="d-kind">routine · <span class="routine-name${routineId ? ' is-link' : ''}">${_esc(name)}</span> · <span class="routine-variant">${_esc(variantLabel)}</span></span>
           <span class="d-ts">${timeStr}</span>
         </summary>
-        <div class="d-body">${renderMd(body)}</div>
+        <div class="d-body">${bodyHtml}</div>
       `;
       // Clicking the routine-name span jumps to the routine detail page;
       // clicking anywhere else on the summary toggles the accordion.
