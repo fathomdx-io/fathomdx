@@ -2721,6 +2721,10 @@
     .scaffold-grid {
       display: flex; flex-direction: column; gap: 14px;
     }
+    /* `display: flex` clobbers the browser's implicit hidden→display:none,
+       so the scaffold inputs stay visible when the regular tab is active.
+       Restore the hidden behavior explicitly. */
+    .scaffold-grid[hidden] { display: none; }
     .scaffold-field { display: flex; flex-direction: column; }
     .scaffold-field label {
       font-family: var(--mono); font-size: 11px;
