@@ -79,6 +79,7 @@ class Puddle:
         ttl_seconds: int | None = None,
         expires_at: str | None = None,
         embedding: list[float] | None = None,
+        timestamp: str | None = None,
     ) -> dict:
         """Append a delta. Returns the stored dict (with id, timestamp).
 
@@ -93,16 +94,24 @@ class Puddle:
         semantic anchor is the average of the lake passages that
         actually resonated — late-chunking shape: content carries the
         meaning, embedding carries the context.
+
+        ``timestamp``: optional ISO timestamp override. Default is `now`
+        (write time). Telepathy mirrors set this to the lake delta's
+        original timestamp so the puddle entry sorts chronologically
+        with the activity it represents — without this, every mirror
+        stamps as "now" and the dashboard feed shows a burst of items
+        all at the same moment after telepathy runs.
         """
         now = _now()
         if ttl_seconds is not None and expires_at is None:
             expires_at = _iso(now + timedelta(seconds=ttl_seconds))
+        ts = timestamp or _iso(now)
         delta = {
             "id": str(uuid.uuid4()),
             "content": content,
             "tags": list(tags),
             "source": source,
-            "timestamp": _iso(now),
+            "timestamp": ts,
             "expires_at": expires_at,
         }
         if embedding is not None:

@@ -355,12 +355,18 @@ async def mirror_recent_activity() -> int:
         # through eliminates a /embed round-trip per lake-mirror per voice
         # per round (and the CPU forward pass it would queue against).
         emb = d.get("embedding") or None
+        # Carry the lake delta's original timestamp through to the puddle
+        # entry. Without this, every mirror stamps `now` — so a burst of
+        # mirrored routine activity (or anything else) shows up in the
+        # feed all at the same moment instead of when it actually happened.
+        original_ts = d.get("timestamp") or None
         await puddle.write(
             content=content,
             tags=new_tags,
             source=src or "unknown",
             ttl_seconds=ANCHOR_TTL_S,
             embedding=emb,
+            timestamp=original_ts,
         )
         existing_short_ids.add(short)
         written += 1

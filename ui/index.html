@@ -9221,8 +9221,16 @@ GET  /v1/usage               Usage stats`,
     // the conversation. All kinds within a category land in the SAME
     // accordion — voice thoughts and recalls and deltas mix together
     // under "Thinking", crystal and mood mix under "Identity".
+    // Categories that pack into accordions when 2+ items share the
+    // same (category, session). Routine activity (fires + summaries)
+    // is intentionally NOT clusterable — each fire is its own moment
+    // in time and the chronological sequence is what the user wants
+    // to read; collapsing them into "Routine Activity 7" hides the
+    // shape of "I fired the news routine at 8am, the ramen routine
+    // at noon, the heartbeat at 6pm" exactly when that's the most
+    // useful thing to see.
     const _CLUSTERABLE_CATEGORIES = new Set([
-      'prompts', 'thinking', 'identity', 'routine',
+      'prompts', 'thinking', 'identity',
     ]);
 
     function _renderAccordion(items) {
