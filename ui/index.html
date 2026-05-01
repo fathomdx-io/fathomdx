@@ -643,11 +643,8 @@
        tick is its own <details>: closed by default, click to expand and
        see the prompt / summary text. Clicking the routine name itself
        (the highlighted span) jumps to the routine detail page. */
-    /* Routines — "log entry" feel. Lighter surface (not bg-deep, which
-       claude-code owns). Orange kicker prefix + white routine name,
-       no left border, no leading icon. Reads as a labeled record
-       rather than a tool dispatch. Same accordion shape, distinct
-       weight from claude-code's terminal cards. */
+    /* Routines — "log entry" feel. Orange kicker (ROUTINE) only;
+       everything else white. No left border, no leading icon. */
     .feed .delta.routine {
       background: color-mix(in srgb, var(--surface) 92%, var(--signal) 8%);
       border: 1px solid var(--rule-soft);
@@ -672,21 +669,22 @@
       transition: transform 160ms;
     }
     .feed .delta.routine[open] > summary.d-head::before { transform: rotate(90deg); }
-    /* Leading icon was a refresh-style cue that pulled visual weight
-       from the routine name. The orange kicker is sufficient. */
     .feed .delta.routine .routine-icon { display: none; }
-    /* Header: orange uppercase kicker ("ROUTINE ·"), then the routine
-       name in white, then the variant label in dim signal. */
+    /* Header content: white-on-surface, mono kicker prefix in orange. */
     .feed .delta.routine .d-kind {
       flex: 1;
       font-family: var(--mono);
       font-size: 10.5px;
-      color: var(--signal);
+      color: var(--ink);
       letter-spacing: 0.06em;
       text-transform: uppercase;
       overflow: hidden;
       text-overflow: ellipsis;
       white-space: nowrap;
+    }
+    .feed .delta.routine .routine-kicker {
+      color: var(--signal);
+      margin-right: 0.4rem;
     }
     .feed .delta.routine .routine-name {
       font-family: var(--serif);
@@ -706,8 +704,8 @@
       text-decoration-color: currentColor;
     }
     .feed .delta.routine .routine-variant {
-      color: var(--signal);
-      opacity: 0.6;
+      color: var(--ink);
+      margin-left: 0.4rem;
     }
     .feed .delta.routine .d-ts {
       color: var(--ink-faint);
@@ -715,15 +713,14 @@
       font-size: 10.5px;
       letter-spacing: 0.04em;
     }
-    /* Body — small metadata grid (host, permission mode), serif when
-       there's narrative content to show. */
+    /* Body — tight to the header (no big gap), white text. */
     .feed .delta.routine .d-body {
-      margin-top: 0.6rem;
-      padding-top: 0.55rem;
+      margin-top: 0.45rem;
+      padding-top: 0.4rem;
       border-top: 1px solid var(--rule-soft);
-      font-family: var(--serif);
-      font-size: 13.5px;
-      color: var(--ink-soft);
+      font-family: var(--mono);
+      font-size: 12px;
+      color: var(--ink);
       line-height: 1.55;
       white-space: pre-wrap;
     }
@@ -731,18 +728,20 @@
       display: grid;
       grid-template-columns: max-content 1fr;
       column-gap: 14px;
-      row-gap: 4px;
-      font-family: var(--mono);
-      font-size: 11.5px;
+      row-gap: 3px;
     }
     .feed .delta.routine .routine-meta-key {
-      color: var(--ink-faint);
+      color: var(--ink);
+      opacity: 0.55;
       text-transform: uppercase;
       letter-spacing: 0.06em;
       font-size: 10.5px;
       align-self: center;
     }
-    .feed .delta.routine .routine-meta-val { color: var(--ink); }
+    .feed .delta.routine .routine-meta-val {
+      color: var(--ink);
+      font-size: 12px;
+    }
     /* Crystal — purple accent on the surface tint. */
     .feed .delta.crystal {
       border-left-color: #a78bfa;
@@ -9622,7 +9621,7 @@ GET  /v1/usage               Usage stats`,
 
       el.innerHTML = `
         <summary class="d-head">
-          <span class="d-kind">routine · <span class="routine-name${routineId ? ' is-link' : ''}">${_esc(name)}</span> · <span class="routine-variant">${_esc(variantLabel)}</span></span>
+          <span class="d-kind"><span class="routine-kicker">routine</span><span class="routine-name${routineId ? ' is-link' : ''}">${_esc(name)}</span><span class="routine-variant">· ${_esc(variantLabel)}</span></span>
           <span class="d-ts">${timeStr}</span>
         </summary>
         <div class="d-body">${bodyHtml}</div>
