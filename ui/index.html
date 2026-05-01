@@ -307,9 +307,9 @@
       color: var(--bg, #1a1a1a); background: var(--signal); border-color: var(--signal);
     }
     /* Proposal cards — Edit/Deny/Approve. Same outer shape as a regular
-       card but with a tinted accent rule and a tray of buttons replacing
-       the engagement +/-. */
-    .card-proposal { border-left: 3px solid var(--signal, #d97706); }
+       card with a tray of buttons replacing the engagement +/-. The
+       kicker ("REWRITE", "PROPOSAL", etc.) is enough as a visual cue;
+       the colored left border was redundant and clashed with the kicker. */
     .card-proposal .proposal-summary {
       margin: 10px 0 6px; padding: 10px 12px; border-radius: 6px;
       background: var(--surface-2, rgba(127,127,127,0.06));
@@ -5642,17 +5642,8 @@
       const chipsHtml = all.map(_routineChipHTML).join('');
       list.innerHTML = chipsHtml + `<button class="chip add" data-new-routine-for="" type="button">+ New routine</button>`;
 
-      // Section meta: count of enabled routines.
       const meta = document.getElementById('routinesMeta');
-      if (meta) {
-        const enabled = _routineCache.filter(r => r.enabled).length;
-        const total = _routineCache.length;
-        meta.textContent = total === 0
-          ? ''
-          : enabled === total
-            ? `${total}`
-            : `${enabled}/${total} enabled`;
-      }
+      if (meta) meta.textContent = '';
 
       _wireAddRoutineChips();
       _wireRoutineChips();
