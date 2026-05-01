@@ -375,22 +375,39 @@ def get_feed(
                 **common,
             })
             continue
-        # Routine activity — fires (the trigger) and summaries (the
-        # writeup the routine produced). Both surface under one kind so
-        # the filter can toggle them independently of generic lake-delta
-        # noise; the `summary` field lets the renderer tell them apart.
-        if "routine-fire" in tags or "routine-summary" in tags:
+        # Routine activity — three shapes:
+        #   · routine-tick — cron tick handed the routine to the River
+        #     (surfaces as kind:"routine-due" with variant "fired", the
+        #     durable lake-side counterpart of the puddle's routine-due
+        #     intent so the marker survives api restarts).
+        #   · routine-fire — legacy direct-to-kitty path (variant "fire").
+        #   · routine-summary — claude-code's writeup back from a fire
+        #     (variant "summary").
+        # All carry routine-id so the dashboard renders the routine name.
+        if (
+            "routine-fire" in tags
+            or "routine-summary" in tags
+            or "routine-tick" in tags
+        ):
             routine_id = next(
                 (t.split(":", 1)[1] for t in tags if t.startswith("routine-id:")),
                 None,
             )
-            items.append({
-                "kind": "routine",
-                "routine_id": routine_id,
-                "summary": "routine-summary" in tags,
-                "content": d.get("content") or "",
-                **common,
-            })
+            if "routine-tick" in tags:
+                items.append({
+                    "kind": "routine-due",
+                    "routine_id": routine_id,
+                    "content": d.get("content") or "",
+                    **common,
+                })
+            else:
+                items.append({
+                    "kind": "routine",
+                    "routine_id": routine_id,
+                    "summary": "routine-summary" in tags,
+                    "content": d.get("content") or "",
+                    **common,
+                })
             continue
         # Claude-code task channel — closure deltas from a tasked
         # claude-code session, plus any other claude-code:task source
