@@ -643,12 +643,17 @@
        tick is its own <details>: closed by default, click to expand and
        see the prompt / summary text. Clicking the routine name itself
        (the highlighted span) jumps to the routine detail page. */
+    /* Routines — "log entry" feel. Lighter surface (not bg-deep, which
+       claude-code owns), serif routine name, signal-tint accent rule
+       on the left. Reads as "an entry in the routine log" rather than
+       "a tool dispatched a session." Same accordion shape, distinct
+       weight from claude-code's terminal cards. */
     .feed .delta.routine {
-      border-left: none;
-      background: var(--bg-deep);
+      background: color-mix(in srgb, var(--surface) 92%, var(--signal) 8%);
       border: 1px solid var(--rule-soft);
-      border-radius: 6px;
-      padding: 0.55rem 0.85rem;
+      border-left: 2px solid color-mix(in srgb, var(--signal) 70%, transparent);
+      border-radius: 4px;
+      padding: 0.5rem 0.85rem;
     }
     .feed .delta.routine > summary.d-head {
       list-style: none;
@@ -663,8 +668,8 @@
       content: "▸";
       display: inline-block;
       width: 0.9rem;
-      color: var(--signal);
-      opacity: 0.7;
+      color: var(--ink-faint);
+      opacity: 0.6;
       transition: transform 160ms;
     }
     .feed .delta.routine[open] > summary.d-head::before { transform: rotate(90deg); }
@@ -676,19 +681,28 @@
       text-align: center;
       flex-shrink: 0;
     }
+    /* Header: small uppercase prefix ("routine ·") then the routine name
+       in serif, then the variant label in faint mono. Mixed-typography
+       cue — the serif name is the focus, the surrounding scaffolding
+       reads as metadata. */
     .feed .delta.routine .d-kind {
       flex: 1;
       font-family: var(--mono);
-      font-size: 11.5px;
-      color: var(--ink-soft);
-      letter-spacing: 0.04em;
+      font-size: 10.5px;
+      color: var(--ink-faint);
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
       overflow: hidden;
       text-overflow: ellipsis;
       white-space: nowrap;
     }
     .feed .delta.routine .routine-name {
+      font-family: var(--serif);
+      font-size: 14.5px;
+      font-weight: 500;
       color: var(--ink);
-      font-weight: 600;
+      text-transform: none;
+      letter-spacing: 0;
     }
     .feed .delta.routine .routine-name.is-link {
       cursor: pointer;
@@ -701,16 +715,22 @@
     }
     .feed .delta.routine .routine-variant {
       color: var(--signal);
-      opacity: 0.8;
+      opacity: 0.75;
     }
     .feed .delta.routine .d-ts {
-      color: color-mix(in srgb, var(--signal) 65%, transparent);
+      color: var(--ink-faint);
       flex-shrink: 0;
+      font-size: 10.5px;
+      letter-spacing: 0.04em;
     }
+    /* Body — serif when expanded, like reading the routine's own page.
+       Distinct from claude-code's mono terminal-pre body. */
     .feed .delta.routine .d-body {
-      margin-top: 0.5rem;
-      font-family: var(--mono);
-      font-size: 12.5px;
+      margin-top: 0.6rem;
+      padding-top: 0.55rem;
+      border-top: 1px solid var(--rule-soft);
+      font-family: var(--serif);
+      font-size: 13.5px;
       color: var(--ink-soft);
       line-height: 1.55;
       white-space: pre-wrap;
@@ -2764,6 +2784,79 @@
     }
     .routine-editor .err {
       color: #d35; font-size: 12px; font-family: var(--mono);
+    }
+
+    /* Progressive create flow — one question at a time, no wizard chrome.
+       Moments below the active one stay hidden; moments above collapse
+       to a one-line summary the user can tap to re-edit. */
+    .routine-progressive {
+      display: flex; flex-direction: column; gap: 12px;
+    }
+    .prog-moment {
+      border: 1px solid transparent; border-radius: 8px;
+      transition: border-color 120ms ease, background 120ms ease;
+    }
+    .prog-moment[data-state="pending"] { display: none; }
+    .prog-moment[data-state="active"] {
+      padding: 16px 18px; background: var(--surface-2);
+      border-color: var(--rule);
+      animation: progFadeIn 180ms ease;
+    }
+    .prog-moment[data-state="done"] {
+      padding: 8px 14px; cursor: pointer;
+    }
+    .prog-moment[data-state="done"]:hover { background: var(--surface-2); }
+    @keyframes progFadeIn {
+      from { opacity: 0; transform: translateY(4px); }
+      to   { opacity: 1; transform: translateY(0); }
+    }
+    .prog-moment .prog-q {
+      font-family: var(--sans); font-size: 16px; font-weight: 500;
+      color: var(--ink); margin-bottom: 12px;
+    }
+    .prog-moment[data-state="done"] .prog-q {
+      font-size: 11px; font-family: var(--mono); color: var(--ink-faint);
+      text-transform: uppercase; letter-spacing: 0.06em;
+      margin: 0 0 4px; display: block;
+    }
+    .prog-moment[data-state="done"] .prog-body { display: none; }
+    .prog-moment[data-state="active"] .prog-summary { display: none; }
+    .prog-summary {
+      display: block; font-size: 14px; color: var(--ink);
+      font-family: var(--sans); line-height: 1.4;
+    }
+    .prog-summary[data-skipped="true"] { color: var(--ink-faint); font-style: italic; }
+    .prog-actions {
+      display: flex; gap: 8px; justify-content: flex-end; margin-top: 10px;
+    }
+    .prog-hint {
+      font-size: 11px; color: var(--ink-faint); line-height: 1.5; margin-top: 6px;
+    }
+    .routine-progressive .form-input,
+    .routine-progressive .form-textarea {
+      width: 100%; background: var(--surface);
+      border: 1px solid var(--rule); border-radius: 6px; padding: 8px 10px;
+      font-family: var(--sans); font-size: 13px; color: var(--ink);
+    }
+    .routine-progressive .form-textarea {
+      font-family: var(--mono); font-size: 12px; min-height: 96px; resize: vertical;
+    }
+    .routine-progressive .form-input:focus,
+    .routine-progressive .form-textarea:focus {
+      outline: none; border-color: var(--accent);
+    }
+    .routine-progressive .ending-choices {
+      display: flex; flex-direction: column; gap: 6px; font-size: 12px;
+    }
+    .routine-progressive .ending-choice {
+      font-family: var(--mono); font-size: 12px; display: flex;
+      align-items: center; gap: 8px; cursor: pointer;
+    }
+    .routine-progressive .cron-picker .picker-row {
+      display: flex; gap: 8px; flex-wrap: wrap;
+    }
+    .routine-progressive .err {
+      color: #d35; font-size: 12px; font-family: var(--mono); margin-top: 8px;
     }
     .segmented {
       display: inline-flex; border: 1px solid var(--rule); border-radius: 6px; overflow: hidden;
@@ -5279,6 +5372,26 @@
       ].join('\n\n') + '\n';
     }
 
+    // Replace (or insert) the `# Ending` section of a regular-mode prompt
+    // body. Used by the radio-cluster shortcut so quick-picks land in the
+    // right place whether the body already has a section or is freeform.
+    function _setEndingInPrompt(prompt, ending) {
+      const text = prompt || '';
+      const headerRe = /^#\s*Ending\b[^\n]*$/im;
+      const m = headerRe.exec(text);
+      if (m) {
+        const headerEnd = m.index + m[0].length;
+        const nextRe = /^#\s+\w+/gim;
+        nextRe.lastIndex = headerEnd;
+        const next = nextRe.exec(text);
+        const sliceEnd = next ? next.index : text.length;
+        return text.slice(0, headerEnd) + `\n${ending}\n` + (next ? '\n' : '') + text.slice(sliceEnd);
+      }
+      const trimmed = text.replace(/\s+$/, '');
+      const sep = trimmed ? '\n\n' : '';
+      return trimmed + sep + `# Ending\n${ending}\n`;
+    }
+
     // Extract date+time pieces from a `once` cron (`MM HH DD MM *`).
     function extractOnceDate(cron) {
       const m = (cron || '').match(/^(\d+)\s+(\d+)\s+(\d+)\s+(\d+)\s+\*$/);
@@ -5799,6 +5912,15 @@
             <div class="form-hint" style="margin-top: 8px;">
               Routines fire INTO Fathom — the witness picks the route (card, alert, chat-reply, claude-code dispatch, silent). See <a href="https://github.com/fathomdx-io/fathomdx/blob/main/docs/reference/routine-spec.md#writing-the-prompt" target="_blank" rel="noopener noreferrer">routine-spec.md</a>.
             </div>
+            <label style="margin-top: 12px;">How would you like to be notified when this is done?</label>
+            <div class="ending-choices" data-ending-choices>
+              <label class="ending-choice"><input type="radio" name="ending-${_esc(isEdit ? r.id : '__new__')}" data-ending="card" /> A card in the feed</label>
+              <label class="ending-choice"><input type="radio" name="ending-${_esc(isEdit ? r.id : '__new__')}" data-ending="dm" /> Direct message to me</label>
+              <label class="ending-choice"><input type="radio" name="ending-${_esc(isEdit ? r.id : '__new__')}" data-ending="other" /> Do something else:</label>
+              <input class="form-input" data-ending-other type="text" placeholder="e.g. card most days; alert if X" style="margin-left: 24px; max-width: 420px;" />
+              <label class="ending-choice"><input type="radio" name="ending-${_esc(isEdit ? r.id : '__new__')}" data-ending="silent" /> Do nothing on screen — just write to the lake</label>
+            </div>
+            <div class="form-hint">Picking one fills the <code># Ending</code> section of your prompt. You can edit the prose directly afterward.</div>
           </div>
           <div class="field-row" style="align-items: center;">
             <div>
@@ -6039,6 +6161,57 @@
         btn.addEventListener('click', () => setMode(btn.dataset.mode));
       });
 
+      // Notification radio cluster — quick-pick that fills the `# Ending`
+      // section. In scaffold mode it overwrites the Ending textarea; in
+      // regular mode it replaces (or inserts) the `# Ending` section in
+      // the prompt textarea. The "other" choice reads from the adjacent
+      // text input so users can express conditional endings ("card most
+      // days; alert if X") without leaving the cluster.
+      const ENDING_PHRASES = {
+        card: 'Send me a card with the result.',
+        dm: 'DM me a quick line.',
+        silent: 'Stay silent — just write the result back to the lake.',
+      };
+      const otherInput = editor.querySelector('[data-ending-other]');
+      const applyEnding = (phrase) => {
+        const mode = editor.dataset.promptMode || 'regular';
+        if (mode === 'scaffold') {
+          if (scaffoldEls.ending) scaffoldEls.ending.value = phrase;
+        } else {
+          if (regularEl) regularEl.value = _setEndingInPrompt(regularEl.value, phrase);
+        }
+      };
+      const currentEndingPhrase = () => {
+        const checked = editor.querySelector('[data-ending]:checked');
+        if (!checked) return null;
+        const choice = checked.dataset.ending;
+        if (choice === 'other') return (otherInput && otherInput.value.trim()) || '';
+        return ENDING_PHRASES[choice] || null;
+      };
+      editor.querySelectorAll('[data-ending]').forEach(radio => {
+        radio.addEventListener('change', () => {
+          if (!radio.checked) return;
+          const phrase = currentEndingPhrase();
+          if (phrase != null) applyEnding(phrase);
+          if (radio.dataset.ending === 'other' && otherInput) otherInput.focus();
+        });
+      });
+      if (otherInput) {
+        otherInput.addEventListener('input', () => {
+          const checked = editor.querySelector('[data-ending]:checked');
+          if (checked && checked.dataset.ending === 'other') {
+            applyEnding(otherInput.value);
+          }
+        });
+        otherInput.addEventListener('focus', () => {
+          const otherRadio = editor.querySelector('[data-ending="other"]');
+          if (otherRadio && !otherRadio.checked) {
+            otherRadio.checked = true;
+            applyEnding(otherInput.value);
+          }
+        });
+      }
+
       editor.querySelector('[data-act="cancel"]').addEventListener('click', () => {
         if (onCancel) onCancel();
       });
@@ -6072,6 +6245,342 @@
           errBox.hidden = false;
         }
       });
+    }
+
+    // ── Progressive routine creator ─────────────────
+    // Inline-progressive-disclosure form for fresh creation: one moment
+    // at a time, no wizard chrome, prior answers collapse to a one-line
+    // summary you can tap to re-edit. The all-at-once renderEditorHtml()
+    // is reserved for the edit path (audit mode) and the proposal-driven
+    // create path (witness has already drafted everything; the user is
+    // reviewing, not composing).
+    //
+    // Order is intentional: WHAT → WHEN → NEEDS → ENDING → NAME. The point
+    // is to think about the routine while filling it out — naming or
+    // tool-picking up front is the chik-fil-a-asks-for-your-order-before-
+    // you-saw-the-menu problem. Generative work first; the boring metadata
+    // wrap-up at the end. Every moment is skippable.
+    const PROG_STEP_KEYS = ['purpose', 'schedule', 'needs', 'ending', 'name'];
+
+    function _progSlugify(s) {
+      return (s || '').toLowerCase().trim()
+        .replace(/[^\w\s-]/g, '')
+        .replace(/\s+/g, '-')
+        .replace(/-+/g, '-')
+        .replace(/^-|-$/g, '')
+        .slice(0, 60);
+    }
+
+    function renderProgressiveCreateHtml() {
+      console.log('[progressive-create] mounting v3 — auto-summary on transition, summary-below-label, scroll center');
+      return `
+        <div class="routine-progressive" data-prog-form data-editing="__new__">
+          <div class="prog-moment" data-step="purpose" data-state="active" data-idx="0">
+            <span class="prog-q">What should this routine do?</span>
+            <span class="prog-summary"></span>
+            <div class="prog-body">
+              <textarea class="form-textarea" data-prog="purpose" rows="4"
+                placeholder="A one-liner is fine, or describe what should happen in detail. The witness reads the whole prompt — feel free to mix the goal and the steps."></textarea>
+              <div class="prog-actions">
+                <button type="button" class="routine-btn" data-prog-act="skip">skip</button>
+                <button type="button" class="routine-btn primary" data-prog-act="next">continue</button>
+              </div>
+            </div>
+          </div>
+
+          <div class="prog-moment" data-step="schedule" data-state="pending" data-idx="1">
+            <span class="prog-q">When should it fire?</span>
+            <span class="prog-summary"></span>
+            <div class="prog-body">
+              <div class="cron-picker" data-cron-picker>
+                <div class="picker-row">
+                  <select class="form-input" data-cron-preset style="width: auto; min-width: 140px;">
+                    ${Object.entries(PRESET_LABELS).map(([k, v]) => `<option value="${k}" ${k === 'hourly' ? 'selected' : ''}>${v}</option>`).join('')}
+                  </select>
+                  <input class="form-input" data-cron-date type="date" style="width: 160px; display: none;" />
+                  <input class="form-input" data-cron-time type="time" value="09:00" style="width: 130px; display: none;" />
+                  <select class="form-input" data-cron-day style="width: 110px; display: none;">
+                    ${DAY_LABELS.map((d, i) => `<option value="${i}" ${i === 1 ? 'selected' : ''}>${d}</option>`).join('')}
+                  </select>
+                  <input class="form-input" data-cron-custom type="text" placeholder="*/15 * * * *" style="min-width: 160px; display: none;" />
+                </div>
+                <div class="cron-preview" data-cron-preview style="display: none;">—</div>
+              </div>
+              <div class="prog-actions">
+                <button type="button" class="routine-btn" data-prog-act="skip">skip</button>
+                <button type="button" class="routine-btn primary" data-prog-act="next">continue</button>
+              </div>
+            </div>
+          </div>
+
+          <div class="prog-moment" data-step="needs" data-state="pending" data-idx="2">
+            <span class="prog-q">What does Fathom need to do this?</span>
+            <span class="prog-summary"></span>
+            <div class="prog-body">
+              <textarea class="form-textarea" data-prog="needs" rows="3"
+                placeholder='claude-code on a host, a specific tool, or "substrate only" if the lake already has the data.'></textarea>
+              <div class="prog-hint">Now that you know what it should do — what's it going to reach for?</div>
+              <div class="prog-actions">
+                <button type="button" class="routine-btn" data-prog-act="skip">skip</button>
+                <button type="button" class="routine-btn primary" data-prog-act="next">continue</button>
+              </div>
+            </div>
+          </div>
+
+          <div class="prog-moment" data-step="ending" data-state="pending" data-idx="3">
+            <span class="prog-q">How do you want to be notified?</span>
+            <span class="prog-summary"></span>
+            <div class="prog-body">
+              <div class="ending-choices" data-ending-choices>
+                <label class="ending-choice"><input type="radio" name="prog-ending" data-ending="card" /> A card in the feed</label>
+                <label class="ending-choice"><input type="radio" name="prog-ending" data-ending="dm" /> Direct message to me</label>
+                <label class="ending-choice"><input type="radio" name="prog-ending" data-ending="other" /> Do something else:</label>
+                <input class="form-input" data-ending-other type="text" placeholder="e.g. card most days; alert if X" style="margin-left: 24px; max-width: 420px;" />
+                <label class="ending-choice"><input type="radio" name="prog-ending" data-ending="silent" /> Do nothing on screen — just write to the lake</label>
+              </div>
+              <div class="prog-actions">
+                <button type="button" class="routine-btn" data-prog-act="skip">skip</button>
+                <button type="button" class="routine-btn primary" data-prog-act="next">continue</button>
+              </div>
+            </div>
+          </div>
+
+          <div class="prog-moment" data-step="name" data-state="pending" data-idx="4">
+            <span class="prog-q">What's it called?</span>
+            <span class="prog-summary"></span>
+            <div class="prog-body">
+              <input class="form-input" data-prog="name" type="text" placeholder="Daily news · Gold-to-Mac · Morning briefing" />
+              <div class="prog-hint">id auto-derived: <code data-prog-id-preview>—</code></div>
+              <div class="err" data-prog-err hidden></div>
+              <div class="prog-actions">
+                <button type="button" class="routine-btn" data-prog-act="skip">skip</button>
+                <button type="button" class="routine-btn primary" data-prog-act="create">create routine</button>
+              </div>
+            </div>
+          </div>
+
+          <div class="prog-actions" style="justify-content: flex-start;">
+            <button type="button" class="routine-btn" data-prog-act="cancel">cancel</button>
+          </div>
+        </div>`;
+    }
+
+    function _progStepSummary(form, step) {
+      const trim80 = (s) => s.length > 80 ? s.slice(0, 77) + '…' : s;
+      if (step === 'purpose' || step === 'needs') {
+        const v = (form.querySelector(`[data-prog="${step}"]`).value || '').trim();
+        return v ? { text: trim80(v.replace(/\s+/g, ' ')) } : { text: 'skipped', skipped: true };
+      }
+      if (step === 'schedule') {
+        const preset = form.querySelector('[data-cron-preset]').value;
+        const t = (form.querySelector('[data-cron-time]') || {}).value || '';
+        const d = (form.querySelector('[data-cron-day]') || {}).value || '';
+        const date = (form.querySelector('[data-cron-date]') || {}).value || '';
+        const cron = (form.querySelector('[data-cron-custom]') || {}).value || '';
+        if (preset === 'daily') return { text: `Daily at ${t || '09:00'}` };
+        if (preset === 'weekly') return { text: `${DAY_LABELS[Number(d)] || ''} at ${t || '09:00'}` };
+        if (preset === 'once') return { text: date ? `Once · ${date} ${t}` : 'skipped', skipped: !date };
+        if (preset === 'custom') return cron ? { text: `cron · ${cron}` } : { text: 'skipped', skipped: true };
+        return { text: PRESET_LABELS[preset] || preset };
+      }
+      if (step === 'ending') {
+        const checked = form.querySelector('[data-ending]:checked');
+        if (!checked) return { text: 'skipped', skipped: true };
+        const choice = checked.dataset.ending;
+        const labels = {
+          card: 'A card in the feed',
+          dm: 'Direct message',
+          silent: 'Silent — write to lake',
+        };
+        if (choice === 'other') {
+          const txt = (form.querySelector('[data-ending-other]').value || '').trim();
+          return { text: txt || 'Other (no detail)', skipped: !txt };
+        }
+        return { text: labels[choice] || choice };
+      }
+      if (step === 'name') {
+        const v = (form.querySelector('[data-prog="name"]').value || '').trim();
+        return v ? { text: v } : { text: 'auto-named', skipped: true };
+      }
+      return { text: '' };
+    }
+
+    function _collectProgressive(form) {
+      const purpose = (form.querySelector('[data-prog="purpose"]').value || '').trim();
+      const needs = (form.querySelector('[data-prog="needs"]').value || '').trim();
+      let ending = '';
+      const checked = form.querySelector('[data-ending]:checked');
+      if (checked) {
+        const choice = checked.dataset.ending;
+        if (choice === 'card') ending = 'Send me a card with the result.';
+        else if (choice === 'dm') ending = 'DM me a quick line.';
+        else if (choice === 'silent') ending = 'Stay silent — just write the result back to the lake.';
+        else if (choice === 'other') ending = (form.querySelector('[data-ending-other]').value || '').trim();
+      }
+      // The progressive flow folds Steps into the WHAT moment — the user's
+      // prose lands under # Purpose. Steps stays empty in scaffold output;
+      // the witness reads the whole body anyway, and the user can split
+      // them later in edit mode if they want the structure.
+      const prompt = _joinScaffoldSections({ purpose, needs, steps: '', ending });
+
+      let name = (form.querySelector('[data-prog="name"]').value || '').trim();
+      if (!name) {
+        const fromPurpose = purpose.split(/\s+/).slice(0, 5).join(' ');
+        name = fromPurpose || ('Untitled · ' + new Date().toISOString().slice(0, 16).replace('T', ' '));
+      }
+      let id = _progSlugify(name);
+      if (!id) id = 'routine-' + Date.now().toString(36);
+
+      const schedule = computeCron(form) || '0 * * * *';
+      const presetEl = form.querySelector('[data-cron-preset]');
+      const scheduledOnce = presetEl && presetEl.value === 'once';
+
+      return {
+        id, name, schedule, prompt,
+        permission_mode: 'auto',
+        enabled: true,
+        single_fire: scheduledOnce,
+      };
+    }
+
+    function wireProgressiveCreate(form, { onSave, onCancel } = {}) {
+      const moments = PROG_STEP_KEYS.map(k => form.querySelector(`.prog-moment[data-step="${k}"]`));
+      // activeIdx = currently editable moment; furthestIdx = the rightmost
+      // moment the user has reached. Re-editing an earlier moment sets
+      // activeIdx < furthestIdx without resetting later moments to pending.
+      let activeIdx = 0;
+      let furthestIdx = 0;
+
+      function setStep(idx) {
+        activeIdx = idx;
+        if (idx > furthestIdx) furthestIdx = idx;
+        moments.forEach((m, i) => {
+          if (i === idx) {
+            m.dataset.state = 'active';
+          } else if (i <= furthestIdx) {
+            m.dataset.state = 'done';
+            // Idempotently re-render the summary every time a moment is
+            // visible-as-done. Without this, a moment that was leapfrogged
+            // (e.g. user clicks back to re-edit an earlier step before
+            // committing the current one) would render with an empty
+            // summary span and look broken.
+            commitSummary(i);
+          } else {
+            m.dataset.state = 'pending';
+          }
+        });
+        const active = moments[idx];
+        if (active) {
+          const focusable = active.querySelector('textarea, input[type="text"], input[type="time"], input[type="date"], select');
+          if (focusable) setTimeout(() => focusable.focus(), 60);
+          if (active.scrollIntoView) active.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        }
+      }
+
+      function commitSummary(idx) {
+        const moment = moments[idx];
+        const summary = _progStepSummary(form, moment.dataset.step);
+        const sumEl = moment.querySelector('.prog-summary');
+        sumEl.textContent = summary.text;
+        sumEl.dataset.skipped = String(!!summary.skipped);
+      }
+
+      function advance() {
+        commitSummary(activeIdx);
+        // Re-editing an earlier moment? Bounce back to wherever the user
+        // was furthest along, instead of tearing down later state.
+        if (activeIdx < furthestIdx) setStep(furthestIdx);
+        else if (activeIdx < moments.length - 1) setStep(activeIdx + 1);
+      }
+
+      // Click on a "done" moment to re-edit it. Inputs keep their values
+      // when the moment goes back to pending, so traversing forward just
+      // re-commits the same summary unless the user changes something.
+      moments.forEach((m, i) => {
+        m.addEventListener('click', (e) => {
+          if (m.dataset.state !== 'done') return;
+          e.stopPropagation();
+          setStep(i);
+        });
+      });
+
+      form.querySelectorAll('[data-prog-act]').forEach(btn => {
+        btn.addEventListener('click', async () => {
+          const act = btn.dataset.progAct;
+          if (act === 'skip' || act === 'next') {
+            advance();
+          } else if (act === 'cancel') {
+            if (onCancel) onCancel();
+          } else if (act === 'create') {
+            commitSummary(activeIdx);
+            const errBox = form.querySelector('[data-prog-err]');
+            if (errBox) { errBox.hidden = true; errBox.textContent = ''; }
+            try {
+              const body = _collectProgressive(form);
+              const r = await fetch(API_BASE + '/v1/routines', {
+                method: 'POST', headers: authHeaders(),
+                body: JSON.stringify(body),
+              });
+              if (!r.ok) {
+                const d = await r.json().catch(() => ({}));
+                throw new Error(d.detail || (r.status + ' ' + r.statusText));
+              }
+              if (onSave) onSave(body);
+            } catch (e) {
+              if (errBox) { errBox.textContent = e.message; errBox.hidden = false; }
+            }
+          }
+        });
+      });
+
+      // Schedule picker visibility (mirrors wireEditor's syncVisibility).
+      const preset = form.querySelector('[data-cron-preset]');
+      const dateEl = form.querySelector('[data-cron-date]');
+      const timeEl = form.querySelector('[data-cron-time]');
+      const dayEl = form.querySelector('[data-cron-day]');
+      const customEl = form.querySelector('[data-cron-custom]');
+      const previewEl = form.querySelector('[data-cron-preview]');
+      const syncVisibility = () => {
+        const p = preset.value;
+        const showTime = p === 'daily' || p === 'weekly' || p === 'once';
+        const showDate = p === 'once';
+        const showDay = p === 'weekly';
+        const showCustom = p === 'custom';
+        if (timeEl) timeEl.style.display = showTime ? 'inline-block' : 'none';
+        if (dateEl) dateEl.style.display = showDate ? 'inline-block' : 'none';
+        if (dayEl) dayEl.style.display = showDay ? 'inline-block' : 'none';
+        if (customEl) customEl.style.display = showCustom ? 'inline-block' : 'none';
+        if (previewEl) previewEl.style.display = showCustom ? 'block' : 'none';
+      };
+      preset.addEventListener('change', syncVisibility);
+      syncVisibility();
+
+      // Live id preview
+      const nameInput = form.querySelector('[data-prog="name"]');
+      const idPreview = form.querySelector('[data-prog-id-preview]');
+      if (nameInput && idPreview) {
+        nameInput.addEventListener('input', () => {
+          idPreview.textContent = _progSlugify(nameInput.value) || '—';
+        });
+      }
+
+      // Enter advances on single-line inputs (textareas keep newline behavior).
+      form.querySelectorAll('input[type="text"], input[type="time"], input[type="date"]').forEach(el => {
+        el.addEventListener('keydown', (e) => {
+          if (e.key !== 'Enter') return;
+          const moment = el.closest('.prog-moment');
+          if (!moment || moment.dataset.state !== 'active') return;
+          e.preventDefault();
+          if (moment.dataset.step === 'name') {
+            const createBtn = moment.querySelector('[data-prog-act="create"]');
+            if (createBtn) createBtn.click();
+          } else {
+            advance();
+          }
+        });
+      });
+
+      setStep(0);
     }
 
     // ── Routine detail view ─────────────────────────
@@ -6275,12 +6784,25 @@
       // from "create from scratch" so the user knows where they are.
       const titleEl = document.querySelector('#viewAddRoutine .topbar-title');
       const wizTitle = document.querySelector('#viewAddRoutine .wizard-title');
+      const wizSub = document.querySelector('#viewAddRoutine .wizard-sub');
+      // Fresh-create (no prefilled, no proposal) gets the progressive flow.
+      // Proposal review and prefilled-edit stay on the all-at-once form
+      // because the user is auditing/adjusting, not composing.
+      const isFreshCreate = !opts.prefilled && !opts.proposalId;
       if (opts.proposalId) {
         if (titleEl) titleEl.textContent = 'Review proposal';
         if (wizTitle) wizTitle.textContent = 'Edit Fathom’s drafted routine.';
+        if (wizSub) wizSub.hidden = false;
+      } else if (isFreshCreate) {
+        if (titleEl) titleEl.textContent = 'New routine';
+        // The progressive form asks the questions itself — let the
+        // chrome stay quiet so the active moment dominates the view.
+        if (wizTitle) wizTitle.textContent = 'New routine';
+        if (wizSub) wizSub.hidden = true;
       } else {
         if (titleEl) titleEl.textContent = 'New routine';
         if (wizTitle) wizTitle.textContent = 'What should Fathom do on a timer?';
+        if (wizSub) wizSub.hidden = false;
       }
 
       // Build the seed object passed to renderEditorHtml.
@@ -6306,6 +6828,21 @@
           permission_mode: 'auto', enabled: true, single_fire: false,
         };
       }
+      // Fresh-create branch: progressive flow, no all-at-once form.
+      if (isFreshCreate) {
+        mount.innerHTML = renderProgressiveCreateHtml();
+        scrollViewToTop(viewAddRoutine);
+        syncComposer();
+        wireProgressiveCreate(mount.querySelector('[data-prog-form]'), {
+          onSave: async () => {
+            closeAddRoutine();
+            await loadRoutines();
+          },
+          onCancel: () => closeAddRoutine(),
+        });
+        return;
+      }
+
       mount.innerHTML = renderEditorHtml(seed);
       // renderEditorHtml uses data-editing="__new__" when existing is falsy.
       // With a seed (truthy) it'd be treated as edit mode. Force create.
