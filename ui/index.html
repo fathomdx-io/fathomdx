@@ -2712,12 +2712,22 @@
       color: var(--ink-soft); white-space: pre-wrap; max-height: 240px; overflow: auto;
     }
 
-    /* Editor */
+    /* Editor — unboxed; the parent view's chrome is enough.
+       Was wrapped in a card with border + surface tint, which read as a
+       "this is a special panel" cue. The form is the page now. */
     .routine-editor {
-      background: var(--surface); border: 1px solid var(--accent);
-      border-radius: 12px; padding: 16px;
-      display: flex; flex-direction: column; gap: 12px;
+      display: flex; flex-direction: column; gap: 16px;
     }
+    .scaffold-grid {
+      display: flex; flex-direction: column; gap: 14px;
+    }
+    .scaffold-field { display: flex; flex-direction: column; }
+    .scaffold-field label {
+      font-family: var(--mono); font-size: 11px;
+      text-transform: uppercase; letter-spacing: 0.06em;
+      color: var(--ink-faint); margin-bottom: 4px;
+    }
+    .routine-editor .scaffold-input { min-height: auto; }
     .routine-editor .field-row { display: flex; gap: 8px; flex-wrap: wrap; }
     .routine-editor label { font-family: var(--mono); font-size: 11px;
       text-transform: uppercase; letter-spacing: 0.06em; color: var(--ink-faint);
@@ -5181,6 +5191,7 @@
       'every-4-hours': '0 */4 * * *',
     };
     const PRESET_LABELS = {
+      'once':          'once at…',
       'every-5-min':   'every 5 min',
       'every-30-min':  'every 30 min',
       'hourly':        'hourly',
@@ -5191,14 +5202,60 @@
     };
     const DAY_LABELS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 
-    function inferPreset(cron) {
+    function inferPreset(cron, single_fire) {
       const norm = (cron || '').trim();
+      // `once` is a single-firing date+time. Detect it from the spec's
+      // single_fire flag combined with a `MM HH DD MM *` shape.
+      if (single_fire && /^\d+\s+\d+\s+\d+\s+\d+\s+\*$/.test(norm)) return 'once';
       for (const [k, v] of Object.entries(CRON_PRESETS)) if (norm === v) return k;
       if (/^\d+\s+\d+\s+\*\s+\*\s+\*$/.test(norm)) return 'daily';
       if (/^\d+\s+\d+\s+\*\s+\*\s+\d$/.test(norm)) return 'weekly';
       return 'custom';
     }
     function cronShapeOk(s) { return /^(\S+\s+){4}\S+$/.test((s || '').trim()); }
+
+    // ── Scaffold-mode parsers ─────────────────────
+    // Split a prompt body into the four sections (Purpose / Needs /
+    // Steps / Ending) when written in the documented schema. Returns
+    // null when the body doesn't have all four headers, in which case
+    // the editor falls back to regular-mode (single textarea).
+    function _parseScaffoldSections(prompt) {
+      if (!prompt) return null;
+      const sections = {};
+      const re = /^#\s*(Purpose|Needs|Steps|Ending)\b[^\n]*\n([\s\S]*?)(?=^#\s+\w|\s*$)/gim;
+      let m;
+      while ((m = re.exec(prompt)) !== null) {
+        sections[m[1].toLowerCase()] = (m[2] || '').trim();
+      }
+      if (sections.purpose && sections.needs && sections.steps && sections.ending) {
+        return sections;
+      }
+      return null;
+    }
+    function _joinScaffoldSections(sections) {
+      const purpose = (sections.purpose || '').trim();
+      const needs = (sections.needs || '').trim();
+      const steps = (sections.steps || '').trim();
+      const ending = (sections.ending || '').trim();
+      return [
+        `# Purpose\n${purpose}`,
+        `# Needs\n${needs}`,
+        `# Steps\n${steps}`,
+        `# Ending\n${ending}`,
+      ].join('\n\n') + '\n';
+    }
+
+    // Extract date+time pieces from a `once` cron (`MM HH DD MM *`).
+    function extractOnceDate(cron) {
+      const m = (cron || '').match(/^(\d+)\s+(\d+)\s+(\d+)\s+(\d+)\s+\*$/);
+      if (!m) return { date: '', time: '' };
+      const yyyy = new Date().getFullYear();
+      const mm = String(m[4]).padStart(2, '0');
+      const dd = String(m[3]).padStart(2, '0');
+      const hh = String(m[2]).padStart(2, '0');
+      const mins = String(m[1]).padStart(2, '0');
+      return { date: `${yyyy}-${mm}-${dd}`, time: `${hh}:${mins}` };
+    }
 
     function relTimeFromIso(iso) {
       if (!iso) return '';
@@ -5636,17 +5693,24 @@
         id: '', name: '', workspace: '', host: '', schedule: '0 * * * *', prompt: '',
         permission_mode: 'auto', enabled: true, single_fire: false,
       };
-      const preset = inferPreset(r.schedule);
-      // Machine assignment isn't a routine concept any more — routines
-      // fire INTO the River and the witness picks the route, including
-      // which host (if any) to dispatch claude-code to. If you want to
-      // nudge the witness toward a specific machine, say so in the
-      // prompt body's `# Needs` section ("claude-code on <hostname>").
-      // The `host` frontmatter field stays in the spec for back-compat
-      // (older routines still have it; preserved on save) but doesn't
-      // surface in the form.
+      const preset = inferPreset(r.schedule, r.single_fire);
+      const sections = _parseScaffoldSections(r.prompt) || {
+        purpose: '', needs: '', steps: '', ending: '',
+      };
+      const scaffoldByDefault = _parseScaffoldSections(r.prompt) !== null;
+      const promptMode = scaffoldByDefault ? 'scaffold' : 'regular';
+      const onceDate = preset === 'once' ? extractOnceDate(r.schedule) : { date: '', time: '09:00' };
+      // Schedule visibility: time/date pickers shown only for the
+      // preset that needs them. Cron preview is hidden unless preset
+      // is 'custom' — for any of the named presets the label itself
+      // is sufficient ("daily at 8:00 AM" doesn't need a "0 8 * * *"
+      // echo and a 5-fire preview to be useful).
+      const showTime = preset === 'daily' || preset === 'weekly' || preset === 'once';
+      const showDay = preset === 'weekly';
+      const showDate = preset === 'once';
+      const showCustom = preset === 'custom';
       return `
-        <div class="routine-editor" data-editing="${_esc(isEdit ? r.id : '__new__')}">
+        <div class="routine-editor" data-editing="${_esc(isEdit ? r.id : '__new__')}" data-prompt-mode="${promptMode}">
           <div class="field-row">
             <div class="form-group">
               <label>routine-id</label>
@@ -5664,35 +5728,52 @@
                 <select class="form-input" data-cron-preset style="width: auto; min-width: 140px;">
                   ${Object.entries(PRESET_LABELS).map(([k, v]) => `<option value="${k}" ${k === preset ? 'selected' : ''}>${v}</option>`).join('')}
                 </select>
-                <input class="form-input" data-cron-time type="time" value="${extractTime(r.schedule) || '09:00'}" style="width: 130px; display: ${(preset === 'daily' || preset === 'weekly') ? 'inline-block' : 'none'};" />
-                <select class="form-input" data-cron-day style="width: 110px; display: ${preset === 'weekly' ? 'inline-block' : 'none'};">
+                <input class="form-input" data-cron-date type="date" value="${_esc(onceDate.date)}" style="width: 160px; display: ${showDate ? 'inline-block' : 'none'};" />
+                <input class="form-input" data-cron-time type="time" value="${preset === 'once' ? _esc(onceDate.time) : (extractTime(r.schedule) || '09:00')}" style="width: 130px; display: ${showTime ? 'inline-block' : 'none'};" />
+                <select class="form-input" data-cron-day style="width: 110px; display: ${showDay ? 'inline-block' : 'none'};">
                   ${DAY_LABELS.map((d, i) => `<option value="${i}" ${i === extractDay(r.schedule) ? 'selected' : ''}>${d}</option>`).join('')}
                 </select>
-                <input class="form-input" data-cron-custom type="text" value="${_esc(preset === 'custom' ? r.schedule : '')}" placeholder="*/15 * * * *" style="min-width: 160px; display: ${preset === 'custom' ? 'inline-block' : 'none'};" />
+                <input class="form-input" data-cron-custom type="text" value="${_esc(showCustom ? r.schedule : '')}" placeholder="*/15 * * * *" style="min-width: 160px; display: ${showCustom ? 'inline-block' : 'none'};" />
               </div>
-              <div class="cron-preview" data-cron-preview>—</div>
+              <div class="cron-preview" data-cron-preview style="display: ${showCustom ? 'block' : 'none'};">—</div>
             </div>
           </div>
           <div>
             <div style="display: flex; align-items: baseline; justify-content: space-between; gap: 8px;">
               <label>prompt</label>
-              <button type="button" class="routine-btn" data-act="scaffold" style="font-size: 11px; padding: 2px 8px;" title="Fill in the four-section template (Purpose / Needs / Steps / Ending)">scaffold</button>
+              <div class="segmented" data-prompt-mode-toggle>
+                <button type="button" data-mode="scaffold" data-active="${promptMode === 'scaffold'}">scaffold</button>
+                <button type="button" data-mode="regular" data-active="${promptMode === 'regular'}">regular</button>
+              </div>
             </div>
-            <textarea class="form-textarea" data-f="prompt" placeholder="What you want Fathom to do. Tip: click 'scaffold' for a Purpose / Needs / Steps / Ending template.">${_esc(r.prompt || '')}</textarea>
-            <div class="form-hint">
+            <div data-prompt-regular ${promptMode === 'regular' ? '' : 'hidden'}>
+              <textarea class="form-textarea" data-f="prompt" placeholder="What you want Fathom to do. Switch to scaffold for a guided four-section template.">${_esc(r.prompt || '')}</textarea>
+            </div>
+            <div data-prompt-scaffold class="scaffold-grid" ${promptMode === 'scaffold' ? '' : 'hidden'}>
+              <div class="scaffold-field">
+                <label>Purpose</label>
+                <textarea class="form-textarea scaffold-input" data-scaffold="purpose" rows="2" placeholder="One sentence — what should Fathom accomplish on this routine?">${_esc(sections.purpose)}</textarea>
+                <div class="form-hint">The goal in plain language. Don't list steps here.</div>
+              </div>
+              <div class="scaffold-field">
+                <label>Needs</label>
+                <textarea class="form-textarea scaffold-input" data-scaffold="needs" rows="2" placeholder='claude-code on a host, a specific tool, or "substrate only"'>${_esc(sections.needs)}</textarea>
+                <div class="form-hint">What does Fathom need to actually do this? Web fetch on a machine? Just lake recall? Tell Fathom what to reach for.</div>
+              </div>
+              <div class="scaffold-field">
+                <label>Steps</label>
+                <textarea class="form-textarea scaffold-input" data-scaffold="steps" rows="4" placeholder="What to look for, what to filter, what to compare. Numbered or prose.">${_esc(sections.steps)}</textarea>
+                <div class="form-hint">Plain language, first-person to Fathom. Don't pre-script claude-code's tool calls; the witness composes those.</div>
+              </div>
+              <div class="scaffold-field">
+                <label>Ending</label>
+                <textarea class="form-textarea scaffold-input" data-scaffold="ending" rows="3" placeholder='e.g. "Send me a card" · "DM me a quick line" · "Card most days, soft alert if X breaks" · "Stay silent unless Y"'>${_esc(sections.ending)}</textarea>
+                <div class="form-hint">How do you want to be notified? The witness reads this as a route directive — feed-card, chat-reply, alert, silent, or something else.</div>
+              </div>
+            </div>
+            <div class="form-hint" style="margin-top: 8px;">
               Routines fire INTO Fathom — the witness picks the route (card, alert, chat-reply, claude-code dispatch, silent). See <a href="https://github.com/fathomdx-io/fathomdx/blob/main/docs/reference/routine-spec.md#writing-the-prompt" target="_blank" rel="noopener noreferrer">routine-spec.md</a>.
             </div>
-          </div>
-          <div>
-            <label>How would you like to be notified when this is done?</label>
-            <div class="ending-choices" data-ending-choices>
-              <label class="ending-choice"><input type="radio" name="ending-${_esc(isEdit ? r.id : '__new__')}" data-ending="card" /> A card in the feed</label>
-              <label class="ending-choice"><input type="radio" name="ending-${_esc(isEdit ? r.id : '__new__')}" data-ending="dm" /> Direct message to me</label>
-              <label class="ending-choice"><input type="radio" name="ending-${_esc(isEdit ? r.id : '__new__')}" data-ending="other" /> Do something else:</label>
-              <input class="form-input" data-ending-other type="text" placeholder="e.g. card most days; alert if X" style="margin-left: 24px; max-width: 420px;" />
-              <label class="ending-choice"><input type="radio" name="ending-${_esc(isEdit ? r.id : '__new__')}" data-ending="silent" /> Do nothing on screen — just write to the lake</label>
-            </div>
-            <div class="form-hint">Picking one fills the <code># Ending</code> section of your prompt. You can edit the prose directly afterward.</div>
           </div>
           <div class="field-row" style="align-items: center;">
             <div>
@@ -5704,9 +5785,6 @@
             </div>
             <label style="font-size: 12px; align-self: flex-end;">
               <input type="checkbox" data-f="enabled" ${r.enabled ? 'checked' : ''} /> enabled
-            </label>
-            <label style="font-size: 12px; align-self: flex-end;" title="Soft-deletes the spec after firing once.">
-              <input type="checkbox" data-f="single_fire" ${r.single_fire ? 'checked' : ''} /> single-fire
             </label>
           </div>
           <div class="err" data-err hidden></div>
@@ -5730,6 +5808,19 @@
     function computeCron(editor) {
       const preset = editor.querySelector('[data-cron-preset]').value;
       if (preset === 'custom') return (editor.querySelector('[data-cron-custom]').value || '').trim();
+      if (preset === 'once') {
+        // Single-firing schedule: a cron that matches exactly one
+        // minute of one day-of-month-and-month. Combined with
+        // single_fire: true (auto-set in collectEditor) the scheduler
+        // tombstones the spec right after the fire so it can never
+        // re-fire next year.
+        const dateVal = editor.querySelector('[data-cron-date]').value || '';
+        const t = editor.querySelector('[data-cron-time]').value || '09:00';
+        const [h, m] = t.split(':');
+        const dm = dateVal.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+        if (!dm) return '';
+        return `${Number(m)} ${Number(h)} ${Number(dm[3])} ${Number(dm[2])} *`;
+      }
       if (preset === 'daily' || preset === 'weekly') {
         const t = editor.querySelector('[data-cron-time]').value || '09:00';
         const [h, m] = t.split(':');
@@ -5787,18 +5878,37 @@
       const existing = editingId && editingId !== '__new__'
         ? (_routineCache.find(x => x.id === editingId) || {})
         : {};
+
+      // Prompt: scaffold mode joins the four sections into the
+      // documented schema; regular mode passes the textarea through.
+      const promptMode = editor.dataset.promptMode || 'regular';
+      let prompt;
+      if (promptMode === 'scaffold') {
+        const sections = {
+          purpose: (editor.querySelector('[data-scaffold="purpose"]') || {}).value || '',
+          needs:   (editor.querySelector('[data-scaffold="needs"]')   || {}).value || '',
+          steps:   (editor.querySelector('[data-scaffold="steps"]')   || {}).value || '',
+          ending:  (editor.querySelector('[data-scaffold="ending"]')  || {}).value || '',
+        };
+        prompt = _joinScaffoldSections(sections);
+      } else {
+        prompt = get('prompt');
+      }
+
+      // Schedule: 'once' preset auto-flips single_fire on so the
+      // scheduler tombstones the spec right after the one cron-match.
+      const presetEl = editor.querySelector('[data-cron-preset]');
+      const scheduledOnce = presetEl && presetEl.value === 'once';
+
       const body = {
         id: get('id').trim(),
         name: get('name').trim(),
         schedule: computeCron(editor),
-        prompt: get('prompt'),
+        prompt,
         permission_mode: mode,
         enabled: !!check('enabled'),
-        single_fire: !!check('single_fire'),
+        single_fire: scheduledOnce,
       };
-      // Include host/workspace only if the form has the field (forward
-      // compat in case we re-add them) or the routine already has the
-      // value set (preserve on edit).
       if (has('host') || existing.host) {
         body.host = has('host') ? get('host').trim() : (existing.host || '');
       }
@@ -5817,18 +5927,31 @@
       const isCreate = editingId === '__new__';
 
       const preset = editor.querySelector('[data-cron-preset]');
+      const dateEl = editor.querySelector('[data-cron-date]');
       const timeEl = editor.querySelector('[data-cron-time]');
       const dayEl = editor.querySelector('[data-cron-day]');
       const customEl = editor.querySelector('[data-cron-custom]');
+      const previewEl = editor.querySelector('[data-cron-preview]');
       const syncVisibility = () => {
         const p = preset.value;
-        timeEl.style.display = (p === 'daily' || p === 'weekly') ? 'inline-block' : 'none';
-        dayEl.style.display = p === 'weekly' ? 'inline-block' : 'none';
-        customEl.style.display = p === 'custom' ? 'inline-block' : 'none';
+        const showTime = p === 'daily' || p === 'weekly' || p === 'once';
+        const showDate = p === 'once';
+        const showDay = p === 'weekly';
+        const showCustom = p === 'custom';
+        if (timeEl) timeEl.style.display = showTime ? 'inline-block' : 'none';
+        if (dateEl) dateEl.style.display = showDate ? 'inline-block' : 'none';
+        if (dayEl) dayEl.style.display = showDay ? 'inline-block' : 'none';
+        if (customEl) customEl.style.display = showCustom ? 'inline-block' : 'none';
+        // Preview is opinionated — only meaningful for raw cron strings
+        // the user typed. Named presets read clearly enough on their own.
+        if (previewEl) previewEl.style.display = showCustom ? 'block' : 'none';
       };
       preset.addEventListener('change', () => { syncVisibility(); schedulePreview(editor); });
-      [timeEl, dayEl, customEl].forEach(el => el.addEventListener('input', () => schedulePreview(editor)));
-      refreshCronPreview(editor);
+      [dateEl, timeEl, dayEl, customEl].filter(Boolean).forEach(el =>
+        el.addEventListener('input', () => schedulePreview(editor))
+      );
+      // Only refresh preview now if the field is visible — saves an api call.
+      if (preset.value === 'custom') refreshCronPreview(editor);
 
       editor.querySelectorAll('[data-perm-mode] button').forEach(btn => {
         btn.addEventListener('click', () => {
@@ -5837,72 +5960,59 @@
         });
       });
 
-      // Scaffold: drop the four-section template into the prompt textarea
-      // when the user wants a starting point. Only fills if empty so we
-      // don't clobber existing content; otherwise just inserts at cursor.
-      const promptEl = editor.querySelector('[data-f="prompt"]');
-      const scaffoldBtn = editor.querySelector('[data-act="scaffold"]');
-      if (scaffoldBtn && promptEl) {
-        scaffoldBtn.addEventListener('click', () => {
-          const template = (
-            '# Purpose\n' +
-            '[One sentence — what should Fathom accomplish?]\n\n' +
-            '# Needs\n' +
-            '[claude-code on <host>, a specific tool, or "substrate only".]\n\n' +
-            '# Steps\n' +
-            '1. \n2. \n3. \n\n' +
-            '# Ending\n' +
-            '[How you want to be notified — card, DM, alert, silent. Edit\n' +
-            'this prose or pick a notification choice below.]\n'
-          );
-          if (!(promptEl.value || '').trim()) {
-            promptEl.value = template;
-          } else if (!promptEl.value.includes('# Purpose')) {
-            promptEl.value = template + '\n' + promptEl.value;
+      // Prompt mode toggle (scaffold ↔ regular). Switching modes
+      // syncs the underlying content so nothing is lost: scaffold→regular
+      // composes the four sections into the regular textarea; regular→
+      // scaffold parses sections out, falling through to empty inputs +
+      // a heads-up if the body doesn't parse cleanly.
+      const regularPanel = editor.querySelector('[data-prompt-regular]');
+      const scaffoldPanel = editor.querySelector('[data-prompt-scaffold]');
+      const regularEl = editor.querySelector('[data-f="prompt"]');
+      const scaffoldEls = {
+        purpose: editor.querySelector('[data-scaffold="purpose"]'),
+        needs:   editor.querySelector('[data-scaffold="needs"]'),
+        steps:   editor.querySelector('[data-scaffold="steps"]'),
+        ending:  editor.querySelector('[data-scaffold="ending"]'),
+      };
+      const setMode = (newMode) => {
+        const cur = editor.dataset.promptMode || 'regular';
+        if (cur === newMode) return;
+        if (cur === 'scaffold' && newMode === 'regular') {
+          // Compose scaffold inputs into the regular textarea.
+          const composed = _joinScaffoldSections({
+            purpose: scaffoldEls.purpose.value,
+            needs:   scaffoldEls.needs.value,
+            steps:   scaffoldEls.steps.value,
+            ending:  scaffoldEls.ending.value,
+          });
+          regularEl.value = composed;
+        } else if (cur === 'regular' && newMode === 'scaffold') {
+          // Try to parse the textarea into sections; populate when possible.
+          const parsed = _parseScaffoldSections(regularEl.value || '');
+          if (parsed) {
+            scaffoldEls.purpose.value = parsed.purpose;
+            scaffoldEls.needs.value   = parsed.needs;
+            scaffoldEls.steps.value   = parsed.steps;
+            scaffoldEls.ending.value  = parsed.ending;
+          } else {
+            // Couldn't parse — drop the existing prose into Steps as
+            // the most plausible bucket so nothing is lost; user can
+            // re-distribute manually.
+            if (!Object.values(scaffoldEls).some(el => (el.value || '').trim())) {
+              scaffoldEls.steps.value = (regularEl.value || '').trim();
+            }
           }
-          promptEl.focus();
-          promptEl.dispatchEvent(new Event('input'));
-        });
-      }
-
-      // Notification choice → fills/updates the `# Ending` section.
-      const endingChoices = editor.querySelectorAll('[data-ending]');
-      const endingOther = editor.querySelector('[data-ending-other]');
-      const endingSentence = (choice, otherText) => {
-        if (choice === 'card') return 'Send me a card with the result.';
-        if (choice === 'dm') return 'DM me a quick line — no full card needed.';
-        if (choice === 'silent') return 'Stay silent on screen — just write the result back to the lake.';
-        if (choice === 'other') return (otherText || '').trim() || 'Do something else.';
-        return '';
-      };
-      const applyEnding = () => {
-        if (!promptEl) return;
-        const picked = editor.querySelector('[data-ending]:checked');
-        if (!picked) return;
-        const sentence = endingSentence(picked.dataset.ending, endingOther && endingOther.value);
-        if (!sentence) return;
-        const text = promptEl.value || '';
-        // If a `# Ending` section already exists, replace its body. Otherwise append.
-        const endingRe = /(^|\n)#\s*Ending\b[^\n]*\n([\s\S]*?)(?=\n#\s|\s*$)/i;
-        if (endingRe.test(text)) {
-          promptEl.value = text.replace(endingRe, (_, lead) => `${lead}# Ending\n${sentence}\n`);
-        } else {
-          const sep = text && !text.endsWith('\n') ? '\n\n' : (text ? '\n' : '');
-          promptEl.value = `${text}${sep}# Ending\n${sentence}\n`;
         }
-        promptEl.dispatchEvent(new Event('input'));
+        editor.dataset.promptMode = newMode;
+        regularPanel.hidden = newMode !== 'regular';
+        scaffoldPanel.hidden = newMode !== 'scaffold';
+        editor.querySelectorAll('[data-prompt-mode-toggle] button').forEach(b => {
+          b.setAttribute('data-active', String(b.dataset.mode === newMode));
+        });
       };
-      endingChoices.forEach(radio => radio.addEventListener('change', applyEnding));
-      if (endingOther) {
-        endingOther.addEventListener('focus', () => {
-          const otherRadio = editor.querySelector('[data-ending="other"]');
-          if (otherRadio) otherRadio.checked = true;
-        });
-        endingOther.addEventListener('input', () => {
-          const otherRadio = editor.querySelector('[data-ending="other"]');
-          if (otherRadio && otherRadio.checked) applyEnding();
-        });
-      }
+      editor.querySelectorAll('[data-prompt-mode-toggle] button').forEach(btn => {
+        btn.addEventListener('click', () => setMode(btn.dataset.mode));
+      });
 
       editor.querySelector('[data-act="cancel"]').addEventListener('click', () => {
         if (onCancel) onCancel();
@@ -10540,12 +10650,12 @@ GET  /v1/usage               Usage stats`,
           api(`/v1/pressure/history?since_seconds=${sinceSeconds}`).catch(() => ({ history: [] })),
           api(`/v1/drift/history?since_seconds=${sinceSeconds}`).catch(() => ({ history: [] })),
           api('/v1/moods/history').catch(() => ({ history: [] })),
-          api('/v1/crystal/events').catch(() => ({ events: [] })),
+          api(`/v1/crystal/events?since_seconds=${sinceSeconds}`).catch(() => ({ events: [] })),
           api(`/v1/feed/drift/history?since_seconds=${sinceSeconds}`).catch(() => ({ history: [] })),
           api('/v1/feed/confidence/history').catch(() => ({ history: [] })),
           api(`/v1/feed/engagement/history?since_seconds=${sinceSeconds}`).catch(() => ({ history: [] })),
-          api('/v1/feed/crystal/events').catch(() => ({ events: [] })),
-          api('/v1/feed/regen/events').catch(() => ({ events: [] })),
+          api(`/v1/feed/crystal/events?since_seconds=${sinceSeconds}`).catch(() => ({ events: [] })),
+          api(`/v1/feed/regen/events?since_seconds=${sinceSeconds}`).catch(() => ({ events: [] })),
         ]);
       } catch (e) { /* noop */ }
       const usage = usageTotal;  // total + days array still come from /v1/usage

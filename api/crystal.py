@@ -147,17 +147,44 @@ async def write(text: str, source: str = "fathom-engagement") -> dict:
     return written
 
 
-async def list_events(limit: int = 50) -> list[dict]:
-    """Return crystal regeneration events (filtered, time-sorted) for the ECG."""
+async def list_events(
+    limit: int = 50,
+    since_seconds: int | None = None,
+) -> list[dict]:
+    """Return crystal regeneration events (filtered, time-sorted) for the ECG.
+
+    ``since_seconds`` filters to regens within the last N seconds. The
+    dashboard's window picker passes this so a "6 Months" view actually
+    sees 6 months of diamonds instead of getting capped at the most
+    recent 50 events (which on a busy lake spans far less than the
+    selected window).
+    """
+    from datetime import UTC, datetime, timedelta
+
+    time_start: str | None = None
+    if since_seconds is not None and since_seconds > 0:
+        cutoff = datetime.now(UTC) - timedelta(seconds=since_seconds)
+        time_start = cutoff.isoformat()
+        # Over a wide window the 50-event cap can chop off the older
+        # half of real regens. Bump generously when a time filter
+        # narrows the result anyway.
+        limit = max(limit, 500)
+
     # Pull both tag pools and de-dup; the new tag will catch nothing for a
     # while, but back-fills as new regens land.
     seen: dict[str, dict] = {}
     try:
-        new_pool = await delta_client.query(tags_include=[REGEN_TAG], limit=limit)
+        new_pool = await delta_client.query(
+            tags_include=[REGEN_TAG], limit=limit, time_start=time_start
+        )
     except Exception:
         new_pool = []
     try:
-        legacy_pool = await delta_client.query(tags_include=[LEGACY_TAG], limit=max(limit * 2, 50))
+        legacy_pool = await delta_client.query(
+            tags_include=[LEGACY_TAG],
+            limit=max(limit * 2, 50),
+            time_start=time_start,
+        )
     except Exception:
         legacy_pool = []
     for d in list(new_pool) + list(legacy_pool):
