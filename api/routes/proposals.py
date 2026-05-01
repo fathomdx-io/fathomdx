@@ -97,15 +97,37 @@ async def _write_decision(*, proposal_id: str, status: str,
 async def approve_proposal(delta_id: str, body: dict | None = None):
     """Approve a proposal — call the tool handler with confirm:true.
 
-    Optional body: `{"tool_args": {...}}` to apply edited args. Without
-    that, the original args from the card are used as-is.
+    Body shape (all optional, but at least one of tool / tool_args.action
+    must be discoverable):
+      · tool: name of the tool to dispatch ("routines"). Wins over the
+        proposal delta's tool tag when both present.
+      · tool_args: the structured payload, with `action` inside.
+      · The wizard-driven Edit flow always sends both, so approve
+        works even if the proposal delta is no longer reachable in
+        the lake (TTL, restart, eviction). When neither is in the
+        body, fall back to loading the proposal delta and parsing
+        its tags + payload.
     """
-    proposal = await _load_proposal(delta_id)
-    tags = proposal.get("tags") or []
-    tool = _proposal_tool(tags)
-    args = (body or {}).get("tool_args")
-    if not isinstance(args, dict) or not args:
-        args = _parse_args_from_card(proposal)
+    body = body or {}
+    body_tool = (body.get("tool") or "").strip()
+    body_args = body.get("tool_args")
+    body_args = body_args if isinstance(body_args, dict) else None
+
+    # Try to load the proposal for context. Tolerate misses: if the
+    # body provides everything we need to dispatch, the proposal lookup
+    # is informational. If the body is sparse, the proposal must load.
+    proposal = None
+    try:
+        proposal = await _load_proposal(delta_id)
+    except HTTPException:
+        if not (body_tool and body_args and body_args.get("action")):
+            raise
+
+    tags = (proposal.get("tags") if proposal else []) or []
+    tool = body_tool or _proposal_tool(tags)
+    args = body_args
+    if not args:
+        args = _parse_args_from_card(proposal) if proposal else {}
     action = (args.get("action") or _proposal_action(tags) or "").strip()
 
     result: dict

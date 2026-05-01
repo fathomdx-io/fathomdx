@@ -6323,14 +6323,18 @@
       // delta atomically (well, sequentially in the api but tied
       // together) so the proposal card flips to "approved" on next render.
       const saveFn = opts.proposalId ? async (body) => {
-        // Strip front-end-only flags before sending.
+        // Send tool + tool_args explicitly so approve can dispatch even
+        // when the proposal delta is no longer in the lake (TTL, eviction,
+        // or just lost between the witness's write and the user clicking
+        // approve). The endpoint loads the proposal for context but
+        // tolerates misses when the body is self-sufficient.
         const tool_args = { action: 'create', ...body };
         const r = await fetch(
           API_BASE + '/v1/proposals/' + encodeURIComponent(opts.proposalId) + '/approve',
           {
             method: 'POST',
             headers: { ...authHeaders(), 'Content-Type': 'application/json' },
-            body: JSON.stringify({ tool_args }),
+            body: JSON.stringify({ tool: 'routines', tool_args }),
           }
         );
         if (!r.ok) {
@@ -9237,7 +9241,7 @@ GET  /v1/usage               Usage stats`,
       try {
         await api(`/v1/proposals/${encodeURIComponent(proposalId)}/approve`, {
           method: 'POST',
-          body: JSON.stringify({ tool_args: args }),
+          body: JSON.stringify({ tool: it.tool || card.dataset.tool || '', tool_args: args }),
         });
         _proposalRender(card, it, args, 'approved', { timestamp: new Date().toISOString() });
       } catch (e) {
