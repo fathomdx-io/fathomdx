@@ -10129,7 +10129,7 @@ GET  /v1/usage               Usage stats`,
             <span class="d-kind">${headLabel}</span>
             <span class="d-ts">${timeStr}</span>
           </summary>
-          <div class="d-body">${renderMd(body)}<span class="cc-cursor" aria-hidden="true"></span></div>
+          <div class="d-body">${_esc(body)}<span class="cc-cursor" aria-hidden="true"></span></div>
         `;
         return el;
       }
