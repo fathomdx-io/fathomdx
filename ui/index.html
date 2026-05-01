@@ -638,29 +638,82 @@
       border-left-color: #ef4444;
     }
     .feed .delta.intent.intent-alert .d-kind { color: #ef4444; }
-    /* Routine-due — the cron tick that handed a routine to the witness.
-       Compact "routine fired" row, minor visual weight, click to open
-       the routine detail page. */
-    .feed .delta.routine.routine-due {
-      border-left-color: var(--signal, #d97706);
-      background: color-mix(in srgb, var(--surface) 95%, var(--signal, #d97706) 5%);
-      font-size: 12px;
-      padding: 6px 12px;
+    /* Routine activity — per-item accordion (mirrors claude-code dispatch
+       shape but with its own accent). Each routine fire / summary / due-
+       tick is its own <details>: closed by default, click to expand and
+       see the prompt / summary text. Clicking the routine name itself
+       (the highlighted span) jumps to the routine detail page. */
+    .feed .delta.routine {
+      border-left: none;
+      background: var(--bg-deep);
+      border: 1px solid var(--rule-soft);
+      border-radius: 6px;
+      padding: 0.55rem 0.85rem;
     }
-    .feed .delta.routine.routine-due .d-kind {
-      color: var(--signal, #d97706);
-      font-weight: 600;
-      font-size: 11px;
-      letter-spacing: 0.04em;
+    .feed .delta.routine > summary.d-head {
+      list-style: none;
+      cursor: pointer;
+      user-select: none;
+      display: flex;
+      align-items: baseline;
+      gap: 0.55rem;
     }
-    .feed .delta.routine.routine-due .d-body {
+    .feed .delta.routine > summary.d-head::-webkit-details-marker { display: none; }
+    .feed .delta.routine > summary.d-head::before {
+      content: "▸";
+      display: inline-block;
+      width: 0.9rem;
+      color: var(--signal);
+      opacity: 0.7;
+      transition: transform 160ms;
+    }
+    .feed .delta.routine[open] > summary.d-head::before { transform: rotate(90deg); }
+    .feed .delta.routine .routine-icon {
+      color: var(--signal);
+      opacity: 0.85;
+      font-size: 13px;
+      width: 14px;
+      text-align: center;
+      flex-shrink: 0;
+    }
+    .feed .delta.routine .d-kind {
+      flex: 1;
       font-family: var(--mono);
       font-size: 11.5px;
-      color: var(--ink-faint);
-      margin-top: 2px;
+      color: var(--ink-soft);
+      letter-spacing: 0.04em;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
     }
-    .feed .delta.routine.routine-due:hover {
-      background: color-mix(in srgb, var(--surface) 90%, var(--signal, #d97706) 10%);
+    .feed .delta.routine .routine-name {
+      color: var(--ink);
+      font-weight: 600;
+    }
+    .feed .delta.routine .routine-name.is-link {
+      cursor: pointer;
+      text-decoration-color: transparent;
+    }
+    .feed .delta.routine .routine-name.is-link:hover {
+      color: var(--signal);
+      text-decoration: underline;
+      text-decoration-color: currentColor;
+    }
+    .feed .delta.routine .routine-variant {
+      color: var(--signal);
+      opacity: 0.8;
+    }
+    .feed .delta.routine .d-ts {
+      color: color-mix(in srgb, var(--signal) 65%, transparent);
+      flex-shrink: 0;
+    }
+    .feed .delta.routine .d-body {
+      margin-top: 0.5rem;
+      font-family: var(--mono);
+      font-size: 12.5px;
+      color: var(--ink-soft);
+      line-height: 1.55;
+      white-space: pre-wrap;
     }
     /* Crystal — purple accent on the surface tint. */
     .feed .delta.crystal {
@@ -8722,6 +8775,61 @@ GET  /v1/usage               Usage stats`,
     // rendering ones already on screen.
     const _renderedFeedIds = new Set();
 
+    // ── Routine accordions ─────────────────────────
+    // Each routine fire / summary / due-tick gets its own collapsed
+    // accordion (mirrors the claude-code per-item shape). Header shows
+    // the routine name (looked up from _routineCache, falls through to
+    // the id slug); body reveals the prompt or summary text. Clicking
+    // the routine name opens the routine detail page.
+    function _routineNameOrId(rid) {
+      if (!rid) return 'routine';
+      const r = (typeof _routineCache !== 'undefined' && _routineCache)
+        ? _routineCache.find(x => x.id === rid)
+        : null;
+      return (r && r.name) || rid;
+    }
+
+    function _renderRoutineAccordion({ variant, routineId, content, puddleId, timeStr }) {
+      const el = document.createElement('details');
+      el.className = `delta routine routine-${variant}`;
+      el.dataset.kind = variant === 'summary' ? 'routine' : 'routine-due';
+      el.dataset.variant = variant;
+      el.dataset.fromPuddle = '1';
+      el.dataset.puddleId = puddleId;
+      if (puddleId) el.dataset.deltaId = puddleId;
+      if (routineId) el.dataset.routineId = routineId;
+      const name = _routineNameOrId(routineId);
+      // variant tag — the small label that identifies what kind of
+      // routine activity this is. fired = cron tick into the river,
+      // fire = legacy direct-to-kitty, summary = claude's writeup.
+      const variantLabel = (
+        variant === 'fired'   ? 'fired' :
+        variant === 'summary' ? 'summary' :
+        variant === 'fire'    ? 'fire' :
+        variant
+      );
+      const body = (content || '').toString();
+      el.innerHTML = `
+        <summary class="d-head">
+          <span class="routine-icon">↻</span>
+          <span class="d-kind">routine · <span class="routine-name${routineId ? ' is-link' : ''}">${_esc(name)}</span> · <span class="routine-variant">${_esc(variantLabel)}</span></span>
+          <span class="d-ts">${timeStr}</span>
+        </summary>
+        <div class="d-body">${_esc(body)}</div>
+      `;
+      // Clicking the routine-name span jumps to the routine detail page;
+      // clicking anywhere else on the summary toggles the accordion.
+      const nameEl = el.querySelector('.routine-name');
+      if (nameEl && routineId) {
+        nameEl.addEventListener('click', (e) => {
+          e.stopPropagation();
+          e.preventDefault();
+          if (typeof openRoutineDetail === 'function') openRoutineDetail(routineId);
+        });
+      }
+      return el;
+    }
+
     // ── Proposal cards (witness-emitted state-change requests) ─────
     //
     // Witness picks `route:tool:<name>` → card lands with kind:proposal +
@@ -9115,31 +9223,18 @@ GET  /v1/usage               Usage stats`,
         return el;
       }
       // Routine-due — the cron tick that handed a routine to the River.
-      // Compact "🗓 routine fired" row that's the visible breadcrumb
-      // upstream of whatever the witness emitted in response. Click jumps
-      // to the routine's detail page.
+      // Per-item accordion (mirrors the claude-code dispatch shape):
+      // closed by default, summary shows the routine name + "fired",
+      // body reveals the prompt text. Click chevron to expand; the
+      // routine name itself opens the routine detail page.
       if (it.kind === 'routine-due') {
-        const el = document.createElement('article');
-        el.className = 'delta routine routine-due';
-        el.dataset.kind = 'routine-due';
-        el.dataset.fromPuddle = '1';
-        el.dataset.puddleId = it.id || '';
-        if (it.id) el.dataset.deltaId = it.id;
-        if (it.routine_id) el.dataset.routineId = it.routine_id;
-        const summary = (it.content || '').split('\n')[0].replace(/^\[routine-due:\s*/, '').replace(/\]$/, '').trim();
-        const label = it.routine_id
-          ? `routine fired · ${_esc(it.routine_id)}`
-          : 'routine fired';
-        el.innerHTML = `<header class="d-head"><span class="d-kind">${label}</span><span class="d-ts">${timeStr}</span></header>${summary ? `<div class="d-body">${_esc(summary)}</div>` : ''}`;
-        if (it.routine_id) {
-          el.style.cursor = 'pointer';
-          el.title = `Click to open routine ${it.routine_id}`;
-          el.addEventListener('click', (e) => {
-            e.stopPropagation();
-            if (typeof openRoutineDetail === 'function') openRoutineDetail(it.routine_id);
-          });
-        }
-        return el;
+        return _renderRoutineAccordion({
+          variant: 'fired',
+          routineId: it.routine_id || '',
+          content: (it.content || '').replace(/^\[routine-due:[^\]]*\]\s*/, '').trim(),
+          puddleId: it.id || '',
+          timeStr,
+        });
       }
       // Crystal facet
       if (it.kind === 'crystal') {
@@ -9168,17 +9263,13 @@ GET  /v1/usage               Usage stats`,
       // Routine — fire (trigger) or summary (writeup). Both surface
       // under one kind; the summary boolean differentiates the visual.
       if (it.kind === 'routine') {
-        const el = document.createElement('article');
-        el.className = `delta routine ${it.summary ? 'routine-summary' : 'routine-fire'}`;
-        el.dataset.kind = 'routine';
-        el.dataset.fromPuddle = '1';
-        el.dataset.puddleId = it.id || '';
-        if (it.id) el.dataset.deltaId = it.id;
-        const variant = it.summary ? 'summary' : 'fire';
-        const rid = it.routine_id ? ` · ${it.routine_id}` : '';
-        const label = `routine · ${variant}${rid}`;
-        el.innerHTML = `<header class="d-head"><span class="d-kind">${_esc(label)}</span><span class="d-ts">${timeStr}</span></header><div class="d-body">${_esc(it.content || '')}</div>`;
-        return el;
+        return _renderRoutineAccordion({
+          variant: it.summary ? 'summary' : 'fire',
+          routineId: it.routine_id || '',
+          content: it.content || '',
+          puddleId: it.id || '',
+          timeStr,
+        });
       }
       // Lake delta — telepathy mirror of fresh durable lake activity.
       // Header: "delta" + source chip; body: prose if it parses as
