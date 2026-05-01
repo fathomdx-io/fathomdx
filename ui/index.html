@@ -5534,14 +5534,12 @@
       const when = _nextFireText(r);
       const diff = (Number(r.next_fire_at || 0) * 1000) - Date.now();
       const soon = r.enabled && diff > 0 && diff < 10 * 60 * 1000;  // <10min highlights
-      // Routines moved out of the per-host Helpers card. Each chip now
-      // surfaces its host (or "fleet" for routines with no pin) so the
-      // unified list still tells you where each one will run if the
-      // witness picks claude-code.
-      const hostLabel = r.host ? r.host : 'fleet';
+      // Machine assignment isn't a routine concept any more — the witness
+      // picks the host at dispatch time based on the prompt's `# Needs`.
+      // Chip just shows name + next fire.
       return `<span class="chip" data-routine="${_esc(r.id)}" data-state="${state}">
         <span class="dot"></span>
-        <span class="label">${_esc(name)} <span class="next-fire${soon ? ' soon' : ''}">${_esc(when)}</span> <span class="next-fire" style="opacity:.6">· ${_esc(hostLabel)}</span></span>
+        <span class="label">${_esc(name)} <span class="next-fire${soon ? ' soon' : ''}">${_esc(when)}</span></span>
       </span>`;
     }
 
@@ -5635,19 +5633,14 @@
         permission_mode: 'auto', enabled: true, single_fire: false,
       };
       const preset = inferPreset(r.schedule);
-      // Build the host dropdown from currently-connected agents plus an
-      // "any" fleet-wide option. Pre-selects the routine's current host.
-      const hostOptions = [
-        `<option value="">any (fleet-wide)</option>`,
-        ...(_agentStatus.agents || []).map(a =>
-          `<option value="${_esc(a.host)}" ${a.host === (r.host || '') ? 'selected' : ''}>${_esc(a.host)}</option>`
-        ),
-      ];
-      // If the routine is pinned to a host that isn't currently connected,
-      // keep the value so it's preserved on save.
-      if (r.host && !(_agentStatus.agents || []).some(a => a.host === r.host)) {
-        hostOptions.push(`<option value="${_esc(r.host)}" selected>${_esc(r.host)} (offline)</option>`);
-      }
+      // Machine assignment isn't a routine concept any more — routines
+      // fire INTO the River and the witness picks the route, including
+      // which host (if any) to dispatch claude-code to. If you want to
+      // nudge the witness toward a specific machine, say so in the
+      // prompt body's `# Needs` section ("claude-code on <hostname>").
+      // The `host` frontmatter field stays in the spec for back-compat
+      // (older routines still have it; preserved on save) but doesn't
+      // surface in the form.
       return `
         <div class="routine-editor" data-editing="${_esc(isEdit ? r.id : '__new__')}">
           <div class="field-row">
@@ -5658,15 +5651,6 @@
             <div class="form-group">
               <label>name</label>
               <input class="form-input" data-f="name" type="text" value="${_esc(r.name)}" placeholder="Human-readable" />
-            </div>
-            <div class="form-group">
-              <label>machine</label>
-              <select class="form-input" data-f="host">${hostOptions.join('')}</select>
-            </div>
-            <div class="form-group">
-              <label>path (optional)</label>
-              <input class="form-input" data-f="workspace" type="text" value="${_esc(r.workspace || '')}" placeholder="agent default" />
-              <div class="form-hint">Directory the routine runs in. Defaults to the helper's <code>default_workspace</code> — change that in <code>agent.json</code> on the target machine. Override here only if this routine needs a different path.</div>
             </div>
           </div>
           <div>
@@ -5787,20 +5771,37 @@
     }
 
     function collectEditor(editor) {
+      const has = (f) => !!editor.querySelector(`[data-f="${f}"]`);
       const get = (f) => (editor.querySelector(`[data-f="${f}"]`) || {}).value || '';
       const check = (f) => (editor.querySelector(`[data-f="${f}"]`) || {}).checked;
       const mode = (editor.querySelector('[data-perm-mode] [data-active="true"]') || {}).dataset?.mode || 'auto';
-      return {
+      // host and workspace were removed from the form — they aren't routine
+      // concepts any more. For existing routines that already have these
+      // set, preserve the value rather than nulling it on save (back-compat
+      // for older routines created before the River-only model).
+      const editingId = editor.dataset.editing;
+      const existing = editingId && editingId !== '__new__'
+        ? (_routineCache.find(x => x.id === editingId) || {})
+        : {};
+      const body = {
         id: get('id').trim(),
         name: get('name').trim(),
-        workspace: get('workspace').trim(),
-        host: get('host').trim(),
         schedule: computeCron(editor),
         prompt: get('prompt'),
         permission_mode: mode,
         enabled: !!check('enabled'),
         single_fire: !!check('single_fire'),
       };
+      // Include host/workspace only if the form has the field (forward
+      // compat in case we re-add them) or the routine already has the
+      // value set (preserve on edit).
+      if (has('host') || existing.host) {
+        body.host = has('host') ? get('host').trim() : (existing.host || '');
+      }
+      if (has('workspace') || existing.workspace) {
+        body.workspace = has('workspace') ? get('workspace').trim() : (existing.workspace || '');
+      }
+      return body;
     }
 
     // Wire a `.routine-editor` element into a working form. Used by both
