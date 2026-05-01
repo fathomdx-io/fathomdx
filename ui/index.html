@@ -2658,6 +2658,19 @@
       font-family: var(--mono); font-size: 12px; min-height: 120px; resize: vertical;
     }
     .routine-editor .form-group { flex: 1 1 200px; min-width: 0; }
+    .routine-editor .form-hint {
+      font-size: 11px; color: var(--ink-faint); line-height: 1.5; margin-top: 4px;
+    }
+    .routine-editor .form-hint a { color: var(--accent); text-decoration: none; }
+    .routine-editor .form-hint a:hover { text-decoration: underline; }
+    .routine-editor .ending-choices {
+      display: flex; flex-direction: column; gap: 6px; margin-top: 4px;
+      font-size: 12px;
+    }
+    .routine-editor .ending-choice {
+      font-family: var(--mono); font-size: 12px; display: flex; align-items: center;
+      gap: 8px; cursor: pointer;
+    }
     .routine-editor .err {
       color: #d35; font-size: 12px; font-family: var(--mono);
     }
@@ -5573,8 +5586,25 @@
             </div>
           </div>
           <div>
-            <label>prompt</label>
-            <textarea class="form-textarea" data-f="prompt" placeholder="What claude should do when this routine fires.">${_esc(r.prompt || '')}</textarea>
+            <div style="display: flex; align-items: baseline; justify-content: space-between; gap: 8px;">
+              <label>prompt</label>
+              <button type="button" class="routine-btn" data-act="scaffold" style="font-size: 11px; padding: 2px 8px;" title="Fill in the four-section template (Purpose / Needs / Steps / Ending)">scaffold</button>
+            </div>
+            <textarea class="form-textarea" data-f="prompt" placeholder="What you want Fathom to do. Tip: click 'scaffold' for a Purpose / Needs / Steps / Ending template.">${_esc(r.prompt || '')}</textarea>
+            <div class="form-hint">
+              Routines fire INTO Fathom — the witness picks the route (card, alert, chat-reply, claude-code dispatch, silent). See <a href="https://github.com/fathomdx-io/fathomdx/blob/main/docs/reference/routine-spec.md#writing-the-prompt" target="_blank" rel="noopener noreferrer">routine-spec.md</a>.
+            </div>
+          </div>
+          <div>
+            <label>How would you like to be notified when this is done?</label>
+            <div class="ending-choices" data-ending-choices>
+              <label class="ending-choice"><input type="radio" name="ending-${_esc(isEdit ? r.id : '__new__')}" data-ending="card" /> A card in the feed</label>
+              <label class="ending-choice"><input type="radio" name="ending-${_esc(isEdit ? r.id : '__new__')}" data-ending="dm" /> Direct message to me</label>
+              <label class="ending-choice"><input type="radio" name="ending-${_esc(isEdit ? r.id : '__new__')}" data-ending="other" /> Do something else:</label>
+              <input class="form-input" data-ending-other type="text" placeholder="e.g. card most days; alert if X" style="margin-left: 24px; max-width: 420px;" />
+              <label class="ending-choice"><input type="radio" name="ending-${_esc(isEdit ? r.id : '__new__')}" data-ending="silent" /> Do nothing on screen — just write to the lake</label>
+            </div>
+            <div class="form-hint">Picking one fills the <code># Ending</code> section of your prompt. You can edit the prose directly afterward.</div>
           </div>
           <div class="field-row" style="align-items: center;">
             <div>
@@ -5587,7 +5617,7 @@
             <label style="font-size: 12px; align-self: flex-end;">
               <input type="checkbox" data-f="enabled" ${r.enabled ? 'checked' : ''} /> enabled
             </label>
-            <label style="font-size: 12px; align-self: flex-end;" title="not yet honored by LakeScheduler">
+            <label style="font-size: 12px; align-self: flex-end;" title="Soft-deletes the spec after firing once.">
               <input type="checkbox" data-f="single_fire" ${r.single_fire ? 'checked' : ''} /> single-fire
             </label>
           </div>
@@ -5701,6 +5731,73 @@
           btn.setAttribute('data-active', 'true');
         });
       });
+
+      // Scaffold: drop the four-section template into the prompt textarea
+      // when the user wants a starting point. Only fills if empty so we
+      // don't clobber existing content; otherwise just inserts at cursor.
+      const promptEl = editor.querySelector('[data-f="prompt"]');
+      const scaffoldBtn = editor.querySelector('[data-act="scaffold"]');
+      if (scaffoldBtn && promptEl) {
+        scaffoldBtn.addEventListener('click', () => {
+          const template = (
+            '# Purpose\n' +
+            '[One sentence — what should Fathom accomplish?]\n\n' +
+            '# Needs\n' +
+            '[claude-code on <host>, a specific tool, or "substrate only".]\n\n' +
+            '# Steps\n' +
+            '1. \n2. \n3. \n\n' +
+            '# Ending\n' +
+            '[How you want to be notified — card, DM, alert, silent. Edit\n' +
+            'this prose or pick a notification choice below.]\n'
+          );
+          if (!(promptEl.value || '').trim()) {
+            promptEl.value = template;
+          } else if (!promptEl.value.includes('# Purpose')) {
+            promptEl.value = template + '\n' + promptEl.value;
+          }
+          promptEl.focus();
+          promptEl.dispatchEvent(new Event('input'));
+        });
+      }
+
+      // Notification choice → fills/updates the `# Ending` section.
+      const endingChoices = editor.querySelectorAll('[data-ending]');
+      const endingOther = editor.querySelector('[data-ending-other]');
+      const endingSentence = (choice, otherText) => {
+        if (choice === 'card') return 'Send me a card with the result.';
+        if (choice === 'dm') return 'DM me a quick line — no full card needed.';
+        if (choice === 'silent') return 'Stay silent on screen — just write the result back to the lake.';
+        if (choice === 'other') return (otherText || '').trim() || 'Do something else.';
+        return '';
+      };
+      const applyEnding = () => {
+        if (!promptEl) return;
+        const picked = editor.querySelector('[data-ending]:checked');
+        if (!picked) return;
+        const sentence = endingSentence(picked.dataset.ending, endingOther && endingOther.value);
+        if (!sentence) return;
+        const text = promptEl.value || '';
+        // If a `# Ending` section already exists, replace its body. Otherwise append.
+        const endingRe = /(^|\n)#\s*Ending\b[^\n]*\n([\s\S]*?)(?=\n#\s|\s*$)/i;
+        if (endingRe.test(text)) {
+          promptEl.value = text.replace(endingRe, (_, lead) => `${lead}# Ending\n${sentence}\n`);
+        } else {
+          const sep = text && !text.endsWith('\n') ? '\n\n' : (text ? '\n' : '');
+          promptEl.value = `${text}${sep}# Ending\n${sentence}\n`;
+        }
+        promptEl.dispatchEvent(new Event('input'));
+      };
+      endingChoices.forEach(radio => radio.addEventListener('change', applyEnding));
+      if (endingOther) {
+        endingOther.addEventListener('focus', () => {
+          const otherRadio = editor.querySelector('[data-ending="other"]');
+          if (otherRadio) otherRadio.checked = true;
+        });
+        endingOther.addEventListener('input', () => {
+          const otherRadio = editor.querySelector('[data-ending="other"]');
+          if (otherRadio && otherRadio.checked) applyEnding();
+        });
+      }
 
       editor.querySelector('[data-act="cancel"]').addEventListener('click', () => {
         if (onCancel) onCancel();

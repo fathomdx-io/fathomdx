@@ -13,12 +13,12 @@ A routine is a **spec delta** with three things:
 Example:
 
 ```
-Tags:   spec, routine, routine-id:gold-check, workspace:trader-agent
+Tags:   spec, routine, routine-id:gold-mac-ratio, workspace:trader-agent
 Source: consumer-dashboard
 Content:
 ---
-id: gold-check
-name: Gold Price Pulse
+id: gold-mac-ratio
+name: Gold-to-Mac Ratio
 schedule: "0 * * * *"
 enabled: true
 workspace: trader-agent
@@ -28,8 +28,172 @@ single_fire: false
 deleted: false
 ---
 
-Check the current gold spot price. Compare to the last 24h. If it moved
-more than 1%, surface a feed card. Otherwise stay silent.
+# Purpose
+Track when gold's purchasing power crosses one Mac.
+
+# Needs
+claude-code on myras-fedora-laptop — live price fetch.
+
+# Steps
+1. Fetch gold spot price (Kitco).
+2. Fetch refurbished 128GB iPhone 15 Pro Max price (Apple refurb).
+3. Compute ratio. Compare to last fire.
+
+# Ending
+Stay silent on quiet days. If the ratio drops to 1.0 or lower (gold has
+caught up to a Mac), send me a hard alert.
+```
+
+The four-section body (Purpose / Needs / Steps / Ending) is convention, not enforced by code — see [Writing the prompt](#writing-the-prompt) below.
+
+## Writing the prompt
+
+The witness reads the prompt body as the user-given instruction. Routines that follow a four-section convention give the witness clearer signal than freeform prose — same reason a good email has a subject line, body, and call-to-action.
+
+### The four sections
+
+```
+# Purpose
+[One sentence. What I'm trying to accomplish.]
+
+# Needs
+[What this needs to actually run — claude-code on a host, a specific tool,
+or "substrate only" if the lake already has the data. Fathom uses this as
+a strong hint when picking a route.]
+
+# Steps
+[The instructions — what to look for, what to filter, what to compare against.
+Numbered or prose, whichever fits.]
+
+# Ending
+[How you want to know it ran. Plain language. The witness reads this to pick
+the route — feed card, chat reply, alert, silent, or something else.
+Examples below.]
+```
+
+The witness still reads the *whole* body, so prose outside these sections is fine. But the headers are load-bearing: Fathom looks at `# Ending` to decide what to deliver back to you.
+
+### `# Ending` — how you want to be notified
+
+This is where you express the route preference in language. The witness translates to its actual route. Common patterns:
+
+| What you write under `# Ending` | Witness picks |
+|---|---|
+| "Send me a card with the result." | `feed-card` |
+| "DM me a quick line." | `chat-reply` to your active surface |
+| "Card most days; soft alert if anything major lands." | `feed-card` by default, `alert:soft` when the prompt's condition is met |
+| "Stay silent unless X — then alert me hard." | `silent` by default, `alert:hard` when X |
+| "Do nothing on screen, just write the result back to the lake." | `silent` (the work still produces deltas) |
+| "Email Jerry the summary." | `tool:<email-tool>` (if such a tool exists) |
+| "Propose a routine cleanup if you find any candidates." | `tool:routines` proposal card with Edit/Deny/Approve |
+
+You don't have to use any of these phrasings exactly. Write it however you'd describe it to a person; Fathom reads the intent.
+
+### Why not encode `output:` and `escalate_if:` as frontmatter?
+
+We considered it. The reason we landed on prose under `# Ending` instead:
+
+- **The witness is an LLM.** Asking it to read "Card most days, alert if X" as a directive is exactly what it's good at. Pushing that into structured fields forces precision the user doesn't have to want.
+- **The Ending section is where edge-case conditions live.** "Card unless gold-to-mac ratio drops below 1.0" is a real preference; encoding the predicate as YAML would be lossy.
+- **Routine writers are the user, not other code.** The schema should match how the user thinks, not how the witness parses.
+
+Keep frontmatter for **routine identity and scheduling** (id, name, schedule, host, permission). Keep prose for **everything about what to do and how to deliver it**.
+
+### Examples
+
+**Gold-to-Mac ratio — silent unless threshold crosses**
+
+```
+# Purpose
+Track when gold's purchasing power crosses one Mac.
+
+# Needs
+claude-code on myras-fedora-laptop — live price fetch.
+
+# Steps
+1. Fetch gold spot price (Kitco).
+2. Fetch refurbished 128GB iPhone 15 Pro Max price (Apple refurb).
+3. Compute ratio. Compare to last fire's ratio in the lake.
+
+# Ending
+Stay silent on quiet days. If the ratio drops to 1.0 or lower (gold has
+caught up to a Mac), send me a hard alert. Lead with the ratio + delta.
+```
+
+**Menya Rui — soft alert when open + closing soon**
+
+```
+# Purpose
+Catch the window when Menya Rui is open AND closing soon.
+
+# Needs
+claude-code on myras-fedora-laptop — Google Maps lookup.
+
+# Steps
+1. Check Menya Rui's current open status.
+2. Read its closing time today.
+3. Compute time-to-close.
+
+# Ending
+Stay silent unless they're open and closing in 90 minutes or less. Then
+soft-alert me with the closing time.
+```
+
+**Hard-problem heartbeat — daily card, two paragraphs**
+
+```
+# Purpose
+Daily heartbeat on the hard-problem workspace.
+
+# Needs
+claude-code on myras-fedora-laptop — read fresh vault state.
+
+# Steps
+1. Read today's hard-problem vault entries.
+2. Identify what was accomplished today vs. yesterday.
+3. Decide the next concrete step.
+
+# Ending
+Send me a card with two paragraphs: what was accomplished (concrete, no
+hand-waving), and the plan for next round (one specific action).
+```
+
+**Daily news briefing — card most days, alert on big news**
+
+```
+# Purpose
+Morning news briefing — Trump health, AI/robotics, STL events.
+
+# Needs
+claude-code on myras-fedora-laptop — web fetch.
+
+# Steps
+1. Check world, national, and St. Louis news.
+2. Filter for: Trump health changes, AI/robotics breakthroughs, STL events.
+3. Surface only what's new since last fire.
+
+# Ending
+Card most days. Soft alert if anything genuinely major breaks (Trump
+health change, AI breakthrough, STL emergency). Stay silent if literally
+nothing new.
+```
+
+**Weekly retrospective — substrate only**
+
+```
+# Purpose
+Weekly look-back at what landed in the lake.
+
+# Needs
+Substrate only — no claude-code needed.
+
+# Steps
+1. Pull what landed in the lake this week (commits, vault entries, chats).
+2. Group by theme.
+3. Surface one thing worth remembering next month.
+
+# Ending
+Send me a card. Three sections, one paragraph each.
 ```
 
 ## Frontmatter fields

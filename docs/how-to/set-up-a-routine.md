@@ -84,57 +84,143 @@ For non-claude-code routes (`feed-card`, `chat-reply`, etc.), `host` is informat
 
 ## Writing the prompt
 
-The new architecture changes how you write the prompt. Old: "you are claude-code; do X, then Y, then write a delta." New: "Fathom, do X" — and you trust the witness to route appropriately.
+Routines follow a four-section schema. Each section has a header (`# Purpose`, `# Needs`, etc.); the witness reads them as conventions. Freeform prose works too, but structured prompts give cleaner signal — same reason a good email has a subject and body.
 
-### Pattern 1 — recurring fetch + synthesis
+```
+# Purpose
+[One sentence — what I'm trying to accomplish.]
 
-> Check world, national, and St. Louis news this morning. Focus on Trump's health, AI/robotics, and local events. Surface only what's new since the last fire. Synthesize into a concise update.
+# Needs
+[What this needs to actually run — claude-code on a host, a tool,
+or "substrate only" if the lake already has the data.]
 
-What happens:
+# Steps
+[The instructions — what to look for, what to filter, what to compare.]
 
-1. Cron tick → `routine-due` intent in the puddle.
-2. Witness reads it, recognizes "check news" as a fetch, picks `claude-code:<host>`. Body of the dispatch is the data-fetching part of the prompt.
-3. Claude-code fetches. Closure delta lands.
-4. Next witness tick reads the closure intent. Synthesizes the "concise update" — a feed card in Fathom's voice with the data folded in.
+# Ending
+[How you want to be notified. Plain language. Witness reads this to
+pick the route — card, DM, alert, silent, or something else.]
+```
 
-The synthesis instruction lives in *your* prompt but is executed by the *witness*, not claude-code. That's the key change from the old architecture.
+The full reference for each section, including more `# Ending` patterns, is in [routine-spec.md](../reference/routine-spec.md#writing-the-prompt). The dashboard's New Routine form prompts you for each section with a small form; you can write freeform if you prefer.
 
-### Pattern 2 — pure substrate synthesis
+### The four notification choices
 
-> Every Friday at 5pm, summarize what got committed across my projects this week. Group by project and rank by impact.
+When you create a routine in the dashboard, you'll see:
 
-What happens:
+> **How would you like to be notified when this is done?**
+> ◯ A card in the feed
+> ◯ Direct message to me
+> ◯ Do something else: ____________________
+> ◯ Do nothing
 
-1. Cron tick → `routine-due` intent.
-2. Witness reads it, sees no fresh-data verb. Picks `feed-card`. Pulls commits from substrate (git deltas already in the lake) and writes one card.
+Each maps cleanly to a witness route. Pick one and the form fills `# Ending` for you. Add a free-text refinement underneath to layer on conditions ("but escalate to soft alert if anything major lands").
 
-No claude-code spawned. No agent needed. The lake already has the data; the witness composes the card.
+### Pattern 1 — recurring fetch + alert on threshold (Gold-to-Mac)
 
-### Pattern 3 — proposal cards
+```
+# Purpose
+Track when gold's purchasing power crosses one Mac.
 
-> Every two weeks, look for routines that haven't fired or whose summaries have been thin, and propose deleting them.
+# Needs
+claude-code on myras-fedora-laptop — live price fetch.
 
-The witness writes a `tool:routines` proposal card with `action:delete` and the candidate routine id. You see Edit/Deny/Approve buttons in the feed. Nothing changes until you approve.
+# Steps
+1. Fetch gold spot price (Kitco).
+2. Fetch refurbished 128GB iPhone 15 Pro Max price (Apple refurb).
+3. Compute ratio. Compare to last fire's ratio in the lake.
 
-### Pattern 4 — alerts
+# Ending
+Stay silent on quiet days. If the ratio drops to 1.0 or lower (gold has
+caught up to a Mac), send me a hard alert. Lead with the ratio + delta.
+```
 
-> Daily, check if any research thread has been quiet for 3+ days. If so, surface it as a soft alert.
+What happens: cron tick → `routine-due` intent. Witness reads `# Needs` and picks `claude-code:<host>` for the fetch. Claude-code returns prices. Next witness tick reads `# Ending`, evaluates the ratio condition, picks `silent` if not crossed or `alert:hard` if crossed.
 
-Witness picks `alert:soft`. The card pins to the top of the feed until you engage with it.
+### Pattern 2 — fetch + synthesize into a card (News briefing)
 
-### What to put IN the prompt
+```
+# Purpose
+Morning news briefing — Trump health, AI/robotics, STL events.
 
-Write it as if you're asking Fathom to do something — first person, conversational. Don't pre-script claude-code's tool calls; the witness will compose those if it picks claude-code.
+# Needs
+claude-code on myras-fedora-laptop — web fetch.
+
+# Steps
+1. Check world, national, and St. Louis news.
+2. Filter for: Trump health changes, AI/robotics breakthroughs, STL events.
+3. Surface only what's new since last fire.
+
+# Ending
+Card most days. Soft alert if anything genuinely major breaks (Trump
+health change, AI breakthrough, STL emergency). Stay silent if literally
+nothing new.
+```
+
+The synthesis instruction lives under `# Ending` but is executed by the *witness*, not claude-code. That's the key change from the old architecture: claude-code fetches the data, the witness writes the card.
+
+### Pattern 3 — pure substrate synthesis (Weekly retro)
+
+```
+# Purpose
+Weekly look-back at what landed in the lake.
+
+# Needs
+Substrate only — no claude-code needed.
+
+# Steps
+1. Pull what landed in the lake this week (commits, vault entries, chats).
+2. Group by theme.
+3. Surface one thing worth remembering next month.
+
+# Ending
+Send me a card. Three sections, one paragraph each.
+```
+
+No claude-code spawned. No agent needed. The lake already has the data; the witness composes the card directly.
+
+### Pattern 4 — proposal cards (Routine cleanup)
+
+```
+# Purpose
+Once a month, prune routines that aren't pulling their weight.
+
+# Needs
+Substrate only — read recent routine summaries from the lake.
+
+# Steps
+1. Look at every routine's last 5 summaries.
+2. Flag any whose outputs were thin or didn't advance the work.
+
+# Ending
+For each candidate, propose disabling it. Show me the routine name and
+why you flagged it. I'll approve or deny each.
+```
+
+Witness writes `tool:routines` proposal cards (one per candidate) with `action:update` `enabled:false`. Edit/Deny/Approve in the feed. Nothing changes until you approve.
+
+### What to put under `# Steps`
+
+Write the steps as if you're asking Fathom to do something — first person, conversational. Don't pre-script claude-code's tool calls; the witness will compose those if it picks claude-code.
 
 Good:
 
-> Check the price of gold and BTC. If either moved >5% from yesterday's close, surface a feed card. Otherwise, stay silent.
+```
+# Steps
+1. Fetch the price of gold and BTC.
+2. Compare to yesterday's close.
+```
 
 Bad:
 
-> You are claude-code. Run `curl https://...` to fetch gold. Then run `curl https://...` for BTC. Then call `fathom delta write` with tags `[market, daily]`. Then exit.
+```
+# Steps
+You are claude-code. Run `curl https://...` to fetch gold.
+Then run `curl https://...` for BTC. Call `fathom delta write` with
+tags `[market, daily]`. Then exit.
+```
 
-The witness needs your *intent*, not your implementation. The "stay silent if nothing changed" hint tells the witness to suppress its output when conditions aren't met — that's a real route choice (no card emitted), and the witness honors it.
+The witness needs your *intent*, not your implementation. Tool calls and lake writes are downstream of the route choice — Fathom composes them based on what `# Needs` says it has access to.
 
 ### The four-beat structure (still applies)
 

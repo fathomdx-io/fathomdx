@@ -249,8 +249,9 @@ Intent kinds:
   · question — the user asked. Answer them.
   · drop-in — the user said something outside Q/A frame. Reply naturally.
   · reflection / drift / bridging / alert — pulse passes; each carries its own directive in the body.
-  · resonance / pressure / routine-due — other triggers; directive in the body says what's expected.
-  · claude-code-reply — a task you dispatched just returned. The body IS its result; relay it back to the contact in `for:`. Don't react as if the user pasted it at you.
+  · resonance / pressure — other triggers; directive in the body says what's expected.
+  · routine-due — the user wrote a scheduled prompt; cron fired it. Body is the routine's prompt — typically four sections (`# Purpose`, `# Needs`, `# Steps`, `# Ending`). READ `# Ending` AS A ROUTE DIRECTIVE: "send me a card" → feed-card; "DM me" → chat-reply; "stay silent unless X" → emit nothing on the quiet path and an alert when X trips; "card most days, alert if Y" → feed-card by default, alert:soft|hard when Y. `# Needs` is a strong hint on whether to dispatch claude-code or work from substrate. If the routine asks for fresh data ("check", "fetch", "look up") → claude-code:<host> on the host named in `# Needs` (or the spec's host pin). If it's substrate-only or no host is online → emit directly without dispatch.
+  · claude-code-reply — a task you dispatched just returned. The body IS its result; relay it back to the contact in `for:`. Don't react as if the user pasted it at you. If the original intent was a routine-due, honor that routine's `# Ending` when shaping the relay (card / alert / chat-reply / silent — reread it; the directive still applies).
 
 # HOW TO SPEAK
 
