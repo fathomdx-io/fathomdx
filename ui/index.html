@@ -5935,7 +5935,7 @@
     // the routine-detail inline editor and the new-routine wizard — they
     // share the same markup produced by renderEditorHtml(), so the event
     // handling is factored out here. Caller provides onSave + onCancel.
-    function wireEditor(editor, { onSave, onCancel }) {
+    function wireEditor(editor, { onSave, onCancel, saveFn } = {}) {
       const editingId = editor.dataset.editing;
       const isCreate = editingId === '__new__';
 
@@ -6037,14 +6037,22 @@
         if (!body.id) { errBox.textContent = 'id is required'; errBox.hidden = false; return; }
         if (!body.name) { errBox.textContent = 'name is required'; errBox.hidden = false; return; }
         try {
-          const url = isCreate
-            ? API_BASE + '/v1/routines'
-            : API_BASE + '/v1/routines/' + encodeURIComponent(editingId);
-          const method = isCreate ? 'POST' : 'PUT';
-          const r = await fetch(url, { method, headers: authHeaders(), body: JSON.stringify(body) });
-          if (!r.ok) {
-            const d = await r.json().catch(() => ({}));
-            throw new Error(d.detail || (r.status + ' ' + r.statusText));
+          // If the caller provided a custom saveFn (e.g. proposal-driven
+          // create that needs to go through /v1/proposals/<id>/approve
+          // instead of /v1/routines POST), use it. Otherwise the default
+          // POST/PUT to /v1/routines.
+          if (typeof saveFn === 'function') {
+            await saveFn(body);
+          } else {
+            const url = isCreate
+              ? API_BASE + '/v1/routines'
+              : API_BASE + '/v1/routines/' + encodeURIComponent(editingId);
+            const method = isCreate ? 'POST' : 'PUT';
+            const r = await fetch(url, { method, headers: authHeaders(), body: JSON.stringify(body) });
+            if (!r.ok) {
+              const d = await r.json().catch(() => ({}));
+              throw new Error(d.detail || (r.status + ' ' + r.statusText));
+            }
           }
           if (onSave) onSave(body);
         } catch (e) {
@@ -6238,35 +6246,89 @@
     const viewAddRoutine = document.getElementById('viewAddRoutine');
     const addRoutineBackBtn = document.getElementById('addRoutineBackBtn');
 
-    function openAddRoutine(host = '') {
+    function openAddRoutine(host = '', opts = {}) {
+      // opts.prefilled — full routine-shape object to populate the form
+      //   (used by proposal Edit so the user lands in the wizard with
+      //   the witness's drafted values already in place).
+      // opts.proposalId — the lake delta id of a kind:proposal card.
+      //   When set, save routes through /v1/proposals/<id>/approve
+      //   (which calls routines.create AND writes the decision delta)
+      //   instead of /v1/routines POST. So one click both creates the
+      //   routine and resolves the proposal.
       viewMain.hidden = true;
       viewAddRoutine.hidden = false;
       const mount = document.getElementById('addRoutineMount');
-      // Pre-fill the host field when launched from a specific agent's
-      // "+ New routine" chip. Passing a bare `{ host }` object to
-      // renderEditorHtml would treat it as an edit of an empty routine —
-      // instead, build a minimal new-routine default with host set. The
-      // workspace prefill comes from the target agent's heartbeat config,
-      // so each machine can advertise its own default instead of us
-      // hardcoding a single name here.
-      const defaults = host ? {
-        id: '', name: '', workspace: _defaultWorkspaceForHost(host), host,
-        schedule: '0 * * * *', prompt: '',
-        permission_mode: 'auto', enabled: true, single_fire: false,
-      } : null;
-      mount.innerHTML = renderEditorHtml(defaults);
+
+      // Topbar title — distinguish "edit a witness-drafted proposal"
+      // from "create from scratch" so the user knows where they are.
+      const titleEl = document.querySelector('#viewAddRoutine .topbar-title');
+      const wizTitle = document.querySelector('#viewAddRoutine .wizard-title');
+      if (opts.proposalId) {
+        if (titleEl) titleEl.textContent = 'Review proposal';
+        if (wizTitle) wizTitle.textContent = 'Edit Fathom’s drafted routine.';
+      } else {
+        if (titleEl) titleEl.textContent = 'New routine';
+        if (wizTitle) wizTitle.textContent = 'What should Fathom do on a timer?';
+      }
+
+      // Build the seed object passed to renderEditorHtml.
+      // Precedence: caller's opts.prefilled > host-only defaults > null
+      //   (which renderEditorHtml treats as fresh-create).
+      let seed = null;
+      if (opts.prefilled) {
+        seed = {
+          id: opts.prefilled.id || '',
+          name: opts.prefilled.name || '',
+          workspace: opts.prefilled.workspace || '',
+          host: opts.prefilled.host || '',
+          schedule: opts.prefilled.schedule || '0 * * * *',
+          prompt: opts.prefilled.prompt || '',
+          permission_mode: opts.prefilled.permission_mode || 'auto',
+          enabled: opts.prefilled.enabled !== false,
+          single_fire: !!opts.prefilled.single_fire,
+        };
+      } else if (host) {
+        seed = {
+          id: '', name: '', workspace: _defaultWorkspaceForHost(host), host,
+          schedule: '0 * * * *', prompt: '',
+          permission_mode: 'auto', enabled: true, single_fire: false,
+        };
+      }
+      mount.innerHTML = renderEditorHtml(seed);
       // renderEditorHtml uses data-editing="__new__" when existing is falsy.
-      // With `defaults` set (truthy), it'd be treated as edit mode. Patch:
-      if (defaults) {
+      // With a seed (truthy) it'd be treated as edit mode. Force create.
+      if (seed) {
         const editor = mount.querySelector('.routine-editor');
         editor.dataset.editing = '__new__';
-        // Re-enable the disabled id input (edit mode disables it).
         const idInput = editor.querySelector('[data-f="id"]');
         if (idInput) idInput.disabled = false;
       }
       scrollViewToTop(viewAddRoutine);
       syncComposer();
+
+      // saveFn override — proposal-driven create routes through the
+      // approve endpoint, which writes the routine spec AND the decision
+      // delta atomically (well, sequentially in the api but tied
+      // together) so the proposal card flips to "approved" on next render.
+      const saveFn = opts.proposalId ? async (body) => {
+        // Strip front-end-only flags before sending.
+        const tool_args = { action: 'create', ...body };
+        const r = await fetch(
+          API_BASE + '/v1/proposals/' + encodeURIComponent(opts.proposalId) + '/approve',
+          {
+            method: 'POST',
+            headers: { ...authHeaders(), 'Content-Type': 'application/json' },
+            body: JSON.stringify({ tool_args }),
+          }
+        );
+        if (!r.ok) {
+          const d = await r.json().catch(() => ({}));
+          throw new Error(d.detail || (r.status + ' ' + r.statusText));
+        }
+      } : null;
+
       wireEditor(mount.querySelector('.routine-editor'), {
+        saveFn,
         onSave: async () => {
           closeAddRoutine();
           await loadRoutines();
@@ -9032,7 +9094,22 @@ GET  /v1/usage               Usage stats`,
       const editBtn = card.querySelector('.proposal-edit');
       const denyBtn = card.querySelector('.proposal-deny');
       const approveBtn = card.querySelector('.proposal-approve');
-      if (editBtn) editBtn.addEventListener('click', e => { e.stopPropagation(); _proposalEnterEdit(card, it, args); });
+      if (editBtn) editBtn.addEventListener('click', e => {
+        e.stopPropagation();
+        // Redirect to the New Routine wizard with the form pre-filled.
+        // The cramped inline edit was a worse experience than the full
+        // wizard (no scaffold mode, no cron picker, no segmented
+        // permission toggle). Saving from the wizard routes through
+        // /v1/proposals/<id>/approve so the same click both creates the
+        // routine and resolves the proposal.
+        const proposalId = card.dataset.proposalId || it.lake_id || it.id;
+        if (it.tool === 'routines' && proposalId && typeof openAddRoutine === 'function') {
+          openAddRoutine('', { prefilled: args, proposalId });
+        } else {
+          // Non-routine tools (or missing id) — fall back to inline.
+          _proposalEnterEdit(card, it, args);
+        }
+      });
       if (denyBtn) denyBtn.addEventListener('click', e => { e.stopPropagation(); _proposalDeny(card, it); });
       if (approveBtn) approveBtn.addEventListener('click', e => { e.stopPropagation(); _proposalApprove(card, it, _readArgsFromCard(card)); });
     }
