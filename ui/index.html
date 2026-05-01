@@ -5705,8 +5705,6 @@
         const data = await r.json();
         _routineCache = data.routines || [];
       } catch (e) {
-        // Paint the error into every per-host list so it's visible regardless
-        // of which agent block is being viewed. Non-fatal; retry on next poll.
         document.querySelectorAll('[data-routine-list]').forEach(list => {
           const host = list.dataset.routineList || '';
           list.innerHTML = `<button class="chip add" data-new-routine-for="${_esc(host)}" type="button">+ New routine</button><div class="meta" style="flex-basis:100%">failed to load routines: ${_esc(e.message)}</div>`;
@@ -5715,6 +5713,42 @@
         return;
       }
       renderRoutines();
+      _refreshRoutineAccordions();
+    }
+
+    // Routine accordions in the feed pull the pretty name + host +
+    // permission_mode from _routineCache. The feed often renders before
+    // the cache has loaded, so accordions paint with the id slug as a
+    // fallback. After loadRoutines populates the cache, walk every
+    // routine accordion already in the DOM and refresh its name and
+    // metadata in place.
+    function _refreshRoutineAccordions() {
+      if (typeof _routineCache === 'undefined' || !_routineCache.length) return;
+      const cacheById = new Map(_routineCache.map(r => [r.id, r]));
+      document.querySelectorAll('.feed .delta.routine[data-routine-id]').forEach(el => {
+        const rid = el.dataset.routineId;
+        const r = cacheById.get(rid);
+        if (!r) return;
+        const nameEl = el.querySelector('.routine-name');
+        if (nameEl && nameEl.textContent !== (r.name || rid)) {
+          nameEl.textContent = r.name || rid;
+        }
+        // Update the body metadata grid (only for "fired" variant).
+        if (el.dataset.variant === 'fired') {
+          const body = el.querySelector('.d-body');
+          if (body) {
+            const host = (r.host || '').trim() || 'fleet (any host)';
+            const mode = (r.permission_mode || 'auto').trim();
+            body.innerHTML = `
+              <div class="routine-meta">
+                <div class="routine-meta-key">host</div>
+                <div class="routine-meta-val">${_esc(host)}</div>
+                <div class="routine-meta-key">permission</div>
+                <div class="routine-meta-val">${_esc(mode)}</div>
+              </div>`;
+          }
+        }
+      });
     }
 
     // Relative-time text for the chip's secondary slot. Disabled routines
