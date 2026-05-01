@@ -4,16 +4,25 @@ loop intents.
 A `task-spawn` delta (written by the kitty plugin once it learns the
 spawned session's id) declares that claude-code session `<sid>` on
 host `<H>` is now correlated to task `<corr>`. From then until a
-matching `task-complete` lands, this watcher mints a `kind:claude-code-reply`
+matching closure lands, this watcher mints a `kind:claude-code-reply`
 intent into the puddle for every assistant-role hook delta from that
 session.
+
+Two closure shapes count: claude-side `task-complete` (the session
+wrote its own wrap-up before exiting) and kitty-side `task-abandoned`
+(the kitty window died — user closed it, crash, etc. — without claude
+ever writing a completion). Either one closes the dispatch; without
+the abandoned branch, an early-killed session leaves the witness's
+dispatch card orphaned in the lake forever, re-mirrored back into the
+feed by telepathy on every pass for 48h.
 
 Each intent carries `channel:claude-code` + `claude-code-session:<corr>`,
 so the supervisor groups them like any other channel-correlated intent
 and the witness's reply naturally addresses them via
 `addresses:<intent-id>` (which `pending_intents()` already filters on).
-The closure dance — witness writing `task-complete,task-corr:<corr>`
-when the task is done — is in `witness.py` (Phase 4).
+The closure dance — witness writing the chat-reply with
+`about-task-corr:<corr>` once it sees a `closure:true` intent — is in
+`witness.py` (Phase 4).
 
 User-role deltas (Fathom's own injections, echoed back by the hook)
 are skipped via the `assistant` tag filter — minting on them would
@@ -184,19 +193,26 @@ async def _correlation_state() -> tuple[dict[str, dict], dict[str, dict]]:
         wakes on the final task report, not just on intermediate Stop
         hooks.
     """
-    spawns, completes = await asyncio.gather(
+    spawns, completes, abandoned = await asyncio.gather(
         delta_client.query(tags_include=["task-spawn"], limit=200),
         delta_client.query(tags_include=["task-complete"], limit=200),
+        delta_client.query(tags_include=["task-abandoned"], limit=200),
     )
 
+    # Merge both closure shapes into one corr→delta map, keeping the
+    # NEWEST closure per corr regardless of which tag landed it. A
+    # late `task-complete` from a session that briefly disconnected
+    # should win over an earlier `task-abandoned`; conversely, if
+    # completion never came and abandonment did, that's the closure.
+    closures = sorted(
+        (*completes, *abandoned),
+        key=lambda d: d.get("timestamp") or "",
+        reverse=True,
+    )
     completed_corr_to_delta: dict[str, dict] = {}
-    for c in completes:
+    for c in closures:
         corr = _tag_value(c.get("tags") or [], "task-corr:")
         if corr and corr not in completed_corr_to_delta:
-            # Newest closure wins per corr — if a corr somehow has
-            # multiple `task-complete` deltas, the most recent is the
-            # one we want to mint from. delta_client.query returns
-            # newest-first, so the first hit is right.
             completed_corr_to_delta[corr] = c
 
     active: dict[str, dict] = {}
@@ -239,9 +255,10 @@ async def _prime_last_minted() -> None:
 
     Two passes:
 
-      1. For every `task-complete` in the lake, set
-         `_last_minted[corr] = closure_ts`. Future closing-corr scans
-         will see `_last_minted >= closure_ts` and skip the mint.
+      1. For every closure (`task-complete` OR `task-abandoned`) in
+         the lake, set `_last_minted[corr] = closure_ts`. Future
+         closing-corr scans will see `_last_minted >= closure_ts`
+         and skip the mint.
 
       2. For every `task-spawn` whose corr doesn't yet have a primer
          (i.e., a still-active task), clamp `_last_minted[corr]` to
@@ -255,14 +272,15 @@ async def _prime_last_minted() -> None:
     from datetime import UTC, datetime
     now_iso = datetime.now(UTC).isoformat()
     try:
-        completes = await delta_client.query(
-            tags_include=["task-complete"], limit=500,
+        completes, abandoned = await asyncio.gather(
+            delta_client.query(tags_include=["task-complete"], limit=500),
+            delta_client.query(tags_include=["task-abandoned"], limit=500),
         )
     except Exception as e:
         print(f"[claude-code watcher] prime (closures) failed: {type(e).__name__}: {e}")
-        completes = []
+        completes, abandoned = [], []
     primed_from_closures = 0
-    for c in completes:
+    for c in (*completes, *abandoned):
         corr = _tag_value(c.get("tags") or [], "task-corr:")
         if not corr:
             continue

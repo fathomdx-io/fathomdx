@@ -2849,7 +2849,11 @@
     .agent-connected + .agent-connected { margin-top: 12px; }
     .agent-connected-status {
       display: flex; align-items: center; flex-wrap: wrap; gap: 10px;
-      padding: 2px 0 10px;
+      /* Was asymmetric (2px top / 10px bottom) to leave room for the
+         per-agent routines subsection that used to render below this
+         row. Routines moved to their own top-level section, so the
+         padding is symmetric now — the row sits centered in the card. */
+      padding: 2px 0;
     }
     .agent-connected-status .host {
       font-family: var(--mono); font-size: 13px; color: var(--ink);

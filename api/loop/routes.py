@@ -414,7 +414,15 @@ def get_feed(
         # output. Routed under its own kind so the Claude Code filter
         # category (on by default) surfaces them, instead of getting
         # buried under `thinking` with the rest of the lake-delta noise.
-        if "task-complete" in tags or d.get("source") == "claude-code:task":
+        # `task-abandoned` (kitty noticed the window died with no
+        # completion) is a closure too — render it the same shape so
+        # an early-killed session shows the wrap rather than orphaning
+        # the dispatch card forever.
+        if (
+            "task-complete" in tags
+            or "task-abandoned" in tags
+            or d.get("source") == "claude-code:task"
+        ):
             host = next(
                 (t.split(":", 1)[1] for t in tags if t.startswith("host:")),
                 "",
