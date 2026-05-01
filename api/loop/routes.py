@@ -154,6 +154,16 @@ def get_feed(
         limit=limit,
     )
 
+    # Routine-due dedupe: a single cron tick produces TWO puddle items —
+    # the witness's own write_intent (kind:routine-due) and telepathy's
+    # later mirror of the durable routine-tick lake delta. Both
+    # classify as kind:"routine-due" with the same routine_id and
+    # near-identical timestamps. Track (routine_id, minute) pairs as
+    # we walk the deduped list and skip the second arrival, preferring
+    # whichever lands first (puddle-write usually beats mirror, but
+    # either is a fine breadcrumb for the user).
+    _routine_due_seen: set[tuple[str, str]] = set()
+
     # Chat anchor — on the live edge, also pull chat-shape deltas
     # (user seeds + witness chat-replies) from BEFORE the primary
     # window so the conversation always grounds the view, even when
@@ -342,12 +352,16 @@ def get_feed(
                     (t.split(":", 1)[1] for t in tags if t.startswith("routine-id:")),
                     "",
                 )
-                items.append({
-                    "kind": "routine-due",
-                    "routine_id": routine_id,
-                    "content": d.get("content") or "",
-                    **common,
-                })
+                _ts_minute = (ts or "")[:16]  # YYYY-MM-DDTHH:MM
+                _key = (routine_id, _ts_minute)
+                if _key not in _routine_due_seen:
+                    _routine_due_seen.add(_key)
+                    items.append({
+                        "kind": "routine-due",
+                        "routine_id": routine_id,
+                        "content": d.get("content") or "",
+                        **common,
+                    })
             continue
         # Crystal facets — identity layer.
         if "crystal" in tags:
@@ -394,12 +408,16 @@ def get_feed(
                 None,
             )
             if "routine-tick" in tags:
-                items.append({
-                    "kind": "routine-due",
-                    "routine_id": routine_id,
-                    "content": d.get("content") or "",
-                    **common,
-                })
+                _ts_minute = (ts or "")[:16]
+                _key = (routine_id or "", _ts_minute)
+                if _key not in _routine_due_seen:
+                    _routine_due_seen.add(_key)
+                    items.append({
+                        "kind": "routine-due",
+                        "routine_id": routine_id,
+                        "content": d.get("content") or "",
+                        **common,
+                    })
             else:
                 items.append({
                     "kind": "routine",
