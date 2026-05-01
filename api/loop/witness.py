@@ -1197,8 +1197,25 @@ async def _dispatch_card(
     # Pulse-pass and feed-card writes get a 30-day TTL by default.
     # Chat-reply, claude-code dispatch, dm:, and claude-code-reply stay
     # authored (no TTL) because they're parts of the user-visible thread.
+    #
+    # Tool proposals (kind:proposal — Edit/Deny/Approve cards) MUST
+    # NEVER have a TTL even if the witness model emitted them with
+    # `route: "feed-card"` instead of `route: "tool:<name>"`. They're
+    # state-change requests and the lake reaper deleting them would
+    # mean a card the user could see in the puddle but never approve
+    # because the lake delta vanished. is_tool_proposal already gates
+    # the kind:proposal tag set, but that gate looks at route_value;
+    # this second gate looks at tool_args directly so a model that
+    # picked the wrong route still gets a durable proposal delta.
+    is_proposal_payload = (
+        is_tool_proposal
+        or (isinstance(card.get("tool_args"), dict) and card.get("tool"))
+    )
     expires_at_iso: str | None = None
-    if route_value == "feed-card" or route_value.startswith("alert:"):
+    if (
+        not is_proposal_payload
+        and (route_value == "feed-card" or route_value.startswith("alert:"))
+    ):
         expires_at_iso = (
             datetime.now(UTC) + timedelta(seconds=FEED_CARD_TTL_S)
         ).isoformat()
