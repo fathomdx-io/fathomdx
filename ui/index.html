@@ -3634,6 +3634,7 @@
               <div class="detail-kebab-menu" id="routineKebabMenu" hidden>
                 <button class="menu-item" id="routineFireNow">Fire now</button>
                 <button class="menu-item" id="routineEditBtn">Edit routine</button>
+                <button class="menu-item" id="routineRewriteSchema" title="Have Fathom rewrite this routine's prompt into the four-section schema (Purpose / Needs / Steps / Ending). Lands as a proposal card you can review.">Rewrite to schema</button>
                 <div class="menu-sep"></div>
                 <div class="menu-label">Permission mode</div>
                 <button class="menu-item perm-mode" data-mode="auto">Auto</button>
@@ -5915,15 +5916,48 @@
     document.addEventListener('click', () => { routineKebabMenu.hidden = true; });
     routineKebabMenu.addEventListener('click', (e) => e.stopPropagation());
 
-    // Fire now
+    // Fire now — writes a routine-due intent into the River (default
+    // behavior of /v1/routines/<id>/fire). The witness will deliberate
+    // and emit whatever route it picks (card, alert, chat-reply,
+    // claude-code dispatch). Redirect to the main feed so the user can
+    // watch the witness work instead of staring at the routine detail
+    // page where nothing visibly happens.
     document.getElementById('routineFireNow').addEventListener('click', async () => {
       const rid = viewRoutineDetail.dataset.routine;
       routineKebabMenu.hidden = true;
       try {
-        await fetch(API_BASE + '/v1/routines/' + rid + '/fire', { method: 'POST', headers: authHeaders() });
-        setTimeout(() => loadRoutineDetail(rid), 1500);
+        const r = await fetch(API_BASE + '/v1/routines/' + rid + '/fire', {
+          method: 'POST',
+          headers: { ...authHeaders(), 'Content-Type': 'application/json' },
+          body: JSON.stringify({}),  // empty body = River path (default)
+        });
+        if (!r.ok) throw new Error(`${r.status} ${r.statusText}`);
+        closeRoutineDetail();  // back to the main feed
       } catch (e) {
         alert('fire failed: ' + e.message);
+      }
+    });
+
+    // Rewrite to schema — asks Fathom to rewrite this routine's prompt
+    // into the four-section schema and emit a proposal card. Redirects
+    // to the main feed where the user can review (Edit/Deny/Approve).
+    document.getElementById('routineRewriteSchema').addEventListener('click', async () => {
+      const rid = viewRoutineDetail.dataset.routine;
+      routineKebabMenu.hidden = true;
+      try {
+        const r = await fetch(API_BASE + '/v1/routines/' + rid + '/rewrite-to-schema', {
+          method: 'POST',
+          headers: { ...authHeaders(), 'Content-Type': 'application/json' },
+        });
+        const data = await r.json().catch(() => ({}));
+        if (!r.ok) throw new Error(data.detail || (r.status + ' ' + r.statusText));
+        if (data.skipped) {
+          alert(`Already in schema — nothing to rewrite.`);
+          return;
+        }
+        closeRoutineDetail();  // back to the feed where the proposal card lands
+      } catch (e) {
+        alert('rewrite failed: ' + e.message);
       }
     });
 
