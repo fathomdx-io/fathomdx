@@ -275,17 +275,16 @@ Cron is evaluated in the API container's local timezone (see `TZ` in `.env`).
 
 ## Test the fire manually
 
-Two ways:
+Click **Fire Now** on the routine's detail page. The routine fires into the River (writes a `routine-due` intent + a `routine-tick` marker), the witness deliberates on the next tick, and you'll see whatever it decided to do — a feed card, a claude-code dispatch, an alert, a chat-reply, or silence — appear in the dashboard feed within a few seconds.
 
-1. **Fire Now (legacy path)** — from the dashboard's Routines page, click the run-now action. This writes a `routine-fire` delta directly. Kitty consumes it and spawns claude-code, bypassing the River. Use this when you want to skip witness deliberation and run the routine RIGHT NOW.
-2. **Wait for the next cron tick** — the cron-driven path goes through the River. The witness will deliberate and route. To force a quick test, set `schedule: "* * * * *"` (every minute) temporarily.
+There's no "skip the River" override. Routines fire into Fathom; Fathom decides what to do with them.
 
 ## What gets captured into the lake
 
-A routine writes durable artifacts depending on the route:
+A routine writes durable artifacts on every fire (cron, Fire Now, or witness-initiated — they're the same path now):
 
-**Always** (cron path, every fire):
-- `routine-due` intent in the puddle (kind:routine-due, body = your prompt).
+**Always**:
+- `routine-due` intent in the puddle (kind:routine-due, body = your prompt). The witness reads this on its next tick.
 - `routine-tick` marker in the lake (durable receipt; hydration only).
 - Witness output — the feed card / chat-reply / claude-code dispatch / alert / proposal that the witness produced.
 
@@ -294,10 +293,6 @@ A routine writes durable artifacts depending on the route:
 - The closure delta when claude returns (`task-complete`).
 - A second witness tick that synthesizes the user-facing card.
 - Anything fathom-connect captures inside the session (prompts, replies, tool calls — all auto-captured if `~/.claude/settings.json` has the hooks installed).
-
-**When you Fire Now (legacy path)**:
-- `routine-fire` delta (consumed by kitty).
-- `routine-summary` delta (written by claude before exit).
 
 ## Edit a routine
 

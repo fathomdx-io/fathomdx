@@ -207,45 +207,21 @@ async def delete_routine_endpoint(routine_id: str):
 
 @router.post("/v1/routines/{routine_id}/fire", dependencies=[Depends(auth.require_admin)])
 async def fire_routine_endpoint(routine_id: str, body: dict | None = None):
-    """Fire a routine on demand.
+    """Fire a routine on demand — into the River.
 
-    Default: fires INTO the River — writes a `routine-due` intent into
-    the puddle alongside a `routine-tick` marker in the lake. The witness
-    deliberates and routes (claude-code dispatch, feed-card, alert,
-    chat-reply, silent). Same shape as a cron-driven fire; just earlier.
+    Writes a `routine-due` intent into the puddle and a `routine-tick`
+    marker into the lake. The witness reads the intent and routes
+    (claude-code dispatch, feed-card from substrate, alert, chat-reply,
+    silent). Same shape as a cron-driven fire; just earlier.
 
-    Pass `{"via": "direct"}` to force the legacy direct-to-kitty path —
-    writes a `routine-fire` delta the kitty plugin consumes immediately,
-    bypassing the witness. Useful for "run this RIGHT NOW with no River
-    deliberation" semantics, but the default behavior matches what cron
-    would do at the routine's next-fire time.
+    There is no "skip the River" override. Routines fire into Fathom;
+    Fathom decides what to do.
     """
-    body = body or {}
-    via = (body.get("via") or "river").strip()
-    override = body.get("prompt")
-
-    if via == "direct":
-        try:
-            return await routines_mod.fire(routine_id, prompt_override=override)
-        except FileNotFoundError as e:
-            raise HTTPException(status_code=404, detail=str(e)) from e
-
-    # River path — mirror what routine_scheduler does on cron tick.
-    spec = await routines_mod.get_latest_spec(routine_id)
-    if not spec or spec["meta"].get("deleted"):
-        raise HTTPException(status_code=404, detail=f"Routine {routine_id} not found")
-    body_text = override if override is not None else spec["body"]
-
-    from .. import routine_scheduler
-
-    await routine_scheduler._fire_into_river(
-        routine_id, spec["meta"], body_text or ""
-    )
-    return {
-        "fired": True,
-        "via": "river",
-        "routine_id": routine_id,
-    }
+    override = (body or {}).get("prompt")
+    try:
+        return await routines_mod.fire(routine_id, prompt_override=override)
+    except FileNotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e)) from e
 
 
 @router.post("/v1/routines/preview-schedule")

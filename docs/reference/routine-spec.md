@@ -213,11 +213,7 @@ Send me a card. Three sections, one paragraph each.
 
 ## Lifecycle
 
-There are two firing paths and they have different shapes.
-
-### Path A — Cron tick (River-mediated)
-
-The default for any scheduled routine. Cron tick → River → witness routes.
+Every fire flows through the River. Cron, Fire Now, chat-tool `fire`, and the witness's own `routine-fire:<id>` route all converge on the same shape.
 
 ```
 spec delta             routine-due intent       witness output           (downstream)
@@ -230,49 +226,28 @@ spec delta             routine-due intent       witness output           (downst
                        permission_mode          claude-code:<host>,      claude-code spawns
                                                 alert:<level>, tool:..., a kitty window;
                                                 or no card (silent)      feed-card lands
-(cron tick)            (witness deliberates)    (witness emits)          (consumer reads)
+(any fire trigger)     (witness deliberates)    (witness emits)          (consumer reads)
 
-In parallel, the scheduler also writes a `routine-tick` marker delta
-into the lake — durable receipt for hydration on restart. Kitty
-doesn't consume these. They exist only so a process restart can
-reconstruct what fired before the crash.
+In parallel, every fire also writes a `routine-tick` marker delta
+into the lake — durable receipt for hydration on restart and as the
+visible "routine fired" breadcrumb in the dashboard feed.
 ```
 
 The witness's pick depends on the prompt. "Check the news, synthesize an update" → claude-code dispatch + a follow-up synthesis tick. "Summarize this week from the lake" → one feed-card. "Stay silent unless X moved" → no card emitted on quiet days. See [set-up-a-routine.md](../how-to/set-up-a-routine.md#what-a-routine-can-touch) for the full route table.
 
-### Path B — Manual fire / Fire Now (direct)
-
-The legacy, claude-code-only path. Used by:
-- The "Fire Now" button on the Routines page.
-- The chat-tool `routines` action `fire`.
-- The witness's own `routine-fire:<id>` route (Phase 2 of the revival branch — the witness can directly fire a routine when it judges the routine itself is the right response).
-
-```
-spec delta             routine-fire delta       kitty window           routine-summary delta
-(edited by you)        (lake, dispatched        (spawned by            (written by claude
-                        directly to kitty)       kitty plugin)          inside the routine)
-─────────────          ──────────────────       ──────────────         ─────────────────────
-[spec, routine,        [routine-fire,           (claude runs           [routine-summary,
- routine-id:X]   ──▶   routine-id:X,    ──▶     the prompt)    ──▶     routine-id:X,
-                       fired-at:<iso>,                                  fire-delta:<fire-id>]
-                       host:<x>]
-```
-
-This skips River deliberation. Use it when you want claude-code to run the prompt verbatim, no witness in the loop.
-
-The `fire-delta:<fire-id>` tag on the summary lets the dashboard pair a run with its result.
+The legacy direct-to-kitty path (`routine-fire` lake delta consumed by the kitty plugin) was retired 2026-04-30. There's no longer a "skip the River" override — routines are a scheduled "Hey Fathom, handle this," and Fathom always decides.
 
 ## Tag conventions
 
 | Kind | Required tags | Optional tags | Source |
 |---|---|---|---|
 | **spec** | `spec`, `routine`, `routine-id:<id>` | `workspace:<name>` | `consumer-dashboard`, `claude-code:<ws>`, or manual |
-| **routine-due intent** (Path A) | `intent`, `kind:routine-due`, `routine-id:<id>` | `host:<x>`, `permission-mode:<mode>` | `routine-scheduler` |
-| **routine-tick** (Path A) | `routine-tick`, `routine-id:<id>` | `host:<x>` | `routine-scheduler` |
-| **fire** (Path B) | `routine-fire`, `routine-id:<id>` | `workspace:<name>`, `permission-mode:<mode>`, `host:<x>`, `fired-at:<iso>` | `consumer-dashboard`, `routine-scheduler` (legacy), or manual |
-| **summary** (Path B only) | `routine-summary`, `routine-id:<id>` | `fire-delta:<fire-id>` | `claude-code:routine` (written by the running routine) |
+| **routine-due intent** | `intent`, `kind:routine-due`, `routine-id:<id>` | `host:<x>`, `permission-mode:<mode>` | `routine-scheduler` |
+| **routine-tick** | `routine-tick`, `routine-id:<id>` | `host:<x>`, `fired-at:<iso>` | `routine-scheduler` |
 
-Path A's downstream artifacts (witness cards, claude-code closures) carry their own tag families and aren't routine-specific — they look the same as anything else the witness emits, just stamped with `addresses:<intent-id>` pointing back at the `routine-due` intent.
+Downstream artifacts (witness cards, claude-code closures) carry their own tag families and aren't routine-specific — they look the same as anything else the witness emits, just stamped with `addresses:<intent-id>` pointing back at the `routine-due` intent.
+
+The legacy `routine-fire` and `routine-summary` shapes still appear in the lake from history but no new producers write them. Old fires render in the feed via the same accordion as new ones.
 
 ## CRUD
 

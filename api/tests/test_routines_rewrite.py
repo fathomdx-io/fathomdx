@@ -117,49 +117,36 @@ async def test_rewrite_404_for_missing_routine(client, monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_fire_now_default_routes_through_river(client, monkeypatch):
-    """Default Fire Now (no body) writes a routine-due intent + tick,
-    NOT a routine-fire delta. Manual via=direct goes back to legacy."""
-    from api import routine_scheduler, routines as routines_mod
+async def test_fire_now_routes_through_river(client, monkeypatch):
+    """Fire Now delegates to routines.fire(), which writes a routine-due
+    intent + a routine-tick marker. There's no longer a "skip the river"
+    override — the legacy via=direct path was retired."""
+    from api import routines as routines_mod
 
-    async def _spec_fn(_rid):
-        return _spec()
+    fire_calls: list[tuple] = []
 
-    river_calls: list[tuple] = []
+    async def _fire(rid, prompt_override=None):
+        fire_calls.append((rid, prompt_override))
+        return {"fired": True, "routine_id": rid, "intent_id": "intent-1"}
 
-    async def _fire_into_river(rid, meta, prompt_body):
-        river_calls.append((rid, meta.get("name"), prompt_body))
-
-    async def _legacy_fire(rid, prompt_override=None):
-        return {"fired": True, "fire_delta_id": "legacy-1"}
-
-    monkeypatch.setattr(routines_mod, "get_latest_spec", _spec_fn)
-    monkeypatch.setattr(routine_scheduler, "_fire_into_river", _fire_into_river)
-    monkeypatch.setattr(routines_mod, "fire", _legacy_fire)
+    monkeypatch.setattr(routines_mod, "fire", _fire)
 
     r = await client.post("/v1/routines/ramen/fire", json={})
     assert r.status_code == 200
-    assert r.json()["via"] == "river"
-    assert len(river_calls) == 1
-    assert river_calls[0][0] == "ramen"
+    body = r.json()
+    assert body["fired"] is True
+    assert body["intent_id"] == "intent-1"
+    assert fire_calls == [("ramen", None)]
 
 
 @pytest.mark.asyncio
-async def test_fire_now_via_direct_uses_legacy(client, monkeypatch):
-    from api import routine_scheduler, routines as routines_mod
+async def test_fire_now_404_for_missing_routine(client, monkeypatch):
+    from api import routines as routines_mod
 
-    river_calls: list = []
+    async def _fire(rid, prompt_override=None):
+        raise FileNotFoundError(f"Routine {rid} not found")
 
-    async def _fire_into_river(rid, meta, prompt_body):
-        river_calls.append(rid)
+    monkeypatch.setattr(routines_mod, "fire", _fire)
 
-    async def _legacy_fire(rid, prompt_override=None):
-        return {"fired": True, "fire_delta_id": "legacy-1"}
-
-    monkeypatch.setattr(routine_scheduler, "_fire_into_river", _fire_into_river)
-    monkeypatch.setattr(routines_mod, "fire", _legacy_fire)
-
-    r = await client.post("/v1/routines/ramen/fire", json={"via": "direct"})
-    assert r.status_code == 200
-    assert r.json()["fire_delta_id"] == "legacy-1"
-    assert river_calls == []  # legacy path was used, not river
+    r = await client.post("/v1/routines/missing/fire", json={})
+    assert r.status_code == 404

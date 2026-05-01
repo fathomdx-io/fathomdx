@@ -35,7 +35,6 @@ import time
 
 from . import delta_client
 from . import routines as routines_mod
-from .loop.intents import write_intent
 from .settings import settings
 
 _task: asyncio.Task | None = None
@@ -101,63 +100,12 @@ async def _hydrate_last_fires() -> None:
 async def _fire_into_river(rid: str, meta: dict, prompt_body: str) -> None:
     """Hand the routine to the River.
 
-    Two writes per fire:
-      · routine-due intent in the puddle — the witness picks it up and
-        decides what to do (claude-code dispatch, feed-card, chat-reply,
-        alert, tool call, silence). The body is the routine's stored
-        prompt; the witness reads it as the user-given instruction.
-      · routine-tick marker in the lake — a durable receipt for
-        hydration on restart. Kitty doesn't consume these.
-
-    Routine specs that pin a host stamp host:<x> on both writes so the
-    witness's claude-code dispatch (if it picks one) goes to the right
-    machine. Without a host pin the routine is fleet-wide and the
-    witness picks any available host.
+    Thin wrapper around `routines.fire()` — kept here for the
+    cron-tick path's clarity and so callers in the routes layer can
+    keep using this name. Both writes (routine-due intent in the puddle,
+    routine-tick marker in the lake) happen inside `routines.fire()`.
     """
-    name = (meta.get("name") or rid).strip()
-    host = (meta.get("host") or "").strip()
-    permission_mode = (meta.get("permission_mode") or "auto").strip()
-
-    intent_tags: list[str] = [f"routine-id:{rid}"]
-    if host:
-        intent_tags.append(f"host:{host}")
-    if permission_mode:
-        intent_tags.append(f"permission-mode:{permission_mode}")
-
-    summary = f"[routine-due: {name}]\n{prompt_body or ''}".strip()
-    payload = {
-        "routine_id": rid,
-        "name": name,
-        "host": host,
-        "permission_mode": permission_mode,
-    }
-    await write_intent(
-        kind="routine-due",
-        content=summary,
-        payload=payload,
-        extra_tags=intent_tags,
-        source="routine-scheduler",
-    )
-
-    tick_tags = ["routine-tick", f"routine-id:{rid}"]
-    if host:
-        tick_tags.append(f"host:{host}")
-    try:
-        await delta_client.write(
-            content=f"routine-tick: {rid}",
-            tags=tick_tags,
-            source="routine-scheduler",
-        )
-    except Exception as e:
-        # Tick is hydration-only; failing to land it just means we may
-        # re-fire on the next restart. The intent already landed in the
-        # puddle so the routine itself isn't lost — the witness will
-        # handle it on this tick.
-        print(
-            f"[routine-scheduler] tick-write failed for {rid}: "
-            f"{type(e).__name__}: {e} (intent still wrote)",
-            flush=True,
-        )
+    await routines_mod.fire(rid)
 
 
 async def _check_once() -> None:

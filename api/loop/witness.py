@@ -312,12 +312,15 @@ async def _render_routines_block(available_hosts: list[str]) -> str:
             + (f"\n      └ {first}" if first else "")
         )
     return (
-        "ROUTINES — known prompts you can fire by id via "
-        "`routine-fire:<id>`. Each fires on the listed host. "
-        "Pick this route when the user's ask matches one of these "
-        "more cleanly than a fresh claude-code dispatch (the routine "
-        "carries its own framing). Card body is optional override "
-        "context layered on the routine's stored prompt:\n"
+        "ROUTINES — known prompts you can hand to the River by id via "
+        "`routine-fire:<id>`. This writes a routine-due intent that "
+        "your NEXT fire will read and route (claude-code dispatch if it "
+        "needs fresh data, feed-card if substrate-only, etc.). Pick "
+        "this route when the user's ask matches one of these more "
+        "cleanly than a fresh claude-code dispatch (the routine carries "
+        "its own framing — including its `# Ending` directive). Card "
+        "body is your user-facing acknowledgement; the routine prompt "
+        "itself is what the next tick deliberates over:\n"
         + "\n".join(lines)
         + "\n\n"
     )
@@ -1058,11 +1061,13 @@ async def _dispatch_card(
             )
 
     # Proactive routine fire — card picked `routine-fire:<id>` as its
-    # route. Verify the routine exists and is enabled, then write a
-    # routine-fire delta. The card body becomes the user-facing
-    # announcement on the feed; the routine's stored prompt is what
-    # the kitty plugin actually runs. Host targeting comes from the
-    # spec (routines.fire stamps host:<x> on the fire delta).
+    # route. Hand the routine to the River on this tick (routines.fire
+    # writes a routine-due intent + tick). The witness's NEXT tick will
+    # read that intent, deliberate over the routine prompt, and route
+    # appropriately (claude-code dispatch if it needs fresh data, feed-
+    # card if substrate-only, etc.). No host availability check here:
+    # the next tick decides routing, including whether claude-code is
+    # needed and which host to dispatch to.
     fired_routine_id = ""
     if route_value.startswith("routine-fire:"):
         fired_routine_id = route_value.split(":", 1)[1].strip()
@@ -1083,20 +1088,11 @@ async def _dispatch_card(
                 )
                 fired_routine_id = ""
             else:
-                pinned_host = (spec["meta"].get("host") or "").strip()
-                if pinned_host and pinned_host not in available_hosts:
-                    print(
-                        f"[witness] dropped routine-fire:{fired_routine_id} — "
-                        f"pinned host {pinned_host} not in available "
-                        f"{available_hosts}"
-                    )
-                    fired_routine_id = ""
-                else:
-                    await routines_mod.fire(fired_routine_id)
-                    print(
-                        f"[witness] proactive routine-fire → "
-                        f"id={fired_routine_id} host={pinned_host or 'fleet'}"
-                    )
+                await routines_mod.fire(fired_routine_id)
+                print(
+                    f"[witness] proactive routine-fire → "
+                    f"id={fired_routine_id} (handed to River)"
+                )
         except Exception as e:
             print(
                 f"[witness] routine-fire dispatch failed: "

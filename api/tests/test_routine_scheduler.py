@@ -4,10 +4,9 @@ Locks in: cron-elapsed → fires; cron-future → skips; disabled/no-schedule
 skipped; single_fire tombstones the spec; hydrate seeds last-fire state
 from the lake so a restart doesn't double-fire.
 
-The cron path now fires INTO the river (writes a `routine-due` intent
-into the puddle + a `routine-tick` marker into the lake) instead of
-calling the legacy `routines.fire()`. Tests mock `write_intent` and
-`delta_client.write` directly.
+The cron path delegates to `routines.fire()`, which writes a `routine-due`
+intent into the puddle + a `routine-tick` marker into the lake. Tests
+mock `routines.fire()` directly to capture what fired.
 """
 
 from __future__ import annotations
@@ -19,7 +18,6 @@ import pytest
 
 from api import delta_client, routine_scheduler
 from api import routines as routines_mod
-from api.loop import intents as intents_mod
 
 
 def _spec(rid: str, *, schedule: str = "*/5 * * * *", enabled: bool = True,
@@ -62,39 +60,20 @@ def _reset_state():
 
 
 @pytest.fixture
-def _capture_writes(monkeypatch):
-    """Stub the river-write surfaces and capture what the scheduler emits."""
-    intents: list[dict] = []
-    ticks: list[dict] = []
+def _capture_fires(monkeypatch):
+    """Capture calls to routines.fire — what the scheduler delegates to."""
+    fires: list[str] = []
 
-    async def _write_intent(*, kind, content, payload=None, extra_tags=None,
-                             ttl_seconds=None, source="intent-detector"):
-        intents.append({
-            "kind": kind,
-            "content": content,
-            "payload": payload,
-            "tags": extra_tags or [],
-            "source": source,
-        })
-        return {"id": f"intent-{len(intents)}"}
+    async def _fire(rid, prompt_override=None):
+        fires.append(rid)
+        return {"fired": True, "routine_id": rid, "intent_id": f"i-{rid}"}
 
-    async def _delta_write(content, tags=None, source="fathom-engagement",
-                           expires_at=None, media_hash=None):
-        ticks.append({
-            "content": content,
-            "tags": tags or [],
-            "source": source,
-        })
-        return {"id": f"tick-{len(ticks)}"}
-
-    monkeypatch.setattr(routine_scheduler, "write_intent", _write_intent)
-    monkeypatch.setattr(routine_scheduler.delta_client, "write", _delta_write)
-    return {"intents": intents, "ticks": ticks}
+    monkeypatch.setattr(routines_mod, "fire", _fire)
+    return fires
 
 
 @pytest.mark.asyncio
-async def test_fires_into_river_on_elapsed_cron(monkeypatch, _capture_writes):
-    """The cron path writes a routine-due intent + a routine-tick marker."""
+async def test_fires_into_river_on_elapsed_cron(monkeypatch, _capture_fires):
     async def _specs():
         return [_spec("ramen-check", host="fedora", prompt="check ramen hours")]
 
@@ -102,36 +81,12 @@ async def test_fires_into_river_on_elapsed_cron(monkeypatch, _capture_writes):
 
     await routine_scheduler._check_once()
 
-    intents = _capture_writes["intents"]
-    ticks = _capture_writes["ticks"]
-    assert len(intents) == 1
-    assert intents[0]["kind"] == "routine-due"
-    assert "check ramen hours" in intents[0]["content"]
-    assert "routine-id:ramen-check" in intents[0]["tags"]
-    assert "host:fedora" in intents[0]["tags"]
-    assert intents[0]["payload"]["routine_id"] == "ramen-check"
-
-    assert len(ticks) == 1
-    assert "routine-tick" in ticks[0]["tags"]
-    assert "routine-id:ramen-check" in ticks[0]["tags"]
+    assert _capture_fires == ["ramen-check"]
     assert "ramen-check" in routine_scheduler._last_fire_at
 
 
 @pytest.mark.asyncio
-async def test_fleet_routine_omits_host_tag(monkeypatch, _capture_writes):
-    """A routine with no host pin shouldn't stamp host:<x> on the intent."""
-    async def _specs():
-        return [_spec("fleet", host="")]
-
-    monkeypatch.setattr(routines_mod, "_spec_deltas", _specs)
-    await routine_scheduler._check_once()
-
-    intent = _capture_writes["intents"][0]
-    assert not any(t.startswith("host:") for t in intent["tags"])
-
-
-@pytest.mark.asyncio
-async def test_does_not_fire_when_just_fired(monkeypatch, _capture_writes):
+async def test_does_not_fire_when_just_fired(monkeypatch, _capture_fires):
     routine_scheduler._last_fire_at["ramen-check"] = time.time()
 
     async def _specs():
@@ -139,29 +94,29 @@ async def test_does_not_fire_when_just_fired(monkeypatch, _capture_writes):
 
     monkeypatch.setattr(routines_mod, "_spec_deltas", _specs)
     await routine_scheduler._check_once()
-    assert _capture_writes["intents"] == []
+    assert _capture_fires == []
 
 
 @pytest.mark.asyncio
-async def test_skips_disabled(monkeypatch, _capture_writes):
+async def test_skips_disabled(monkeypatch, _capture_fires):
     async def _specs():
         return [_spec("ramen-check", enabled=False)]
     monkeypatch.setattr(routines_mod, "_spec_deltas", _specs)
     await routine_scheduler._check_once()
-    assert _capture_writes["intents"] == []
+    assert _capture_fires == []
 
 
 @pytest.mark.asyncio
-async def test_skips_when_no_schedule(monkeypatch, _capture_writes):
+async def test_skips_when_no_schedule(monkeypatch, _capture_fires):
     async def _specs():
         return [_spec("manual-only", schedule="")]
     monkeypatch.setattr(routines_mod, "_spec_deltas", _specs)
     await routine_scheduler._check_once()
-    assert _capture_writes["intents"] == []
+    assert _capture_fires == []
 
 
 @pytest.mark.asyncio
-async def test_single_fire_soft_deletes(monkeypatch, _capture_writes):
+async def test_single_fire_soft_deletes(monkeypatch, _capture_fires):
     deleted: list[str] = []
 
     async def _specs():
@@ -175,12 +130,12 @@ async def test_single_fire_soft_deletes(monkeypatch, _capture_writes):
     monkeypatch.setattr(routines_mod, "soft_delete", _delete_call)
 
     await routine_scheduler._check_once()
-    assert len(_capture_writes["intents"]) == 1
+    assert _capture_fires == ["one-shot"]
     assert deleted == ["one-shot"]
 
 
 @pytest.mark.asyncio
-async def test_skips_tombstoned(monkeypatch, _capture_writes):
+async def test_skips_tombstoned(monkeypatch, _capture_fires):
     meta = {
         "id": "old-routine",
         "name": "old",
@@ -199,11 +154,11 @@ async def test_skips_tombstoned(monkeypatch, _capture_writes):
         return [spec]
     monkeypatch.setattr(routines_mod, "_spec_deltas", _specs)
     await routine_scheduler._check_once()
-    assert _capture_writes["intents"] == []
+    assert _capture_fires == []
 
 
 @pytest.mark.asyncio
-async def test_hydrate_seeds_last_fires_from_ticks(monkeypatch, _capture_writes):
+async def test_hydrate_seeds_last_fires_from_ticks(monkeypatch, _capture_fires):
     """A restart-then-tick must not re-fire a routine whose last
     routine-tick is recent enough to still be within its cron window."""
     just_fired_at = datetime.now(UTC) - timedelta(seconds=10)
@@ -224,4 +179,4 @@ async def test_hydrate_seeds_last_fires_from_ticks(monkeypatch, _capture_writes)
             >= just_fired_at.timestamp() - 1)
 
     await routine_scheduler._check_once()
-    assert _capture_writes["intents"] == []
+    assert _capture_fires == []
