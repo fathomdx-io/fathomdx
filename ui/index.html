@@ -3737,18 +3737,7 @@
           <div class="source-logo" id="routineDetailLogo">R</div>
           <div class="detail-actions">
             <button class="btn ghost compact" id="routineQuickPause"><span class="dot" id="routineDot"></span> Pause</button>
-            <div class="detail-kebab-wrap">
-              <button class="btn ghost icon-only" id="routineKebab" aria-label="More options"><svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="5" r="2"/><circle cx="12" cy="12" r="2"/><circle cx="12" cy="19" r="2"/></svg></button>
-              <div class="detail-kebab-menu" id="routineKebabMenu" hidden>
-                <button class="menu-item" id="routineFireNow">Fire now</button>
-                <button class="menu-item" id="routineEditBtn">Edit routine</button>
-                <button class="menu-item" id="routineRewriteSchema" title="Have Fathom rewrite this routine's prompt into the four-section schema (Purpose / Needs / Steps / Ending). Lands as a proposal card you can review.">Rewrite to schema</button>
-                <div class="menu-sep"></div>
-                <div class="menu-label">Permission mode</div>
-                <button class="menu-item perm-mode" data-mode="auto">Auto</button>
-                <button class="menu-item perm-mode" data-mode="normal">Normal</button>
-              </div>
-            </div>
+            <button class="btn ghost compact" id="routineFireNow">Fire now</button>
           </div>
         </div>
         <h1 id="routineDetailName">Routine</h1>
@@ -3757,56 +3746,76 @@
         </div>
       </section>
 
-      <!-- Activity -->
-      <section class="section">
-        <div class="section-head">
-          <h2>Activity</h2>
-          <span class="meta" id="routineLastSeen">—</span>
-        </div>
-        <div class="stats-row" id="routineStats">
-          <div class="stat"><span class="n" id="routineCount24h">—</span><span class="lbl">last 24h</span></div>
-          <div class="stat"><span class="n" id="routineCount7d">—</span><span class="lbl">last 7d</span></div>
-          <div class="stat"><span class="n" id="routineCountAll">—</span><span class="lbl">all time</span></div>
-        </div>
-      </section>
+      <!-- Tab nav — mirrors the Settings tab pattern. Info shows the
+           routine's current state (activity, schedule, prompt preview,
+           recent fires, manage actions). Edit shows the inline form. -->
+      <div class="settings-tabs" role="tablist">
+        <button class="settings-tab active" data-routine-tab="info" role="tab">Info</button>
+        <button class="settings-tab" data-routine-tab="edit" role="tab">Edit</button>
+      </div>
 
-      <!-- Schedule + prompt preview -->
-      <section class="section">
-        <div class="section-head">
-          <h2>Schedule</h2>
-          <span class="meta" id="routineScheduleMeta">—</span>
-        </div>
-        <div class="routine-prompt" id="routinePromptPreview">(empty)</div>
-      </section>
+      <!-- ═══ INFO PANEL ═══════════════════════════ -->
+      <div class="settings-panel" data-routine-panel="info">
+        <!-- Activity -->
+        <section class="section">
+          <div class="section-head">
+            <h2>Activity</h2>
+            <span class="meta" id="routineLastSeen">—</span>
+          </div>
+          <div class="stats-row" id="routineStats">
+            <div class="stat"><span class="n" id="routineCount24h">—</span><span class="lbl">last 24h</span></div>
+            <div class="stat"><span class="n" id="routineCount7d">—</span><span class="lbl">last 7d</span></div>
+            <div class="stat"><span class="n" id="routineCountAll">—</span><span class="lbl">all time</span></div>
+          </div>
+        </section>
 
-      <!-- Recent fires — the equivalent of "Recent moments" on sources -->
-      <section class="section">
-        <div class="section-head">
-          <h2>Recent fires</h2>
-        </div>
-        <div class="delta-list" id="routineFires">
-          <!-- Populated by loadRoutineDetail() -->
-        </div>
-      </section>
+        <!-- Schedule + prompt preview -->
+        <section class="section">
+          <div class="section-head">
+            <h2>Schedule</h2>
+            <span class="meta" id="routineScheduleMeta">—</span>
+          </div>
+          <div class="routine-prompt" id="routinePromptPreview">(empty)</div>
+        </section>
 
-      <!-- Inline editor (hidden by default; revealed by kebab → Edit) -->
-      <section class="section" id="routineEditorSection" hidden>
-        <div class="section-head">
-          <h2>Edit routine</h2>
-        </div>
-        <div id="routineEditorMount"><!-- renderEditorHtml() swaps in here --></div>
-      </section>
+        <!-- Recent fires — the equivalent of "Recent moments" on sources -->
+        <section class="section">
+          <div class="section-head">
+            <h2>Recent fires</h2>
+          </div>
+          <div class="delta-list" id="routineFires">
+            <!-- Populated by loadRoutineDetail() -->
+          </div>
+        </section>
 
-      <!-- Danger zone -->
-      <section class="section">
-        <div class="section-head">
-          <h2>Delete</h2>
-        </div>
-        <p style="font-size: 14px; color: var(--ink-soft); line-height: 1.55; margin: 0 0 14px;">
-          Deleting writes a tombstone delta. Past fires and summaries stay in the lake; the scheduler just stops firing.
-        </p>
-        <button class="btn danger" id="routineDeleteBtn">Delete routine</button>
-      </section>
+        <!-- Manage — secondary actions. Migrate-to-schema is a one-shot
+             rewrite assist that lands as a proposal card; delete is
+             tombstone-only (history stays in the lake). -->
+        <section class="section">
+          <div class="section-head">
+            <h2>Manage</h2>
+          </div>
+          <p style="font-size: 13px; color: var(--ink-soft); line-height: 1.55; margin: 0 0 10px;">
+            Have Fathom rewrite this routine into the four-section schema (Purpose / Needs / Steps / Ending). Lands as a proposal card — review and approve.
+          </p>
+          <button class="btn ghost compact" id="routineRewriteSchema" style="margin-bottom: 18px;">Rewrite to schema</button>
+
+          <div class="section-head" style="margin-top: 12px;">
+            <h3 style="font-size: 14px; margin: 0;">Delete</h3>
+          </div>
+          <p style="font-size: 13px; color: var(--ink-soft); line-height: 1.55; margin: 0 0 10px;">
+            Deleting writes a tombstone delta. Past fires and summaries stay in the lake; the scheduler just stops firing.
+          </p>
+          <button class="btn danger" id="routineDeleteBtn">Delete routine</button>
+        </section>
+      </div>
+
+      <!-- ═══ EDIT PANEL ═══════════════════════════ -->
+      <div class="settings-panel" data-routine-panel="edit" hidden>
+        <section class="section">
+          <div id="routineEditorMount"><!-- renderEditorHtml() swaps in here when the tab activates --></div>
+        </section>
+      </div>
     </main>
   </div><!-- /view-routine-detail -->
 
@@ -6047,8 +6056,6 @@
     // computed from fire deltas fetched via /v1/deltas.
     const viewRoutineDetail = document.getElementById('viewRoutineDetail');
     const routineBackBtn = document.getElementById('routineBackBtn');
-    const routineKebabBtn = document.getElementById('routineKebab');
-    const routineKebabMenu = document.getElementById('routineKebabMenu');
 
     function openRoutineDetail(routineId) {
       const r = _routineCache.find(x => x.id === routineId);
@@ -6071,23 +6078,52 @@
         ? '<span class="dot paused"></span> Enable'
         : '<span class="dot"></span> Pause';
 
-      // Mark active permission mode in the kebab menu
-      routineKebabMenu.querySelectorAll('.menu-item.perm-mode').forEach(el => {
-        el.classList.toggle('active', el.dataset.mode === (r.permission_mode || 'auto'));
-      });
-
-      // Hide editor by default
-      document.getElementById('routineEditorSection').hidden = true;
+      // Default to Info tab on (re-)open. Edit panel is empty until the
+      // user clicks the Edit tab — the form is heavy enough that lazy-
+      // mounting makes the open feel snappier.
+      _switchRoutineTab('info');
       document.getElementById('routineEditorMount').innerHTML = '';
 
       viewMain.hidden = true;
       viewRoutineDetail.hidden = false;
-      routineKebabMenu.hidden = true;
       syncComposer();
       scrollViewToTop(viewRoutineDetail);
 
       loadRoutineDetail(routineId);
     }
+
+    function _switchRoutineTab(which) {
+      document.querySelectorAll('[data-routine-tab]').forEach(t => {
+        t.classList.toggle('active', t.dataset.routineTab === which);
+      });
+      document.querySelectorAll('[data-routine-panel]').forEach(p => {
+        p.hidden = p.dataset.routinePanel !== which;
+      });
+      // Lazy-mount the editor when the Edit tab opens. Re-mount each
+      // open so the form reflects the latest spec from _routineCache
+      // (matters when the user toggled pause from the Info tab).
+      if (which === 'edit') {
+        const rid = viewRoutineDetail.dataset.routine;
+        const r = _routineCache.find(x => x.id === rid);
+        const mount = document.getElementById('routineEditorMount');
+        if (r && mount) {
+          mount.innerHTML = renderEditorHtml(r);
+          wireEditor(mount.querySelector('.routine-editor'), {
+            onSave: async () => {
+              await loadRoutines();
+              openRoutineDetail(rid);  // reopens on Info tab with fresh data
+            },
+            onCancel: () => {
+              _switchRoutineTab('info');
+              mount.innerHTML = '';
+            },
+          });
+        }
+      }
+    }
+    document.querySelectorAll('[data-routine-tab]').forEach(t => {
+      t.addEventListener('click', () => _switchRoutineTab(t.dataset.routineTab));
+    });
 
     function closeRoutineDetail() {
       viewRoutineDetail.hidden = true;
@@ -6122,31 +6158,20 @@
       }
     }
 
-    // Kebab menu toggle (routine detail)
-    routineKebabBtn.addEventListener('click', (e) => {
-      e.stopPropagation();
-      routineKebabMenu.hidden = !routineKebabMenu.hidden;
-    });
-    document.addEventListener('click', () => { routineKebabMenu.hidden = true; });
-    routineKebabMenu.addEventListener('click', (e) => e.stopPropagation());
-
-    // Fire now — writes a routine-due intent into the River (default
-    // behavior of /v1/routines/<id>/fire). The witness will deliberate
-    // and emit whatever route it picks (card, alert, chat-reply,
-    // claude-code dispatch). Redirect to the main feed so the user can
-    // watch the witness work instead of staring at the routine detail
-    // page where nothing visibly happens.
+    // Fire now — writes a routine-due intent into the River. The witness
+    // deliberates and emits whatever route it picks (card, alert, chat-
+    // reply, claude-code dispatch). Redirect to the main feed so the
+    // user can watch the witness work.
     document.getElementById('routineFireNow').addEventListener('click', async () => {
       const rid = viewRoutineDetail.dataset.routine;
-      routineKebabMenu.hidden = true;
       try {
         const r = await fetch(API_BASE + '/v1/routines/' + rid + '/fire', {
           method: 'POST',
           headers: { ...authHeaders(), 'Content-Type': 'application/json' },
-          body: JSON.stringify({}),  // empty body = River path (default)
+          body: JSON.stringify({}),
         });
         if (!r.ok) throw new Error(`${r.status} ${r.statusText}`);
-        closeRoutineDetail();  // back to the main feed
+        closeRoutineDetail();
       } catch (e) {
         alert('fire failed: ' + e.message);
       }
@@ -6157,7 +6182,6 @@
     // to the main feed where the user can review (Edit/Deny/Approve).
     document.getElementById('routineRewriteSchema').addEventListener('click', async () => {
       const rid = viewRoutineDetail.dataset.routine;
-      routineKebabMenu.hidden = true;
       try {
         const r = await fetch(API_BASE + '/v1/routines/' + rid + '/rewrite-to-schema', {
           method: 'POST',
@@ -6169,55 +6193,10 @@
           alert(`Already in schema — nothing to rewrite.`);
           return;
         }
-        closeRoutineDetail();  // back to the feed where the proposal card lands
+        closeRoutineDetail();
       } catch (e) {
         alert('rewrite failed: ' + e.message);
       }
-    });
-
-    // Edit — reveal the editor section inline in the detail view
-    document.getElementById('routineEditBtn').addEventListener('click', () => {
-      const rid = viewRoutineDetail.dataset.routine;
-      const r = _routineCache.find(x => x.id === rid);
-      if (!r) return;
-      routineKebabMenu.hidden = true;
-      const section = document.getElementById('routineEditorSection');
-      const mount = document.getElementById('routineEditorMount');
-      mount.innerHTML = renderEditorHtml(r);
-      section.hidden = false;
-      section.scrollIntoView({ behavior: 'smooth', block: 'start' });
-      wireEditor(mount.querySelector('.routine-editor'), {
-        onSave: async () => {
-          section.hidden = true;
-          mount.innerHTML = '';
-          await loadRoutines();
-          // Re-open detail with refreshed data
-          openRoutineDetail(rid);
-        },
-        onCancel: () => {
-          section.hidden = true;
-          mount.innerHTML = '';
-        },
-      });
-    });
-
-    // Permission-mode via kebab
-    routineKebabMenu.querySelectorAll('.menu-item.perm-mode').forEach(item => {
-      item.addEventListener('click', async () => {
-        const rid = viewRoutineDetail.dataset.routine;
-        const mode = item.dataset.mode;
-        routineKebabMenu.hidden = true;
-        try {
-          await fetch(API_BASE + '/v1/routines/' + encodeURIComponent(rid), {
-            method: 'PUT', headers: authHeaders(),
-            body: JSON.stringify({ permission_mode: mode }),
-          });
-          await loadRoutines();
-          openRoutineDetail(rid);
-        } catch (e) {
-          alert('update failed: ' + e.message);
-        }
-      });
     });
 
     // Pause / enable
