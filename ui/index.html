@@ -5232,18 +5232,39 @@
     // Steps / Ending) when written in the documented schema. Returns
     // null when the body doesn't have all four headers, in which case
     // the editor falls back to regular-mode (single textarea).
+    //
+    // Two-pass approach: locate every `# <SectionName>` header, then
+    // slice the prompt between consecutive headers. The earlier
+    // single-pass regex used a `(?=...|\s*$)` lookahead which, in
+    // multiline mode, matched end-of-every-line — so a multi-line
+    // Steps section truncated at its first newline. Position-based
+    // slicing avoids the lookahead trap entirely.
     function _parseScaffoldSections(prompt) {
       if (!prompt) return null;
-      const sections = {};
-      const re = /^#\s*(Purpose|Needs|Steps|Ending)\b[^\n]*\n([\s\S]*?)(?=^#\s+\w|\s*$)/gim;
+      const headerRe = /^#\s*(Purpose|Needs|Steps|Ending)\b[^\n]*$/gim;
+      const headers = [];
       let m;
-      while ((m = re.exec(prompt)) !== null) {
-        sections[m[1].toLowerCase()] = (m[2] || '').trim();
+      while ((m = headerRe.exec(prompt)) !== null) {
+        headers.push({
+          name: m[1].toLowerCase(),
+          start: m.index,
+          end: m.index + m[0].length,
+        });
       }
-      if (sections.purpose && sections.needs && sections.steps && sections.ending) {
-        return sections;
+      if (headers.length < 4) return null;
+      const have = new Set(headers.map(h => h.name));
+      for (const n of ['purpose', 'needs', 'steps', 'ending']) {
+        if (!have.has(n)) return null;
       }
-      return null;
+      const sections = {};
+      for (let i = 0; i < headers.length; i++) {
+        const h = headers[i];
+        const next = headers[i + 1];
+        const bodyStart = h.end;
+        const bodyEnd = next ? next.start : prompt.length;
+        sections[h.name] = prompt.slice(bodyStart, bodyEnd).trim();
+      }
+      return sections;
     }
     function _joinScaffoldSections(sections) {
       const purpose = (sections.purpose || '').trim();
