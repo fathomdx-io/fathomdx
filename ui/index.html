@@ -6582,14 +6582,21 @@
     settingsBackBtn.addEventListener('click', closeSettings);
 
     // ── Settings tabs ─────────────────────────────
-    document.querySelectorAll('.settings-tab').forEach(tab => {
+    // Scope to [data-tab] / [data-panel] so this doesn't accidentally
+    // re-target the routine-detail tabs (which reuse .settings-tab and
+    // .settings-panel for visual consistency but bind via
+    // data-routine-tab / data-routine-panel). Without the attribute
+    // selector the click on a routine tab would also fire this handler
+    // with `which === undefined`, bulldozing every panel hidden state
+    // on the page.
+    document.querySelectorAll('.settings-tab[data-tab]').forEach(tab => {
       tab.addEventListener('click', () => _switchSettingsTab(tab.dataset.tab));
     });
     function _switchSettingsTab(which) {
-      document.querySelectorAll('.settings-tab').forEach(t => {
+      document.querySelectorAll('.settings-tab[data-tab]').forEach(t => {
         t.classList.toggle('active', t.dataset.tab === which);
       });
-      document.querySelectorAll('.settings-panel').forEach(p => {
+      document.querySelectorAll('.settings-panel[data-panel]').forEach(p => {
         p.hidden = p.dataset.panel !== which;
       });
       // Lazy-load when switching into tabs that pull heavier data.
