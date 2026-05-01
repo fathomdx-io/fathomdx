@@ -267,6 +267,39 @@ def get_feed(
                 items.append({"kind": "claude-code-dispatch", "host": host, **base})
             elif route == "chat-reply":
                 items.append({"kind": "fathom-message", **base})
+            elif "kind:proposal" in tags:
+                # Tool-call proposal — witness asked the user to confirm a
+                # state change. Carry tool name + tool_args + decision (if
+                # one has landed) onto the item so the dashboard can render
+                # Edit/Deny/Approve buttons. The decision delta lives
+                # separately tagged `proposal-decision decides:<id>`.
+                #
+                # Surface lake_id so the UI can target /v1/proposals/<id>
+                # against the durable lake delta — the puddle copy is
+                # ephemeral and the proposals endpoint reads from the lake.
+                tool = next(
+                    (t.split(":", 1)[1] for t in tags if t.startswith("tool:")),
+                    "",
+                )
+                # `lake-id:<full>` is the witness's own dual-write cross-
+                # pointer; `recalled-id:<short>` is what telepathy stamps
+                # when it mirrors a durable lake delta back into the puddle
+                # (e.g. after an api restart wipes the puddle and telepathy
+                # re-hydrates from the lake). Either tag identifies the
+                # same lake delta, so check both.
+                lake_id = next(
+                    (t.split(":", 1)[1] for t in tags if t.startswith("lake-id:")),
+                    "",
+                ) or next(
+                    (t.split(":", 1)[1] for t in tags if t.startswith("recalled-id:")),
+                    "",
+                )
+                items.append({
+                    "kind": "proposal",
+                    "tool": tool,
+                    "lake_id": lake_id,
+                    **base,
+                })
             else:
                 items.append({"kind": "card", **base})
             continue
@@ -300,6 +333,21 @@ def get_feed(
                     "content": d.get("content") or "",
                     **common,
                 })
+            elif kind == "routine-due":
+                # Routine cron tick — surfaces as a "routine fired" marker
+                # in the feed so the user sees the trigger that caused
+                # whatever the witness emitted next. Carries routine-id so
+                # the renderer can link to the routine detail page.
+                routine_id = next(
+                    (t.split(":", 1)[1] for t in tags if t.startswith("routine-id:")),
+                    "",
+                )
+                items.append({
+                    "kind": "routine-due",
+                    "routine_id": routine_id,
+                    "content": d.get("content") or "",
+                    **common,
+                })
             continue
         # Crystal facets — identity layer.
         if "crystal" in tags:
@@ -327,29 +375,54 @@ def get_feed(
                 **common,
             })
             continue
-        # Routine activity — fires (the trigger) and summaries (the
-        # writeup the routine produced). Both surface under one kind so
-        # the filter can toggle them independently of generic lake-delta
-        # noise; the `summary` field lets the renderer tell them apart.
-        if "routine-fire" in tags or "routine-summary" in tags:
+        # Routine activity — three shapes:
+        #   · routine-tick — cron tick handed the routine to the River
+        #     (surfaces as kind:"routine-due" with variant "fired", the
+        #     durable lake-side counterpart of the puddle's routine-due
+        #     intent so the marker survives api restarts).
+        #   · routine-fire — legacy direct-to-kitty path (variant "fire").
+        #   · routine-summary — claude-code's writeup back from a fire
+        #     (variant "summary").
+        # All carry routine-id so the dashboard renders the routine name.
+        if (
+            "routine-fire" in tags
+            or "routine-summary" in tags
+            or "routine-tick" in tags
+        ):
             routine_id = next(
                 (t.split(":", 1)[1] for t in tags if t.startswith("routine-id:")),
                 None,
             )
-            items.append({
-                "kind": "routine",
-                "routine_id": routine_id,
-                "summary": "routine-summary" in tags,
-                "content": d.get("content") or "",
-                **common,
-            })
+            if "routine-tick" in tags:
+                items.append({
+                    "kind": "routine-due",
+                    "routine_id": routine_id,
+                    "content": d.get("content") or "",
+                    **common,
+                })
+            else:
+                items.append({
+                    "kind": "routine",
+                    "routine_id": routine_id,
+                    "summary": "routine-summary" in tags,
+                    "content": d.get("content") or "",
+                    **common,
+                })
             continue
         # Claude-code task channel — closure deltas from a tasked
         # claude-code session, plus any other claude-code:task source
         # output. Routed under its own kind so the Claude Code filter
         # category (on by default) surfaces them, instead of getting
         # buried under `thinking` with the rest of the lake-delta noise.
-        if "task-complete" in tags or d.get("source") == "claude-code:task":
+        # `task-abandoned` (kitty noticed the window died with no
+        # completion) is a closure too — render it the same shape so
+        # an early-killed session shows the wrap rather than orphaning
+        # the dispatch card forever.
+        if (
+            "task-complete" in tags
+            or "task-abandoned" in tags
+            or d.get("source") == "claude-code:task"
+        ):
             host = next(
                 (t.split(":", 1)[1] for t in tags if t.startswith("host:")),
                 "",

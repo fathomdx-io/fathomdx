@@ -264,6 +264,68 @@ def _render_hosts_block(hosts: list[str]) -> str:
     )
 
 
+async def _render_routines_block(available_hosts: list[str]) -> str:
+    """List enabled routines the witness can fire this tick.
+
+    Filters to routines whose pinned host is online (or fleet-wide,
+    `host=""`). Without this filter the witness could pick a routine
+    whose host is dark and the fire delta would just sit unconsumed.
+
+    Empty string when no routines are available — the prompt then has
+    no `routine-fire:<id>` option in practice, mirroring the hosts_block
+    treatment.
+    """
+    try:
+        from .. import routines as routines_mod
+
+        all_routines = await routines_mod.list_routines()
+    except Exception as e:
+        print(f"[witness] routines list failed: {type(e).__name__}: {e}")
+        return ""
+    if not all_routines:
+        return ""
+    available_set = set(available_hosts)
+    eligible: list[dict] = []
+    for r in all_routines:
+        if not r.get("enabled"):
+            continue
+        host = (r.get("host") or "").strip()
+        if host and host not in available_set:
+            continue  # pinned host is dark
+        eligible.append(r)
+    if not eligible:
+        return ""
+    eligible.sort(key=lambda r: (r.get("host") or "", r["id"]))
+    lines: list[str] = []
+    for r in eligible[:20]:  # cap so the prompt budget doesn't blow up
+        rid = r["id"]
+        name = (r.get("name") or rid).strip()
+        host = (r.get("host") or "").strip() or "fleet"
+        prompt_excerpt = (r.get("prompt") or "").strip().splitlines()
+        first = prompt_excerpt[0] if prompt_excerpt else ""
+        if len(first) > 80:
+            first = first[:77] + "..."
+        sched = (r.get("schedule") or "").strip()
+        sched_part = f" · cron={sched}" if sched else ""
+        lines.append(
+            f"  · {rid} ({host}) — {name}{sched_part}"
+            + (f"\n      └ {first}" if first else "")
+        )
+    return (
+        "ROUTINES — known prompts you can hand to the River by id via "
+        "`routine-fire:<id>`. This writes a routine-due intent that "
+        "your NEXT fire will read and route (claude-code dispatch if it "
+        "needs fresh data, feed-card if substrate-only, etc.). Pick "
+        "this route when the user's ask matches one of these more "
+        "cleanly than a fresh claude-code dispatch (the routine carries "
+        "its own framing — including its `# Ending` directive). Card "
+        "body is your user-facing acknowledgement; the routine prompt "
+        "itself is what the next tick deliberates over:\n"
+        + "\n".join(lines)
+        + "\n\n"
+    )
+
+
 def _render_standpoint_for_witness(sp) -> str:
     """Render the standpoint as the witness's integration frame.
 
@@ -290,6 +352,7 @@ async def _call_witness(
     anchors_block: str,
     feed_block: str,
     hosts_block: str,
+    routines_block: str = "",
     standpoint_block: str = "",
 ) -> dict | None:
     prompt = WITNESS_PROMPT.format(
@@ -300,6 +363,7 @@ async def _call_witness(
         anchors_block=anchors_block,
         feed_block=feed_block,
         hosts_block=hosts_block,
+        routines_block=routines_block,
     )
     try:
         raw = await loop_generate(
@@ -339,6 +403,8 @@ async def _call_witness(
         body = (card.get("body") or "").strip()
         if not body:
             continue
+        tool_args_raw = card.get("tool_args")
+        tool_args = tool_args_raw if isinstance(tool_args_raw, dict) else {}
         cards.append({
             "kicker": (card.get("kicker") or "").strip(),
             "title": (card.get("title") or "").strip(),
@@ -349,6 +415,8 @@ async def _call_witness(
             "links": card.get("links") or [],
             "route": (card.get("route") or "chat-reply").strip(),
             "addresses": card.get("addresses") or [],
+            "tool": (card.get("tool") or "").strip(),
+            "tool_args": tool_args,
         })
     return {
         "cards": cards,
@@ -793,12 +861,14 @@ async def run_witness(
 
     available_hosts = await _available_claude_code_hosts()
     standpoint_block = _render_standpoint_for_witness(standpoint)
+    routines_block = await _render_routines_block(available_hosts)
     witness = await _call_witness(
         intent_block=intent_block,
         voice_blocks=voice_blocks,
         anchors_block=_render_anchors(),
         feed_block=feed_block,
         hosts_block=_render_hosts_block(available_hosts),
+        routines_block=routines_block,
         standpoint_block=standpoint_block,
     )
     if witness is None:
@@ -891,6 +961,22 @@ async def _dispatch_card(
     if not full_addressed and is_responsive_route:
         full_addressed = [it.get("id") for it in pending if it.get("id")]
 
+    # Tool proposals — when route is `tool:<name>`, the card is a
+    # propose-vs-commit form for the user. The tool_args field carries
+    # the structured payload (mirrors the OpenAI tool schema), and the
+    # body is the witness's natural-language framing. The card lands as
+    # `kind:proposal` with `proposal-status:pending`; the dashboard
+    # renders Edit / Deny / Approve buttons. Approve calls the tool
+    # handler with confirm:true.
+    is_tool_proposal = route_value.startswith("tool:")
+    proposal_tool = ""
+    proposal_args: dict = {}
+    if is_tool_proposal:
+        proposal_tool = route_value.split(":", 1)[1].strip()
+        raw_args = card.get("tool_args") or {}
+        if isinstance(raw_args, dict):
+            proposal_args = raw_args
+
     payload = {
         "kicker": card.get("kicker") or "",
         "title": card.get("title") or "",
@@ -902,6 +988,9 @@ async def _dispatch_card(
         "route": route_value,
         "axes": {},
     }
+    if is_tool_proposal:
+        payload["tool"] = proposal_tool
+        payload["tool_args"] = proposal_args
     payload_json = json.dumps(payload, ensure_ascii=False)
 
     # Channel / correlation / host derived per-card from the intents THIS
@@ -971,6 +1060,46 @@ async def _dispatch_card(
                 f"host not in available hosts {available_hosts}"
             )
 
+    # Proactive routine fire — card picked `routine-fire:<id>` as its
+    # route. Hand the routine to the River on this tick (routines.fire
+    # writes a routine-due intent + tick). The witness's NEXT tick will
+    # read that intent, deliberate over the routine prompt, and route
+    # appropriately (claude-code dispatch if it needs fresh data, feed-
+    # card if substrate-only, etc.). No host availability check here:
+    # the next tick decides routing, including whether claude-code is
+    # needed and which host to dispatch to.
+    fired_routine_id = ""
+    if route_value.startswith("routine-fire:"):
+        fired_routine_id = route_value.split(":", 1)[1].strip()
+        try:
+            from .. import routines as routines_mod
+
+            spec = await routines_mod.get_latest_spec(fired_routine_id)
+            if not spec or spec["meta"].get("deleted"):
+                print(
+                    f"[witness] dropped routine-fire:{fired_routine_id} — "
+                    f"spec not found or tombstoned"
+                )
+                fired_routine_id = ""
+            elif not spec["meta"].get("enabled", True):
+                print(
+                    f"[witness] dropped routine-fire:{fired_routine_id} — "
+                    f"routine disabled"
+                )
+                fired_routine_id = ""
+            else:
+                await routines_mod.fire(fired_routine_id)
+                print(
+                    f"[witness] proactive routine-fire → "
+                    f"id={fired_routine_id} (handed to River)"
+                )
+        except Exception as e:
+            print(
+                f"[witness] routine-fire dispatch failed: "
+                f"{type(e).__name__}: {e}"
+            )
+            fired_routine_id = ""
+
     # closure:true on a claimed intent → don't redispatch claude-code,
     # rewrite to chat-reply with `about-task-corr:` linkage so the
     # dashboard can render "Fathom (about task on <host>)" without
@@ -1026,6 +1155,15 @@ async def _dispatch_card(
         "feed-card", "synthesis", "addressing-output",
         f"route:{route_value}",
     ]
+    if is_tool_proposal:
+        lake_tags.extend([
+            "kind:proposal",
+            "proposal-status:pending",
+            f"tool:{proposal_tool}",
+        ])
+        action = (proposal_args.get("action") or "").strip()
+        if action:
+            lake_tags.append(f"action:{action}")
     if channel and correlation:
         lake_tags.append(address_tag(channel, correlation))
         lake_tags.append(f"channel:{channel}")
@@ -1050,6 +1188,8 @@ async def _dispatch_card(
         lake_tags.append(f"about-task-corr:{about_corr}")
         if about_host:
             lake_tags.append(f"about-host:{about_host}")
+    if fired_routine_id:
+        lake_tags.append(f"fired-routine-id:{fired_routine_id}")
     if addressee:
         lake_tags.append(f"for:{addressee}")
     for intent_id in full_addressed:
@@ -1080,6 +1220,20 @@ async def _dispatch_card(
         "feed-card", "synthesis", "addressing-output",
         f"route:{route_value}",
     ]
+    if is_tool_proposal:
+        # Mirror the lake_tags proposal markers onto the puddle so the
+        # feed renderer (api/loop/routes.py:_serialize_for_feed) can
+        # classify this item as kind:proposal — without these the puddle
+        # entry shows up as a plain card and the dashboard never paints
+        # the Edit / Deny / Approve buttons.
+        puddle_tags.extend([
+            "kind:proposal",
+            "proposal-status:pending",
+            f"tool:{proposal_tool}",
+        ])
+        action = (proposal_args.get("action") or "").strip()
+        if action:
+            puddle_tags.append(f"action:{action}")
     if channel and correlation:
         puddle_tags.append(address_tag(channel, correlation))
         puddle_tags.append(f"channel:{channel}")

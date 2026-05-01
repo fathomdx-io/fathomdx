@@ -1,16 +1,24 @@
 /**
- * Kitty — routine execution surface.
+ * Kitty — claude-code dispatch surface.
  *
- * Polls the delta lake for `routine-fire` deltas. For each new one, spawns
- * a standalone kitty window with `claude` and injects the routine prompt
- * via kitty's remote-control protocol. The user sees the routine running on
- * their desktop as a real interactive terminal — they can intervene at any
- * time.
+ * Polls the delta lake for `route:claude-code` cards (witness dispatches)
+ * targeted at this host. For each new dispatch, spawns a standalone kitty
+ * window with `claude` and injects the prompt via kitty's remote-control
+ * protocol. The user sees the work running on their desktop as a real
+ * interactive terminal — they can intervene at any time.
  *
- * Fire delta shape:
- *   Tags:    [routine-fire, routine-id:<id>, workspace:<name>]
- *   Source:  any (dashboard, fathom-cli, scheduler, manual)
- *   Content: the prompt to inject into claude
+ * Dispatch delta shape:
+ *   Tags:    [feed-card, route:claude-code, host:<myhost>, task-corr:<id>]
+ *   Source:  witness
+ *   Content: JSON payload whose body is the prompt
+ *
+ * Routines flow through this same path. The cron scheduler (or Fire Now,
+ * or the witness's `routine-fire:<id>` route) writes a `routine-due`
+ * intent into the puddle; the witness reads it, deliberates, and — when
+ * fresh data is needed — emits a `route:claude-code` dispatch card. So
+ * routines that need claude-code arrive HERE, just via one extra River
+ * tick. The legacy `routine-fire` direct-to-kitty consumer was retired
+ * 2026-04-30 — there's no longer a "skip the River" path.
  *
  * State file (~/.fathom/kitty-state.json) tracks the last-processed delta
  * timestamp so restarts don't re-fire historical events.
@@ -249,17 +257,13 @@ async function pollOnce(config, pusher, state) {
   // tasks awaiting their session id. Skip the round-trip otherwise.
   const handshakeWindowStart = oldestUnmatchedTaskIso();
 
-  let fires, summaries, taskDispatches, taskCloses, handshakeCandidates;
+  // Routine fires no longer flow through this consumer — every routine
+  // (cron, Fire Now, witness `routine-fire:<id>`) goes through the River.
+  // The witness reads the routine-due intent and, when fresh data is
+  // needed, dispatches via `route:claude-code` — the path below.
+  let taskDispatches, taskCloses, handshakeCandidates;
   try {
-    [fires, summaries, taskDispatches, taskCloses, handshakeCandidates] = await Promise.all([
-      pusher.query({ tags_include: "routine-fire", time_start: state.last_seen, limit: 50 }),
-      // Summaries poll from the earliest open fire, so a slow routine whose
-      // summary lands after state.last_seen advances still gets matched.
-      pusher.query({
-        tags_include: "routine-summary",
-        time_start: state.oldest_open_fire || state.last_seen,
-        limit: 50,
-      }),
+    [taskDispatches, taskCloses, handshakeCandidates] = await Promise.all([
       // Claude-code-channel dispatches — witness cards routed at this
       // host. AND-semantics on tags_include (route:claude-code AND
       // host:<myhost>) means each agent only ever sees fires for itself,
@@ -288,28 +292,6 @@ async function pollOnce(config, pusher, state) {
   } catch (e) {
     console.error(`  kitty: poll failed: ${e.message}`);
     return;
-  }
-
-  // Sort oldest-first so we fire in order
-  fires.sort((a, b) => (a.timestamp || "").localeCompare(b.timestamp || ""));
-
-  for (const d of fires) {
-    if (d.timestamp <= state.last_seen) continue; // safety filter
-    fire(d, config, pusher);
-    state.last_seen = d.timestamp;
-  }
-  if (fires.length) saveState(state);
-
-  // Close windows whose routine just wrote a summary. Summary tags include
-  // `fire-delta:<fire_id>` so we can find the matching open window.
-  for (const s of summaries) {
-    const fireId = tag(s, "fire-delta:");
-    if (!fireId) continue;
-    const entry = openFires.get(fireId);
-    if (!entry) continue;
-    console.log(`  🐈 close ${entry.routineId} (summary ${s.id.slice(0, 8)} landed)`);
-    closeWindow(entry.socket);
-    openFires.delete(fireId);
   }
 
   // ── Claude-code-channel ─────────────────────────────────────────────
@@ -854,7 +836,7 @@ export default {
   start(config, pusher) {
     const state = loadState();
     const allowed = config.allowed_permission_modes || ["auto", "normal"];
-    console.log(`  kitty: polling lake for routine-fire deltas (last seen: ${state.last_seen})`);
+    console.log(`  kitty: polling lake for route:claude-code dispatches (last seen: ${state.task_seen_at || state.last_seen})`);
     console.log(`  kitty: allowed permission modes = [${allowed.join(", ")}]`);
 
     const tick = () => pollOnce(config, pusher, state);

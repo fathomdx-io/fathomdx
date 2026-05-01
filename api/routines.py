@@ -385,29 +385,77 @@ async def soft_delete(routine_id: str) -> dict:
 
 
 async def fire(routine_id: str, prompt_override: str | None = None) -> dict:
-    """Write a routine-fire delta. The kitty plugin (or other consumer) picks it up.
+    """Hand the routine to the River — write a routine-due intent + tick.
 
-    Stamps a `fired-at:<iso>` tag so repeat fires of the same routine bypass
-    the lake's sequential dedup (which skips writes when source + tags +
-    content all match the previous delta). Without this tag, clicking "Fire
-    now" twice in a row for the same routine would be a no-op.
+    All firing paths go through here:
+      · cron scheduler (api/routine_scheduler.py)
+      · Fire Now button + chat-tool action (api/routes/routines.py)
+      · witness's routine-fire:<id> route (api/loop/witness.py)
+
+    The legacy direct-to-kitty path is gone: there's no longer a
+    `routine-fire` lake delta, the kitty plugin no longer consumes
+    one, and there's no "skip the river" override. Routines are
+    a scheduled "Hey Fathom, handle this" — the witness reads the
+    intent and routes (claude-code dispatch, feed-card from
+    substrate, alert, chat-reply, silent).
     """
+    from .loop.intents import write_intent
+
     existing = await get_latest_spec(routine_id)
     if not existing or existing["meta"].get("deleted"):
         raise FileNotFoundError(f"Routine {routine_id} not found")
     meta = existing["meta"]
     body = prompt_override if prompt_override is not None else existing["body"]
+    name = (meta.get("name") or routine_id).strip()
+    host = (meta.get("host") or "").strip()
+    permission_mode = (meta.get("permission_mode") or "auto").strip()
+
+    intent_tags: list[str] = [f"routine-id:{routine_id}"]
+    if host:
+        intent_tags.append(f"host:{host}")
+    if permission_mode:
+        intent_tags.append(f"permission-mode:{permission_mode}")
+
+    summary = f"[routine-due: {name}]\n{body or ''}".strip()
+    payload = {
+        "routine_id": routine_id,
+        "name": name,
+        "host": host,
+        "permission_mode": permission_mode,
+    }
+    intent = await write_intent(
+        kind="routine-due",
+        content=summary,
+        payload=payload,
+        extra_tags=intent_tags,
+        source="routine-scheduler",
+    )
+
+    # Durable lake-side receipt for hydration on restart. Stamped with
+    # a millisecond timestamp so consecutive manual fires don't collide
+    # on the lake's sequential-dedup.
     fired_at = datetime.now(UTC).isoformat(timespec="milliseconds").replace("+00:00", "Z")
-    tags = ["routine-fire", f"routine-id:{routine_id}", f"fired-at:{fired_at}"]
-    if existing["workspace"]:
-        tags.append(f"workspace:{existing['workspace']}")
-    # Host-pin the fire if the spec has a host; kitty plugins on other
-    # machines will veto fires whose host: tag doesn't match them.
-    host_target = str(meta.get("host") or "").strip()
-    if host_target:
-        tags.append(f"host:{host_target}")
-    mode = str(meta.get("permission_mode") or "auto").strip()
-    if mode:
-        tags.append(f"permission-mode:{mode}")
-    written = await delta_client.write(content=body.strip(), tags=tags, source="consumer-dashboard")
-    return {"fired": True, "routine_id": routine_id, "fire_delta_id": written.get("id")}
+    tick_tags = [
+        "routine-tick",
+        f"routine-id:{routine_id}",
+        f"fired-at:{fired_at}",
+    ]
+    if host:
+        tick_tags.append(f"host:{host}")
+    try:
+        await delta_client.write(
+            content=f"routine-tick: {routine_id}",
+            tags=tick_tags,
+            source="routine-scheduler",
+        )
+    except Exception:
+        # Tick is hydration-only — the intent already landed in the
+        # puddle so the routine itself isn't lost. Future restart may
+        # re-fire it, which is acceptable.
+        pass
+
+    return {
+        "fired": True,
+        "routine_id": routine_id,
+        "intent_id": intent.get("id") if isinstance(intent, dict) else None,
+    }

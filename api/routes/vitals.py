@@ -99,9 +99,19 @@ async def get_drift_history(since_seconds: int | None = None):
 
 
 @router.get("/v1/crystal/events")
-async def get_crystal_events(limit: int = 50):
-    """Real crystal regeneration events — strict filter (see api/crystal.py)."""
-    return {"events": await crystal.list_events(limit=limit)}
+async def get_crystal_events(limit: int = 50, since_seconds: int | None = None):
+    """Real crystal regeneration events — strict filter (see api/crystal.py).
+
+    The ECG passes ``since_seconds`` matching its current window so
+    long-window views ("6 Months", "All Time") actually surface older
+    diamonds instead of being capped at the newest 50 events.
+    """
+    return {
+        "events": await crystal.list_events(
+            limit=limit,
+            since_seconds=since_seconds,
+        )
+    }
 
 
 # ── Feed-orient signal ──────────────────────────────────────────────────────
@@ -152,17 +162,32 @@ async def get_feed_engagement_history(since_seconds: int = 7 * 24 * 3600):
 
 @router.get("/v1/feed/crystal/events")
 @router.get("/v1/feed/regen/events")
-async def get_feed_crystal_events(limit: int = 50):
+async def get_feed_crystal_events(
+    limit: int = 50,
+    since_seconds: int | None = None,
+):
     """feed-orient regen events for the ◆ markers on the feed-orient card.
 
     Filters /v1/crystal/events down to crystal:feed-orient writes (matched
     by tag). The dashboard polls both /v1/feed/crystal/events and
     /v1/feed/regen/events; both routes resolve here.
+
+    ``since_seconds`` matches the ECG window — over a long span the
+    50-event cap was hiding older diamonds.
     """
+    from datetime import UTC, datetime, timedelta
+
+    time_start: str | None = None
+    if since_seconds is not None and since_seconds > 0:
+        time_start = (
+            datetime.now(UTC) - timedelta(seconds=since_seconds)
+        ).isoformat()
+        limit = max(limit, 500)
     try:
         items = await delta_client.query(
             tags_include=["crystal:feed-orient"],
             limit=limit,
+            time_start=time_start,
         )
     except Exception:
         return {"events": []}

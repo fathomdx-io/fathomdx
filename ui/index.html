@@ -306,6 +306,69 @@
     .msg[data-engaged="less"] .engagement-btn[data-kind="less"] {
       color: var(--bg, #1a1a1a); background: var(--signal); border-color: var(--signal);
     }
+    /* Proposal cards — Edit/Deny/Approve. Same outer shape as a regular
+       card with a tray of buttons replacing the engagement +/-. The
+       kicker ("REWRITE", "PROPOSAL", etc.) is enough as a visual cue;
+       the colored left border was redundant and clashed with the kicker. */
+    .card-proposal .proposal-summary {
+      margin: 10px 0 6px; padding: 10px 12px; border-radius: 6px;
+      background: var(--surface-2, rgba(127,127,127,0.06));
+      font-family: var(--mono); font-size: 12px; line-height: 1.5;
+    }
+    .card-proposal .proposal-row {
+      display: grid; grid-template-columns: 110px 1fr; gap: 8px; padding: 2px 0;
+    }
+    .card-proposal .proposal-row-key { color: var(--ink-faint); }
+    .card-proposal .proposal-row-val { color: var(--ink); word-break: break-word; white-space: pre-wrap; }
+    .card-proposal .proposal-actions {
+      display: flex; gap: 8px; justify-content: flex-end; margin-top: 12px;
+    }
+    .card-proposal .proposal-btn {
+      font-family: var(--mono); font-size: 12px; line-height: 1;
+      padding: 6px 14px; border-radius: 14px;
+      border: 1px solid var(--rule); background: transparent;
+      color: var(--ink-faint); cursor: pointer;
+      transition: color 120ms ease, border-color 120ms ease, background 120ms ease;
+    }
+    .card-proposal .proposal-btn:hover { color: var(--ink); border-color: var(--ink-faint); }
+    .card-proposal .proposal-approve {
+      color: var(--signal, #d97706); border-color: var(--signal, #d97706);
+    }
+    .card-proposal .proposal-approve:hover {
+      color: var(--bg, #1a1a1a); background: var(--signal, #d97706);
+    }
+    .card-proposal .proposal-deny:hover {
+      color: #dc2626; border-color: #dc2626;
+    }
+    .card-proposal .proposal-status {
+      margin-top: 10px; font-family: var(--mono); font-size: 11px;
+      color: var(--ink-faint);
+    }
+    .card-proposal .proposal-status-approved { color: var(--signal, #16a34a); }
+    .card-proposal .proposal-status-denied { color: #dc2626; }
+    .card-proposal .proposal-status-error { color: #dc2626; }
+    .card-proposal .proposal-form { display: flex; flex-direction: column; gap: 8px; }
+    .card-proposal .proposal-field {
+      display: flex; flex-direction: column; gap: 2px;
+    }
+    .card-proposal .proposal-field-inline {
+      flex-direction: row; align-items: center; gap: 8px;
+    }
+    .card-proposal .proposal-field-label {
+      font-size: 10px; text-transform: uppercase; letter-spacing: 0.06em;
+      color: var(--ink-faint);
+    }
+    .card-proposal .proposal-input {
+      font-family: var(--mono); font-size: 12px;
+      padding: 6px 8px; border-radius: 4px;
+      border: 1px solid var(--rule); background: var(--bg);
+      color: var(--ink); width: 100%; box-sizing: border-box;
+    }
+    .card-proposal textarea.proposal-input { resize: vertical; min-height: 60px; }
+    .card-proposal .proposal-args-json,
+    .card-proposal .proposal-args-edit {
+      white-space: pre-wrap; font-size: 11px; max-height: 180px; overflow: auto;
+    }
     /* Feed filter — a click-to-open dropdown panel of checkboxes for
        the kinds of synthesis output the user wants to see. Each
        checkbox toggles a bucket of card kinds (Default feed =
@@ -575,6 +638,83 @@
       border-left-color: #ef4444;
     }
     .feed .delta.intent.intent-alert .d-kind { color: #ef4444; }
+    /* Routine activity — per-item accordion (mirrors claude-code dispatch
+       shape but with its own accent). Each routine fire / summary / due-
+       tick is its own <details>: closed by default, click to expand and
+       see the prompt / summary text. Clicking the routine name itself
+       (the highlighted span) jumps to the routine detail page. */
+    .feed .delta.routine {
+      border-left: none;
+      background: var(--bg-deep);
+      border: 1px solid var(--rule-soft);
+      border-radius: 6px;
+      padding: 0.55rem 0.85rem;
+    }
+    .feed .delta.routine > summary.d-head {
+      list-style: none;
+      cursor: pointer;
+      user-select: none;
+      display: flex;
+      align-items: baseline;
+      gap: 0.55rem;
+    }
+    .feed .delta.routine > summary.d-head::-webkit-details-marker { display: none; }
+    .feed .delta.routine > summary.d-head::before {
+      content: "▸";
+      display: inline-block;
+      width: 0.9rem;
+      color: var(--signal);
+      opacity: 0.7;
+      transition: transform 160ms;
+    }
+    .feed .delta.routine[open] > summary.d-head::before { transform: rotate(90deg); }
+    .feed .delta.routine .routine-icon {
+      color: var(--signal);
+      opacity: 0.85;
+      font-size: 13px;
+      width: 14px;
+      text-align: center;
+      flex-shrink: 0;
+    }
+    .feed .delta.routine .d-kind {
+      flex: 1;
+      font-family: var(--mono);
+      font-size: 11.5px;
+      color: var(--ink-soft);
+      letter-spacing: 0.04em;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .feed .delta.routine .routine-name {
+      color: var(--ink);
+      font-weight: 600;
+    }
+    .feed .delta.routine .routine-name.is-link {
+      cursor: pointer;
+      text-decoration-color: transparent;
+    }
+    .feed .delta.routine .routine-name.is-link:hover {
+      color: var(--signal);
+      text-decoration: underline;
+      text-decoration-color: currentColor;
+    }
+    .feed .delta.routine .routine-variant {
+      color: var(--signal);
+      opacity: 0.8;
+    }
+    .feed .delta.routine .d-ts {
+      color: color-mix(in srgb, var(--signal) 65%, transparent);
+      flex-shrink: 0;
+    }
+    .feed .delta.routine .d-body {
+      margin-top: 0.5rem;
+      font-family: var(--mono);
+      font-size: 12.5px;
+      color: var(--ink-soft);
+      line-height: 1.55;
+      white-space: pre-wrap;
+    }
     /* Crystal — purple accent on the surface tint. */
     .feed .delta.crystal {
       border-left-color: #a78bfa;
@@ -2572,12 +2712,26 @@
       color: var(--ink-soft); white-space: pre-wrap; max-height: 240px; overflow: auto;
     }
 
-    /* Editor */
+    /* Editor — unboxed; the parent view's chrome is enough.
+       Was wrapped in a card with border + surface tint, which read as a
+       "this is a special panel" cue. The form is the page now. */
     .routine-editor {
-      background: var(--surface); border: 1px solid var(--accent);
-      border-radius: 12px; padding: 16px;
-      display: flex; flex-direction: column; gap: 12px;
+      display: flex; flex-direction: column; gap: 16px;
     }
+    .scaffold-grid {
+      display: flex; flex-direction: column; gap: 14px;
+    }
+    /* `display: flex` clobbers the browser's implicit hidden→display:none,
+       so the scaffold inputs stay visible when the regular tab is active.
+       Restore the hidden behavior explicitly. */
+    .scaffold-grid[hidden] { display: none; }
+    .scaffold-field { display: flex; flex-direction: column; }
+    .scaffold-field label {
+      font-family: var(--mono); font-size: 11px;
+      text-transform: uppercase; letter-spacing: 0.06em;
+      color: var(--ink-faint); margin-bottom: 4px;
+    }
+    .routine-editor .scaffold-input { min-height: auto; }
     .routine-editor .field-row { display: flex; gap: 8px; flex-wrap: wrap; }
     .routine-editor label { font-family: var(--mono); font-size: 11px;
       text-transform: uppercase; letter-spacing: 0.06em; color: var(--ink-faint);
@@ -2595,6 +2749,19 @@
       font-family: var(--mono); font-size: 12px; min-height: 120px; resize: vertical;
     }
     .routine-editor .form-group { flex: 1 1 200px; min-width: 0; }
+    .routine-editor .form-hint {
+      font-size: 11px; color: var(--ink-faint); line-height: 1.5; margin-top: 4px;
+    }
+    .routine-editor .form-hint a { color: var(--accent); text-decoration: none; }
+    .routine-editor .form-hint a:hover { text-decoration: underline; }
+    .routine-editor .ending-choices {
+      display: flex; flex-direction: column; gap: 6px; margin-top: 4px;
+      font-size: 12px;
+    }
+    .routine-editor .ending-choice {
+      font-family: var(--mono); font-size: 12px; display: flex; align-items: center;
+      gap: 8px; cursor: pointer;
+    }
     .routine-editor .err {
       color: #d35; font-size: 12px; font-family: var(--mono);
     }
@@ -2696,7 +2863,11 @@
     .agent-connected + .agent-connected { margin-top: 12px; }
     .agent-connected-status {
       display: flex; align-items: center; flex-wrap: wrap; gap: 10px;
-      padding: 2px 0 10px;
+      /* Was asymmetric (2px top / 10px bottom) to leave room for the
+         per-agent routines subsection that used to render below this
+         row. Routines moved to their own top-level section, so the
+         padding is symmetric now — the row sits centered in the card. */
+      padding: 2px 0;
     }
     .agent-connected-status .host {
       font-family: var(--mono); font-size: 13px; color: var(--ink);
@@ -3050,13 +3221,30 @@
         </div>
       </section>
 
-      <!-- ── Helpers (agent + routines) ────────────── -->
+      <!-- ── Routines ──────────────────────────────── -->
+      <!-- Routines are scheduled prompts that fire INTO the River.
+           The witness reads each as an intent and routes — claude-code
+           dispatch, feed-card from substrate, alert, chat-reply, silent.
+           A routine isn't a helper; it's a lake-resident artifact (spec
+           delta) that the cron scheduler hands to the witness. -->
+      <section class="section" id="routinesSection">
+        <div class="section-head">
+          <h2>Routines</h2>
+          <span class="meta" id="routinesMeta"></span>
+        </div>
+        <p class="section-desc">Scheduled prompts I hand to myself. Each one fires into the River and I decide how to respond — fetch fresh data, write a card from substrate, alert you, or stay quiet.</p>
+        <div class="sources" id="routinesList" data-routine-list="">
+          <button class="chip add" data-new-routine-for="" type="button">+ New routine</button>
+        </div>
+      </section>
+
+      <!-- ── Helpers (agent plugins on local machines) ─── -->
       <section class="section" id="agentSection">
         <div class="section-head">
           <h2>Helpers</h2>
           <span class="meta" id="agentMeta">loading…</span>
         </div>
-        <p class="section-desc">The local agent on your machine and its routines — background work that keeps the lake fresh while you're away.</p>
+        <p class="section-desc">Plugins running on your local machines — heartbeat, system metrics, kitty for claude-code dispatches, file watchers. Always on while the agent is.</p>
         <div id="agentBody"><!-- populated by renderAgentSection() --></div>
       </section>
 
@@ -3553,17 +3741,7 @@
           <div class="source-logo" id="routineDetailLogo">R</div>
           <div class="detail-actions">
             <button class="btn ghost compact" id="routineQuickPause"><span class="dot" id="routineDot"></span> Pause</button>
-            <div class="detail-kebab-wrap">
-              <button class="btn ghost icon-only" id="routineKebab" aria-label="More options"><svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="5" r="2"/><circle cx="12" cy="12" r="2"/><circle cx="12" cy="19" r="2"/></svg></button>
-              <div class="detail-kebab-menu" id="routineKebabMenu" hidden>
-                <button class="menu-item" id="routineFireNow">Fire now</button>
-                <button class="menu-item" id="routineEditBtn">Edit routine</button>
-                <div class="menu-sep"></div>
-                <div class="menu-label">Permission mode</div>
-                <button class="menu-item perm-mode" data-mode="auto">Auto</button>
-                <button class="menu-item perm-mode" data-mode="normal">Normal</button>
-              </div>
-            </div>
+            <button class="btn ghost compact" id="routineFireNow">Fire now</button>
           </div>
         </div>
         <h1 id="routineDetailName">Routine</h1>
@@ -3572,56 +3750,76 @@
         </div>
       </section>
 
-      <!-- Activity -->
-      <section class="section">
-        <div class="section-head">
-          <h2>Activity</h2>
-          <span class="meta" id="routineLastSeen">—</span>
-        </div>
-        <div class="stats-row" id="routineStats">
-          <div class="stat"><span class="n" id="routineCount24h">—</span><span class="lbl">last 24h</span></div>
-          <div class="stat"><span class="n" id="routineCount7d">—</span><span class="lbl">last 7d</span></div>
-          <div class="stat"><span class="n" id="routineCountAll">—</span><span class="lbl">all time</span></div>
-        </div>
-      </section>
+      <!-- Tab nav — mirrors the Settings tab pattern. Info shows the
+           routine's current state (activity, schedule, prompt preview,
+           recent fires, manage actions). Edit shows the inline form. -->
+      <div class="settings-tabs" role="tablist">
+        <button class="settings-tab active" data-routine-tab="info" role="tab">Info</button>
+        <button class="settings-tab" data-routine-tab="edit" role="tab">Edit</button>
+      </div>
 
-      <!-- Schedule + prompt preview -->
-      <section class="section">
-        <div class="section-head">
-          <h2>Schedule</h2>
-          <span class="meta" id="routineScheduleMeta">—</span>
-        </div>
-        <div class="routine-prompt" id="routinePromptPreview">(empty)</div>
-      </section>
+      <!-- ═══ INFO PANEL ═══════════════════════════ -->
+      <div class="settings-panel" data-routine-panel="info">
+        <!-- Activity -->
+        <section class="section">
+          <div class="section-head">
+            <h2>Activity</h2>
+            <span class="meta" id="routineLastSeen">—</span>
+          </div>
+          <div class="stats-row" id="routineStats">
+            <div class="stat"><span class="n" id="routineCount24h">—</span><span class="lbl">last 24h</span></div>
+            <div class="stat"><span class="n" id="routineCount7d">—</span><span class="lbl">last 7d</span></div>
+            <div class="stat"><span class="n" id="routineCountAll">—</span><span class="lbl">all time</span></div>
+          </div>
+        </section>
 
-      <!-- Recent fires — the equivalent of "Recent moments" on sources -->
-      <section class="section">
-        <div class="section-head">
-          <h2>Recent fires</h2>
-        </div>
-        <div class="delta-list" id="routineFires">
-          <!-- Populated by loadRoutineDetail() -->
-        </div>
-      </section>
+        <!-- Schedule + prompt preview -->
+        <section class="section">
+          <div class="section-head">
+            <h2>Schedule</h2>
+            <span class="meta" id="routineScheduleMeta">—</span>
+          </div>
+          <div class="routine-prompt" id="routinePromptPreview">(empty)</div>
+        </section>
 
-      <!-- Inline editor (hidden by default; revealed by kebab → Edit) -->
-      <section class="section" id="routineEditorSection" hidden>
-        <div class="section-head">
-          <h2>Edit routine</h2>
-        </div>
-        <div id="routineEditorMount"><!-- renderEditorHtml() swaps in here --></div>
-      </section>
+        <!-- Recent fires — the equivalent of "Recent moments" on sources -->
+        <section class="section">
+          <div class="section-head">
+            <h2>Recent fires</h2>
+          </div>
+          <div class="delta-list" id="routineFires">
+            <!-- Populated by loadRoutineDetail() -->
+          </div>
+        </section>
 
-      <!-- Danger zone -->
-      <section class="section">
-        <div class="section-head">
-          <h2>Delete</h2>
-        </div>
-        <p style="font-size: 14px; color: var(--ink-soft); line-height: 1.55; margin: 0 0 14px;">
-          Deleting writes a tombstone delta. Past fires and summaries stay in the lake; the scheduler just stops firing.
-        </p>
-        <button class="btn danger" id="routineDeleteBtn">Delete routine</button>
-      </section>
+        <!-- Manage — secondary actions. Migrate-to-schema is a one-shot
+             rewrite assist that lands as a proposal card; delete is
+             tombstone-only (history stays in the lake). -->
+        <section class="section">
+          <div class="section-head">
+            <h2>Manage</h2>
+          </div>
+          <p style="font-size: 13px; color: var(--ink-soft); line-height: 1.55; margin: 0 0 10px;">
+            Have Fathom rewrite this routine into the four-section schema (Purpose / Needs / Steps / Ending). Lands as a proposal card — review and approve.
+          </p>
+          <button class="btn ghost compact" id="routineRewriteSchema" style="margin-bottom: 18px;">Rewrite to schema</button>
+
+          <div class="section-head" style="margin-top: 12px;">
+            <h3 style="font-size: 14px; margin: 0;">Delete</h3>
+          </div>
+          <p style="font-size: 13px; color: var(--ink-soft); line-height: 1.55; margin: 0 0 10px;">
+            Deleting writes a tombstone delta. Past fires and summaries stay in the lake; the scheduler just stops firing.
+          </p>
+          <button class="btn danger" id="routineDeleteBtn">Delete routine</button>
+        </section>
+      </div>
+
+      <!-- ═══ EDIT PANEL ═══════════════════════════ -->
+      <div class="settings-panel" data-routine-panel="edit" hidden>
+        <section class="section">
+          <div id="routineEditorMount"><!-- renderEditorHtml() swaps in here when the tab activates --></div>
+        </section>
+      </div>
     </main>
   </div><!-- /view-routine-detail -->
 
@@ -5006,6 +5204,7 @@
       'every-4-hours': '0 */4 * * *',
     };
     const PRESET_LABELS = {
+      'once':          'once at…',
       'every-5-min':   'every 5 min',
       'every-30-min':  'every 30 min',
       'hourly':        'hourly',
@@ -5016,14 +5215,60 @@
     };
     const DAY_LABELS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 
-    function inferPreset(cron) {
+    function inferPreset(cron, single_fire) {
       const norm = (cron || '').trim();
+      // `once` is a single-firing date+time. Detect it from the spec's
+      // single_fire flag combined with a `MM HH DD MM *` shape.
+      if (single_fire && /^\d+\s+\d+\s+\d+\s+\d+\s+\*$/.test(norm)) return 'once';
       for (const [k, v] of Object.entries(CRON_PRESETS)) if (norm === v) return k;
       if (/^\d+\s+\d+\s+\*\s+\*\s+\*$/.test(norm)) return 'daily';
       if (/^\d+\s+\d+\s+\*\s+\*\s+\d$/.test(norm)) return 'weekly';
       return 'custom';
     }
     function cronShapeOk(s) { return /^(\S+\s+){4}\S+$/.test((s || '').trim()); }
+
+    // ── Scaffold-mode parsers ─────────────────────
+    // Split a prompt body into the four sections (Purpose / Needs /
+    // Steps / Ending) when written in the documented schema. Returns
+    // null when the body doesn't have all four headers, in which case
+    // the editor falls back to regular-mode (single textarea).
+    function _parseScaffoldSections(prompt) {
+      if (!prompt) return null;
+      const sections = {};
+      const re = /^#\s*(Purpose|Needs|Steps|Ending)\b[^\n]*\n([\s\S]*?)(?=^#\s+\w|\s*$)/gim;
+      let m;
+      while ((m = re.exec(prompt)) !== null) {
+        sections[m[1].toLowerCase()] = (m[2] || '').trim();
+      }
+      if (sections.purpose && sections.needs && sections.steps && sections.ending) {
+        return sections;
+      }
+      return null;
+    }
+    function _joinScaffoldSections(sections) {
+      const purpose = (sections.purpose || '').trim();
+      const needs = (sections.needs || '').trim();
+      const steps = (sections.steps || '').trim();
+      const ending = (sections.ending || '').trim();
+      return [
+        `# Purpose\n${purpose}`,
+        `# Needs\n${needs}`,
+        `# Steps\n${steps}`,
+        `# Ending\n${ending}`,
+      ].join('\n\n') + '\n';
+    }
+
+    // Extract date+time pieces from a `once` cron (`MM HH DD MM *`).
+    function extractOnceDate(cron) {
+      const m = (cron || '').match(/^(\d+)\s+(\d+)\s+(\d+)\s+(\d+)\s+\*$/);
+      if (!m) return { date: '', time: '' };
+      const yyyy = new Date().getFullYear();
+      const mm = String(m[4]).padStart(2, '0');
+      const dd = String(m[3]).padStart(2, '0');
+      const hh = String(m[2]).padStart(2, '0');
+      const mins = String(m[1]).padStart(2, '0');
+      return { date: `${yyyy}-${mm}-${dd}`, time: `${hh}:${mins}` };
+    }
 
     function relTimeFromIso(iso) {
       if (!iso) return '';
@@ -5271,14 +5516,6 @@
                 ${updateChipHtml}
                 ${configureHtml}
               </div>
-              <div class="agent-routines" data-host="${_esc(a.host)}">
-                <div class="agent-routines-head">
-                  <h3>Routines</h3>
-                </div>
-                <div class="sources" data-routine-list="${_esc(a.host)}">
-                  <button class="chip add" data-new-routine-for="${_esc(a.host)}" type="button">+ New routine</button>
-                </div>
-              </div>
             </div>`;
         }).join('');
 
@@ -5312,8 +5549,8 @@
         meta.textContent = 'not installed';
         body.innerHTML = `
           <div class="agent-callout">
-            <h3>Install a Fathom Helper and unlock routines and local sources.</h3>
-            <p>A helper runs locally on your machine. It watches your files, tracks system health, and executes scheduled Routines — prompts that fire into a local claude session on a schedule of your choosing.</p>
+            <h3>Install a Fathom Helper to give Fathom hands on your machine.</h3>
+            <p>A helper runs locally — watches files, tracks system health, and runs claude-code sessions when the witness dispatches one (for fetch routines, file edits, or shell work). Substrate-only routines work without a helper; install one when you want Fathom to actually reach into a machine.</p>
           </div>` + platformTiles;
       }
     }
@@ -5371,12 +5608,12 @@
       const when = _nextFireText(r);
       const diff = (Number(r.next_fire_at || 0) * 1000) - Date.now();
       const soon = r.enabled && diff > 0 && diff < 10 * 60 * 1000;  // <10min highlights
-      // Fleet-wide routines get a subtle marker so they're distinguishable
-      // from host-pinned ones sitting in the same agent block.
-      const fleetwide = !r.host ? ' <span class="next-fire" style="opacity:.6">· any</span>' : '';
+      // Machine assignment isn't a routine concept any more — the witness
+      // picks the host at dispatch time based on the prompt's `# Needs`.
+      // Chip just shows name + next fire.
       return `<span class="chip" data-routine="${_esc(r.id)}" data-state="${state}">
         <span class="dot"></span>
-        <span class="label">${_esc(name)} <span class="next-fire${soon ? ' soon' : ''}">${_esc(when)}</span>${fleetwide}</span>
+        <span class="label">${_esc(name)} <span class="next-fire${soon ? ' soon' : ''}">${_esc(when)}</span></span>
       </span>`;
     }
 
@@ -5394,18 +5631,20 @@
     }
 
     function renderRoutines() {
-      // One list per agent block (keyed by host). An agent sees routines
-      // pinned to its host and fleet-wide routines (no host set).
-      const lists = document.querySelectorAll('[data-routine-list]');
-      if (!lists.length || !_agentStatus.alive) return;
+      // Top-level Routines section — one list, every routine across the
+      // fleet, sorted by next_fire_at. Host is shown on the chip itself.
+      // Routines moved out of the per-agent Helpers card; they aren't
+      // helpers any more (cron writes a routine-due intent into the
+      // River, the witness routes — the agent's role is downstream).
+      const list = document.getElementById('routinesList');
+      if (!list) return;
+      const all = _sortRoutines(_routineCache.slice());
+      const chipsHtml = all.map(_routineChipHTML).join('');
+      list.innerHTML = chipsHtml + `<button class="chip add" data-new-routine-for="" type="button">+ New routine</button>`;
 
-      for (const list of lists) {
-        const host = list.dataset.routineList;
-        const mine = _routineCache.filter(r => !r.host || r.host === host);
-        const chipsHtml = _sortRoutines(mine).map(_routineChipHTML).join('');
-        list.innerHTML = chipsHtml + `<button class="chip add" data-new-routine-for="${_esc(host)}" type="button">+ New routine</button>`;
+      const meta = document.getElementById('routinesMeta');
+      if (meta) meta.textContent = '';
 
-      }
       _wireAddRoutineChips();
       _wireRoutineChips();
     }
@@ -5458,22 +5697,24 @@
         id: '', name: '', workspace: '', host: '', schedule: '0 * * * *', prompt: '',
         permission_mode: 'auto', enabled: true, single_fire: false,
       };
-      const preset = inferPreset(r.schedule);
-      // Build the host dropdown from currently-connected agents plus an
-      // "any" fleet-wide option. Pre-selects the routine's current host.
-      const hostOptions = [
-        `<option value="">any (fleet-wide)</option>`,
-        ...(_agentStatus.agents || []).map(a =>
-          `<option value="${_esc(a.host)}" ${a.host === (r.host || '') ? 'selected' : ''}>${_esc(a.host)}</option>`
-        ),
-      ];
-      // If the routine is pinned to a host that isn't currently connected,
-      // keep the value so it's preserved on save.
-      if (r.host && !(_agentStatus.agents || []).some(a => a.host === r.host)) {
-        hostOptions.push(`<option value="${_esc(r.host)}" selected>${_esc(r.host)} (offline)</option>`);
-      }
+      const preset = inferPreset(r.schedule, r.single_fire);
+      const sections = _parseScaffoldSections(r.prompt) || {
+        purpose: '', needs: '', steps: '', ending: '',
+      };
+      const scaffoldByDefault = _parseScaffoldSections(r.prompt) !== null;
+      const promptMode = scaffoldByDefault ? 'scaffold' : 'regular';
+      const onceDate = preset === 'once' ? extractOnceDate(r.schedule) : { date: '', time: '09:00' };
+      // Schedule visibility: time/date pickers shown only for the
+      // preset that needs them. Cron preview is hidden unless preset
+      // is 'custom' — for any of the named presets the label itself
+      // is sufficient ("daily at 8:00 AM" doesn't need a "0 8 * * *"
+      // echo and a 5-fire preview to be useful).
+      const showTime = preset === 'daily' || preset === 'weekly' || preset === 'once';
+      const showDay = preset === 'weekly';
+      const showDate = preset === 'once';
+      const showCustom = preset === 'custom';
       return `
-        <div class="routine-editor" data-editing="${_esc(isEdit ? r.id : '__new__')}">
+        <div class="routine-editor" data-editing="${_esc(isEdit ? r.id : '__new__')}" data-prompt-mode="${promptMode}">
           <div class="field-row">
             <div class="form-group">
               <label>routine-id</label>
@@ -5483,15 +5724,6 @@
               <label>name</label>
               <input class="form-input" data-f="name" type="text" value="${_esc(r.name)}" placeholder="Human-readable" />
             </div>
-            <div class="form-group">
-              <label>machine</label>
-              <select class="form-input" data-f="host">${hostOptions.join('')}</select>
-            </div>
-            <div class="form-group">
-              <label>path (optional)</label>
-              <input class="form-input" data-f="workspace" type="text" value="${_esc(r.workspace || '')}" placeholder="agent default" />
-              <div class="form-hint">Directory the routine runs in. Defaults to the helper's <code>default_workspace</code> — change that in <code>agent.json</code> on the target machine. Override here only if this routine needs a different path.</div>
-            </div>
           </div>
           <div>
             <label>schedule</label>
@@ -5500,18 +5732,52 @@
                 <select class="form-input" data-cron-preset style="width: auto; min-width: 140px;">
                   ${Object.entries(PRESET_LABELS).map(([k, v]) => `<option value="${k}" ${k === preset ? 'selected' : ''}>${v}</option>`).join('')}
                 </select>
-                <input class="form-input" data-cron-time type="time" value="${extractTime(r.schedule) || '09:00'}" style="width: 130px; display: ${(preset === 'daily' || preset === 'weekly') ? 'inline-block' : 'none'};" />
-                <select class="form-input" data-cron-day style="width: 110px; display: ${preset === 'weekly' ? 'inline-block' : 'none'};">
+                <input class="form-input" data-cron-date type="date" value="${_esc(onceDate.date)}" style="width: 160px; display: ${showDate ? 'inline-block' : 'none'};" />
+                <input class="form-input" data-cron-time type="time" value="${preset === 'once' ? _esc(onceDate.time) : (extractTime(r.schedule) || '09:00')}" style="width: 130px; display: ${showTime ? 'inline-block' : 'none'};" />
+                <select class="form-input" data-cron-day style="width: 110px; display: ${showDay ? 'inline-block' : 'none'};">
                   ${DAY_LABELS.map((d, i) => `<option value="${i}" ${i === extractDay(r.schedule) ? 'selected' : ''}>${d}</option>`).join('')}
                 </select>
-                <input class="form-input" data-cron-custom type="text" value="${_esc(preset === 'custom' ? r.schedule : '')}" placeholder="*/15 * * * *" style="min-width: 160px; display: ${preset === 'custom' ? 'inline-block' : 'none'};" />
+                <input class="form-input" data-cron-custom type="text" value="${_esc(showCustom ? r.schedule : '')}" placeholder="*/15 * * * *" style="min-width: 160px; display: ${showCustom ? 'inline-block' : 'none'};" />
               </div>
-              <div class="cron-preview" data-cron-preview>—</div>
+              <div class="cron-preview" data-cron-preview style="display: ${showCustom ? 'block' : 'none'};">—</div>
             </div>
           </div>
           <div>
-            <label>prompt</label>
-            <textarea class="form-textarea" data-f="prompt" placeholder="What claude should do when this routine fires.">${_esc(r.prompt || '')}</textarea>
+            <div style="display: flex; align-items: baseline; justify-content: space-between; gap: 8px;">
+              <label>prompt</label>
+              <div class="segmented" data-prompt-mode-toggle>
+                <button type="button" data-mode="scaffold" data-active="${promptMode === 'scaffold'}">scaffold</button>
+                <button type="button" data-mode="regular" data-active="${promptMode === 'regular'}">regular</button>
+              </div>
+            </div>
+            <div data-prompt-regular ${promptMode === 'regular' ? '' : 'hidden'}>
+              <textarea class="form-textarea" data-f="prompt" placeholder="What you want Fathom to do. Switch to scaffold for a guided four-section template.">${_esc(r.prompt || '')}</textarea>
+            </div>
+            <div data-prompt-scaffold class="scaffold-grid" ${promptMode === 'scaffold' ? '' : 'hidden'}>
+              <div class="scaffold-field">
+                <label>Purpose</label>
+                <textarea class="form-textarea scaffold-input" data-scaffold="purpose" rows="2" placeholder="One sentence — what should Fathom accomplish on this routine?">${_esc(sections.purpose)}</textarea>
+                <div class="form-hint">The goal in plain language. Don't list steps here.</div>
+              </div>
+              <div class="scaffold-field">
+                <label>Needs</label>
+                <textarea class="form-textarea scaffold-input" data-scaffold="needs" rows="2" placeholder='claude-code on a host, a specific tool, or "substrate only"'>${_esc(sections.needs)}</textarea>
+                <div class="form-hint">What does Fathom need to actually do this? Web fetch on a machine? Just lake recall? Tell Fathom what to reach for.</div>
+              </div>
+              <div class="scaffold-field">
+                <label>Steps</label>
+                <textarea class="form-textarea scaffold-input" data-scaffold="steps" rows="4" placeholder="What to look for, what to filter, what to compare. Numbered or prose.">${_esc(sections.steps)}</textarea>
+                <div class="form-hint">Plain language, first-person to Fathom. Don't pre-script claude-code's tool calls; the witness composes those.</div>
+              </div>
+              <div class="scaffold-field">
+                <label>Ending</label>
+                <textarea class="form-textarea scaffold-input" data-scaffold="ending" rows="3" placeholder='e.g. "Send me a card" · "DM me a quick line" · "Card most days, soft alert if X breaks" · "Stay silent unless Y"'>${_esc(sections.ending)}</textarea>
+                <div class="form-hint">How do you want to be notified? The witness reads this as a route directive — feed-card, chat-reply, alert, silent, or something else.</div>
+              </div>
+            </div>
+            <div class="form-hint" style="margin-top: 8px;">
+              Routines fire INTO Fathom — the witness picks the route (card, alert, chat-reply, claude-code dispatch, silent). See <a href="https://github.com/fathomdx-io/fathomdx/blob/main/docs/reference/routine-spec.md#writing-the-prompt" target="_blank" rel="noopener noreferrer">routine-spec.md</a>.
+            </div>
           </div>
           <div class="field-row" style="align-items: center;">
             <div>
@@ -5523,9 +5789,6 @@
             </div>
             <label style="font-size: 12px; align-self: flex-end;">
               <input type="checkbox" data-f="enabled" ${r.enabled ? 'checked' : ''} /> enabled
-            </label>
-            <label style="font-size: 12px; align-self: flex-end;" title="not yet honored by LakeScheduler">
-              <input type="checkbox" data-f="single_fire" ${r.single_fire ? 'checked' : ''} /> single-fire
             </label>
           </div>
           <div class="err" data-err hidden></div>
@@ -5549,6 +5812,19 @@
     function computeCron(editor) {
       const preset = editor.querySelector('[data-cron-preset]').value;
       if (preset === 'custom') return (editor.querySelector('[data-cron-custom]').value || '').trim();
+      if (preset === 'once') {
+        // Single-firing schedule: a cron that matches exactly one
+        // minute of one day-of-month-and-month. Combined with
+        // single_fire: true (auto-set in collectEditor) the scheduler
+        // tombstones the spec right after the fire so it can never
+        // re-fire next year.
+        const dateVal = editor.querySelector('[data-cron-date]').value || '';
+        const t = editor.querySelector('[data-cron-time]').value || '09:00';
+        const [h, m] = t.split(':');
+        const dm = dateVal.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+        if (!dm) return '';
+        return `${Number(m)} ${Number(h)} ${Number(dm[3])} ${Number(dm[2])} *`;
+      }
       if (preset === 'daily' || preset === 'weekly') {
         const t = editor.querySelector('[data-cron-time]').value || '09:00';
         const [h, m] = t.split(':');
@@ -5594,49 +5870,152 @@
     }
 
     function collectEditor(editor) {
+      const has = (f) => !!editor.querySelector(`[data-f="${f}"]`);
       const get = (f) => (editor.querySelector(`[data-f="${f}"]`) || {}).value || '';
       const check = (f) => (editor.querySelector(`[data-f="${f}"]`) || {}).checked;
       const mode = (editor.querySelector('[data-perm-mode] [data-active="true"]') || {}).dataset?.mode || 'auto';
-      return {
+      // host and workspace were removed from the form — they aren't routine
+      // concepts any more. For existing routines that already have these
+      // set, preserve the value rather than nulling it on save (back-compat
+      // for older routines created before the River-only model).
+      const editingId = editor.dataset.editing;
+      const existing = editingId && editingId !== '__new__'
+        ? (_routineCache.find(x => x.id === editingId) || {})
+        : {};
+
+      // Prompt: scaffold mode joins the four sections into the
+      // documented schema; regular mode passes the textarea through.
+      const promptMode = editor.dataset.promptMode || 'regular';
+      let prompt;
+      if (promptMode === 'scaffold') {
+        const sections = {
+          purpose: (editor.querySelector('[data-scaffold="purpose"]') || {}).value || '',
+          needs:   (editor.querySelector('[data-scaffold="needs"]')   || {}).value || '',
+          steps:   (editor.querySelector('[data-scaffold="steps"]')   || {}).value || '',
+          ending:  (editor.querySelector('[data-scaffold="ending"]')  || {}).value || '',
+        };
+        prompt = _joinScaffoldSections(sections);
+      } else {
+        prompt = get('prompt');
+      }
+
+      // Schedule: 'once' preset auto-flips single_fire on so the
+      // scheduler tombstones the spec right after the one cron-match.
+      const presetEl = editor.querySelector('[data-cron-preset]');
+      const scheduledOnce = presetEl && presetEl.value === 'once';
+
+      const body = {
         id: get('id').trim(),
         name: get('name').trim(),
-        workspace: get('workspace').trim(),
-        host: get('host').trim(),
         schedule: computeCron(editor),
-        prompt: get('prompt'),
+        prompt,
         permission_mode: mode,
         enabled: !!check('enabled'),
-        single_fire: !!check('single_fire'),
+        single_fire: scheduledOnce,
       };
+      if (has('host') || existing.host) {
+        body.host = has('host') ? get('host').trim() : (existing.host || '');
+      }
+      if (has('workspace') || existing.workspace) {
+        body.workspace = has('workspace') ? get('workspace').trim() : (existing.workspace || '');
+      }
+      return body;
     }
 
     // Wire a `.routine-editor` element into a working form. Used by both
     // the routine-detail inline editor and the new-routine wizard — they
     // share the same markup produced by renderEditorHtml(), so the event
     // handling is factored out here. Caller provides onSave + onCancel.
-    function wireEditor(editor, { onSave, onCancel }) {
+    function wireEditor(editor, { onSave, onCancel, saveFn } = {}) {
       const editingId = editor.dataset.editing;
       const isCreate = editingId === '__new__';
 
       const preset = editor.querySelector('[data-cron-preset]');
+      const dateEl = editor.querySelector('[data-cron-date]');
       const timeEl = editor.querySelector('[data-cron-time]');
       const dayEl = editor.querySelector('[data-cron-day]');
       const customEl = editor.querySelector('[data-cron-custom]');
+      const previewEl = editor.querySelector('[data-cron-preview]');
       const syncVisibility = () => {
         const p = preset.value;
-        timeEl.style.display = (p === 'daily' || p === 'weekly') ? 'inline-block' : 'none';
-        dayEl.style.display = p === 'weekly' ? 'inline-block' : 'none';
-        customEl.style.display = p === 'custom' ? 'inline-block' : 'none';
+        const showTime = p === 'daily' || p === 'weekly' || p === 'once';
+        const showDate = p === 'once';
+        const showDay = p === 'weekly';
+        const showCustom = p === 'custom';
+        if (timeEl) timeEl.style.display = showTime ? 'inline-block' : 'none';
+        if (dateEl) dateEl.style.display = showDate ? 'inline-block' : 'none';
+        if (dayEl) dayEl.style.display = showDay ? 'inline-block' : 'none';
+        if (customEl) customEl.style.display = showCustom ? 'inline-block' : 'none';
+        // Preview is opinionated — only meaningful for raw cron strings
+        // the user typed. Named presets read clearly enough on their own.
+        if (previewEl) previewEl.style.display = showCustom ? 'block' : 'none';
       };
       preset.addEventListener('change', () => { syncVisibility(); schedulePreview(editor); });
-      [timeEl, dayEl, customEl].forEach(el => el.addEventListener('input', () => schedulePreview(editor)));
-      refreshCronPreview(editor);
+      [dateEl, timeEl, dayEl, customEl].filter(Boolean).forEach(el =>
+        el.addEventListener('input', () => schedulePreview(editor))
+      );
+      // Only refresh preview now if the field is visible — saves an api call.
+      if (preset.value === 'custom') refreshCronPreview(editor);
 
       editor.querySelectorAll('[data-perm-mode] button').forEach(btn => {
         btn.addEventListener('click', () => {
           editor.querySelectorAll('[data-perm-mode] button').forEach(b => b.setAttribute('data-active', 'false'));
           btn.setAttribute('data-active', 'true');
         });
+      });
+
+      // Prompt mode toggle (scaffold ↔ regular). Switching modes
+      // syncs the underlying content so nothing is lost: scaffold→regular
+      // composes the four sections into the regular textarea; regular→
+      // scaffold parses sections out, falling through to empty inputs +
+      // a heads-up if the body doesn't parse cleanly.
+      const regularPanel = editor.querySelector('[data-prompt-regular]');
+      const scaffoldPanel = editor.querySelector('[data-prompt-scaffold]');
+      const regularEl = editor.querySelector('[data-f="prompt"]');
+      const scaffoldEls = {
+        purpose: editor.querySelector('[data-scaffold="purpose"]'),
+        needs:   editor.querySelector('[data-scaffold="needs"]'),
+        steps:   editor.querySelector('[data-scaffold="steps"]'),
+        ending:  editor.querySelector('[data-scaffold="ending"]'),
+      };
+      const setMode = (newMode) => {
+        const cur = editor.dataset.promptMode || 'regular';
+        if (cur === newMode) return;
+        if (cur === 'scaffold' && newMode === 'regular') {
+          // Compose scaffold inputs into the regular textarea.
+          const composed = _joinScaffoldSections({
+            purpose: scaffoldEls.purpose.value,
+            needs:   scaffoldEls.needs.value,
+            steps:   scaffoldEls.steps.value,
+            ending:  scaffoldEls.ending.value,
+          });
+          regularEl.value = composed;
+        } else if (cur === 'regular' && newMode === 'scaffold') {
+          // Try to parse the textarea into sections; populate when possible.
+          const parsed = _parseScaffoldSections(regularEl.value || '');
+          if (parsed) {
+            scaffoldEls.purpose.value = parsed.purpose;
+            scaffoldEls.needs.value   = parsed.needs;
+            scaffoldEls.steps.value   = parsed.steps;
+            scaffoldEls.ending.value  = parsed.ending;
+          } else {
+            // Couldn't parse — drop the existing prose into Steps as
+            // the most plausible bucket so nothing is lost; user can
+            // re-distribute manually.
+            if (!Object.values(scaffoldEls).some(el => (el.value || '').trim())) {
+              scaffoldEls.steps.value = (regularEl.value || '').trim();
+            }
+          }
+        }
+        editor.dataset.promptMode = newMode;
+        regularPanel.hidden = newMode !== 'regular';
+        scaffoldPanel.hidden = newMode !== 'scaffold';
+        editor.querySelectorAll('[data-prompt-mode-toggle] button').forEach(b => {
+          b.setAttribute('data-active', String(b.dataset.mode === newMode));
+        });
+      };
+      editor.querySelectorAll('[data-prompt-mode-toggle] button').forEach(btn => {
+        btn.addEventListener('click', () => setMode(btn.dataset.mode));
       });
 
       editor.querySelector('[data-act="cancel"]').addEventListener('click', () => {
@@ -5649,14 +6028,22 @@
         if (!body.id) { errBox.textContent = 'id is required'; errBox.hidden = false; return; }
         if (!body.name) { errBox.textContent = 'name is required'; errBox.hidden = false; return; }
         try {
-          const url = isCreate
-            ? API_BASE + '/v1/routines'
-            : API_BASE + '/v1/routines/' + encodeURIComponent(editingId);
-          const method = isCreate ? 'POST' : 'PUT';
-          const r = await fetch(url, { method, headers: authHeaders(), body: JSON.stringify(body) });
-          if (!r.ok) {
-            const d = await r.json().catch(() => ({}));
-            throw new Error(d.detail || (r.status + ' ' + r.statusText));
+          // If the caller provided a custom saveFn (e.g. proposal-driven
+          // create that needs to go through /v1/proposals/<id>/approve
+          // instead of /v1/routines POST), use it. Otherwise the default
+          // POST/PUT to /v1/routines.
+          if (typeof saveFn === 'function') {
+            await saveFn(body);
+          } else {
+            const url = isCreate
+              ? API_BASE + '/v1/routines'
+              : API_BASE + '/v1/routines/' + encodeURIComponent(editingId);
+            const method = isCreate ? 'POST' : 'PUT';
+            const r = await fetch(url, { method, headers: authHeaders(), body: JSON.stringify(body) });
+            if (!r.ok) {
+              const d = await r.json().catch(() => ({}));
+              throw new Error(d.detail || (r.status + ' ' + r.statusText));
+            }
           }
           if (onSave) onSave(body);
         } catch (e) {
@@ -5672,8 +6059,6 @@
     // computed from fire deltas fetched via /v1/deltas.
     const viewRoutineDetail = document.getElementById('viewRoutineDetail');
     const routineBackBtn = document.getElementById('routineBackBtn');
-    const routineKebabBtn = document.getElementById('routineKebab');
-    const routineKebabMenu = document.getElementById('routineKebabMenu');
 
     function openRoutineDetail(routineId) {
       const r = _routineCache.find(x => x.id === routineId);
@@ -5696,23 +6081,52 @@
         ? '<span class="dot paused"></span> Enable'
         : '<span class="dot"></span> Pause';
 
-      // Mark active permission mode in the kebab menu
-      routineKebabMenu.querySelectorAll('.menu-item.perm-mode').forEach(el => {
-        el.classList.toggle('active', el.dataset.mode === (r.permission_mode || 'auto'));
-      });
-
-      // Hide editor by default
-      document.getElementById('routineEditorSection').hidden = true;
+      // Default to Info tab on (re-)open. Edit panel is empty until the
+      // user clicks the Edit tab — the form is heavy enough that lazy-
+      // mounting makes the open feel snappier.
+      _switchRoutineTab('info');
       document.getElementById('routineEditorMount').innerHTML = '';
 
       viewMain.hidden = true;
       viewRoutineDetail.hidden = false;
-      routineKebabMenu.hidden = true;
       syncComposer();
       scrollViewToTop(viewRoutineDetail);
 
       loadRoutineDetail(routineId);
     }
+
+    function _switchRoutineTab(which) {
+      document.querySelectorAll('[data-routine-tab]').forEach(t => {
+        t.classList.toggle('active', t.dataset.routineTab === which);
+      });
+      document.querySelectorAll('[data-routine-panel]').forEach(p => {
+        p.hidden = p.dataset.routinePanel !== which;
+      });
+      // Lazy-mount the editor when the Edit tab opens. Re-mount each
+      // open so the form reflects the latest spec from _routineCache
+      // (matters when the user toggled pause from the Info tab).
+      if (which === 'edit') {
+        const rid = viewRoutineDetail.dataset.routine;
+        const r = _routineCache.find(x => x.id === rid);
+        const mount = document.getElementById('routineEditorMount');
+        if (r && mount) {
+          mount.innerHTML = renderEditorHtml(r);
+          wireEditor(mount.querySelector('.routine-editor'), {
+            onSave: async () => {
+              await loadRoutines();
+              openRoutineDetail(rid);  // reopens on Info tab with fresh data
+            },
+            onCancel: () => {
+              _switchRoutineTab('info');
+              mount.innerHTML = '';
+            },
+          });
+        }
+      }
+    }
+    document.querySelectorAll('[data-routine-tab]').forEach(t => {
+      t.addEventListener('click', () => _switchRoutineTab(t.dataset.routineTab));
+    });
 
     function closeRoutineDetail() {
       viewRoutineDetail.hidden = true;
@@ -5747,69 +6161,45 @@
       }
     }
 
-    // Kebab menu toggle (routine detail)
-    routineKebabBtn.addEventListener('click', (e) => {
-      e.stopPropagation();
-      routineKebabMenu.hidden = !routineKebabMenu.hidden;
-    });
-    document.addEventListener('click', () => { routineKebabMenu.hidden = true; });
-    routineKebabMenu.addEventListener('click', (e) => e.stopPropagation());
-
-    // Fire now
+    // Fire now — writes a routine-due intent into the River. The witness
+    // deliberates and emits whatever route it picks (card, alert, chat-
+    // reply, claude-code dispatch). Redirect to the main feed so the
+    // user can watch the witness work.
     document.getElementById('routineFireNow').addEventListener('click', async () => {
       const rid = viewRoutineDetail.dataset.routine;
-      routineKebabMenu.hidden = true;
       try {
-        await fetch(API_BASE + '/v1/routines/' + rid + '/fire', { method: 'POST', headers: authHeaders() });
-        setTimeout(() => loadRoutineDetail(rid), 1500);
+        const r = await fetch(API_BASE + '/v1/routines/' + rid + '/fire', {
+          method: 'POST',
+          headers: { ...authHeaders(), 'Content-Type': 'application/json' },
+          body: JSON.stringify({}),
+        });
+        if (!r.ok) throw new Error(`${r.status} ${r.statusText}`);
+        closeRoutineDetail();
       } catch (e) {
         alert('fire failed: ' + e.message);
       }
     });
 
-    // Edit — reveal the editor section inline in the detail view
-    document.getElementById('routineEditBtn').addEventListener('click', () => {
+    // Rewrite to schema — asks Fathom to rewrite this routine's prompt
+    // into the four-section schema and emit a proposal card. Redirects
+    // to the main feed where the user can review (Edit/Deny/Approve).
+    document.getElementById('routineRewriteSchema').addEventListener('click', async () => {
       const rid = viewRoutineDetail.dataset.routine;
-      const r = _routineCache.find(x => x.id === rid);
-      if (!r) return;
-      routineKebabMenu.hidden = true;
-      const section = document.getElementById('routineEditorSection');
-      const mount = document.getElementById('routineEditorMount');
-      mount.innerHTML = renderEditorHtml(r);
-      section.hidden = false;
-      section.scrollIntoView({ behavior: 'smooth', block: 'start' });
-      wireEditor(mount.querySelector('.routine-editor'), {
-        onSave: async () => {
-          section.hidden = true;
-          mount.innerHTML = '';
-          await loadRoutines();
-          // Re-open detail with refreshed data
-          openRoutineDetail(rid);
-        },
-        onCancel: () => {
-          section.hidden = true;
-          mount.innerHTML = '';
-        },
-      });
-    });
-
-    // Permission-mode via kebab
-    routineKebabMenu.querySelectorAll('.menu-item.perm-mode').forEach(item => {
-      item.addEventListener('click', async () => {
-        const rid = viewRoutineDetail.dataset.routine;
-        const mode = item.dataset.mode;
-        routineKebabMenu.hidden = true;
-        try {
-          await fetch(API_BASE + '/v1/routines/' + encodeURIComponent(rid), {
-            method: 'PUT', headers: authHeaders(),
-            body: JSON.stringify({ permission_mode: mode }),
-          });
-          await loadRoutines();
-          openRoutineDetail(rid);
-        } catch (e) {
-          alert('update failed: ' + e.message);
+      try {
+        const r = await fetch(API_BASE + '/v1/routines/' + rid + '/rewrite-to-schema', {
+          method: 'POST',
+          headers: { ...authHeaders(), 'Content-Type': 'application/json' },
+        });
+        const data = await r.json().catch(() => ({}));
+        if (!r.ok) throw new Error(data.detail || (r.status + ' ' + r.statusText));
+        if (data.skipped) {
+          alert(`Already in schema — nothing to rewrite.`);
+          return;
         }
-      });
+        closeRoutineDetail();
+      } catch (e) {
+        alert('rewrite failed: ' + e.message);
+      }
     });
 
     // Pause / enable
@@ -5847,35 +6237,89 @@
     const viewAddRoutine = document.getElementById('viewAddRoutine');
     const addRoutineBackBtn = document.getElementById('addRoutineBackBtn');
 
-    function openAddRoutine(host = '') {
+    function openAddRoutine(host = '', opts = {}) {
+      // opts.prefilled — full routine-shape object to populate the form
+      //   (used by proposal Edit so the user lands in the wizard with
+      //   the witness's drafted values already in place).
+      // opts.proposalId — the lake delta id of a kind:proposal card.
+      //   When set, save routes through /v1/proposals/<id>/approve
+      //   (which calls routines.create AND writes the decision delta)
+      //   instead of /v1/routines POST. So one click both creates the
+      //   routine and resolves the proposal.
       viewMain.hidden = true;
       viewAddRoutine.hidden = false;
       const mount = document.getElementById('addRoutineMount');
-      // Pre-fill the host field when launched from a specific agent's
-      // "+ New routine" chip. Passing a bare `{ host }` object to
-      // renderEditorHtml would treat it as an edit of an empty routine —
-      // instead, build a minimal new-routine default with host set. The
-      // workspace prefill comes from the target agent's heartbeat config,
-      // so each machine can advertise its own default instead of us
-      // hardcoding a single name here.
-      const defaults = host ? {
-        id: '', name: '', workspace: _defaultWorkspaceForHost(host), host,
-        schedule: '0 * * * *', prompt: '',
-        permission_mode: 'auto', enabled: true, single_fire: false,
-      } : null;
-      mount.innerHTML = renderEditorHtml(defaults);
+
+      // Topbar title — distinguish "edit a witness-drafted proposal"
+      // from "create from scratch" so the user knows where they are.
+      const titleEl = document.querySelector('#viewAddRoutine .topbar-title');
+      const wizTitle = document.querySelector('#viewAddRoutine .wizard-title');
+      if (opts.proposalId) {
+        if (titleEl) titleEl.textContent = 'Review proposal';
+        if (wizTitle) wizTitle.textContent = 'Edit Fathom’s drafted routine.';
+      } else {
+        if (titleEl) titleEl.textContent = 'New routine';
+        if (wizTitle) wizTitle.textContent = 'What should Fathom do on a timer?';
+      }
+
+      // Build the seed object passed to renderEditorHtml.
+      // Precedence: caller's opts.prefilled > host-only defaults > null
+      //   (which renderEditorHtml treats as fresh-create).
+      let seed = null;
+      if (opts.prefilled) {
+        seed = {
+          id: opts.prefilled.id || '',
+          name: opts.prefilled.name || '',
+          workspace: opts.prefilled.workspace || '',
+          host: opts.prefilled.host || '',
+          schedule: opts.prefilled.schedule || '0 * * * *',
+          prompt: opts.prefilled.prompt || '',
+          permission_mode: opts.prefilled.permission_mode || 'auto',
+          enabled: opts.prefilled.enabled !== false,
+          single_fire: !!opts.prefilled.single_fire,
+        };
+      } else if (host) {
+        seed = {
+          id: '', name: '', workspace: _defaultWorkspaceForHost(host), host,
+          schedule: '0 * * * *', prompt: '',
+          permission_mode: 'auto', enabled: true, single_fire: false,
+        };
+      }
+      mount.innerHTML = renderEditorHtml(seed);
       // renderEditorHtml uses data-editing="__new__" when existing is falsy.
-      // With `defaults` set (truthy), it'd be treated as edit mode. Patch:
-      if (defaults) {
+      // With a seed (truthy) it'd be treated as edit mode. Force create.
+      if (seed) {
         const editor = mount.querySelector('.routine-editor');
         editor.dataset.editing = '__new__';
-        // Re-enable the disabled id input (edit mode disables it).
         const idInput = editor.querySelector('[data-f="id"]');
         if (idInput) idInput.disabled = false;
       }
       scrollViewToTop(viewAddRoutine);
       syncComposer();
+
+      // saveFn override — proposal-driven create routes through the
+      // approve endpoint, which writes the routine spec AND the decision
+      // delta atomically (well, sequentially in the api but tied
+      // together) so the proposal card flips to "approved" on next render.
+      const saveFn = opts.proposalId ? async (body) => {
+        // Strip front-end-only flags before sending.
+        const tool_args = { action: 'create', ...body };
+        const r = await fetch(
+          API_BASE + '/v1/proposals/' + encodeURIComponent(opts.proposalId) + '/approve',
+          {
+            method: 'POST',
+            headers: { ...authHeaders(), 'Content-Type': 'application/json' },
+            body: JSON.stringify({ tool_args }),
+          }
+        );
+        if (!r.ok) {
+          const d = await r.json().catch(() => ({}));
+          throw new Error(d.detail || (r.status + ' ' + r.statusText));
+        }
+      } : null;
+
       wireEditor(mount.querySelector('.routine-editor'), {
+        saveFn,
         onSave: async () => {
           closeAddRoutine();
           await loadRoutines();
@@ -6195,14 +6639,21 @@
     settingsBackBtn.addEventListener('click', closeSettings);
 
     // ── Settings tabs ─────────────────────────────
-    document.querySelectorAll('.settings-tab').forEach(tab => {
+    // Scope to [data-tab] / [data-panel] so this doesn't accidentally
+    // re-target the routine-detail tabs (which reuse .settings-tab and
+    // .settings-panel for visual consistency but bind via
+    // data-routine-tab / data-routine-panel). Without the attribute
+    // selector the click on a routine tab would also fire this handler
+    // with `which === undefined`, bulldozing every panel hidden state
+    // on the page.
+    document.querySelectorAll('.settings-tab[data-tab]').forEach(tab => {
       tab.addEventListener('click', () => _switchSettingsTab(tab.dataset.tab));
     });
     function _switchSettingsTab(which) {
-      document.querySelectorAll('.settings-tab').forEach(t => {
+      document.querySelectorAll('.settings-tab[data-tab]').forEach(t => {
         t.classList.toggle('active', t.dataset.tab === which);
       });
-      document.querySelectorAll('.settings-panel').forEach(p => {
+      document.querySelectorAll('.settings-panel[data-panel]').forEach(p => {
         p.hidden = p.dataset.panel !== which;
       });
       // Lazy-load when switching into tabs that pull heavier data.
@@ -8207,6 +8658,7 @@ GET  /v1/usage               Usage stats`,
     const KIND_TO_CATEGORY = {
       'chat':                  'chat',
       'card':                  'card',
+      'proposal':              'card',
       'pass-intent':           'prompts',
       'voice-thought':         'thinking',
       'recall':                'thinking',
@@ -8214,6 +8666,7 @@ GET  /v1/usage               Usage stats`,
       'crystal':               'identity',
       'mood':                  'identity',
       'routine':               'routine',
+      'routine-due':           'routine',
       'claude-code-dispatch':  'claude-code',
       'claude-code-reply':     'claude-code',
     };
@@ -8502,6 +8955,301 @@ GET  /v1/usage               Usage stats`,
     // rendering ones already on screen.
     const _renderedFeedIds = new Set();
 
+    // ── Routine accordions ─────────────────────────
+    // Each routine fire / summary / due-tick gets its own collapsed
+    // accordion (mirrors the claude-code per-item shape). Header shows
+    // the routine name (looked up from _routineCache, falls through to
+    // the id slug); body reveals the prompt or summary text. Clicking
+    // the routine name opens the routine detail page.
+    function _routineNameOrId(rid) {
+      if (!rid) return 'routine';
+      const r = (typeof _routineCache !== 'undefined' && _routineCache)
+        ? _routineCache.find(x => x.id === rid)
+        : null;
+      return (r && r.name) || rid;
+    }
+
+    function _renderRoutineAccordion({ variant, routineId, content, puddleId, timeStr }) {
+      const el = document.createElement('details');
+      el.className = `delta routine routine-${variant}`;
+      el.dataset.kind = variant === 'summary' ? 'routine' : 'routine-due';
+      el.dataset.variant = variant;
+      el.dataset.fromPuddle = '1';
+      el.dataset.puddleId = puddleId;
+      if (puddleId) el.dataset.deltaId = puddleId;
+      if (routineId) el.dataset.routineId = routineId;
+      const name = _routineNameOrId(routineId);
+      // variant tag — the small label that identifies what kind of
+      // routine activity this is. fired = cron tick into the river,
+      // fire = legacy direct-to-kitty, summary = claude's writeup.
+      const variantLabel = (
+        variant === 'fired'   ? 'fired' :
+        variant === 'summary' ? 'summary' :
+        variant === 'fire'    ? 'fire' :
+        variant
+      );
+      const body = (content || '').toString();
+      el.innerHTML = `
+        <summary class="d-head">
+          <span class="routine-icon">↻</span>
+          <span class="d-kind">routine · <span class="routine-name${routineId ? ' is-link' : ''}">${_esc(name)}</span> · <span class="routine-variant">${_esc(variantLabel)}</span></span>
+          <span class="d-ts">${timeStr}</span>
+        </summary>
+        <div class="d-body">${renderMd(body)}</div>
+      `;
+      // Clicking the routine-name span jumps to the routine detail page;
+      // clicking anywhere else on the summary toggles the accordion.
+      const nameEl = el.querySelector('.routine-name');
+      if (nameEl && routineId) {
+        nameEl.addEventListener('click', (e) => {
+          e.stopPropagation();
+          e.preventDefault();
+          if (typeof openRoutineDetail === 'function') openRoutineDetail(routineId);
+        });
+      }
+      return el;
+    }
+
+    // ── Proposal cards (witness-emitted state-change requests) ─────
+    //
+    // Witness picks `route:tool:<name>` → card lands with kind:proposal +
+    // tool_args in the payload. The dashboard renders an Edit/Deny/Approve
+    // tray in place of the engagement +/-. Edit swaps the body for a form
+    // prefilled from tool_args; Approve POSTs to /v1/proposals/<id>/approve
+    // (with edited args if the user changed anything); Deny POSTs to /deny.
+    // Both endpoints write a `proposal-decision` delta linked back via
+    // `decides:<id>`; on next render we swap the buttons for a status banner.
+
+    function _renderProposalCard(it, delay) {
+      const card = document.createElement('article');
+      card.className = 'card surfacing card-proposal';
+      if (delay) card.style.animationDelay = delay + 's';
+      card.dataset.kind = 'proposal';
+      card.dataset.fromPuddle = '1';
+      card.dataset.puddleId = it.id || '';
+      // Proposal endpoints query the lake, not the puddle. The witness
+      // mints `lake-id:<full>` onto the puddle item so we can target the
+      // durable delta from the dashboard. Fall back to the puddle id if
+      // for some reason the cross-pointer didn't land — better to try
+      // and 404 than to silently render dead buttons.
+      const proposalId = it.lake_id || it.id || '';
+      card.dataset.proposalId = proposalId;
+      if (it.id) card.dataset.deltaId = it.id;
+      const tool = it.tool || '';
+      const args = (it.tool_args && typeof it.tool_args === 'object') ? it.tool_args : {};
+      card.dataset.tool = tool;
+      card.dataset.toolArgs = JSON.stringify(args);
+      _proposalRender(card, it, args, 'pending');
+      // Async — fetch latest decision so a reload reflects approved/denied state.
+      if (proposalId) {
+        api(`/v1/proposals/${encodeURIComponent(proposalId)}`).then(data => {
+          if (!data || !data.decision) return;
+          const dec = data.decision;
+          const status = (dec.tags || []).find(t => t.startsWith('proposal-status:'));
+          const code = status ? status.split(':', 2)[1] : 'unknown';
+          if (code === 'approved' || code === 'denied') {
+            _proposalRender(card, it, args, code, dec);
+          }
+        }).catch(() => { /* offline / 404 — keep pending UI */ });
+      }
+      return card;
+    }
+
+    function _proposalRender(card, it, args, status, decision) {
+      const kicker = it.kicker || 'Proposal';
+      const title = it.title || _proposalSummary(it.tool, args) || 'Proposal';
+      const body = it.body || '';
+      const summaryHtml = _proposalSummaryHtml(it.tool, args);
+      let actionHtml = '';
+      if (status === 'pending') {
+        actionHtml = `
+          <div class="proposal-actions">
+            <button class="proposal-btn proposal-edit" type="button">Edit</button>
+            <button class="proposal-btn proposal-deny" type="button">Deny</button>
+            <button class="proposal-btn proposal-approve" type="button">Approve</button>
+          </div>`;
+      } else if (status === 'approved') {
+        actionHtml = `<div class="proposal-status proposal-status-approved">Approved${decision && decision.timestamp ? ` · ${_relTime(decision.timestamp)}` : ''}</div>`;
+      } else if (status === 'denied') {
+        actionHtml = `<div class="proposal-status proposal-status-denied">Denied${decision && decision.timestamp ? ` · ${_relTime(decision.timestamp)}` : ''}</div>`;
+      }
+      card.innerHTML = `
+        <div class="card-body">
+          <div class="kicker">${_esc(kicker)}</div>
+          <h3>${_esc(title)}</h3>
+          ${body ? `<p>${_esc(body)}</p>` : ''}
+          <div class="proposal-summary">${summaryHtml}</div>
+          ${actionHtml}
+        </div>`;
+      // Wire buttons (only present when status === 'pending')
+      const editBtn = card.querySelector('.proposal-edit');
+      const denyBtn = card.querySelector('.proposal-deny');
+      const approveBtn = card.querySelector('.proposal-approve');
+      if (editBtn) editBtn.addEventListener('click', e => {
+        e.stopPropagation();
+        // Redirect to the New Routine wizard with the form pre-filled.
+        // The cramped inline edit was a worse experience than the full
+        // wizard (no scaffold mode, no cron picker, no segmented
+        // permission toggle). Saving from the wizard routes through
+        // /v1/proposals/<id>/approve so the same click both creates the
+        // routine and resolves the proposal.
+        const proposalId = card.dataset.proposalId || it.lake_id || it.id;
+        if (it.tool === 'routines' && proposalId && typeof openAddRoutine === 'function') {
+          openAddRoutine('', { prefilled: args, proposalId });
+        } else {
+          // Non-routine tools (or missing id) — fall back to inline.
+          _proposalEnterEdit(card, it, args);
+        }
+      });
+      if (denyBtn) denyBtn.addEventListener('click', e => { e.stopPropagation(); _proposalDeny(card, it); });
+      if (approveBtn) approveBtn.addEventListener('click', e => { e.stopPropagation(); _proposalApprove(card, it, _readArgsFromCard(card)); });
+    }
+
+    function _proposalSummary(tool, args) {
+      if (tool === 'routines') {
+        const action = (args.action || '').trim();
+        const id = args.id || '';
+        const name = args.name || id;
+        if (action === 'create') return `Create routine: ${name}`;
+        if (action === 'update') return `Update routine: ${name || id}`;
+        if (action === 'delete') return `Delete routine: ${name || id}`;
+      }
+      return '';
+    }
+
+    function _proposalSummaryHtml(tool, args) {
+      if (tool === 'routines') {
+        const rows = [];
+        if (args.id) rows.push(['id', args.id]);
+        if (args.name) rows.push(['name', args.name]);
+        if (args.schedule) rows.push(['schedule', args.schedule]);
+        if (args.host) rows.push(['host', args.host]);
+        if (args.workspace) rows.push(['workspace', args.workspace]);
+        if (args.permission_mode) rows.push(['permission mode', args.permission_mode]);
+        if (typeof args.single_fire === 'boolean') rows.push(['single fire', args.single_fire ? 'yes' : 'no']);
+        if (typeof args.enabled === 'boolean') rows.push(['enabled', args.enabled ? 'yes' : 'no']);
+        if (args.prompt) rows.push(['prompt', args.prompt]);
+        return rows.map(([k, v]) =>
+          `<div class="proposal-row"><span class="proposal-row-key">${_esc(k)}</span><span class="proposal-row-val">${_esc(String(v))}</span></div>`
+        ).join('');
+      }
+      return `<pre class="proposal-args-json">${_esc(JSON.stringify(args, null, 2))}</pre>`;
+    }
+
+    function _proposalEnterEdit(card, it, args) {
+      const tool = it.tool || '';
+      const summaryEl = card.querySelector('.proposal-summary');
+      const actionsEl = card.querySelector('.proposal-actions');
+      if (!summaryEl || !actionsEl) return;
+      let formHtml = '';
+      if (tool === 'routines') {
+        const fields = [
+          ['id', 'id', 'text'],
+          ['name', 'name', 'text'],
+          ['schedule', 'schedule (cron)', 'text'],
+          ['host', 'host', 'text'],
+          ['workspace', 'workspace', 'text'],
+          ['permission_mode', 'permission mode', 'text'],
+        ];
+        formHtml = fields.map(([key, label, type]) =>
+          `<label class="proposal-field">
+             <span class="proposal-field-label">${_esc(label)}</span>
+             <input class="proposal-input" data-arg="${_esc(key)}" type="${type}" value="${_esc(args[key] || '')}" />
+           </label>`).join('');
+        formHtml += `<label class="proposal-field">
+            <span class="proposal-field-label">prompt</span>
+            <textarea class="proposal-input proposal-prompt" data-arg="prompt" rows="4">${_esc(args.prompt || '')}</textarea>
+          </label>`;
+        formHtml += `<label class="proposal-field proposal-field-inline">
+            <input class="proposal-input" data-arg="single_fire" type="checkbox" ${args.single_fire ? 'checked' : ''} />
+            <span>single fire (delete after firing once)</span>
+          </label>`;
+        formHtml += `<label class="proposal-field proposal-field-inline">
+            <input class="proposal-input" data-arg="enabled" type="checkbox" ${args.enabled === false ? '' : 'checked'} />
+            <span>enabled</span>
+          </label>`;
+      } else {
+        formHtml = `<textarea class="proposal-input proposal-args-edit" data-arg="__json">${_esc(JSON.stringify(args, null, 2))}</textarea>`;
+      }
+      summaryEl.innerHTML = `<div class="proposal-form">${formHtml}</div>`;
+      actionsEl.innerHTML = `
+        <button class="proposal-btn proposal-cancel" type="button">Cancel</button>
+        <button class="proposal-btn proposal-deny" type="button">Deny</button>
+        <button class="proposal-btn proposal-approve" type="button">Save &amp; Approve</button>`;
+      actionsEl.querySelector('.proposal-cancel').addEventListener('click', e => {
+        e.stopPropagation();
+        _proposalRender(card, it, args, 'pending');
+      });
+      actionsEl.querySelector('.proposal-deny').addEventListener('click', e => {
+        e.stopPropagation();
+        _proposalDeny(card, it);
+      });
+      actionsEl.querySelector('.proposal-approve').addEventListener('click', e => {
+        e.stopPropagation();
+        _proposalApprove(card, it, _readArgsFromCard(card));
+      });
+    }
+
+    function _readArgsFromCard(card) {
+      const tool = card.dataset.tool || '';
+      let base = {};
+      try { base = JSON.parse(card.dataset.toolArgs || '{}'); } catch { base = {}; }
+      const inputs = card.querySelectorAll('.proposal-input');
+      if (!inputs.length) return base;
+      const merged = { ...base };
+      for (const inp of inputs) {
+        const key = inp.dataset.arg;
+        if (!key) continue;
+        if (key === '__json') {
+          try { return { ...base, ...JSON.parse(inp.value || '{}') }; } catch { return base; }
+        }
+        if (inp.type === 'checkbox') merged[key] = inp.checked;
+        else merged[key] = inp.value;
+      }
+      return merged;
+    }
+
+    async function _proposalApprove(card, it, args) {
+      const proposalId = card.dataset.proposalId || it.lake_id || it.id || '';
+      if (!proposalId) return;
+      _proposalSetBusy(card, 'approving…');
+      try {
+        await api(`/v1/proposals/${encodeURIComponent(proposalId)}/approve`, {
+          method: 'POST',
+          body: JSON.stringify({ tool_args: args }),
+        });
+        _proposalRender(card, it, args, 'approved', { timestamp: new Date().toISOString() });
+      } catch (e) {
+        _proposalSetError(card, String(e && e.message || e));
+      }
+    }
+
+    async function _proposalDeny(card, it) {
+      const proposalId = card.dataset.proposalId || it.lake_id || it.id || '';
+      if (!proposalId) return;
+      const reason = prompt('Reason (optional):', '') || '';
+      _proposalSetBusy(card, 'denying…');
+      try {
+        const args = _readArgsFromCard(card);
+        await api(`/v1/proposals/${encodeURIComponent(proposalId)}/deny`, {
+          method: 'POST',
+          body: JSON.stringify({ reason }),
+        });
+        _proposalRender(card, it, args, 'denied', { timestamp: new Date().toISOString() });
+      } catch (e) {
+        _proposalSetError(card, String(e && e.message || e));
+      }
+    }
+
+    function _proposalSetBusy(card, text) {
+      const actionsEl = card.querySelector('.proposal-actions');
+      if (actionsEl) actionsEl.innerHTML = `<div class="proposal-status">${_esc(text)}</div>`;
+    }
+    function _proposalSetError(card, text) {
+      const actionsEl = card.querySelector('.proposal-actions');
+      if (actionsEl) actionsEl.innerHTML = `<div class="proposal-status proposal-status-error">${_esc(text)}</div>`;
+    }
+
     // Render dispatch for puddle feed items. Several shapes flow through
     // the same .feed container, all carrying data-kind so applyKindFilter
     // can show/hide them. Default-visible shapes — chat (Q+A) and cards
@@ -8630,6 +9378,12 @@ GET  /v1/usage               Usage stats`,
         }
         return card;
       }
+      // Tool proposal — witness asked for a state change. Render Edit /
+      // Deny / Approve buttons. Edit transforms the card body into an
+      // inline form; Approve / Deny POST to /v1/proposals/<id>/...
+      if (it.kind === 'proposal') {
+        return _renderProposalCard(it, delay);
+      }
 
       // ── Auxiliary types — compact .delta rows ───────────────
       // Voice thought: tinted by voice (creator/preserver/destroyer)
@@ -8640,7 +9394,7 @@ GET  /v1/usage               Usage stats`,
         el.dataset.fromPuddle = '1';
         el.dataset.puddleId = it.id || '';
         if (it.id) el.dataset.deltaId = it.id;
-        el.innerHTML = `<header class="d-head"><span class="d-kind">${_esc(it.voice || 'voice')}</span><span class="d-ts">${timeStr}</span></header><div class="d-body">${_esc(it.content || '')}</div>`;
+        el.innerHTML = `<header class="d-head"><span class="d-kind">${_esc(it.voice || 'voice')}</span><span class="d-ts">${timeStr}</span></header><div class="d-body">${renderMd(it.content || '')}</div>`;
         return el;
       }
       // Pass intent (reflection / drift / bridging / alert) — purple-
@@ -8660,8 +9414,22 @@ GET  /v1/usage               Usage stats`,
         el.dataset.fromPuddle = '1';
         el.dataset.puddleId = it.id || '';
         if (it.id) el.dataset.deltaId = it.id;
-        el.innerHTML = `<header class="d-head"><span class="d-kind">${_esc(passKind)}</span><span class="d-ts">${timeStr}</span></header><div class="d-body">${_esc(it.content || '')}</div>`;
+        el.innerHTML = `<header class="d-head"><span class="d-kind">${_esc(passKind)}</span><span class="d-ts">${timeStr}</span></header><div class="d-body">${renderMd(it.content || '')}</div>`;
         return el;
+      }
+      // Routine-due — the cron tick that handed a routine to the River.
+      // Per-item accordion (mirrors the claude-code dispatch shape):
+      // closed by default, summary shows the routine name + "fired",
+      // body reveals the prompt text. Click chevron to expand; the
+      // routine name itself opens the routine detail page.
+      if (it.kind === 'routine-due') {
+        return _renderRoutineAccordion({
+          variant: 'fired',
+          routineId: it.routine_id || '',
+          content: (it.content || '').replace(/^\[routine-due:[^\]]*\]\s*/, '').trim(),
+          puddleId: it.id || '',
+          timeStr,
+        });
       }
       // Crystal facet
       if (it.kind === 'crystal') {
@@ -8672,7 +9440,7 @@ GET  /v1/usage               Usage stats`,
         el.dataset.puddleId = it.id || '';
         if (it.id) el.dataset.deltaId = it.id;
         const label = it.facet ? `crystal · ${it.facet}` : 'crystal';
-        el.innerHTML = `<header class="d-head"><span class="d-kind">${_esc(label)}</span><span class="d-ts">${timeStr}</span></header><div class="d-body">${_esc(it.content || '')}</div>`;
+        el.innerHTML = `<header class="d-head"><span class="d-kind">${_esc(label)}</span><span class="d-ts">${timeStr}</span></header><div class="d-body">${renderMd(it.content || '')}</div>`;
         return el;
       }
       // Mood
@@ -8684,23 +9452,19 @@ GET  /v1/usage               Usage stats`,
         el.dataset.puddleId = it.id || '';
         if (it.id) el.dataset.deltaId = it.id;
         const label = it.feeling ? `mood · ${it.feeling}` : 'mood';
-        el.innerHTML = `<header class="d-head"><span class="d-kind">${_esc(label)}</span><span class="d-ts">${timeStr}</span></header><div class="d-body">${_esc(it.content || '')}</div>`;
+        el.innerHTML = `<header class="d-head"><span class="d-kind">${_esc(label)}</span><span class="d-ts">${timeStr}</span></header><div class="d-body">${renderMd(it.content || '')}</div>`;
         return el;
       }
       // Routine — fire (trigger) or summary (writeup). Both surface
       // under one kind; the summary boolean differentiates the visual.
       if (it.kind === 'routine') {
-        const el = document.createElement('article');
-        el.className = `delta routine ${it.summary ? 'routine-summary' : 'routine-fire'}`;
-        el.dataset.kind = 'routine';
-        el.dataset.fromPuddle = '1';
-        el.dataset.puddleId = it.id || '';
-        if (it.id) el.dataset.deltaId = it.id;
-        const variant = it.summary ? 'summary' : 'fire';
-        const rid = it.routine_id ? ` · ${it.routine_id}` : '';
-        const label = `routine · ${variant}${rid}`;
-        el.innerHTML = `<header class="d-head"><span class="d-kind">${_esc(label)}</span><span class="d-ts">${timeStr}</span></header><div class="d-body">${_esc(it.content || '')}</div>`;
-        return el;
+        return _renderRoutineAccordion({
+          variant: it.summary ? 'summary' : 'fire',
+          routineId: it.routine_id || '',
+          content: it.content || '',
+          puddleId: it.id || '',
+          timeStr,
+        });
       }
       // Lake delta — telepathy mirror of fresh durable lake activity.
       // Header: "delta" + source chip; body: prose if it parses as
@@ -8731,7 +9495,7 @@ GET  /v1/usage               Usage stats`,
             <span class="d-kind">delta<span class="source-chip">${_esc(src)}</span></span>
             <span class="d-ts">${timeStr}</span>
           </header>
-          <div class="d-body${isJson ? ' is-json' : ''}">${_esc(bodyText)}</div>
+          <div class="d-body${isJson ? ' is-json' : ''}">${isJson ? _esc(bodyText) : renderMd(bodyText)}</div>
         `;
         return el;
       }
@@ -8769,7 +9533,7 @@ GET  /v1/usage               Usage stats`,
             <span class="d-kind">${headLabel}</span>
             <span class="d-ts">${timeStr}</span>
           </summary>
-          <div class="d-body">${_esc(body)}<span class="cc-cursor" aria-hidden="true"></span></div>
+          <div class="d-body">${renderMd(body)}<span class="cc-cursor" aria-hidden="true"></span></div>
         `;
         return el;
       }
@@ -8782,7 +9546,7 @@ GET  /v1/usage               Usage stats`,
         el.dataset.fromPuddle = '1';
         el.dataset.puddleId = it.id || '';
         if (it.id) el.dataset.deltaId = it.id;
-        el.innerHTML = `<header class="d-head"><span class="d-kind">recall</span><span class="d-ts">${timeStr}</span></header><div class="d-body">${_esc(it.content || '')}</div>`;
+        el.innerHTML = `<header class="d-head"><span class="d-kind">recall</span><span class="d-ts">${timeStr}</span></header><div class="d-body">${renderMd(it.content || '')}</div>`;
         return el;
       }
       return null;
@@ -8795,8 +9559,16 @@ GET  /v1/usage               Usage stats`,
     // the conversation. All kinds within a category land in the SAME
     // accordion — voice thoughts and recalls and deltas mix together
     // under "Thinking", crystal and mood mix under "Identity".
+    // Categories that pack into accordions when 2+ items share the
+    // same (category, session). Routine activity (fires + summaries)
+    // is intentionally NOT clusterable — each fire is its own moment
+    // in time and the chronological sequence is what the user wants
+    // to read; collapsing them into "Routine Activity 7" hides the
+    // shape of "I fired the news routine at 8am, the ramen routine
+    // at noon, the heartbeat at 6pm" exactly when that's the most
+    // useful thing to see.
     const _CLUSTERABLE_CATEGORIES = new Set([
-      'prompts', 'thinking', 'identity', 'routine',
+      'prompts', 'thinking', 'identity',
     ]);
 
     function _renderAccordion(items) {
@@ -9936,12 +10708,12 @@ GET  /v1/usage               Usage stats`,
           api(`/v1/pressure/history?since_seconds=${sinceSeconds}`).catch(() => ({ history: [] })),
           api(`/v1/drift/history?since_seconds=${sinceSeconds}`).catch(() => ({ history: [] })),
           api('/v1/moods/history').catch(() => ({ history: [] })),
-          api('/v1/crystal/events').catch(() => ({ events: [] })),
+          api(`/v1/crystal/events?since_seconds=${sinceSeconds}`).catch(() => ({ events: [] })),
           api(`/v1/feed/drift/history?since_seconds=${sinceSeconds}`).catch(() => ({ history: [] })),
           api('/v1/feed/confidence/history').catch(() => ({ history: [] })),
           api(`/v1/feed/engagement/history?since_seconds=${sinceSeconds}`).catch(() => ({ history: [] })),
-          api('/v1/feed/crystal/events').catch(() => ({ events: [] })),
-          api('/v1/feed/regen/events').catch(() => ({ events: [] })),
+          api(`/v1/feed/crystal/events?since_seconds=${sinceSeconds}`).catch(() => ({ events: [] })),
+          api(`/v1/feed/regen/events?since_seconds=${sinceSeconds}`).catch(() => ({ events: [] })),
         ]);
       } catch (e) { /* noop */ }
       const usage = usageTotal;  // total + days array still come from /v1/usage

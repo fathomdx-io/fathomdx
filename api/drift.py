@@ -24,7 +24,27 @@ from . import crystal_anchor, delta_client
 from ._time import now as _now
 from .settings import settings
 
-HISTORY_LIMIT: int = 1000
+# Hard ceiling on history rows. The compactor below buckets older
+# samples so a year of coverage fits well under this cap; the limit
+# is just a runaway-growth safety net.
+HISTORY_LIMIT: int = 50_000
+
+# Tiered retention buckets — newest tier first. Each entry is
+# ``(max_age_seconds, bucket_seconds)``: a sample whose age (vs. now)
+# falls within ``max_age_seconds`` collapses to one row per
+# ``bucket_seconds``. Older samples cascade into the next tier.
+# Total bucket count for a year of coverage:
+#   24h × 60/min  = 1440
+#   6d  × 96/day  =  576   (15-min buckets)
+#   23d × 24/day  =  552   (hourly buckets)
+#   335d × 1/day  =  335   (daily buckets)
+#                = ~2900 rows for a full year
+_RETENTION_TIERS: tuple[tuple[int, int], ...] = (
+    (24 * 3600,        60),         # last 24h: per-minute
+    (7 * 24 * 3600,    15 * 60),    # 24h-7d:   per-15-min
+    (30 * 24 * 3600,   3600),       # 7d-30d:   per-hour
+    (365 * 24 * 3600,  86400),      # 30d-365d: per-day
+)
 
 _lock = asyncio.Lock()
 
@@ -47,6 +67,43 @@ def _load_raw() -> dict:
         return json.loads(p.read_text())
     except Exception:
         return {"history": []}
+
+
+def _compact_history(history: list[dict], now_ts: float) -> list[dict]:
+    """Tier-bucket samples so a year of drift fits in ~3k rows.
+
+    Walks newest→oldest. For each sample, picks the bucket size from
+    ``_RETENTION_TIERS`` based on age, then keeps only the freshest
+    sample per (tier, bucket-index). Samples older than the last tier
+    drop entirely.
+    """
+    if not history:
+        return history
+    seen: set[tuple[int, int]] = set()
+    kept: list[dict] = []
+    for entry in sorted(history, key=lambda e: e.get("t") or "", reverse=True):
+        try:
+            ts_str = entry.get("t") or ""
+            ts = datetime.fromisoformat(ts_str.replace("Z", "+00:00")).timestamp()
+        except Exception:
+            continue
+        age = max(0, now_ts - ts)
+        tier_idx = -1
+        bucket_secs = 0
+        for i, (max_age, bsecs) in enumerate(_RETENTION_TIERS):
+            if age <= max_age:
+                tier_idx = i
+                bucket_secs = bsecs
+                break
+        if tier_idx < 0:
+            continue  # older than the longest tier — drop
+        key = (tier_idx, int(ts // bucket_secs))
+        if key in seen:
+            continue
+        seen.add(key)
+        kept.append(entry)
+    kept.sort(key=lambda e: e.get("t") or "")
+    return kept
 
 
 def _save_raw(state: dict) -> None:
@@ -128,6 +185,11 @@ async def sample() -> dict:
         state = _load_raw()
         history = state.get("history") or []
         history.append(entry)
+        # Compact tier-by-tier so older samples don't bloat the file.
+        # Cheap: O(n log n) over ~3k rows in steady state. Run on every
+        # write so a burst of dashboard reloads can't push us past the
+        # ceiling between compactions.
+        history = _compact_history(history, now.timestamp())
         if len(history) > HISTORY_LIMIT:
             history = history[-HISTORY_LIMIT:]
         state["history"] = history

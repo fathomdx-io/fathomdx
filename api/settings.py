@@ -172,6 +172,12 @@ class Settings(BaseSettings):
     crystal_drift_poll_seconds: int = 60
     crystal_regen_cooldown_seconds: int = 259200  # 3 days
 
+    # Routine scheduler. Walks routine spec deltas every tick; fires any
+    # whose cron next-fire has elapsed since the last fire. Without this,
+    # routines only fire from manual "Fire now" clicks and chat-tool calls.
+    routine_scheduler_enabled: bool = True
+    routine_scheduler_poll_seconds: int = 60
+
     # Server
     host: str = "0.0.0.0"
     port: int = 8200

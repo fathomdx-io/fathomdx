@@ -21,11 +21,14 @@ from datetime import datetime
 from pathlib import Path
 
 from .. import crystal_anchor, delta_client
+from .. import drift as _identity_drift
 from .._time import now as _now
 from ..settings import settings
 from . import feed_orient_anchor
 
-HISTORY_LIMIT: int = 1000
+# Reuse the identity-drift retention scheme — same shape (one float +
+# timestamp per sample), same desired coverage (full year, ~3k rows).
+HISTORY_LIMIT: int = _identity_drift.HISTORY_LIMIT
 
 _lock = asyncio.Lock()
 
@@ -109,6 +112,7 @@ async def sample() -> dict:
         state = _load_raw()
         history = state.get("history") or []
         history.append(entry)
+        history = _identity_drift._compact_history(history, now.timestamp())
         if len(history) > HISTORY_LIMIT:
             history = history[-HISTORY_LIMIT:]
         state["history"] = history

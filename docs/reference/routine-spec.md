@@ -1,32 +1,199 @@
 # Routine Spec
 
-A routine is a prompt + a schedule + a place to run. It lives in the delta lake as a single delta, tagged and structured so the scheduler can find it, fire it on cron, and the dashboard can display it.
+A routine is a prompt + a schedule. The cron tick fires it INTO the River (the witness), which decides what to do — dispatch claude-code, write a feed card, fire an alert, propose a state change, or stay silent. The routine spec doesn't pre-pick a route.
 
 ## Anatomy
 
 A routine is a **spec delta** with three things:
 
 1. **Tags** — `spec`, `routine`, and `routine-id:<stable-id>`, plus an optional `workspace:<name>`.
-2. **Content** — YAML frontmatter + a prompt body (the text injected into the claude session when the routine fires).
-3. **Source** — `dashboard` (when created via the UI), `claude-code:<workspace>` (when hand-written), or `lake-scheduler` for internal writes.
+2. **Content** — YAML frontmatter + a prompt body (the text the witness reads as the user-given instruction).
+3. **Source** — `consumer-dashboard` (when created via the UI), `claude-code:<workspace>` (when hand-written), or `routine-scheduler` for internal writes.
 
 Example:
 
 ```
-Tags:   spec, routine, routine-id:gold-check, workspace:trader-agent
-Source: dashboard
+Tags:   spec, routine, routine-id:gold-mac-ratio, workspace:trader-agent
+Source: consumer-dashboard
 Content:
 ---
-id: gold-check
-name: Gold Price Pulse
+id: gold-mac-ratio
+name: Gold-to-Mac Ratio
 schedule: "0 * * * *"
 enabled: true
 workspace: trader-agent
+host: myras-fedora-laptop
 permission_mode: auto
+single_fire: false
 deleted: false
 ---
 
-Check the current gold spot price. Compare to the last 24h. Summarize in one sentence.
+# Purpose
+Track when gold's purchasing power crosses one Mac.
+
+# Needs
+claude-code on myras-fedora-laptop — live price fetch.
+
+# Steps
+1. Fetch gold spot price (Kitco).
+2. Fetch refurbished 128GB iPhone 15 Pro Max price (Apple refurb).
+3. Compute ratio. Compare to last fire.
+
+# Ending
+Stay silent on quiet days. If the ratio drops to 1.0 or lower (gold has
+caught up to a Mac), send me a hard alert.
+```
+
+The four-section body (Purpose / Needs / Steps / Ending) is convention, not enforced by code — see [Writing the prompt](#writing-the-prompt) below.
+
+## Writing the prompt
+
+The witness reads the prompt body as the user-given instruction. Routines that follow a four-section convention give the witness clearer signal than freeform prose — same reason a good email has a subject line, body, and call-to-action.
+
+### The four sections
+
+```
+# Purpose
+[One sentence. What I'm trying to accomplish.]
+
+# Needs
+[What this needs to actually run — claude-code on a host, a specific tool,
+or "substrate only" if the lake already has the data. Fathom uses this as
+a strong hint when picking a route.]
+
+# Steps
+[The instructions — what to look for, what to filter, what to compare against.
+Numbered or prose, whichever fits.]
+
+# Ending
+[How you want to know it ran. Plain language. The witness reads this to pick
+the route — feed card, chat reply, alert, silent, or something else.
+Examples below.]
+```
+
+The witness still reads the *whole* body, so prose outside these sections is fine. But the headers are load-bearing: Fathom looks at `# Ending` to decide what to deliver back to you.
+
+### `# Ending` — how you want to be notified
+
+This is where you express the route preference in language. The witness translates to its actual route. Common patterns:
+
+| What you write under `# Ending` | Witness picks |
+|---|---|
+| "Send me a card with the result." | `feed-card` |
+| "DM me a quick line." | `chat-reply` to your active surface |
+| "Card most days; soft alert if anything major lands." | `feed-card` by default, `alert:soft` when the prompt's condition is met |
+| "Stay silent unless X — then alert me hard." | `silent` by default, `alert:hard` when X |
+| "Do nothing on screen, just write the result back to the lake." | `silent` (the work still produces deltas) |
+| "Email Jerry the summary." | `tool:<email-tool>` (if such a tool exists) |
+| "Propose a routine cleanup if you find any candidates." | `tool:routines` proposal card with Edit/Deny/Approve |
+
+You don't have to use any of these phrasings exactly. Write it however you'd describe it to a person; Fathom reads the intent.
+
+### Why not encode `output:` and `escalate_if:` as frontmatter?
+
+We considered it. The reason we landed on prose under `# Ending` instead:
+
+- **The witness is an LLM.** Asking it to read "Card most days, alert if X" as a directive is exactly what it's good at. Pushing that into structured fields forces precision the user doesn't have to want.
+- **The Ending section is where edge-case conditions live.** "Card unless gold-to-mac ratio drops below 1.0" is a real preference; encoding the predicate as YAML would be lossy.
+- **Routine writers are the user, not other code.** The schema should match how the user thinks, not how the witness parses.
+
+Keep frontmatter for **routine identity and scheduling** (id, name, schedule, host, permission). Keep prose for **everything about what to do and how to deliver it**.
+
+### Examples
+
+**Gold-to-Mac ratio — silent unless threshold crosses**
+
+```
+# Purpose
+Track when gold's purchasing power crosses one Mac.
+
+# Needs
+claude-code on myras-fedora-laptop — live price fetch.
+
+# Steps
+1. Fetch gold spot price (Kitco).
+2. Fetch refurbished 128GB iPhone 15 Pro Max price (Apple refurb).
+3. Compute ratio. Compare to last fire's ratio in the lake.
+
+# Ending
+Stay silent on quiet days. If the ratio drops to 1.0 or lower (gold has
+caught up to a Mac), send me a hard alert. Lead with the ratio + delta.
+```
+
+**Menya Rui — soft alert when open + closing soon**
+
+```
+# Purpose
+Catch the window when Menya Rui is open AND closing soon.
+
+# Needs
+claude-code on myras-fedora-laptop — Google Maps lookup.
+
+# Steps
+1. Check Menya Rui's current open status.
+2. Read its closing time today.
+3. Compute time-to-close.
+
+# Ending
+Stay silent unless they're open and closing in 90 minutes or less. Then
+soft-alert me with the closing time.
+```
+
+**Hard-problem heartbeat — daily card, two paragraphs**
+
+```
+# Purpose
+Daily heartbeat on the hard-problem workspace.
+
+# Needs
+claude-code on myras-fedora-laptop — read fresh vault state.
+
+# Steps
+1. Read today's hard-problem vault entries.
+2. Identify what was accomplished today vs. yesterday.
+3. Decide the next concrete step.
+
+# Ending
+Send me a card with two paragraphs: what was accomplished (concrete, no
+hand-waving), and the plan for next round (one specific action).
+```
+
+**Daily news briefing — card most days, alert on big news**
+
+```
+# Purpose
+Morning news briefing — Trump health, AI/robotics, STL events.
+
+# Needs
+claude-code on myras-fedora-laptop — web fetch.
+
+# Steps
+1. Check world, national, and St. Louis news.
+2. Filter for: Trump health changes, AI/robotics breakthroughs, STL events.
+3. Surface only what's new since last fire.
+
+# Ending
+Card most days. Soft alert if anything genuinely major breaks (Trump
+health change, AI breakthrough, STL emergency). Stay silent if literally
+nothing new.
+```
+
+**Weekly retrospective — substrate only**
+
+```
+# Purpose
+Weekly look-back at what landed in the lake.
+
+# Needs
+Substrate only — no claude-code needed.
+
+# Steps
+1. Pull what landed in the lake this week (commits, vault entries, chats).
+2. Group by theme.
+3. Surface one thing worth remembering next month.
+
+# Ending
+Send me a card. Three sections, one paragraph each.
 ```
 
 ## Frontmatter fields
@@ -35,43 +202,52 @@ Check the current gold spot price. Compare to the last 24h. Summarize in one sen
 |---|---|---|---|
 | `id` | string | *required* | Stable identifier. Cannot be changed (the `routine-id:` tag carries it). |
 | `name` | string | *required* | Human-readable label. Shown in the dashboard. |
-| `schedule` | cron | — | 5-field cron string. Evaluated in the container's local TZ. |
-| `interval_minutes` | int | — | Used only if `schedule` is absent. Not yet honored by LakeScheduler — prefer `schedule`. |
-| `enabled` | bool | `true` | When false, scheduler skips; dashboard shows greyed-out. |
-| `workspace` | string | `""` | Maps to a directory under `~/Dropbox/Work/`. The kitty plugin `cd`s there before launching claude. |
-| `host` | string | `""` | If set, only the agent whose `host` matches will spawn the kitty window; other agents silently ignore the fire. Empty = fleet-wide (any paired agent can pick it up). |
-| `permission_mode` | `auto` \| `normal` | `auto` | `auto` = claude runs with `--permission-mode auto` (classifier). `normal` = claude prompts for each tool (you approve in the kitty window). See "Per-host kill switch" in the [how-to](../how-to/set-up-a-routine.md) — agents can refuse modes locally via `allowed_permission_modes`. |
-| `single_fire` | bool | `false` | Planned: fire once then disable. Not yet honored by LakeScheduler. |
+| `schedule` | cron | — | 5-field cron string. Evaluated in the api container's local TZ. |
+| `interval_minutes` | int | — | Legacy. Parsed for back-compat but ignored by the scheduler. Use `schedule`. |
+| `enabled` | bool | `true` | When false, scheduler skips. Dashboard greys it out. |
+| `workspace` | string | `""` | Path under `~/Dropbox/Work/`. Only used when the witness routes to claude-code; the kitty plugin `cd`s there before launching claude. |
+| `host` | string | `""` | If set, only the agent whose `host` matches will spawn claude-code (when the witness picks that route). Empty = fleet-wide. Informational for non-claude-code routes. |
+| `permission_mode` | `auto` \| `normal` | `auto` | Only meaningful for claude-code-routed fires. See "Per-host kill switch" in [set-up-a-routine.md](../how-to/set-up-a-routine.md). |
+| `single_fire` | bool | `false` | When true, the scheduler soft-deletes the spec after firing once (writes a tombstone with `deleted: true`). |
 | `deleted` | bool | `false` | Tombstone — scheduler and dashboard skip. History stays in the lake. |
-
-## Tag conventions
-
-Three delta families compose a routine's lifecycle:
-
-| Kind | Required tags | Optional tags | Source |
-|---|---|---|---|
-| **spec** | `spec`, `routine`, `routine-id:<id>` | `workspace:<name>` | `dashboard`, `claude-code:<ws>`, or manual |
-| **fire** | `routine-fire`, `routine-id:<id>` | `workspace:<name>`, `permission-mode:<mode>` | `lake-scheduler`, `dashboard`, `manual` |
-| **summary** | `routine-summary`, `routine-id:<id>` | `fire-delta:<fire-id>` | `claude-code:routine` (written by the running routine) |
-
-The `fire-delta:<fire-id>` tag on a summary is what lets the dashboard pair a run with its result.
 
 ## Lifecycle
 
-```
-  spec delta              routine-fire delta         kitty window          routine-summary delta
-  (edited by you)         (written by scheduler)     (spawned by           (written by claude
-                                                      kitty plugin)         inside the routine)
-  ────────────            ───────────────────        ──────────────        ─────────────────────
-  [spec, routine,         [routine-fire,             (claude runs          [routine-summary,
-   routine-id:X]    ───▶   routine-id:X,       ───▶   the prompt)  ───▶    routine-id:X,
-                           workspace:Y]                                     fire-delta:<fire-id>]
+Every fire flows through the River. Cron, Fire Now, chat-tool `fire`, and the witness's own `routine-fire:<id>` route all converge on the same shape.
 
-  (cron tick)             (lake plugin polls)        (plugin injects       (dashboard pairs
-                                                      via kitten @)         fire + summary)
+```
+spec delta             routine-due intent       witness output           (downstream)
+(edited by you)        (puddle, kind:           (one or more cards;     (e.g. claude-code
+                        routine-due, body =      varies by route)         closure → next
+                        prompt)                                           witness tick)
+─────────────          ──────────────────       ────────────────         ────────────────
+[spec, routine,        intent + tags carry      route can be             whatever the route's
+ routine-id:X]   ──▶   routine-id, host pin,    feed-card, chat-reply,   downstream is —
+                       permission_mode          claude-code:<host>,      claude-code spawns
+                                                alert:<level>, tool:..., a kitty window;
+                                                or no card (silent)      feed-card lands
+(any fire trigger)     (witness deliberates)    (witness emits)          (consumer reads)
+
+In parallel, every fire also writes a `routine-tick` marker delta
+into the lake — durable receipt for hydration on restart and as the
+visible "routine fired" breadcrumb in the dashboard feed.
 ```
 
-One spec → zero or more fires over time → (usually) one summary per fire.
+The witness's pick depends on the prompt. "Check the news, synthesize an update" → claude-code dispatch + a follow-up synthesis tick. "Summarize this week from the lake" → one feed-card. "Stay silent unless X moved" → no card emitted on quiet days. See [set-up-a-routine.md](../how-to/set-up-a-routine.md#what-a-routine-can-touch) for the full route table.
+
+The legacy direct-to-kitty path (`routine-fire` lake delta consumed by the kitty plugin) was retired 2026-04-30. There's no longer a "skip the River" override — routines are a scheduled "Hey Fathom, handle this," and Fathom always decides.
+
+## Tag conventions
+
+| Kind | Required tags | Optional tags | Source |
+|---|---|---|---|
+| **spec** | `spec`, `routine`, `routine-id:<id>` | `workspace:<name>` | `consumer-dashboard`, `claude-code:<ws>`, or manual |
+| **routine-due intent** | `intent`, `kind:routine-due`, `routine-id:<id>` | `host:<x>`, `permission-mode:<mode>` | `routine-scheduler` |
+| **routine-tick** | `routine-tick`, `routine-id:<id>` | `host:<x>`, `fired-at:<iso>` | `routine-scheduler` |
+
+Downstream artifacts (witness cards, claude-code closures) carry their own tag families and aren't routine-specific — they look the same as anything else the witness emits, just stamped with `addresses:<intent-id>` pointing back at the `routine-due` intent.
+
+The legacy `routine-fire` and `routine-summary` shapes still appear in the lake from history but no new producers write them. Old fires render in the feed via the same accordion as new ones.
 
 ## CRUD
 
@@ -81,19 +257,22 @@ One spec → zero or more fires over time → (usually) one summary per fire.
 
 **Pause**: write a new spec delta with `enabled: false`. Resume = another spec delta with `enabled: true`.
 
-The dashboard's Routines page does all of this through the `POST|PUT|DELETE /api/routines/from-lake` endpoints in `loop-api`. The `fathom delta write` heredoc path still works for scripting.
+The dashboard's Routines page does all of this through `/v1/routines`, `/v1/routines/<id>` (PUT, DELETE), `/v1/routines/<id>/fire` (POST). The chat-tool `routines` action covers the same surface from inference turns.
 
 ## Who reads what
 
-- **`loop-api/lake_scheduler.py` (`LakeScheduler`)** — reads spec deltas every 30s, writes fire deltas on cron.
-- **`fathomdx/addons/agent/plugins/kitty.js` (kitty plugin)** — polls for fire deltas, spawns kitty + claude, writes fire-receipt deltas. Claude itself writes the summary delta from inside the routine.
-- **`loop-api/server.py` (`list_routines_from_lake`)** — reads spec, fire, and summary deltas; pairs them; returns enriched list for the dashboard.
-- **Dashboard `RoutinesPage`** — renders, and POSTs back to `loop-api` for CRUD.
+- **`api/routine_scheduler.py`** — reads spec deltas every 60s, writes `routine-due` intents into the puddle on cron-elapsed AND a `routine-tick` marker into the lake. Honors `single_fire` by soft-deleting the spec after firing once.
+- **`api/routines.py`** — CRUD over spec deltas. `fire()` is the legacy direct-to-kitty path (Path B); used by Fire Now and the chat tool.
+- **`api/loop/witness.py`** — reads `routine-due` intents alongside other intents, deliberates, picks a route. Output cards stamp `addresses:<intent-id>` to close the intent. Also has its own `routine-fire:<id>` route (Phase 2) for proactively firing routines based on substrate.
+- **`addons/agent/plugins/kitty.js`** — polls for `routine-fire` deltas (Path B) AND `route:claude-code` deltas (Path A → witness dispatched claude-code). Spawns kitty + claude in either case.
+- **`api/routes/routines.py`** — HTTP CRUD for the dashboard.
+- **Dashboard `RoutinesPage`** — renders, and POSTs back to `/v1/routines` for CRUD.
 
 ## Gotchas
 
 - **`routine-id` is immutable.** It's also the stable key across every delta in the lifecycle. Changing it means creating a different routine.
-- **Soft-delete != gone from search.** Tombstones still match `fathom delta search`. Filter with `--not-tags deleted` if you want to hide them from queries. (Or filter client-side on `meta.deleted`.)
-- **Schedule TZ.** Cron is evaluated in the recall-loop container's local TZ (currently `America/Chicago` per the compose config). If you're away from home, your routines still fire on CST.
-- **`interval_minutes` is legacy.** Kept in the parser for back-compat with the older `routines.json` format but LakeScheduler ignores it. Use `schedule`.
-- **`single_fire` is not yet honored.** Parser accepts it but the scheduler fires on every cron cycle. Tracked as a follow-up.
+- **Soft-delete != gone from search.** Tombstones still match `fathom delta search`. Filter with `--not-tags deleted` if you want to hide them. (Or filter client-side on `meta.deleted`.)
+- **Schedule TZ.** Cron is evaluated in the api container's local TZ (see `TZ` in `.env`). If you're away from home, your routines still fire on container time.
+- **`interval_minutes` is dead.** Parser accepts it but the scheduler ignores it. Use `schedule`.
+- **Path A doesn't write `routine-fire` deltas.** If you're scripting against the lake and waiting for those to detect activity, switch to `routine-tick` or to the witness's `addresses:<intent-id>` outputs.
+- **The witness might emit nothing.** A prompt like "stay silent unless X" can produce zero cards on quiet days. That's not a bug. The `routine-due` intent times out after the kind's TTL (48h by default for routine-due) and falls off the queue.

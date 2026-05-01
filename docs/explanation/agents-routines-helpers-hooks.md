@@ -16,7 +16,7 @@ Short version:
 | Thing | What it is | When to reach for it |
 |---|---|---|
 | **Agent** | A long-running daemon on a host machine | You want Fathom to have a presence on a specific machine, running plugins and executing routines |
-| **Routine** | A scheduled prompt that fires into a Claude Code session | You want a task performed at a cadence (daily, hourly, Mondays) |
+| **Routine** | A scheduled prompt that fires into Fathom (the River) | You want a task performed at a cadence (daily, hourly, Mondays). The witness decides what to do — fetch with claude-code, write a feed card from substrate, fire an alert, propose a state change |
 | **Helper** | A named capability Fathom can call | You want chat or a routine to be able to do a specific thing on demand (fetch weather, summarize a URL, draft text) |
 | **Hook** | A shell command fired on a lifecycle event | You want to capture something that's happening in another tool (Claude Code, an IDE) as deltas |
 
@@ -34,13 +34,21 @@ Agents don't "do work" in a general sense. They run the plugins and routines you
 
 ## Routine
 
-A routine is a scheduled prompt. You write the prompt in the dashboard, pick a cadence (cron expression, or "daily at 8am," or "Mondays at 6pm"), and save it. When the time comes, the routine-id fires as a `routine-fire` delta. An agent sees the fire, spawns a kitty window on its machine, starts `claude` inside, and injects the prompt.
+A routine is a scheduled prompt. You write the prompt in the dashboard, pick a cadence (cron expression, or "daily at 8am," or "Mondays at 6pm"), and save it. When the time comes, the cron tick writes a `routine-due` intent into the puddle — and that's where the routine's job ends. From here, the witness (the River) reads the intent like any other and decides what to do.
 
-Claude Code then does whatever the prompt asked for. The session it runs in can write back to the lake, read from it, invoke tools, open files. When the routine finishes, a summary delta lands in the lake paired to the same routine-id.
+That's the architectural shift worth seeing clearly: **a routine isn't a claude-code trigger. It's a scheduled "Hey Fathom, handle this."** What Fathom does next is a routing decision that belongs to the witness, not to the cron tick or to the routine spec. Some routines need claude-code (fresh data, file work, shell commands). Others should land as feed cards composed from substrate already in the lake. Some are alerts. Some are conversational replies. Some propose state changes the user has to approve.
 
-Routines are independent of chat sessions. A routine doesn't write into `chat:<slug>`. Its output lives under `routine-id:<id>`. You look at routine history on the routines page or by searching that tag.
+The witness picks. The routine prompt names the intent — "summarize this week's commits," "check the news and synthesize," "alert me if a research thread has been quiet 3 days" — and the route falls out of that.
 
-Routines require an agent paired on a machine with both [kitty](https://sw.kovidgoyal.net/kitty/) and [Claude Code](https://docs.claude.com/en/docs/claude-code) installed and authenticated. The agent is what reifies the schedule into an actual running process.
+Practical implications:
+
+- **A routine doesn't always need an agent.** Substrate-only routines (synthesis from the lake, alerts, chat-replies) run inside the api process and don't spawn anything externally.
+- **Routines that need fresh data still spawn claude-code.** When the witness picks `claude-code:<host>`, the existing dispatch path kicks in: kitty plugin spawns the session, runs the prompt, the closure feeds back into the witness for synthesis. The "synthesize into a concise update" instruction in your prompt is honored on that synthesis tick — by the witness, in Fathom's voice — not by claude-code.
+- **There's a manual override.** The "Fire Now" button and the chat-tool `routines.fire` action skip the River and go straight to claude-code via a `routine-fire` delta. Use this when you want to run the routine RIGHT NOW without witness deliberation.
+
+Routines are independent of chat sessions. Routine activity lives under `routine-id:<id>`, not `chat:<slug>`. You see history on the Routines page or by searching that tag.
+
+For routines that route through claude-code, you need an agent paired on a machine with both [kitty](https://sw.kovidgoyal.net/kitty/) and [Claude Code](https://docs.claude.com/en/docs/claude-code) installed and authenticated. For substrate-only routines, no agent is required.
 
 ## Helper
 

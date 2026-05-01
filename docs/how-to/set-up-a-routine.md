@@ -1,29 +1,53 @@
 ---
 title: How to set up a routine
-description: Schedule a prompt to run on your machine on a cadence. Either chat with Fathom and let it draft one, or write the spec yourself in the dashboard's Routines page.
+description: Schedule a prompt to run on a cadence. The witness decides whether to dispatch claude-code, write a feed card from substrate, fire an alert, or do nothing — depending on what the prompt actually asks for.
 audience: developer
 quadrant: how-to
-last_verified: 2026-04-24
-owners: [api/routes/routines.py, addons/agent/plugins/kitty.js, reference/routine-spec.md]
+last_verified: 2026-04-30
+owners: [api/routine_scheduler.py, api/loop/witness.py, addons/agent/plugins/kitty.js, reference/routine-spec.md]
 ---
 
 # How to set up a routine
 
-A routine is a prompt + a cron schedule + a place to run. When the time comes, the kitty plugin on your paired agent spawns a window, runs Claude Code inside it, and injects the prompt. The output lands back in the lake as a `routine-summary` delta.
+A routine is **a prompt + a schedule**. When the time comes, Fathom's River (the witness) reads it like any other intent and decides what to do — fetch data with claude-code, synthesize a feed card from the lake, fire an alert, reply in chat, call a tool, stay silent. The route is a routing decision, not part of the routine spec.
+
+This is a recent shift. Routines used to be a direct claude-code trigger; now they fire INTO the River and the River dispatches. See [What a routine can touch](#what-a-routine-can-touch) below for what changed.
 
 This page covers two paths: ask Fathom to draft a routine for you in chat, or build it yourself in the dashboard. Both produce the same artifact (a spec delta).
 
 ## Prerequisites
 
-- A paired agent on the machine you want the routine to run on (see [tutorial 3](../tutorials/03-fathom-does-things.md) or [pair another machine](./pair-another-machine.md)).
-- kitty installed and on the agent's `PATH`. `kitty --version` from the agent's shell should work.
+The prerequisites depend on what your routine asks for. The minimum is **none beyond a running Fathom**: a routine that says "summarize this week's lake activity into a feed card" needs no agent, no kitty, no claude-code — the witness handles it from substrate.
+
+You only need the agent stack when the routine asks for fresh data, file work, or anything outside the lake:
+
+- A paired agent on the machine you want claude-code to run on (see [tutorial 3](../tutorials/03-fathom-does-things.md) or [pair another machine](./pair-another-machine.md)).
+- kitty installed and on the agent's `PATH`.
 - Claude Code installed and authenticated on the same machine.
 
-If kitty is missing the routine will save fine but never fire. If Claude isn't authenticated the kitty window will open and immediately exit.
+Without an agent, "check the news" routines won't fetch anything — the witness will see no claude-code-capable host available and write a feed card from whatever's already in the lake (probably "I don't have fresh news; the last update I have was…").
 
-## Trust model: what a routine can actually do
+## What a routine can touch
 
-A routine is **a full Claude Code session running as you** on the agent's host. Same shell environment, same `~/.claude/` config, same MCP servers, same authenticated tokens. Same filesystem. Same git and SSH credentials. The kitty window is not a sandbox — it's claude in a terminal, with your hands on the keys, except you are not the one typing.
+The witness reads a `routine-due` intent and picks a route the same way it does for a user-typed message. Available routes:
+
+| Route | When the witness picks it | Side effects |
+|---|---|---|
+| `claude-code:<host>` | The prompt asks for fresh data, file edits, shell commands, or anything outside the lake. Trigger phrases: "check", "fetch", "look up", "go get", "what's new", "run X". | Spawns a claude-code session on the named host. Closure feeds back into the witness for synthesis. |
+| `feed-card` | The prompt asks for a synthesis from substrate already in the lake. "Summarize this week", "what changed since Monday", "remind me of yesterday's wins". | One feed card lands. No external work. |
+| `chat-reply` | The prompt is conversational, the answer is in memory. "Daily check-in: how's the mood?" | Renders as a chat-style message. |
+| `alert:<level>` | The prompt asks Fathom to flag something if a condition is met. "If a research thread has been quiet 3+ days, surface it." | Pinned alert at top of feed. |
+| `tool:<name>` | The prompt asks for a state change Fathom should propose for approval. "Once a month, propose a routine cleanup." | Proposal card with Edit/Deny/Approve buttons. |
+
+Some implications:
+
+- **A routine doesn't need an agent or claude-code.** If the work is "synthesize from the lake," the witness handles it directly.
+- **A routine prompt that mixes fetch + synthesis splits naturally.** Tick 1: witness dispatches claude-code for the fetch. Tick 2 (when claude returns): witness synthesizes the user-facing card. The "synthesize into a concise update" instruction in your prompt is honored on Tick 2, in Fathom's voice — not as part of the claude-code session.
+- **You don't pick the route.** The witness does, based on the prompt. Write the prompt as a request to Fathom, not as instructions for claude-code.
+
+## Trust model: what claude-code can actually do (when the witness picks it)
+
+If your routine routes through `claude-code:<host>`, that's **a full Claude Code session running as you** on the agent's host. Same shell environment, same `~/.claude/` config, same MCP servers, same authenticated tokens. Same filesystem. Same git and SSH credentials. The kitty window is not a sandbox.
 
 Implications worth seeing clearly before writing one that runs unattended:
 
@@ -31,40 +55,195 @@ Implications worth seeing clearly before writing one that runs unattended:
 - If your authenticated `gh` CLI can push to a repo, the routine can. If your `kubectl` context points at production, the routine has it.
 - Helpers, MCP tools, and any API key the agent host has access to are all in scope.
 
-### `auto` vs `normal` — what each actually does
+If the witness picks `feed-card` or `chat-reply`, none of this applies — the work happens inside the api process and only writes feed deltas.
+
+### `auto` vs `normal` (claude-code path only)
 
 | Mode | Behavior | Right when |
 |---|---|---|
-| `auto` | Claude runs with `--permission-mode auto`. The classifier auto-approves "safe" actions and blocks "risky" ones. No human in the loop. | The routine is read-mostly, summarizes, writes deltas — work where the worst case is "wrong summary," not "wrong rm". |
-| `normal` | Each tool use prompts in the kitty window. A human approves every one. | You will be at the machine when it fires, and the routine touches things you want to vet (file edits, network calls, shell). |
+| `auto` | Claude runs with `--permission-mode auto`. The classifier auto-approves "safe" actions and blocks "risky" ones. No human in the loop. | Read-mostly work where the worst case is "wrong summary," not "wrong rm". |
+| `normal` | Each tool use prompts in the kitty window. A human approves every one. | You'll be at the machine when it fires, and the routine touches things you want to vet. |
 
 The non-obvious failure modes:
 
 - **`auto` is not "safe."** The classifier is a heuristic. Read prompts you write for `auto` mode the way you would read a prompt you were about to send to a coworker with admin access on your machine.
-- **`normal` mode + unattended host = stall forever.** The kitty window opens, claude reaches the first tool prompt, and waits. No timeout, no auto-decline, no summary delta. The dashboard shows a fire with no paired summary until you walk over and approve, decline, or kill it. Do not pick `normal` for a 3am routine.
-- **There is no per-routine permission scope.** You cannot say "this routine can read but not write" or "this routine can touch only `~/Dropbox/Work/foo`". The scope is whatever Claude Code can do on that host, period.
+- **`normal` mode + unattended host = stall forever.** The kitty window opens, claude reaches the first tool prompt, and waits. Don't pick `normal` for a 3am routine.
+- **There is no per-routine permission scope.** The scope is whatever Claude Code can do on that host, period.
 
-### Per-host kill switch
+### Per-host kill switch (claude-code path only)
 
-The agent on each machine has an `allowed_permission_modes` config (defaults to `["auto", "normal"]`). If a routine fires with a mode not in the list, the agent writes a `kitty-fire-blocked` receipt delta and refuses to spawn the window. Set this in the agent's local config (`~/.fathom/agent.json` under the `kitty` plugin block) to lock things down per-host: `["normal"]` to require human approval for everything that fires here, `[]` to disable routine execution entirely on that host. The routine spec doesn't know what each agent allows — it asks for a mode, and the agent decides whether to honor it.
+The agent on each machine has an `allowed_permission_modes` config (defaults to `["auto", "normal"]`). Set this in `~/.fathom/agent.json` under the `kitty` plugin block to lock things down per-host: `["normal"]` for human-in-the-loop only, `[]` to disable claude-code execution entirely on that host.
 
 ### Host pinning
 
-A routine spec can include a `host: <agent-name>` field. When set, only the agent whose `host` matches will spawn the window — every other agent silently ignores the fire. Without it, the fire is fleet-wide: whichever paired agent picks it up first runs it (in practice, that's almost always the only agent online).
+A routine spec can include a `host: <agent-name>` field. When set, only the agent whose `host` matches will spawn the claude-code window — other agents silently ignore the dispatch. Without it, the routine is fleet-wide and the witness picks any available host.
 
-Pin a routine to a host when the work is host-specific ("clean up `~/Downloads` on my laptop"), the host has tools or credentials others do not, or you want the routine on a specific machine for reliability ("this NAS is always on; my laptop sleeps").
+Pin a routine to a host when the work is host-specific ("clean up `~/Downloads` on my laptop"), the host has tools or credentials others do not, or you want it on a specific machine for reliability.
+
+For non-claude-code routes (`feed-card`, `chat-reply`, etc.), `host` is informational — the work happens server-side regardless.
+
+## Writing the prompt
+
+Routines follow a four-section schema. Each section has a header (`# Purpose`, `# Needs`, etc.); the witness reads them as conventions. Freeform prose works too, but structured prompts give cleaner signal — same reason a good email has a subject and body.
+
+```
+# Purpose
+[One sentence — what I'm trying to accomplish.]
+
+# Needs
+[What this needs to actually run — claude-code on a host, a tool,
+or "substrate only" if the lake already has the data.]
+
+# Steps
+[The instructions — what to look for, what to filter, what to compare.]
+
+# Ending
+[How you want to be notified. Plain language. Witness reads this to
+pick the route — card, DM, alert, silent, or something else.]
+```
+
+The full reference for each section, including more `# Ending` patterns, is in [routine-spec.md](../reference/routine-spec.md#writing-the-prompt). The dashboard's New Routine form prompts you for each section with a small form; you can write freeform if you prefer.
+
+### The four notification choices
+
+When you create a routine in the dashboard, you'll see:
+
+> **How would you like to be notified when this is done?**
+> ◯ A card in the feed
+> ◯ Direct message to me
+> ◯ Do something else: ____________________
+> ◯ Do nothing
+
+Each maps cleanly to a witness route. Pick one and the form fills `# Ending` for you. Add a free-text refinement underneath to layer on conditions ("but escalate to soft alert if anything major lands").
+
+### Pattern 1 — recurring fetch + alert on threshold (Gold-to-Mac)
+
+```
+# Purpose
+Track when gold's purchasing power crosses one Mac.
+
+# Needs
+claude-code on myras-fedora-laptop — live price fetch.
+
+# Steps
+1. Fetch gold spot price (Kitco).
+2. Fetch refurbished 128GB iPhone 15 Pro Max price (Apple refurb).
+3. Compute ratio. Compare to last fire's ratio in the lake.
+
+# Ending
+Stay silent on quiet days. If the ratio drops to 1.0 or lower (gold has
+caught up to a Mac), send me a hard alert. Lead with the ratio + delta.
+```
+
+What happens: cron tick → `routine-due` intent. Witness reads `# Needs` and picks `claude-code:<host>` for the fetch. Claude-code returns prices. Next witness tick reads `# Ending`, evaluates the ratio condition, picks `silent` if not crossed or `alert:hard` if crossed.
+
+### Pattern 2 — fetch + synthesize into a card (News briefing)
+
+```
+# Purpose
+Morning news briefing — Trump health, AI/robotics, STL events.
+
+# Needs
+claude-code on myras-fedora-laptop — web fetch.
+
+# Steps
+1. Check world, national, and St. Louis news.
+2. Filter for: Trump health changes, AI/robotics breakthroughs, STL events.
+3. Surface only what's new since last fire.
+
+# Ending
+Card most days. Soft alert if anything genuinely major breaks (Trump
+health change, AI breakthrough, STL emergency). Stay silent if literally
+nothing new.
+```
+
+The synthesis instruction lives under `# Ending` but is executed by the *witness*, not claude-code. That's the key change from the old architecture: claude-code fetches the data, the witness writes the card.
+
+### Pattern 3 — pure substrate synthesis (Weekly retro)
+
+```
+# Purpose
+Weekly look-back at what landed in the lake.
+
+# Needs
+Substrate only — no claude-code needed.
+
+# Steps
+1. Pull what landed in the lake this week (commits, vault entries, chats).
+2. Group by theme.
+3. Surface one thing worth remembering next month.
+
+# Ending
+Send me a card. Three sections, one paragraph each.
+```
+
+No claude-code spawned. No agent needed. The lake already has the data; the witness composes the card directly.
+
+### Pattern 4 — proposal cards (Routine cleanup)
+
+```
+# Purpose
+Once a month, prune routines that aren't pulling their weight.
+
+# Needs
+Substrate only — read recent routine summaries from the lake.
+
+# Steps
+1. Look at every routine's last 5 summaries.
+2. Flag any whose outputs were thin or didn't advance the work.
+
+# Ending
+For each candidate, propose disabling it. Show me the routine name and
+why you flagged it. I'll approve or deny each.
+```
+
+Witness writes `tool:routines` proposal cards (one per candidate) with `action:update` `enabled:false`. Edit/Deny/Approve in the feed. Nothing changes until you approve.
+
+### What to put under `# Steps`
+
+Write the steps as if you're asking Fathom to do something — first person, conversational. Don't pre-script claude-code's tool calls; the witness will compose those if it picks claude-code.
+
+Good:
+
+```
+# Steps
+1. Fetch the price of gold and BTC.
+2. Compare to yesterday's close.
+```
+
+Bad:
+
+```
+# Steps
+You are claude-code. Run `curl https://...` to fetch gold.
+Then run `curl https://...` for BTC. Call `fathom delta write` with
+tags `[market, daily]`. Then exit.
+```
+
+The witness needs your *intent*, not your implementation. Tool calls and lake writes are downstream of the route choice — Fathom composes them based on what `# Needs` says it has access to.
+
+### The four-beat structure (still applies)
+
+The most common failure mode for a recurring routine is that it spins in place. Every fire it re-orients, re-summarizes, and exits without advancing. Avoid this with a four-beat prompt structure:
+
+1. **Orient on what's done.** Search the lake for prior fires of this routine — what has past-you accomplished? What was the last clear next-step pointer?
+2. **Decide the next step.** From where you are, what is the single most useful thing this fire?
+3. **Do that one thing.** One unit of forward motion per fire.
+4. **Leave a pointer for the next round.** Name what next-fire-you should pick up.
+
+A prompt that bakes this in might end:
+
+> Before you stop: check what prior fires of this routine have produced. Confirm you've moved past where the last one left off. Then state — out loud, so it gets captured — what the next fire should accomplish.
+
+This is what separates a routine that compounds from one that just generates noise.
 
 ## Path A: ask Fathom to draft it
 
-This is the easier flow when you know what you want but don't remember the cron syntax.
-
-Open a Fathom chat session and describe what you want:
+This is the easier flow. Open a Fathom chat session and describe what you want:
 
 > Set me up with a routine that summarizes my GitHub notifications each weekday at 7am and posts a one-paragraph briefing.
 
-Fathom drafts a routine: name, cron expression, workspace, and a prompt body. Review the draft. If something needs adjusting, say so. When you confirm, Fathom writes the spec delta to the lake.
-
-The lake scheduler polls every 30 seconds and picks it up automatically. Open the **Routines** page in the dashboard to see it listed with its next-fire time.
+Fathom drafts a routine. You see a proposal card with Edit / Deny / Approve buttons. Edit changes any field; Approve writes the spec delta. The scheduler picks it up within a poll cycle (60s by default).
 
 ## Path B: build it yourself in the dashboard
 
@@ -74,11 +253,13 @@ Open the dashboard's **Routines** page. Click **New routine**. Fill in:
 |---|---|
 | **Name** | Human-readable label. Shown in the dashboard. |
 | **Schedule** | A 5-field cron string. See cron examples below. |
-| **Workspace** | Path to a directory on the agent host. Claude `cd`s here before running. Use `~/Dropbox/Work/your-project` or similar. |
-| **Permission mode** | `auto` runs Claude with `--permission-mode auto` (classifier decides). `normal` prompts you in the kitty window for each tool use. |
-| **Prompt** | What you want Claude to do when the routine fires. |
+| **Workspace** | Path to a directory on the agent host. Only used if the witness picks claude-code. Use `~/Dropbox/Work/your-project` or similar. |
+| **Host** | Pin to a specific agent (or leave blank for fleet-wide). |
+| **Permission mode** | `auto` or `normal`. Only used if the witness picks claude-code. |
+| **Single fire** | If true, the spec is tombstoned after the first fire. |
+| **Prompt** | What you want Fathom to do. Written conversationally. |
 
-Save. The scheduler picks up the spec within 30 seconds.
+Save. The scheduler picks up the spec within 60 seconds.
 
 ### Cron expressions
 
@@ -90,63 +271,34 @@ Save. The scheduler picks up the spec within 30 seconds.
 | Every 4 hours | `0 */4 * * *` |
 | Every hour on the hour | `0 * * * *` |
 
-Cron is evaluated in the API container's local timezone (see `TZ` in `.env`). If you don't set one, it defaults to whatever the host has (often `America/Chicago` per the bundled compose config). Routines fire on container time, not your phone's time.
+Cron is evaluated in the API container's local timezone (see `TZ` in `.env`).
 
 ## Test the fire manually
 
-Don't wait for the scheduled time to confirm the routine works. From the dashboard's Routines page, click the run-now action. This writes a `routine-fire` delta immediately. The kitty plugin sees it within a poll cycle and spawns the window.
+Click **Fire Now** on the routine's detail page. The routine fires into the River (writes a `routine-due` intent + a `routine-tick` marker), the witness deliberates on the next tick, and you'll see whatever it decided to do — a feed card, a claude-code dispatch, an alert, a chat-reply, or silence — appear in the dashboard feed within a few seconds.
 
-What you should see:
-
-1. A kitty window opens on the agent host.
-2. Claude Code starts inside it with your prompt.
-3. Claude does the work and writes a `routine-summary` delta.
-4. The dashboard pairs the fire and summary by `fire-delta:<fire-id>` tag.
-
-If step 1 doesn't happen, kitty isn't reachable from the agent's shell. If step 2 doesn't happen, `claude` isn't on the agent's `PATH` or isn't authenticated. If step 4 doesn't pair, the summary delta wasn't written; check `docker compose logs api` for errors.
+There's no "skip the River" override. Routines fire into Fathom; Fathom decides what to do with them.
 
 ## What gets captured into the lake
 
-A routine writes three durable things by default:
+A routine writes durable artifacts on every fire (cron, Fire Now, or witness-initiated — they're the same path now):
 
-1. The **spec delta** itself (what the routine is).
-2. A **`routine-fire` delta** every time the scheduler ticks (when it ran).
-3. A **`routine-summary` delta** the routine is asked, in the prompt footer, to write before exiting (one-line outcome, paired by `fire-delta:<fire-id>` for the dashboard).
+**Always**:
+- `routine-due` intent in the puddle (kind:routine-due, body = your prompt). The witness reads this on its next tick.
+- `routine-tick` marker in the lake (durable receipt; hydration only).
+- Witness output — the feed card / chat-reply / claude-code dispatch / alert / proposal that the witness produced.
 
-There is a fourth, often-overlooked layer. If `fathom-connect` is installed on the agent's host, **every prompt and reply inside the kitty session is also captured**, via the `UserPromptSubmit` and `Stop` hooks in `~/.claude/settings.json`. The routine's reasoning, its tool calls, the findings it speaks aloud — all of it lands in the lake as deltas tagged with the session ID, the source, the workspace. This happens whether you ask for it or not.
-
-Practical upshot: **for an information-gathering routine, "recite findings" is itself the durable artifact.** You do not have to call `fathom delta write` for findings to persist. Claude saying out loud "I noticed that X bridges to Y" is captured the same as Claude writing a delta about it. The summary delta the footer asks for is the dashboard linkage tag, not the substance.
-
-This means you have a choice for what to put in the routine prompt:
-
-- **Pure exploration** → "recite your findings" is enough. The hooks capture the recitation; future routines and chat sessions can recall it.
-- **Curated artifact** → ask for an explicit `fathom delta write` with specific tags, when you want a single composed paragraph (not a session transcript) findable by tag.
-- **Both** → recite freely as you go, then write one clean delta at the end summarizing what cohered.
-
-## Writing routines that move the work forward
-
-The most common failure mode for a recurring routine isn't a bug — it is that the routine spins in place. Every fire it re-orients, re-summarizes the current state, and exits without advancing. After a month you have thirty deltas of "here's where things stand" and zero progress on the underlying work.
-
-The fix is a four-beat structure in the prompt:
-
-1. **Orient on what's done.** Search the lake for prior fires of this routine (`recall --tags routine-id:<id>`, or semantic search on the topic). What has past-you, under this routine, actually accomplished? What was the last clear next-step pointer?
-2. **Decide the next step.** From where you are, what is the single most useful thing to do this fire? If the next step isn't obvious, the *first* step is to make it obvious — investigate, narrow, scope.
-3. **Do that one thing.** Don't try to do everything. One unit of forward motion per fire is the goal.
-4. **Leave a pointer for the next round.** Before exiting, recite (or write a delta) that names what next-fire-you should pick up. Be concrete: "next round, draft the introduction" beats "continue working on the paper."
-
-Without step 4, step 1 has nothing to find, and the routine resets every fire. Without step 1, step 4 has no audience. The two are a pair.
-
-A prompt that bakes this in might end with something like:
-
-> Before you stop: search the lake for prior fires of this routine and confirm you have moved past where the last one left off. Then state — out loud, so it gets captured — what the next fire of this routine should accomplish. One sentence. Leave a breadcrumb.
-
-This is what separates a routine that compounds from a routine that just generates noise. It's especially load-bearing for open-ended research, writing, or any work where "done" is a horizon, not a checklist.
+**When the witness picks claude-code**:
+- A claude-code dispatch card (the kitty plugin spawns the session).
+- The closure delta when claude returns (`task-complete`).
+- A second witness tick that synthesizes the user-facing card.
+- Anything fathom-connect captures inside the session (prompts, replies, tool calls — all auto-captured if `~/.claude/settings.json` has the hooks installed).
 
 ## Edit a routine
 
 Routines edit by writing a new spec delta with the same `routine-id:<id>` tag. The scheduler always uses the latest spec by timestamp. The dashboard's **Routines** page does this for you when you save changes.
 
-You can also edit by hand. From the lake's HTTP API:
+You can also edit by hand:
 
 ```bash
 curl -X PUT 'http://localhost:8201/v1/routines/<routine-id>' \
@@ -159,28 +311,26 @@ The full field list is in [routine-spec.md](../reference/routine-spec.md).
 
 ## Pause a routine
 
-Set `enabled: false` on the spec. The dashboard greys it out. The scheduler skips it. Re-enable later by setting `enabled: true`.
-
-This is a real edit (a new spec delta), not a state flag. Audit history is preserved.
+Set `enabled: false` on the spec. Re-enable later by setting `enabled: true`.
 
 ## Delete a routine
 
-Set `deleted: true` on the spec. The dashboard hides it. The scheduler skips it.
-
-The history of every fire and summary stays in the lake. Tombstoning means the routine stops running, not that it's erased.
+Set `deleted: true` on the spec. The dashboard hides it. The scheduler skips it. History stays in the lake.
 
 ## Common patterns
 
-**Daily briefing.** Cron `0 7 * * 1-5`. Prompt: "Check overnight emails, GitHub notifications, and any new feed items tagged urgent. Summarize what needs my attention this morning."
+**Daily briefing (claude-code routed).** Cron `0 7 * * 1-5`. Prompt: "Check overnight emails, GitHub notifications, and any new feed items tagged urgent. Synthesize what needs my attention this morning."
 
-**Cleanup task.** Cron `0 3 * * 0` (Sunday 3am). Prompt: "Walk the project at workspace, list any TODO comments older than 90 days, and open issues for them."
+**Weekly retrospective (substrate-only).** Cron `0 17 * * 5`. Prompt: "Look at what's landed in the lake this week. Group themes. Surface one thing I'd want to remember next month."
 
-**Status report.** Cron `0 17 * * 5` (Friday 5pm). Prompt: "Summarize what got committed across my projects this week. Group by project and rank by impact."
+**Self-audit (proposal-routed).** Cron `0 10 1 * *`. Prompt: "Once a month, look for routines whose last 5 summaries were thin or didn't advance the work. If you find any, propose disabling them."
 
-**Self-audit.** Cron `0 10 1 * *`. Prompt: like the docs drift audit running on this very repo right now.
+**Quiet check (alert-routed).** Cron `0 9 * * *`. Prompt: "If any research thread has been quiet for 3+ days, surface it as a soft alert. Otherwise, stay silent."
 
 ## Things to know
 
-- **Routines don't write to chat sessions.** The fire and summary deltas go to `routine-id:<id>`, not `chat:<slug>`. To see results, look at the Routines page or search the lake by `routine-id`. (Hook-captured prompt/reply deltas during the routine session also don't carry a `chat:` tag.)
-- **One spec per routine, immutable history.** Past fires and summaries persist forever. The "current" routine is always the latest spec delta with that id.
-- **The agent host runs the routine.** If your only agent is on a desktop that you turn off at night, a 7am routine won't fire until the desktop wakes up. Pair an always-on host (server, NAS) for routines that need to be reliable.
+- **Routines don't write to chat sessions.** Cron-driven activity goes to `routine-id:<id>`, not `chat:<slug>`. To see results, look at the Routines page or search the lake by `routine-id`.
+- **One spec per routine, immutable history.** Past activity persists forever. The "current" routine is always the latest spec delta with that id.
+- **The agent host runs claude-code (when the witness picks it).** If your only agent is on a desktop you turn off at night, a 7am routine routed through claude-code won't fetch until the desktop wakes. Substrate-only routines (feed-card, chat-reply, alert) don't need an agent.
+- **`single_fire` is honored.** The scheduler tombstones the spec after the first cron tick fires.
+- **`interval_minutes` is dead.** Use `schedule` (cron). The field is parsed for back-compat but ignored by the scheduler.
