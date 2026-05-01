@@ -333,6 +333,21 @@ def get_feed(
                     "content": d.get("content") or "",
                     **common,
                 })
+            elif kind == "routine-due":
+                # Routine cron tick — surfaces as a "routine fired" marker
+                # in the feed so the user sees the trigger that caused
+                # whatever the witness emitted next. Carries routine-id so
+                # the renderer can link to the routine detail page.
+                routine_id = next(
+                    (t.split(":", 1)[1] for t in tags if t.startswith("routine-id:")),
+                    "",
+                )
+                items.append({
+                    "kind": "routine-due",
+                    "routine_id": routine_id,
+                    "content": d.get("content") or "",
+                    **common,
+                })
             continue
         # Crystal facets — identity layer.
         if "crystal" in tags:

@@ -638,6 +638,30 @@
       border-left-color: #ef4444;
     }
     .feed .delta.intent.intent-alert .d-kind { color: #ef4444; }
+    /* Routine-due — the cron tick that handed a routine to the witness.
+       Compact "routine fired" row, minor visual weight, click to open
+       the routine detail page. */
+    .feed .delta.routine.routine-due {
+      border-left-color: var(--signal, #d97706);
+      background: color-mix(in srgb, var(--surface) 95%, var(--signal, #d97706) 5%);
+      font-size: 12px;
+      padding: 6px 12px;
+    }
+    .feed .delta.routine.routine-due .d-kind {
+      color: var(--signal, #d97706);
+      font-weight: 600;
+      font-size: 11px;
+      letter-spacing: 0.04em;
+    }
+    .feed .delta.routine.routine-due .d-body {
+      font-family: var(--mono);
+      font-size: 11.5px;
+      color: var(--ink-faint);
+      margin-top: 2px;
+    }
+    .feed .delta.routine.routine-due:hover {
+      background: color-mix(in srgb, var(--surface) 90%, var(--signal, #d97706) 10%);
+    }
     /* Crystal — purple accent on the surface tint. */
     .feed .delta.crystal {
       border-left-color: #a78bfa;
@@ -8409,6 +8433,7 @@ GET  /v1/usage               Usage stats`,
       'crystal':               'identity',
       'mood':                  'identity',
       'routine':               'routine',
+      'routine-due':           'routine',
       'claude-code-dispatch':  'claude-code',
       'claude-code-reply':     'claude-code',
     };
@@ -9087,6 +9112,33 @@ GET  /v1/usage               Usage stats`,
         el.dataset.puddleId = it.id || '';
         if (it.id) el.dataset.deltaId = it.id;
         el.innerHTML = `<header class="d-head"><span class="d-kind">${_esc(passKind)}</span><span class="d-ts">${timeStr}</span></header><div class="d-body">${_esc(it.content || '')}</div>`;
+        return el;
+      }
+      // Routine-due — the cron tick that handed a routine to the River.
+      // Compact "🗓 routine fired" row that's the visible breadcrumb
+      // upstream of whatever the witness emitted in response. Click jumps
+      // to the routine's detail page.
+      if (it.kind === 'routine-due') {
+        const el = document.createElement('article');
+        el.className = 'delta routine routine-due';
+        el.dataset.kind = 'routine-due';
+        el.dataset.fromPuddle = '1';
+        el.dataset.puddleId = it.id || '';
+        if (it.id) el.dataset.deltaId = it.id;
+        if (it.routine_id) el.dataset.routineId = it.routine_id;
+        const summary = (it.content || '').split('\n')[0].replace(/^\[routine-due:\s*/, '').replace(/\]$/, '').trim();
+        const label = it.routine_id
+          ? `routine fired · ${_esc(it.routine_id)}`
+          : 'routine fired';
+        el.innerHTML = `<header class="d-head"><span class="d-kind">${label}</span><span class="d-ts">${timeStr}</span></header>${summary ? `<div class="d-body">${_esc(summary)}</div>` : ''}`;
+        if (it.routine_id) {
+          el.style.cursor = 'pointer';
+          el.title = `Click to open routine ${it.routine_id}`;
+          el.addEventListener('click', (e) => {
+            e.stopPropagation();
+            if (typeof openRoutineDetail === 'function') openRoutineDetail(it.routine_id);
+          });
+        }
         return el;
       }
       // Crystal facet
