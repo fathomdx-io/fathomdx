@@ -3203,13 +3203,30 @@
         </div>
       </section>
 
-      <!-- ── Helpers (agent + routines) ────────────── -->
+      <!-- ── Routines ──────────────────────────────── -->
+      <!-- Routines are scheduled prompts that fire INTO the River.
+           The witness reads each as an intent and routes — claude-code
+           dispatch, feed-card from substrate, alert, chat-reply, silent.
+           A routine isn't a helper; it's a lake-resident artifact (spec
+           delta) that the cron scheduler hands to the witness. -->
+      <section class="section" id="routinesSection">
+        <div class="section-head">
+          <h2>Routines</h2>
+          <span class="meta" id="routinesMeta"></span>
+        </div>
+        <p class="section-desc">Scheduled prompts I hand to myself. Each one fires into the River and I decide how to respond — fetch fresh data, write a card from substrate, alert you, or stay quiet.</p>
+        <div class="sources" id="routinesList" data-routine-list="">
+          <button class="chip add" data-new-routine-for="" type="button">+ New routine</button>
+        </div>
+      </section>
+
+      <!-- ── Helpers (agent plugins on local machines) ─── -->
       <section class="section" id="agentSection">
         <div class="section-head">
           <h2>Helpers</h2>
           <span class="meta" id="agentMeta">loading…</span>
         </div>
-        <p class="section-desc">The local agent on your machine and its routines — background work that keeps the lake fresh while you're away.</p>
+        <p class="section-desc">Plugins running on your local machines — heartbeat, system metrics, kitty for claude-code dispatches, file watchers. Always on while the agent is.</p>
         <div id="agentBody"><!-- populated by renderAgentSection() --></div>
       </section>
 
@@ -5425,14 +5442,6 @@
                 ${updateChipHtml}
                 ${configureHtml}
               </div>
-              <div class="agent-routines" data-host="${_esc(a.host)}">
-                <div class="agent-routines-head">
-                  <h3>Routines</h3>
-                </div>
-                <div class="sources" data-routine-list="${_esc(a.host)}">
-                  <button class="chip add" data-new-routine-for="${_esc(a.host)}" type="button">+ New routine</button>
-                </div>
-              </div>
             </div>`;
         }).join('');
 
@@ -5466,8 +5475,8 @@
         meta.textContent = 'not installed';
         body.innerHTML = `
           <div class="agent-callout">
-            <h3>Install a Fathom Helper and unlock routines and local sources.</h3>
-            <p>A helper runs locally on your machine. It watches your files, tracks system health, and executes scheduled Routines — prompts that fire into a local claude session on a schedule of your choosing.</p>
+            <h3>Install a Fathom Helper to give Fathom hands on your machine.</h3>
+            <p>A helper runs locally — watches files, tracks system health, and runs claude-code sessions when the witness dispatches one (for fetch routines, file edits, or shell work). Substrate-only routines work without a helper; install one when you want Fathom to actually reach into a machine.</p>
           </div>` + platformTiles;
       }
     }
@@ -5525,12 +5534,14 @@
       const when = _nextFireText(r);
       const diff = (Number(r.next_fire_at || 0) * 1000) - Date.now();
       const soon = r.enabled && diff > 0 && diff < 10 * 60 * 1000;  // <10min highlights
-      // Fleet-wide routines get a subtle marker so they're distinguishable
-      // from host-pinned ones sitting in the same agent block.
-      const fleetwide = !r.host ? ' <span class="next-fire" style="opacity:.6">· any</span>' : '';
+      // Routines moved out of the per-host Helpers card. Each chip now
+      // surfaces its host (or "fleet" for routines with no pin) so the
+      // unified list still tells you where each one will run if the
+      // witness picks claude-code.
+      const hostLabel = r.host ? r.host : 'fleet';
       return `<span class="chip" data-routine="${_esc(r.id)}" data-state="${state}">
         <span class="dot"></span>
-        <span class="label">${_esc(name)} <span class="next-fire${soon ? ' soon' : ''}">${_esc(when)}</span>${fleetwide}</span>
+        <span class="label">${_esc(name)} <span class="next-fire${soon ? ' soon' : ''}">${_esc(when)}</span> <span class="next-fire" style="opacity:.6">· ${_esc(hostLabel)}</span></span>
       </span>`;
     }
 
@@ -5548,18 +5559,29 @@
     }
 
     function renderRoutines() {
-      // One list per agent block (keyed by host). An agent sees routines
-      // pinned to its host and fleet-wide routines (no host set).
-      const lists = document.querySelectorAll('[data-routine-list]');
-      if (!lists.length || !_agentStatus.alive) return;
+      // Top-level Routines section — one list, every routine across the
+      // fleet, sorted by next_fire_at. Host is shown on the chip itself.
+      // Routines moved out of the per-agent Helpers card; they aren't
+      // helpers any more (cron writes a routine-due intent into the
+      // River, the witness routes — the agent's role is downstream).
+      const list = document.getElementById('routinesList');
+      if (!list) return;
+      const all = _sortRoutines(_routineCache.slice());
+      const chipsHtml = all.map(_routineChipHTML).join('');
+      list.innerHTML = chipsHtml + `<button class="chip add" data-new-routine-for="" type="button">+ New routine</button>`;
 
-      for (const list of lists) {
-        const host = list.dataset.routineList;
-        const mine = _routineCache.filter(r => !r.host || r.host === host);
-        const chipsHtml = _sortRoutines(mine).map(_routineChipHTML).join('');
-        list.innerHTML = chipsHtml + `<button class="chip add" data-new-routine-for="${_esc(host)}" type="button">+ New routine</button>`;
-
+      // Section meta: count of enabled routines.
+      const meta = document.getElementById('routinesMeta');
+      if (meta) {
+        const enabled = _routineCache.filter(r => r.enabled).length;
+        const total = _routineCache.length;
+        meta.textContent = total === 0
+          ? ''
+          : enabled === total
+            ? `${total}`
+            : `${enabled}/${total} enabled`;
       }
+
       _wireAddRoutineChips();
       _wireRoutineChips();
     }
@@ -8815,7 +8837,7 @@ GET  /v1/usage               Usage stats`,
           <span class="d-kind">routine · <span class="routine-name${routineId ? ' is-link' : ''}">${_esc(name)}</span> · <span class="routine-variant">${_esc(variantLabel)}</span></span>
           <span class="d-ts">${timeStr}</span>
         </summary>
-        <div class="d-body">${_esc(body)}</div>
+        <div class="d-body">${renderMd(body)}</div>
       `;
       // Clicking the routine-name span jumps to the routine detail page;
       // clicking anywhere else on the summary toggles the accordion.
@@ -9199,7 +9221,7 @@ GET  /v1/usage               Usage stats`,
         el.dataset.fromPuddle = '1';
         el.dataset.puddleId = it.id || '';
         if (it.id) el.dataset.deltaId = it.id;
-        el.innerHTML = `<header class="d-head"><span class="d-kind">${_esc(it.voice || 'voice')}</span><span class="d-ts">${timeStr}</span></header><div class="d-body">${_esc(it.content || '')}</div>`;
+        el.innerHTML = `<header class="d-head"><span class="d-kind">${_esc(it.voice || 'voice')}</span><span class="d-ts">${timeStr}</span></header><div class="d-body">${renderMd(it.content || '')}</div>`;
         return el;
       }
       // Pass intent (reflection / drift / bridging / alert) — purple-
