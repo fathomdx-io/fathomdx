@@ -339,9 +339,31 @@ def _merge_meta(body: dict, existing: dict | None = None) -> tuple[dict, str, st
     return meta, body.get("prompt", ""), meta.get("workspace", "")
 
 
+def _slugify(name: str, max_len: int = 48) -> str:
+    """Routine-id fallback when only name is supplied.
+
+    Lowercase, non-alphanumerics → hyphens, collapse runs, trim. Stable
+    enough that the same name produces the same id, short enough to
+    type. Identical to tools._slugify but kept here so any caller of
+    routines.create() — proposal endpoint, chat tool, manual API — gets
+    the same fallback without needing to import tools.
+    """
+    import re
+
+    s = re.sub(r"[^a-z0-9]+", "-", (name or "").lower()).strip("-")
+    return s[:max_len].rstrip("-")
+
+
 async def create(body: dict) -> dict:
     rid = (body.get("id") or "").strip()
     name = (body.get("name") or "").strip()
+    # Slug fallback — when the caller (witness, chat tool, proposal
+    # approve) supplies a name but no id, derive the id from the name
+    # so the user doesn't have to think about slugs. Stable: the same
+    # name always produces the same id.
+    if not rid and name:
+        rid = _slugify(name)
+        body = {**body, "id": rid}
     if not rid or not name:
         raise ValueError("id and name are required")
     existing = await get_latest_spec(rid)
