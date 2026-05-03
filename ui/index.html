@@ -9743,6 +9743,11 @@ GET  /v1/usage               Usage stats`,
         if (action === 'update') return `Update routine: ${name || id}`;
         if (action === 'delete') return `Delete routine: ${name || id}`;
       }
+      if (tool === 'provenance') {
+        const title = args.title || '';
+        const lvl = args.level != null ? args.level : '?';
+        return title ? `Create level-${lvl} provenance: ${title}` : `Create level-${lvl} provenance`;
+      }
       return '';
     }
 
@@ -9758,6 +9763,20 @@ GET  /v1/usage               Usage stats`,
         if (typeof args.single_fire === 'boolean') rows.push(['single fire', args.single_fire ? 'yes' : 'no']);
         if (typeof args.enabled === 'boolean') rows.push(['enabled', args.enabled ? 'yes' : 'no']);
         if (args.prompt) rows.push(['prompt', args.prompt]);
+        return rows.map(([k, v]) =>
+          `<div class="proposal-row"><span class="proposal-row-key">${_esc(k)}</span><span class="proposal-row-val">${_esc(String(v))}</span></div>`
+        ).join('');
+      }
+      if (tool === 'provenance') {
+        const rows = [];
+        if (args.level != null) rows.push(['level', String(args.level)]);
+        const fromCount = Array.isArray(args.from_ids) ? args.from_ids.length : 0;
+        if (fromCount) rows.push(['constituents', `${fromCount} delta${fromCount === 1 ? '' : 's'}`]);
+        if (args.rationale) rows.push(['rationale', args.rationale]);
+        if (Array.isArray(args.test_questions) && args.test_questions.length) {
+          rows.push(['test questions', args.test_questions.map(q => `· ${q}`).join('\n')]);
+        }
+        if (args.seed) rows.push(['seed', args.seed]);
         return rows.map(([k, v]) =>
           `<div class="proposal-row"><span class="proposal-row-key">${_esc(k)}</span><span class="proposal-row-val">${_esc(String(v))}</span></div>`
         ).join('');
@@ -9797,6 +9816,34 @@ GET  /v1/usage               Usage stats`,
             <input class="proposal-input" data-arg="enabled" type="checkbox" ${args.enabled === false ? '' : 'checked'} />
             <span>enabled</span>
           </label>`;
+      } else if (tool === 'provenance') {
+        const tq = Array.isArray(args.test_questions) ? args.test_questions.join('\n') : '';
+        const fromIds = Array.isArray(args.from_ids) ? args.from_ids.join(', ') : '';
+        formHtml = `
+          <label class="proposal-field">
+            <span class="proposal-field-label">title</span>
+            <input class="proposal-input" data-arg="title" type="text" value="${_esc(args.title || '')}" />
+          </label>
+          <label class="proposal-field">
+            <span class="proposal-field-label">level</span>
+            <input class="proposal-input" data-arg="level" type="number" min="0" max="3" value="${_esc(String(args.level != null ? args.level : 1))}" />
+          </label>
+          <label class="proposal-field">
+            <span class="proposal-field-label">summary</span>
+            <textarea class="proposal-input proposal-prompt" data-arg="summary" rows="4">${_esc(args.summary || '')}</textarea>
+          </label>
+          <label class="proposal-field">
+            <span class="proposal-field-label">rationale</span>
+            <textarea class="proposal-input" data-arg="rationale" rows="2">${_esc(args.rationale || '')}</textarea>
+          </label>
+          <label class="proposal-field">
+            <span class="proposal-field-label">test questions (one per line)</span>
+            <textarea class="proposal-input" data-arg="test_questions__lines" rows="3">${_esc(tq)}</textarea>
+          </label>
+          <label class="proposal-field">
+            <span class="proposal-field-label">from_ids (read-only — what the agent matched)</span>
+            <textarea class="proposal-input" data-arg="from_ids__readonly" rows="2" readonly style="opacity:0.6">${_esc(fromIds)}</textarea>
+          </label>`;
       } else {
         formHtml = `<textarea class="proposal-input proposal-args-edit" data-arg="__json">${_esc(JSON.stringify(args, null, 2))}</textarea>`;
       }
@@ -9832,7 +9879,22 @@ GET  /v1/usage               Usage stats`,
         if (key === '__json') {
           try { return { ...base, ...JSON.parse(inp.value || '{}') }; } catch { return base; }
         }
+        // Convention: `<field>__readonly` → don't write back; preserves
+        // values the user shouldn't fiddle with (from_ids on a
+        // provenance proposal, for example).
+        if (key.endsWith('__readonly')) continue;
+        // Convention: `<field>__lines` → split textarea on newlines into
+        // a string list. Used for provenance test_questions.
+        if (key.endsWith('__lines')) {
+          const realKey = key.slice(0, -'__lines'.length);
+          merged[realKey] = (inp.value || '').split('\n').map(s => s.trim()).filter(Boolean);
+          continue;
+        }
         if (inp.type === 'checkbox') merged[key] = inp.checked;
+        else if (inp.type === 'number') {
+          const n = Number(inp.value);
+          merged[key] = Number.isFinite(n) ? n : inp.value;
+        }
         else merged[key] = inp.value;
       }
       return merged;
