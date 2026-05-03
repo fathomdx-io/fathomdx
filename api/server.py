@@ -188,15 +188,28 @@ async def lifespan(_app: FastAPI):
     from .loop import worker as loop_worker
     from . import routine_scheduler
 
-    auto_regen.start()
-    routine_scheduler.start()
-    loop_worker.start()
+    # FATHOM_QUIET_MODE — when set, skip every background process that
+    # writes to the lake on its own clock. The Grand Loop, routine
+    # scheduler, and slow-clock crystal/mood/feed regen all stay dark.
+    # The api itself stays responsive — endpoints work, the dashboard
+    # serves, and the harness test page can fire single-shot harness
+    # runs against a static lake. Used by the provenance-maker
+    # experiment so an experimental copy of the lake doesn't accrue
+    # ambient writes while we're shaping it by hand.
+    quiet = os.environ.get("FATHOM_QUIET_MODE", "").lower() in ("1", "true", "yes")
+    if quiet:
+        log.info("FATHOM_QUIET_MODE — skipping auto_regen / routine_scheduler / loop_worker")
+    else:
+        auto_regen.start()
+        routine_scheduler.start()
+        loop_worker.start()
     try:
         yield
     finally:
-        await loop_worker.stop()
-        await routine_scheduler.stop()
-        await auto_regen.stop()
+        if not quiet:
+            await loop_worker.stop()
+            await routine_scheduler.stop()
+            await auto_regen.stop()
         await delta_client.close()
 
 
