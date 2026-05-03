@@ -1483,4 +1483,9 @@ if _UI_DIR.is_dir():
     async def ui_root():
         return FileResponse(_UI_DIR / "index.html", headers=_NO_CACHE_HEADERS)
 
-    app.mount("/ui", StaticFiles(directory=str(_UI_DIR), html=True), name="ui")
+    # `/ui` mount serves auxiliary HTML files (login.html, onboarding.html)
+    # and dev pages (prototype.html, logo-*.html). `html=False` so `/ui/`
+    # itself doesn't shadow the canonical dashboard at `/` — the bare path
+    # 404s instead of serving a duplicate index.html. Post-auth redirects
+    # in login.html and onboarding.html target `/` directly.
+    app.mount("/ui", StaticFiles(directory=str(_UI_DIR), html=False), name="ui")

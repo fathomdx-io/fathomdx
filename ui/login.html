@@ -245,7 +245,7 @@
       try {
         const info = await validateToken(existing);
         if (info.authenticated) {
-          location.replace('/ui/');
+          location.replace('/');
         }
       } catch (e) {}
     })();
@@ -266,7 +266,7 @@
         try { localStorage.setItem('fathom-api-key', token); } catch (e) {}
         const name = (info.contact && info.contact.display_name) || 'you';
         showStatus('Welcome, ' + name + '. Redirecting…', 'ok');
-        setTimeout(() => location.replace('/ui/'), 400);
+        setTimeout(() => location.replace('/'), 400);
       } catch (e) {
         showStatus('Could not reach the server. ' + e.message, 'error');
         btn.disabled = false;

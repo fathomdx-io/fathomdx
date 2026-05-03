@@ -383,7 +383,7 @@
         try { localStorage.setItem('fathom-api-key', data.token); } catch (e) {}
         const name = (data.contact && data.contact.display_name) || displayName;
         showStatus('Welcome, ' + name + '. Loading your dashboard…', 'ok');
-        setTimeout(() => location.replace('/ui/'), 500);
+        setTimeout(() => location.replace('/'), 500);
       } catch (e) {
         showStatus('Could not reach the server. ' + e.message, 'error');
         btn.disabled = false;
