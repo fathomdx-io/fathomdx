@@ -47,10 +47,11 @@ from ..process import run_process
 from ..puddle import puddle
 
 
-# Hard caps on tool-result rendering — keep one tool's output from
-# eating the entire prompt budget. The model can issue another search
-# with a refined query if it needs more.
-_SEARCH_RENDER_BUDGET = 4000
+# Hard caps on per-call result counts — these limit how many items a
+# tool returns, not how much rendered text it produces. The harness
+# test page wants to see full results; the prompt-budget truncation
+# happens later in render_tool_history when the result is folded back
+# into the next turn's prompt.
 _EXPAND_LIMIT = 12
 _ASCEND_LIMIT = 6
 
@@ -76,8 +77,6 @@ async def tool_search(*, query: str, depth: str = "deep") -> str:
     rendered = (result.get("as_prompt") or "").strip()
     if not rendered:
         return "(no results — query did not surface anything from the lake)"
-    if len(rendered) > _SEARCH_RENDER_BUDGET:
-        rendered = rendered[:_SEARCH_RENDER_BUDGET] + "\n…(truncated; refine your query for more)"
     return rendered
 
 
@@ -285,7 +284,6 @@ def _render_delta_brief(d: dict) -> str:
 
 
 _LENS_RESULT_LIMIT = 30          # cap items returned per lens call
-_LENS_RENDER_BUDGET = 4000       # cap rendered output chars
 
 
 def _short(d: dict, *, max_chars: int = 240) -> str:
@@ -308,12 +306,6 @@ def _short(d: dict, *, max_chars: int = 240) -> str:
             break
     tag_part = f" [{', '.join(salient)}]" if salient else ""
     return f"  · {did} {src} {ts}{tag_part}\n      {content}"
-
-
-def _truncate_block(s: str, *, budget: int = _LENS_RENDER_BUDGET) -> str:
-    if len(s) <= budget:
-        return s
-    return s[:budget] + "\n…(truncated; refine the lens call for less)"
 
 
 def _now_iso() -> str:
@@ -379,7 +371,7 @@ async def tool_state(*, action: str = "help", **kwargs) -> str:
             iid = (it.get("id") or "")[:12]
             ts = (it.get("timestamp") or "")[:19]
             blocks.append(f"  · {iid} kind={kind} {ts}\n      {content}")
-        return _truncate_block("\n".join(blocks))
+        return "\n".join(blocks)
 
     if action == "proposals":
         try:
@@ -406,7 +398,7 @@ async def tool_state(*, action: str = "help", **kwargs) -> str:
             did = (d.get("id") or "")[:12]
             ts = (d.get("timestamp") or "")[:19]
             blocks.append(f"  · {did} tool={tool} {ts}\n      {title}")
-        return _truncate_block("\n".join(blocks))
+        return "\n".join(blocks)
 
     if action == "mood":
         try:
@@ -428,7 +420,7 @@ async def tool_state(*, action: str = "help", **kwargs) -> str:
         blocks = [f"Mood ({len(items)}):", ""]
         for d in items[:8]:
             blocks.append(_short(d, max_chars=280))
-        return _truncate_block("\n".join(blocks))
+        return "\n".join(blocks)
 
     if action == "crystal":
         try:
@@ -443,7 +435,7 @@ async def tool_state(*, action: str = "help", **kwargs) -> str:
         blocks = [f"Identity crystal facets ({len(items)}):", ""]
         for d in items[:6]:
             blocks.append(_short(d, max_chars=400))
-        return _truncate_block("\n".join(blocks))
+        return "\n".join(blocks)
 
     if action == "recent":
         try:
@@ -478,7 +470,7 @@ async def tool_state(*, action: str = "help", **kwargs) -> str:
                     if len(content) > 120:
                         content = content[:120] + "…"
                     blocks.append(f"      {(d.get('id') or '')[:12]} {content}")
-            return _truncate_block("\n".join(blocks))
+            return "\n".join(blocks)
 
         if group_by == "kind":
             counts: Counter = Counter()
@@ -490,7 +482,7 @@ async def tool_state(*, action: str = "help", **kwargs) -> str:
             blocks = [f"Activity in last {hours}h grouped by kind:", ""]
             for k, n in counts.most_common(20):
                 blocks.append(f"  · {k}: {n}")
-            return _truncate_block("\n".join(blocks))
+            return "\n".join(blocks)
 
         return f"ERROR: unknown group_by={group_by!r} (try 'source' or 'kind')"
 
@@ -545,7 +537,7 @@ async def tool_pattern(*, action: str = "help", **kwargs) -> str:
         blocks = [f"Tagged {tag!r} ({len(items)}):", ""]
         for d in items[:limit]:
             blocks.append(_short(d))
-        return _truncate_block("\n".join(blocks))
+        return "\n".join(blocks)
 
     if action == "count_by":
         group_by = (kwargs.get("group_by") or "source").strip().lower()
@@ -586,7 +578,7 @@ async def tool_pattern(*, action: str = "help", **kwargs) -> str:
         for k, n in counts.most_common(30):
             pct = (n / total) * 100.0 if total else 0.0
             blocks.append(f"  · {k}: {n}  ({pct:.1f}%)")
-        return _truncate_block("\n".join(blocks))
+        return "\n".join(blocks)
 
     if action == "salient_recent":
         try:
@@ -647,7 +639,7 @@ async def tool_pattern(*, action: str = "help", **kwargs) -> str:
                 f"(s={ax.get('salience',0):.2f} r={ax.get('resonance',0):.2f} "
                 f"c={ax.get('confidence',0):.2f})\n      {title}"
             )
-        return _truncate_block("\n".join(blocks))
+        return "\n".join(blocks)
 
     if action == "dormant":
         try:
@@ -689,7 +681,7 @@ async def tool_pattern(*, action: str = "help", **kwargs) -> str:
         ]
         for d in old[:_LENS_RESULT_LIMIT]:
             blocks.append(_short(d))
-        return _truncate_block("\n".join(blocks))
+        return "\n".join(blocks)
 
     return f"ERROR: unknown pattern action {action!r} — try pattern(action='help')"
 
@@ -751,7 +743,7 @@ async def tool_time(*, action: str = "help", **kwargs) -> str:
         blocks = [f"Window {start[:19]}..{end[:19]} ({len(items)}):", ""]
         for d in items[:limit]:
             blocks.append(_short(d))
-        return _truncate_block("\n".join(blocks))
+        return "\n".join(blocks)
 
     if action == "bucket_by":
         period = (kwargs.get("period") or "day").strip().lower()
@@ -808,13 +800,13 @@ async def tool_time(*, action: str = "help", **kwargs) -> str:
                 top = nested[b].most_common(5)
                 line = ", ".join(f"{k}={n}" for k, n in top)
                 blocks.append(f"  {b}  {line}")
-            return _truncate_block("\n".join(blocks))
+            return "\n".join(blocks)
 
         counts = Counter(_bucket(d.get("timestamp") or "") for d in items)
         blocks = [f"Counts by {period} since {since[:19]}:", ""]
         for b in sorted(counts.keys()):
             blocks.append(f"  {b}  {counts[b]}")
-        return _truncate_block("\n".join(blocks))
+        return "\n".join(blocks)
 
     return f"ERROR: unknown time action {action!r} — try time(action='help')"
 
@@ -864,7 +856,7 @@ async def tool_relate(*, action: str = "help", **kwargs) -> str:
         blocks = [f"Tagged contact:{slug} ({len(items)}):", ""]
         for d in items[:limit]:
             blocks.append(_short(d))
-        return _truncate_block("\n".join(blocks))
+        return "\n".join(blocks)
 
     if action == "engagement":
         direction = (kwargs.get("direction") or "+").strip()
@@ -903,7 +895,7 @@ async def tool_relate(*, action: str = "help", **kwargs) -> str:
             blocks.append(
                 f"  · {attest_id[:12]} → {target_id[:12]}"
             )
-        return _truncate_block("\n".join(blocks))
+        return "\n".join(blocks)
 
     if action == "dropped_around":
         target = (kwargs.get("delta_id") or "").strip()
@@ -920,7 +912,7 @@ async def tool_relate(*, action: str = "help", **kwargs) -> str:
         blocks = [f"Refutations of {target[:12]} ({len(items)}):", ""]
         for d in items[:_LENS_RESULT_LIMIT]:
             blocks.append(_short(d))
-        return _truncate_block("\n".join(blocks))
+        return "\n".join(blocks)
 
     if action == "cited_by":
         target = (kwargs.get("delta_id") or "").strip()
@@ -945,7 +937,7 @@ async def tool_relate(*, action: str = "help", **kwargs) -> str:
         blocks = [f"Citations of {target[:12]} ({len(items)}):", ""]
         for d in items[:_LENS_RESULT_LIMIT]:
             blocks.append(_short(d))
-        return _truncate_block("\n".join(blocks))
+        return "\n".join(blocks)
 
     return f"ERROR: unknown relate action {action!r} — try relate(action='help')"
 
