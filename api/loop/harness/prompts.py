@@ -31,7 +31,7 @@ Eight peer tools, each a different way of seeing the lake. Pick the
 shape that matches the question — semantic recall is one mode among
 many, not the default.
 
-semantic_compositional_search(query: str, depth: "shallow"|"deep" = "deep")
+semantic(query: str, depth: "shallow"|"deep" = "deep")
   LLM-composed multi-step plan over embedding similarity. Heavy and
   powerful. Use when the question has a CONTENT anchor that can be
   named in words ("tell me about X", "what did we say about Y").
@@ -75,7 +75,7 @@ relate(action="help" | "with_contact" | "engagement" | "dropped_around" |
   affirmed lately", "what was rejected around this idea."
 
 Most tools return delta ids — feed them into expand/ascend/
-semantic_compositional_search to navigate further.
+semantic to navigate further.
 
 ══ TOOL CALLS THIS FIRE ══
 {tool_history}

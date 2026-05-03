@@ -2,7 +2,7 @@
 
 Eight peer tools, each addressing a different way of seeing the lake:
 
-  semantic_compositional_search
+  semantic
                  — LLM-composed multi-step search plan over embeddings.
                    The heavy hitter; expensive and powerful. Use when
                    the question has a CONTENT anchor that can be named.
@@ -22,7 +22,7 @@ Eight peer tools, each addressing a different way of seeing the lake:
                    what's been dropped. Call relate(action='help').
 
 Most tools surface delta ids — feed them into expand/ascend/
-semantic_compositional_search to navigate further. Lenses surface;
+semantic to navigate further. Lenses surface;
 graph tools traverse.
 
 `deliberate` wraps the existing convener + parliament one-round path; it
@@ -951,7 +951,7 @@ async def tool_relate(*, action: str = "help", **kwargs) -> str:
 # Tool registry — the loop driver looks up handlers here. Each handler
 # is async, takes kwargs, returns a string.
 TOOL_HANDLERS = {
-    "semantic_compositional_search": tool_search,
+    "semantic": tool_search,
     "expand":     tool_expand,
     "ascend":     tool_ascend,
     "deliberate": tool_deliberate,
@@ -971,7 +971,7 @@ TOOL_HANDLERS = {
 # their menus are open-ended (action + action-specific args). The
 # dispatcher passes everything through and the handler validates inside.
 TOOL_MODEL_ARGS = {
-    "semantic_compositional_search": {"query", "depth"},
+    "semantic": {"query", "depth"},
     "expand":     {"delta_id"},
     "ascend":     {"delta_id"},
     "deliberate": {"question"},
