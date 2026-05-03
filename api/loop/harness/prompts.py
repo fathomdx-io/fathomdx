@@ -107,9 +107,10 @@ You are on turn {turn_number} of at most {max_turns}. Most fires need 0–2 tool
 def render_tool_history(history: list[dict]) -> str:
     """Format the per-turn tool-call transcript for inclusion in the prompt.
 
-    Each entry is `{turn, tool, args, result, error}`. Errors render as
-    `→ ERROR: <type>: <msg>`; results truncate at 2400 chars to keep the
-    prompt budget bounded across many tool calls.
+    Each entry is `{turn, tool, args, result, error}`. No truncation —
+    if the model needs less context, it should call narrower tools next
+    turn. Visible-everything is the harness's design principle; silent
+    truncation hides what the agent has access to.
     """
     if not history:
         return "  (no tool calls yet — this is your first turn)"
@@ -119,15 +120,11 @@ def render_tool_history(history: list[dict]) -> str:
         tool = h.get("tool", "?")
         args = h.get("args") or {}
         args_str = ", ".join(f"{k}={v!r}" for k, v in args.items())
-        if len(args_str) > 200:
-            args_str = args_str[:200] + "…"
         header = f"Turn {turn}: {tool}({args_str})"
         if h.get("error"):
             blocks.append(f"  {header}\n    → ERROR: {h['error']}")
             continue
         result = (h.get("result") or "").rstrip()
-        if len(result) > 2400:
-            result = result[:2400] + "\n    …(truncated)"
         # Indent result block two spaces deeper than the header.
         result_indented = "\n".join(f"    {line}" for line in result.splitlines())
         blocks.append(f"  {header}\n{result_indented}")

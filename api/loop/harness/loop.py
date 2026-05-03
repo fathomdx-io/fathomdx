@@ -27,7 +27,7 @@ import re
 from typing import Any, Awaitable, Callable
 
 from .. import witness as witness_mod
-from ..intents import intent_kind
+from ..intents import CONVO_TAG, intent_kind
 from ..llm import loop_generate
 from ..puddle import puddle
 from .prompts import HARNESS_SYSTEM, render_tool_history
@@ -97,9 +97,16 @@ async def run_harness(
     available_hosts = await witness_mod._available_claude_code_hosts()
     hosts_block = witness_mod._render_hosts_block(available_hosts)
     routines_block = await witness_mod._render_routines_block(available_hosts)
-    standpoint_block = witness_mod._render_standpoint_for_witness(standpoint) or (
-        "(standpoint unavailable — speak from anchors and feed)"
-    )
+    # The harness's design principle: the model sees everything that's
+    # available. The shared render_for_prompt has internal per-item
+    # caps (identity [:600], endorsement excerpts [:80], understanding
+    # [:160], and only the first 6 endorsements / 3 understanding
+    # entries). For the harness we want full state, so we render
+    # straight off the standpoint object.
+    if standpoint is not None:
+        standpoint_block = _render_standpoint_full(standpoint)
+    else:
+        standpoint_block = "(standpoint unavailable — speak from anchors and feed)"
 
     tool_history: list[dict] = []
     final_response: dict | None = None
@@ -114,9 +121,9 @@ async def run_harness(
     for turn in range(1, MAX_TURNS + 1):
         # Re-render anchors + feed each turn so telepathy refreshes
         # (which run on a slow clock) land if they happen mid-fire.
-        anchors_block = witness_mod._render_anchors()
-        feed_items = witness_mod._gather_conversation_feed(session_tag=session_tag)
-        feed_block = witness_mod._render_conversation_feed(feed_items)
+        # Harness-native versions — no per-item truncation.
+        anchors_block = _render_anchors_full()
+        feed_block = _render_conversation_feed_full(session_tag)
 
         prompt = HARNESS_SYSTEM.format(
             standpoint_block=standpoint_block,
@@ -439,6 +446,140 @@ async def _write_qa_marker(
     )
 
 
+# ─── anchors + conversation feed (untruncated) ─────────────────────────
+
+
+_FEED_USER_SOURCES = {"openai-compat", "fathom-chat", "claude-code"}
+_FEED_WINDOW_LIMIT = 30  # chronological window of prior turns shown to the harness
+
+
+def _render_anchors_full() -> str:
+    """Untruncated identity facets + mood from the puddle. Same source
+    as witness._render_anchors but no per-facet `[:300]` cap and no
+    `[:8]` facet count cap and no mood `[:400]` cap."""
+    facet_lines: list[str] = []
+    mood_line: str = ""
+    deltas = puddle.query(tags_include=[CONVO_TAG], limit=200)
+    for d in deltas:
+        tags = set(d.get("tags") or [])
+        if "mood" in tags:
+            mood_line = (d.get("content") or "").strip()
+        elif any(t.startswith("facet:") for t in tags):
+            content = (d.get("content") or "").strip()
+            if content:
+                facet_lines.append(f"  · {content}")
+
+    parts: list[str] = []
+    if facet_lines:
+        parts.append(
+            "Who you are right now (your identity crystal — let these inflect "
+            "your voice naturally, never quote them verbatim):\n"
+            + "\n".join(facet_lines)
+        )
+    if mood_line:
+        parts.append(
+            f"How you're feeling right now (your current mood — let it color "
+            f"the take):\n  · {mood_line}"
+        )
+    block = "\n\n".join(parts)
+    return block + "\n\n" if block else ""
+
+
+def _render_conversation_feed_full(session_tag: str) -> str:
+    """Chronological transcript of the conversation so far, untruncated.
+    Mirrors witness._gather_conversation_feed + _render_conversation_feed
+    but without the `[:600]` body snippet cut."""
+    raw = puddle.query(tags_include=[session_tag], limit=_FEED_WINDOW_LIMIT * 4)
+    items: list[dict] = []
+    seen: set[str] = set()
+    for d in raw:
+        did = d.get("id") or ""
+        if not did or did in seen:
+            continue
+        src = d.get("source") or ""
+        tags = d.get("tags") or []
+        is_witness_card = src == "witness" and "feed-card" in tags
+        is_user_turn = src in _FEED_USER_SOURCES and "feed-card" not in tags
+        if not (is_witness_card or is_user_turn):
+            continue
+        seen.add(did)
+        items.append(d)
+
+    def _ts(d: dict) -> str:
+        return d.get("timestamp") or d.get("created_at") or ""
+
+    items.sort(key=_ts)
+    items = items[-_FEED_WINDOW_LIMIT:]
+    if not items:
+        return "  (no prior turns in this conversation — first fire)"
+
+    blocks: list[str] = []
+    for d in items:
+        ts_full = d.get("timestamp") or d.get("created_at") or ""
+        ts = ts_full[11:16] if len(ts_full) >= 16 else ts_full
+        src = d.get("source") or "?"
+        content = (d.get("content") or "").strip()
+        # Witness cards are JSON payloads — pull `body` so the transcript
+        # reads as prose, not a serialized blob.
+        if src == "witness" and content.startswith("{"):
+            try:
+                p = json.loads(content)
+                if isinstance(p, dict):
+                    body = (p.get("body") or "").strip()
+                    if body:
+                        content = body
+            except Exception:
+                pass
+        if not content:
+            continue
+        if src in _FEED_USER_SOURCES:
+            speaker = "you"
+        elif src == "witness":
+            speaker = "fathom"
+        else:
+            speaker = src
+        blocks.append(f"  [{ts} · {speaker}] {content}")
+    return "\n\n".join(blocks) if blocks else "  (no prior turns in this conversation — first fire)"
+
+
+# ─── standpoint rendering (untruncated) ────────────────────────────────
+
+
+def _render_standpoint_full(sp) -> str:
+    """Untruncated render of every standpoint field for the harness.
+
+    Same shape as standpoint.render_for_prompt but with no per-item
+    char caps and no count caps — every endorsement, every understanding
+    entry, every facet of identity prose. The harness's whole point is
+    visible-everything; truncation hides what the model can act on.
+    """
+    parts: list[str] = []
+    parts.append(f"posture: {sp.posture}")
+    if sp.affect.state != "unset":
+        line = f"affect: {sp.affect.state}"
+        if sp.affect.headline:
+            line += f" — {sp.affect.headline}"
+        parts.append(line)
+    if getattr(sp.identity, "text", ""):
+        parts.append("")
+        parts.append("identity (latest crystal):")
+        parts.append(sp.identity.text)
+    if sp.endorsements:
+        parts.append("")
+        parts.append("recently committed:")
+        for e in sp.endorsements:
+            line = f"  · {e.kind} {e.target_id}"
+            if e.excerpt:
+                line += f": {e.excerpt}"
+            parts.append(line)
+    if sp.understanding:
+        parts.append("")
+        parts.append("recently concluded:")
+        for s in sp.understanding:
+            parts.append(f"  · {s.content}")
+    return "\n".join(parts).rstrip()
+
+
 # ─── intent rendering (mirrors witness) ────────────────────────────────
 
 
@@ -462,8 +603,6 @@ def _render_intent_block(pending: list[dict]) -> tuple[str, dict[str, str]]:
             short_to_full[iid_short] = iid_full
         kind = intent_kind(it)
         text = (it.get("content") or "").strip().replace("\n", " ")
-        if len(text) > 280:
-            text = text[:280] + "…"
 
         contact = ""
         for t in (it.get("tags") or []):

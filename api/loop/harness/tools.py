@@ -265,16 +265,15 @@ async def tool_deliberate(
 
 
 def _render_delta_brief(d: dict) -> str:
-    """One-block rendering of a delta — id prefix, source, ts, content snippet.
+    """One-block rendering of a delta — id prefix, source, ts, full content.
 
     Used by `expand` and `ascend` so their results read consistently.
+    No truncation — the harness shows everything that's there.
     """
     did = (d.get("id") or "")[:12] or "?"
     src = d.get("source") or "lake"
-    ts = (d.get("timestamp") or d.get("created_at") or "")[:16]
-    content = (d.get("content") or "").strip().replace("\n", " ")
-    if len(content) > 320:
-        content = content[:320] + "…"
+    ts = (d.get("timestamp") or d.get("created_at") or "")[:19]
+    content = (d.get("content") or "").strip()
     tag_summary = ""
     tags = d.get("tags") or []
     kind_tags = [t for t in tags if isinstance(t, str) and t.startswith("kind:")]
@@ -289,24 +288,22 @@ def _render_delta_brief(d: dict) -> str:
 _LENS_RESULT_LIMIT = 30          # cap items returned per lens call
 
 
-def _short(d: dict, *, max_chars: int = 240) -> str:
-    """Compact one-line render of a delta — what every lens uses to
-    show its results. id prefix · source · ts · (tags) · content snippet."""
+def _short(d: dict, *, max_chars: int | None = None) -> str:
+    """One-block render of a delta — what every lens uses to show its
+    results. Untruncated by default; pass max_chars only when a caller
+    explicitly wants a snippet (rare)."""
     did = (d.get("id") or "")[:12] or "?"
-    src = (d.get("source") or "lake")[:24]
+    src = (d.get("source") or "lake")
     ts = (d.get("timestamp") or d.get("created_at") or "")[:19]
-    content = (d.get("content") or "").strip().replace("\n", " ")
-    if len(content) > max_chars:
+    content = (d.get("content") or "").strip()
+    if max_chars is not None and len(content) > max_chars:
         content = content[:max_chars] + "…"
     tags = d.get("tags") or []
-    salient = []
-    for t in tags:
-        if not isinstance(t, str):
-            continue
-        if t.startswith("kind:") or t.startswith("provenance-level:"):
-            salient.append(t)
-        if len(salient) >= 3:
-            break
+    salient = [
+        t for t in tags
+        if isinstance(t, str)
+        and (t.startswith("kind:") or t.startswith("provenance-level:"))
+    ]
     tag_part = f" [{', '.join(salient)}]" if salient else ""
     return f"  · {did} {src} {ts}{tag_part}\n      {content}"
 
@@ -368,9 +365,6 @@ async def tool_state(*, action: str = "help", **kwargs) -> str:
             content = (it.get("content") or "").strip().split(
                 "\n\n[intent-payload]", 1
             )[0]
-            content = content.replace("\n", " ")
-            if len(content) > 280:
-                content = content[:280] + "…"
             iid = (it.get("id") or "")[:12]
             ts = (it.get("timestamp") or "")[:19]
             blocks.append(f"  · {iid} kind={kind} {ts}\n      {content}")
@@ -397,7 +391,7 @@ async def tool_state(*, action: str = "help", **kwargs) -> str:
                 payload = json.loads(d.get("content") or "{}")
             except Exception:
                 payload = {}
-            title = payload.get("title") or (d.get("content") or "")[:80]
+            title = payload.get("title") or (d.get("content") or "")
             did = (d.get("id") or "")[:12]
             ts = (d.get("timestamp") or "")[:19]
             blocks.append(f"  · {did} tool={tool} {ts}\n      {title}")
@@ -405,7 +399,7 @@ async def tool_state(*, action: str = "help", **kwargs) -> str:
 
     if action == "mood":
         try:
-            items = puddle.query(tags_include=[CONVO_TAG, "mood"], limit=8)
+            items = puddle.query(tags_include=[CONVO_TAG, "mood"], limit=20)
         except Exception as e:
             return f"ERROR: mood query failed — {type(e).__name__}: {e}"
         if not items:
@@ -414,30 +408,30 @@ async def tool_state(*, action: str = "help", **kwargs) -> str:
             try:
                 items = await delta_client.query(
                     tags_include=["kind:mood"],
-                    limit=8,
+                    limit=20,
                 )
             except Exception:
                 items = []
         if not items:
             return "(no mood deltas surfaced — substrate may be empty)"
         blocks = [f"Mood ({len(items)}):", ""]
-        for d in items[:8]:
-            blocks.append(_short(d, max_chars=280))
+        for d in items:
+            blocks.append(_short(d))
         return "\n".join(blocks)
 
     if action == "crystal":
         try:
             items = await delta_client.query(
                 tags_include=["identity-crystal"],
-                limit=8,
+                limit=20,
             )
         except Exception as e:
             return f"ERROR: crystal query failed — {type(e).__name__}: {e}"
         if not items:
             return "(no identity-crystal deltas in the lake)"
         blocks = [f"Identity crystal facets ({len(items)}):", ""]
-        for d in items[:6]:
-            blocks.append(_short(d, max_chars=400))
+        for d in items:
+            blocks.append(_short(d))
         return "\n".join(blocks)
 
     if action == "recent":
@@ -465,13 +459,10 @@ async def tool_state(*, action: str = "help", **kwargs) -> str:
                 "",
             ]
             for src, n in counts.most_common(20):
-                # Show 1-2 sample contents per source.
-                samples = [d for d in items if d.get("source") == src][:2]
+                samples = [d for d in items if d.get("source") == src][:5]
                 blocks.append(f"  ── {src} · {n} deltas ──")
                 for d in samples:
-                    content = (d.get("content") or "").strip().replace("\n", " ")
-                    if len(content) > 120:
-                        content = content[:120] + "…"
+                    content = (d.get("content") or "").strip()
                     blocks.append(f"      {(d.get('id') or '')[:12]} {content}")
             return "\n".join(blocks)
 
@@ -635,7 +626,7 @@ async def tool_pattern(*, action: str = "help", **kwargs) -> str:
                 payload = json.loads(c.get("content") or "{}")
             except Exception:
                 payload = {}
-            title = (payload.get("title") or payload.get("body") or "")[:120]
+            title = (payload.get("title") or payload.get("body") or "")
             did = (c.get("id") or "")[:12]
             blocks.append(
                 f"  · {did} score={score:.2f} "
