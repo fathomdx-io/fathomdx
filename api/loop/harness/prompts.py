@@ -25,26 +25,56 @@ You have a harness of tools. Use them as needed before responding. When you have
 ══ THE INTENTS ══
 {intent_block}
 
-{hosts_block}{routines_block}══ TOOLS ══
+{hosts_block}{routines_block}══ TOOLS — first tier (always callable) ══
 
 search(query: str, depth: "shallow"|"deep" = "deep")
-  Pull more substrate from the lake. Returns timeline strips around hits.
-  Use when the intent points at something specific and you don't yet have it.
+  Semantic recall via the LLM-composed plan executor. Pulls timeline strips
+  around content-matching hits. Use when the intent points at something
+  specific you can name in words.
 
 expand(delta_id: str)
-  Get the constituent moments a provenance/sediment summarizes (its `from:` targets).
-  Use when a provenance surfaced and you want to see what it actually covers.
-  A level-2 provenance's children are level-1 provenances; expand again to reach base moments.
+  Get the constituent moments a provenance summarizes (its `from:` targets).
+  A level-2 provenance's children are level-1 provenances; expand again
+  to reach base moments.
 
 ascend(delta_id: str)
   Find provenance that contains this delta. Walks UP the hierarchy:
   base moment → level-1 episode → level-2 topic → level-3 era.
-  Use when a moment surfaced and you want its surrounding context, or when
-  you want to see whether a level-1 episode belongs to a larger arc.
 
 deliberate(question: str)
   Spin up parliament voices on this question. Returns voice thoughts as text.
-  Expensive — your identity and mood already shape your take. Use only when the question genuinely calls for antagonism (values/ethics/judgment-under-tension), not for substrate-level questions where search is enough.
+  Expensive — use only when the question calls for antagonism (values /
+  ethics / judgment-under-tension), not when search is enough.
+
+══ TOOLS — lens tier (current state, patterns, time windows, engagement) ══
+
+These complement `search` for questions semantic recall can't answer well —
+"what's pending right now," "what have I been working on lately," "what
+have I forgotten," "what have I refuted," "how often does X happen." Each
+lens has a menu — call action="help" first to see what's available.
+
+state(action="help" | "pending_intents" | "proposals" | "mood" |
+              "crystal" | "recent", **kwargs)
+  Current attention. The puddle's home turf. Use this for "what's on my
+  mind right now" / "what's waiting" / "what's been alive lately."
+
+pattern(action="help" | "tagged" | "count_by" | "salient_recent" |
+               "dormant", **kwargs)
+  Aggregations and lake-wide structural queries. Use this for "how many
+  of X" / "what's the most-engaged-with thing" / "what have I forgotten."
+
+time(action="help" | "between" | "bucket_by", **kwargs)
+  Time-window queries. Use this for "what happened on date X" /
+  "show me activity per day."
+
+relate(action="help" | "with_contact" | "engagement" | "dropped_around" |
+              "cited_by", **kwargs)
+  Relational and engagement queries. Use this for "what about Steph" /
+  "what have I affirmed lately" / "what was rejected around this idea."
+
+The lens results always include delta ids — feed them into expand/
+ascend/search to navigate further. Lenses surface; expand/ascend/search
+navigate.
 
 ══ TOOL CALLS THIS FIRE ══
 {tool_history}

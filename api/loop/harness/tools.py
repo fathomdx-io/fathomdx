@@ -1,9 +1,26 @@
 """Harness tools — what Fathom can call from inside the agentic loop.
 
-Four tools in Phase 1: `search`, `expand`, `ascend`, `deliberate`. Each
-returns a string the model reads on its next turn (rendered transcript
-goes back into the prompt). Errors are returned as strings rather than
-raised so the loop can keep running and the model can adapt.
+Two tiers:
+
+  First tier (always visible to the model):
+    search       — semantic recall via the LLM-composed plan executor
+    expand       — graph traversal: fetch children of a provenance delta
+    ascend       — graph traversal: find provenance that contains a delta
+    deliberate   — synthesis: parliament voices on a question
+    state        — current attention: intents, proposals, mood, crystal,
+                   recent activity. Call state(action='help') to discover.
+    pattern      — aggregations + lake-wide analysis: tag filters, counts,
+                   salience rankings, dormant signals. Call
+                   pattern(action='help').
+    time         — temporal-window queries: between dates, group-by-day.
+                   Call time(action='help').
+    relate       — engagement / relational: who, what's been affirmed,
+                   what's been dropped. Call relate(action='help').
+
+  Second tier (sub-actions on the lens tools above): each lens has a
+  small menu of structured queries. Their return shapes always include
+  delta ids the model can feed back into `expand`/`ascend`/`search` —
+  the lenses surface, the first-tier tools navigate.
 
 `deliberate` wraps the existing convener + parliament one-round path; it
 does NOT reimplement deliberation. The harness inverts the relationship —
@@ -14,13 +31,18 @@ question calls for antagonism, instead of being a mandatory pre-step.
 from __future__ import annotations
 
 import asyncio
-import uuid
+import json
+from collections import Counter
+from datetime import UTC, datetime, timedelta
 from typing import Any
+
+import uuid
 
 from .. import resonance  # noqa: F401  — process imports it transitively
 from ... import delta_client
 from ... import search as search_mod
 from ..convener import run_convener
+from ..intents import CONVO_TAG, intent_kind, pending_intents
 from ..process import run_process
 from ..puddle import puddle
 
@@ -259,16 +281,689 @@ def _render_delta_brief(d: dict) -> str:
     return f"  · {did} {src} {ts}{tag_summary}\n      {content}"
 
 
+# ─── lens tools: state / pattern / time / relate ──────────────────────
+
+
+_LENS_RESULT_LIMIT = 30          # cap items returned per lens call
+_LENS_RENDER_BUDGET = 4000       # cap rendered output chars
+
+
+def _short(d: dict, *, max_chars: int = 240) -> str:
+    """Compact one-line render of a delta — what every lens uses to
+    show its results. id prefix · source · ts · (tags) · content snippet."""
+    did = (d.get("id") or "")[:12] or "?"
+    src = (d.get("source") or "lake")[:24]
+    ts = (d.get("timestamp") or d.get("created_at") or "")[:19]
+    content = (d.get("content") or "").strip().replace("\n", " ")
+    if len(content) > max_chars:
+        content = content[:max_chars] + "…"
+    tags = d.get("tags") or []
+    salient = []
+    for t in tags:
+        if not isinstance(t, str):
+            continue
+        if t.startswith("kind:") or t.startswith("provenance-level:"):
+            salient.append(t)
+        if len(salient) >= 3:
+            break
+    tag_part = f" [{', '.join(salient)}]" if salient else ""
+    return f"  · {did} {src} {ts}{tag_part}\n      {content}"
+
+
+def _truncate_block(s: str, *, budget: int = _LENS_RENDER_BUDGET) -> str:
+    if len(s) <= budget:
+        return s
+    return s[:budget] + "\n…(truncated; refine the lens call for less)"
+
+
+def _now_iso() -> str:
+    return datetime.now(UTC).isoformat()
+
+
+def _parse_iso_or_none(s: str | None) -> datetime | None:
+    if not s:
+        return None
+    try:
+        s = s.strip()
+        if s.endswith("Z"):
+            s = s[:-1] + "+00:00"
+        return datetime.fromisoformat(s)
+    except Exception:
+        return None
+
+
+def _hours_ago_iso(hours: float) -> str:
+    return (datetime.now(UTC) - timedelta(hours=hours)).isoformat()
+
+
+# ─── state lens ────────────────────────────────────────────────────────
+
+
+_STATE_HELP = """state — current-attention queries. What's alive right now.
+
+Actions:
+  state(action="help")              — this menu
+  state(action="pending_intents")   — the loop's pending queue (puddle)
+  state(action="proposals")         — kind:proposal pending review (lake)
+  state(action="mood")              — current mood deltas from the puddle
+  state(action="crystal")           — identity facets (most recent)
+  state(action="recent",
+        hours=<N>, group_by="source") — what's written across sources lately
+
+Returned items always include delta ids — feed them into expand/ascend
+or search to navigate further."""
+
+
+async def tool_state(*, action: str = "help", **kwargs) -> str:
+    action = (action or "").strip().lower()
+    if action in ("", "help"):
+        return _STATE_HELP
+
+    if action == "pending_intents":
+        try:
+            items = pending_intents()
+        except Exception as e:
+            return f"ERROR: pending_intents failed — {type(e).__name__}: {e}"
+        if not items:
+            return "(queue empty — no pending intents)"
+        items = items[:_LENS_RESULT_LIMIT]
+        blocks = [f"Pending intents ({len(items)}):", ""]
+        for it in items:
+            kind = intent_kind(it)
+            content = (it.get("content") or "").strip().split(
+                "\n\n[intent-payload]", 1
+            )[0]
+            content = content.replace("\n", " ")
+            if len(content) > 280:
+                content = content[:280] + "…"
+            iid = (it.get("id") or "")[:12]
+            ts = (it.get("timestamp") or "")[:19]
+            blocks.append(f"  · {iid} kind={kind} {ts}\n      {content}")
+        return _truncate_block("\n".join(blocks))
+
+    if action == "proposals":
+        try:
+            items = await delta_client.query(
+                tags_include=["kind:proposal", "proposal-status:pending"],
+                limit=_LENS_RESULT_LIMIT,
+            )
+        except Exception as e:
+            return f"ERROR: proposal query failed — {type(e).__name__}: {e}"
+        if not items:
+            return "(no pending proposals)"
+        blocks = [f"Pending proposals ({len(items)}):", ""]
+        for d in items:
+            tool = ""
+            for t in d.get("tags") or []:
+                if t.startswith("tool:"):
+                    tool = t.split(":", 1)[1]
+                    break
+            try:
+                payload = json.loads(d.get("content") or "{}")
+            except Exception:
+                payload = {}
+            title = payload.get("title") or (d.get("content") or "")[:80]
+            did = (d.get("id") or "")[:12]
+            ts = (d.get("timestamp") or "")[:19]
+            blocks.append(f"  · {did} tool={tool} {ts}\n      {title}")
+        return _truncate_block("\n".join(blocks))
+
+    if action == "mood":
+        try:
+            items = puddle.query(tags_include=[CONVO_TAG, "mood"], limit=8)
+        except Exception as e:
+            return f"ERROR: mood query failed — {type(e).__name__}: {e}"
+        if not items:
+            # Fallback to lake — telepathy may not have mirrored mood
+            # if it's offline (e.g. FATHOM_QUIET_MODE).
+            try:
+                items = await delta_client.query(
+                    tags_include=["kind:mood"],
+                    limit=8,
+                )
+            except Exception:
+                items = []
+        if not items:
+            return "(no mood deltas surfaced — substrate may be empty)"
+        blocks = [f"Mood ({len(items)}):", ""]
+        for d in items[:8]:
+            blocks.append(_short(d, max_chars=280))
+        return _truncate_block("\n".join(blocks))
+
+    if action == "crystal":
+        try:
+            items = await delta_client.query(
+                tags_include=["identity-crystal"],
+                limit=8,
+            )
+        except Exception as e:
+            return f"ERROR: crystal query failed — {type(e).__name__}: {e}"
+        if not items:
+            return "(no identity-crystal deltas in the lake)"
+        blocks = [f"Identity crystal facets ({len(items)}):", ""]
+        for d in items[:6]:
+            blocks.append(_short(d, max_chars=400))
+        return _truncate_block("\n".join(blocks))
+
+    if action == "recent":
+        try:
+            hours = float(kwargs.get("hours") or 12)
+        except (TypeError, ValueError):
+            hours = 12
+        group_by = (kwargs.get("group_by") or "source").strip().lower()
+        try:
+            items = await delta_client.query(
+                tags_include=[],
+                time_start=_hours_ago_iso(hours),
+                limit=300,
+            )
+        except Exception as e:
+            return f"ERROR: recent query failed — {type(e).__name__}: {e}"
+        if not items:
+            return f"(no activity in the last {hours}h)"
+
+        if group_by == "source":
+            counts = Counter((d.get("source") or "?") for d in items)
+            blocks = [
+                f"Activity in last {hours}h ({len(items)} deltas, "
+                f"{len(counts)} sources):",
+                "",
+            ]
+            for src, n in counts.most_common(20):
+                # Show 1-2 sample contents per source.
+                samples = [d for d in items if d.get("source") == src][:2]
+                blocks.append(f"  ── {src} · {n} deltas ──")
+                for d in samples:
+                    content = (d.get("content") or "").strip().replace("\n", " ")
+                    if len(content) > 120:
+                        content = content[:120] + "…"
+                    blocks.append(f"      {(d.get('id') or '')[:12]} {content}")
+            return _truncate_block("\n".join(blocks))
+
+        if group_by == "kind":
+            counts: Counter = Counter()
+            for d in items:
+                for t in d.get("tags") or []:
+                    if isinstance(t, str) and t.startswith("kind:"):
+                        counts[t] += 1
+                        break
+            blocks = [f"Activity in last {hours}h grouped by kind:", ""]
+            for k, n in counts.most_common(20):
+                blocks.append(f"  · {k}: {n}")
+            return _truncate_block("\n".join(blocks))
+
+        return f"ERROR: unknown group_by={group_by!r} (try 'source' or 'kind')"
+
+    return f"ERROR: unknown state action {action!r} — try state(action='help')"
+
+
+# ─── pattern lens ──────────────────────────────────────────────────────
+
+
+_PATTERN_HELP = """pattern — aggregations and lake-wide structural queries.
+
+Actions:
+  pattern(action="help")
+  pattern(action="tagged", tag="<tag>", since="<iso>", limit=<N>)
+       — direct tag filter. e.g. tag="kind:todo".
+  pattern(action="count_by", group_by="source"|"kind", since="<iso>")
+       — counts across the lake.
+  pattern(action="salient_recent", hours=<N>)
+       — recent witness cards ranked by judge axes (salience+resonance+
+         confidence). What you've been deeply engaged with lately.
+  pattern(action="dormant", silent_for_days=<N>, min_chars=<N>)
+       — old, content-rich deltas that haven't been retrieved lately.
+         Useful for "what have I forgotten."
+
+Returned items include delta ids — feed them into expand/ascend/search."""
+
+
+async def tool_pattern(*, action: str = "help", **kwargs) -> str:
+    action = (action or "").strip().lower()
+    if action in ("", "help"):
+        return _PATTERN_HELP
+
+    if action == "tagged":
+        tag = (kwargs.get("tag") or "").strip()
+        if not tag:
+            return "ERROR: pattern.tagged requires `tag`"
+        since = (kwargs.get("since") or "").strip() or None
+        try:
+            limit = int(kwargs.get("limit") or _LENS_RESULT_LIMIT)
+        except (TypeError, ValueError):
+            limit = _LENS_RESULT_LIMIT
+        limit = max(1, min(100, limit))
+        q: dict = {"tags_include": [tag], "limit": limit}
+        if since:
+            q["time_start"] = since
+        try:
+            items = await delta_client.query(**q)
+        except Exception as e:
+            return f"ERROR: tag query failed — {type(e).__name__}: {e}"
+        if not items:
+            return f"(nothing tagged {tag!r} in the queried window)"
+        blocks = [f"Tagged {tag!r} ({len(items)}):", ""]
+        for d in items[:limit]:
+            blocks.append(_short(d))
+        return _truncate_block("\n".join(blocks))
+
+    if action == "count_by":
+        group_by = (kwargs.get("group_by") or "source").strip().lower()
+        since = (kwargs.get("since") or "").strip() or _hours_ago_iso(24 * 7)
+        try:
+            items = await delta_client.query(
+                tags_include=[], time_start=since, limit=2000,
+            )
+        except Exception as e:
+            return f"ERROR: count query failed — {type(e).__name__}: {e}"
+        if not items:
+            return f"(no deltas since {since})"
+        if group_by == "source":
+            counts = Counter((d.get("source") or "?") for d in items)
+        elif group_by == "kind":
+            counts = Counter()
+            for d in items:
+                for t in d.get("tags") or []:
+                    if isinstance(t, str) and t.startswith("kind:"):
+                        counts[t] += 1
+                        break
+        elif group_by == "level":
+            counts = Counter()
+            for d in items:
+                lvl = "?"
+                for t in d.get("tags") or []:
+                    if isinstance(t, str) and t.startswith("provenance-level:"):
+                        lvl = t.split(":", 1)[1]
+                        break
+                counts[f"level:{lvl}"] += 1
+        else:
+            return f"ERROR: unknown group_by={group_by!r} (try source/kind/level)"
+        total = sum(counts.values())
+        blocks = [
+            f"Counts since {since[:19]} ({total} deltas, group_by={group_by}):",
+            "",
+        ]
+        for k, n in counts.most_common(30):
+            pct = (n / total) * 100.0 if total else 0.0
+            blocks.append(f"  · {k}: {n}  ({pct:.1f}%)")
+        return _truncate_block("\n".join(blocks))
+
+    if action == "salient_recent":
+        try:
+            hours = float(kwargs.get("hours") or 24)
+        except (TypeError, ValueError):
+            hours = 24
+        try:
+            cards = await delta_client.query(
+                tags_include=["feed-card"],
+                time_start=_hours_ago_iso(hours),
+                limit=200,
+            )
+        except Exception as e:
+            return f"ERROR: salient query failed — {type(e).__name__}: {e}"
+        if not cards:
+            return f"(no feed-cards in last {hours}h)"
+
+        # Pull judge axes deltas in the same window so we can score.
+        try:
+            axes_deltas = await delta_client.query(
+                tags_include=["kind:judge-axes"],
+                time_start=_hours_ago_iso(hours + 1),
+                limit=400,
+            )
+        except Exception:
+            axes_deltas = []
+        axes_by_card: dict[str, dict] = {}
+        for ad in axes_deltas:
+            for t in ad.get("tags") or []:
+                if isinstance(t, str) and t.startswith("for-card:"):
+                    cid = t.split(":", 1)[1]
+                    try:
+                        axes_by_card[cid] = json.loads(ad.get("content") or "{}")
+                    except Exception:
+                        pass
+                    break
+
+        scored: list[tuple[float, dict, dict]] = []
+        for c in cards:
+            cid = c.get("id") or ""
+            ax = axes_by_card.get(cid) or {}
+            sal = float(ax.get("salience") or 0.0)
+            res = float(ax.get("resonance") or 0.0)
+            conf = float(ax.get("confidence") or 0.0)
+            score = (sal + res + conf) / 3.0
+            scored.append((score, c, ax))
+        scored.sort(key=lambda t: t[0], reverse=True)
+        blocks = [f"Salient cards in last {hours}h:", ""]
+        for score, c, ax in scored[:_LENS_RESULT_LIMIT]:
+            try:
+                payload = json.loads(c.get("content") or "{}")
+            except Exception:
+                payload = {}
+            title = (payload.get("title") or payload.get("body") or "")[:120]
+            did = (c.get("id") or "")[:12]
+            blocks.append(
+                f"  · {did} score={score:.2f} "
+                f"(s={ax.get('salience',0):.2f} r={ax.get('resonance',0):.2f} "
+                f"c={ax.get('confidence',0):.2f})\n      {title}"
+            )
+        return _truncate_block("\n".join(blocks))
+
+    if action == "dormant":
+        try:
+            silent_days = float(kwargs.get("silent_for_days") or 60)
+        except (TypeError, ValueError):
+            silent_days = 60
+        try:
+            min_chars = int(kwargs.get("min_chars") or 200)
+        except (TypeError, ValueError):
+            min_chars = 200
+        # Cheap heuristic: pick deltas older than `silent_days`, with
+        # content_len >= min_chars. Lacking retrieval-count metadata
+        # client-side, we approximate "dormant" as "old + substantive."
+        # When delta-store grows a retrieval-count surface this can
+        # tighten to "old + substantive + low-touched."
+        cutoff = (datetime.now(UTC) - timedelta(days=silent_days)).isoformat()
+        try:
+            items = await delta_client.query(
+                tags_include=[], limit=300,
+            )
+        except Exception as e:
+            return f"ERROR: dormant query failed — {type(e).__name__}: {e}"
+        old = [
+            d for d in items
+            if (d.get("timestamp") or "") < cutoff
+            and len((d.get("content") or "")) >= min_chars
+        ]
+        if not old:
+            return (
+                f"(nothing dormant — no substantive deltas older than "
+                f"{silent_days} days surfaced in the recent slice. The lake "
+                f"reaper may have culled them, or this query needs a wider net.)"
+            )
+        old.sort(key=lambda d: d.get("timestamp") or "")
+        blocks = [
+            f"Dormant deltas (older than {silent_days}d, "
+            f">={min_chars} chars, {len(old)} found):",
+            "",
+        ]
+        for d in old[:_LENS_RESULT_LIMIT]:
+            blocks.append(_short(d))
+        return _truncate_block("\n".join(blocks))
+
+    return f"ERROR: unknown pattern action {action!r} — try pattern(action='help')"
+
+
+# ─── time lens ─────────────────────────────────────────────────────────
+
+
+_TIME_HELP = """time — temporal-window queries.
+
+Actions:
+  time(action="help")
+  time(action="between", start="<iso>", end="<iso>",
+       source="<src>", tag="<tag>", limit=<N>)
+       — pull deltas in a time window. Optional source/tag filters.
+  time(action="bucket_by", period="day"|"hour"|"week",
+       since="<iso>", group_by="source"|"kind")
+       — counts grouped by time bucket (e.g. activity per day).
+
+Returned items include delta ids — feed them into expand/ascend/search."""
+
+
+async def tool_time(*, action: str = "help", **kwargs) -> str:
+    action = (action or "").strip().lower()
+    if action in ("", "help"):
+        return _TIME_HELP
+
+    if action == "between":
+        start = (kwargs.get("start") or "").strip()
+        end = (kwargs.get("end") or "").strip()
+        if not start:
+            return "ERROR: time.between requires `start` (ISO timestamp)"
+        if not end:
+            end = _now_iso()
+        source = (kwargs.get("source") or "").strip() or None
+        tag = (kwargs.get("tag") or "").strip() or None
+        try:
+            limit = int(kwargs.get("limit") or _LENS_RESULT_LIMIT)
+        except (TypeError, ValueError):
+            limit = _LENS_RESULT_LIMIT
+        limit = max(1, min(200, limit))
+        q: dict = {
+            "tags_include": [tag] if tag else [],
+            "time_start": start,
+            "limit": limit,
+        }
+        if source:
+            q["source"] = source
+        try:
+            items = await delta_client.query(**q)
+        except Exception as e:
+            return f"ERROR: between query failed — {type(e).__name__}: {e}"
+        # Client-side filter on end (delta_client.query only takes time_start).
+        items = [
+            d for d in (items or [])
+            if (d.get("timestamp") or "") <= end
+        ]
+        if not items:
+            return f"(no deltas in {start}..{end})"
+        blocks = [f"Window {start[:19]}..{end[:19]} ({len(items)}):", ""]
+        for d in items[:limit]:
+            blocks.append(_short(d))
+        return _truncate_block("\n".join(blocks))
+
+    if action == "bucket_by":
+        period = (kwargs.get("period") or "day").strip().lower()
+        since = (kwargs.get("since") or "").strip() or _hours_ago_iso(24 * 14)
+        group_by = (kwargs.get("group_by") or "").strip().lower() or None
+        if period not in ("hour", "day", "week"):
+            return f"ERROR: unknown period={period!r} (try hour/day/week)"
+        try:
+            items = await delta_client.query(
+                tags_include=[], time_start=since, limit=3000,
+            )
+        except Exception as e:
+            return f"ERROR: bucket query failed — {type(e).__name__}: {e}"
+        if not items:
+            return f"(no deltas since {since})"
+
+        def _bucket(ts: str) -> str:
+            if not ts or len(ts) < 10:
+                return "?"
+            if period == "hour":
+                return ts[:13]  # YYYY-MM-DDTHH
+            if period == "week":
+                # ISO calendar week
+                try:
+                    dt = datetime.fromisoformat(
+                        (ts[:-1] + "+00:00") if ts.endswith("Z") else ts
+                    )
+                    iso = dt.isocalendar()
+                    return f"{iso.year}-W{iso.week:02d}"
+                except Exception:
+                    return "?"
+            return ts[:10]  # day
+
+        if group_by:
+            nested: dict[str, Counter] = {}
+            for d in items:
+                b = _bucket(d.get("timestamp") or "")
+                if group_by == "source":
+                    sub = d.get("source") or "?"
+                elif group_by == "kind":
+                    sub = "?"
+                    for t in d.get("tags") or []:
+                        if isinstance(t, str) and t.startswith("kind:"):
+                            sub = t
+                            break
+                else:
+                    return f"ERROR: unknown group_by={group_by!r}"
+                nested.setdefault(b, Counter())[sub] += 1
+            blocks = [
+                f"Bucketed by {period} grouped by {group_by} since {since[:19]}:",
+                "",
+            ]
+            for b in sorted(nested.keys()):
+                top = nested[b].most_common(5)
+                line = ", ".join(f"{k}={n}" for k, n in top)
+                blocks.append(f"  {b}  {line}")
+            return _truncate_block("\n".join(blocks))
+
+        counts = Counter(_bucket(d.get("timestamp") or "") for d in items)
+        blocks = [f"Counts by {period} since {since[:19]}:", ""]
+        for b in sorted(counts.keys()):
+            blocks.append(f"  {b}  {counts[b]}")
+        return _truncate_block("\n".join(blocks))
+
+    return f"ERROR: unknown time action {action!r} — try time(action='help')"
+
+
+# ─── relate lens ───────────────────────────────────────────────────────
+
+
+_RELATE_HELP = """relate — engagement, contacts, and valence pointers.
+
+Actions:
+  relate(action="help")
+  relate(action="with_contact", slug="<contact_slug>", limit=<N>)
+       — deltas tagged contact:<slug>. Steph, Nova, etc.
+  relate(action="engagement", direction="+"|"-", hours=<N>)
+       — recent affirmations (+) or refutations (-) you've cast.
+  relate(action="dropped_around", delta_id="<id>")
+       — anything that refutes:<id> or replied to it negatively.
+  relate(action="cited_by", delta_id="<id>")
+       — sediment / provenance / engagement-attestation deltas that
+         carry from:<id> or affirms:<id>.
+
+Returned items include delta ids — feed them into expand/ascend/search."""
+
+
+async def tool_relate(*, action: str = "help", **kwargs) -> str:
+    action = (action or "").strip().lower()
+    if action in ("", "help"):
+        return _RELATE_HELP
+
+    if action == "with_contact":
+        slug = (kwargs.get("slug") or "").strip()
+        if not slug:
+            return "ERROR: relate.with_contact requires `slug`"
+        try:
+            limit = int(kwargs.get("limit") or _LENS_RESULT_LIMIT)
+        except (TypeError, ValueError):
+            limit = _LENS_RESULT_LIMIT
+        limit = max(1, min(100, limit))
+        try:
+            items = await delta_client.query(
+                tags_include=[f"contact:{slug}"], limit=limit,
+            )
+        except Exception as e:
+            return f"ERROR: contact query failed — {type(e).__name__}: {e}"
+        if not items:
+            return f"(no deltas tagged contact:{slug})"
+        blocks = [f"Tagged contact:{slug} ({len(items)}):", ""]
+        for d in items[:limit]:
+            blocks.append(_short(d))
+        return _truncate_block("\n".join(blocks))
+
+    if action == "engagement":
+        direction = (kwargs.get("direction") or "+").strip()
+        if direction not in ("+", "-"):
+            return f"ERROR: direction must be '+' or '-' (got {direction!r})"
+        try:
+            hours = float(kwargs.get("hours") or 24)
+        except (TypeError, ValueError):
+            hours = 24
+        # Engagement-attest deltas carry affirms:<id> or refutes:<id>.
+        # Pull recent ones and surface what they pointed at.
+        try:
+            items = await delta_client.query(
+                tags_include=["kind:engagement-attest"],
+                time_start=_hours_ago_iso(hours),
+                limit=200,
+            )
+        except Exception as e:
+            return f"ERROR: engagement query failed — {type(e).__name__}: {e}"
+        prefix = "affirms:" if direction == "+" else "refutes:"
+        targets: list[tuple[str, str]] = []
+        for d in items:
+            for t in d.get("tags") or []:
+                if isinstance(t, str) and t.startswith(prefix):
+                    targets.append((d.get("id") or "", t.split(":", 1)[1]))
+                    break
+        if not targets:
+            label = "affirmed" if direction == "+" else "refuted"
+            return f"(nothing {label} in the last {hours}h)"
+        blocks = [
+            f"Recent {'+' if direction == '+' else '-'}engagements "
+            f"({len(targets)} in last {hours}h):",
+            "",
+        ]
+        for attest_id, target_id in targets[:_LENS_RESULT_LIMIT]:
+            blocks.append(
+                f"  · {attest_id[:12]} → {target_id[:12]}"
+            )
+        return _truncate_block("\n".join(blocks))
+
+    if action == "dropped_around":
+        target = (kwargs.get("delta_id") or "").strip()
+        if not target:
+            return "ERROR: relate.dropped_around requires `delta_id`"
+        try:
+            items = await delta_client.query(
+                tags_include=[f"refutes:{target}"], limit=_LENS_RESULT_LIMIT,
+            )
+        except Exception as e:
+            return f"ERROR: refutes query failed — {type(e).__name__}: {e}"
+        if not items:
+            return f"(nothing refutes {target[:12]})"
+        blocks = [f"Refutations of {target[:12]} ({len(items)}):", ""]
+        for d in items[:_LENS_RESULT_LIMIT]:
+            blocks.append(_short(d))
+        return _truncate_block("\n".join(blocks))
+
+    if action == "cited_by":
+        target = (kwargs.get("delta_id") or "").strip()
+        if not target:
+            return "ERROR: relate.cited_by requires `delta_id`"
+        seen: set[str] = set()
+        items: list[dict] = []
+        for tag in (f"from:{target}", f"affirms:{target}"):
+            try:
+                hits = await delta_client.query(
+                    tags_include=[tag], limit=_LENS_RESULT_LIMIT,
+                )
+            except Exception:
+                continue
+            for d in hits or []:
+                did = d.get("id") or ""
+                if did and did not in seen:
+                    seen.add(did)
+                    items.append(d)
+        if not items:
+            return f"(nothing cites {target[:12]})"
+        blocks = [f"Citations of {target[:12]} ({len(items)}):", ""]
+        for d in items[:_LENS_RESULT_LIMIT]:
+            blocks.append(_short(d))
+        return _truncate_block("\n".join(blocks))
+
+    return f"ERROR: unknown relate action {action!r} — try relate(action='help')"
+
+
 # ─── tool dispatch ─────────────────────────────────────────────────────
 
 
 # Tool registry — the loop driver looks up handlers here. Each handler
 # is async, takes kwargs, returns a string.
 TOOL_HANDLERS = {
-    "search": tool_search,
-    "expand": tool_expand,
-    "ascend": tool_ascend,
+    "search":     tool_search,
+    "expand":     tool_expand,
+    "ascend":     tool_ascend,
     "deliberate": tool_deliberate,
+    "state":      tool_state,
+    "pattern":    tool_pattern,
+    "time":       tool_time,
+    "relate":     tool_relate,
 }
 
 
@@ -276,9 +971,19 @@ TOOL_HANDLERS = {
 # pending / standpoint to deliberate from its own context, so the model
 # only supplies `question`. This map keeps the model from injecting
 # unexpected kwargs into the call.
+#
+# Lens tools (state/pattern/time/relate) accept arbitrary kwargs because
+# their menus are open-ended (action + action-specific args). The
+# dispatcher passes everything through and the handler validates inside.
 TOOL_MODEL_ARGS = {
     "search":     {"query", "depth"},
     "expand":     {"delta_id"},
     "ascend":     {"delta_id"},
     "deliberate": {"question"},
+    "state":      {"action", "hours", "group_by"},
+    "pattern":    {"action", "tag", "since", "limit", "group_by", "hours",
+                   "silent_for_days", "min_chars"},
+    "time":       {"action", "start", "end", "source", "tag", "limit",
+                   "period", "since", "group_by"},
+    "relate":     {"action", "slug", "limit", "direction", "hours", "delta_id"},
 }
