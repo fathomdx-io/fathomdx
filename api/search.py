@@ -937,13 +937,22 @@ _SEDIMENT_PROVENANCE_LIMIT = 24
 def _provenance_ids_from_deltas(
     deltas: list[dict], already_seen: set[str]
 ) -> list[str]:
-    """Pull `from:<id>` pointers off any kind:sediment delta, drop already-
-    seen ids, preserve first-seen order, dedupe."""
+    """Pull `from:<id>` pointers off any provenance-shaped delta — both
+    kind:sediment (reactive recall) and kind:provenance (intentional
+    hierarchy: Q/A markers, hand-curated episodes, topics, eras).
+
+    One-hop expansion only — a level-3 era pulls its level-2 children,
+    not the entire tree below it. The harness's `expand` tool is the
+    explicit way to drill deeper; this auto-expansion is just to ensure
+    the immediate constituents come along when their parent matched.
+
+    Drops already-seen ids, preserves first-seen order, dedupes.
+    """
     out: list[str] = []
     seen: set[str] = set()
     for d in deltas:
         tags = d.get("tags") or []
-        if "kind:sediment" not in tags:
+        if not any(t in _PROVENANCE_KIND_TAGS for t in tags):
             continue
         for t in tags:
             if not t.startswith("from:"):
