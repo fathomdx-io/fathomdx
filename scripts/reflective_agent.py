@@ -400,16 +400,20 @@ def render_proposal(p: dict) -> str:
     return "\n".join(lines)
 
 
-async def write_proposal(p: dict, *, seed: str) -> str:
-    """Write the proposal to the lake as kind:provenance kind:proposal.
+async def write_proposal(p: dict, *, seed: str, session_tag: str) -> str:
+    """Submit the proposal as a feed-card-shaped draft via the api.
 
-    Stays alive in the lake but tagged as a proposal — the dashboard
-    should treat it as pending review (Approve/Edit/Deny). Until the
-    dashboard wires that up, treat this script's interactive prompt
-    as the approval gate.
+    The api endpoint /v1/proposals/draft does the lake-write + puddle-
+    echo from inside the api process, so the dashboard sees the new
+    proposal in its live feed. Without that round-trip, a script
+    running via `podman exec` writes to its own (separate) puddle
+    instance and the dashboard never sees it.
 
-    Returns the new delta id.
+    Returns the lake delta id (the one the dashboard's approve/deny
+    buttons reference).
     """
+    import os
+    import httpx
     title = (p.get("title") or "").strip()
     summary = (p.get("summary") or "").strip()
     level = int(p.get("level") or 1)
@@ -417,39 +421,67 @@ async def write_proposal(p: dict, *, seed: str) -> str:
     rationale = (p.get("rationale") or "").strip()
     test_questions = p.get("test_questions") or []
 
-    content = f"{title}\n\n{summary}"
-    if len(content) > 2400:
-        content = content[:2400] + "…"
+    payload = {
+        "kicker": f"reflective · level-{level}",
+        "title": title,
+        "body": summary,
+        "tail": rationale,
+        "route": "tool:provenance",
+        "tool": "provenance",
+        "tool_args": {
+            "action": "create",
+            "title": title,
+            "summary": summary,
+            "level": level,
+            "from_ids": from_ids,
+            "rationale": rationale,
+            "test_questions": test_questions,
+            "seed": seed[:400],
+        },
+        "axes": {},
+    }
+    payload_json = json.dumps(payload, ensure_ascii=False)
 
     title_slug = title.lower().replace(" ", "-")[:80]
-
-    tags = [
-        "kind:provenance",
+    base_tags = [
+        "feed-card",
+        "synthesis",
         "kind:proposal",
         "proposal-status:pending",
+        "tool:provenance",
+        "action:create",
+        "route:tool:provenance",
         f"provenance-level:{level}",
         "provenance-version:v1-experimental",
         "produced-by:reflective-agent",
         f"title:{title_slug}",
     ]
-    for fid in from_ids[:30]:
-        tags.append(f"from:{fid}")
+    api_url = os.environ.get("FATHOM_API_URL") or "http://localhost:8200"
+    api_key = os.environ.get("FATHOM_API_KEY") or ""
+    if not api_key:
+        # When run inside the prov container, the api is on the same
+        # host. The token can be passed via env or read from the api
+        # state dir's tokens.json — for the v1 script we accept that
+        # the operator sets FATHOM_API_KEY before running.
+        raise RuntimeError(
+            "FATHOM_API_KEY env var must be set so the script can "
+            "submit a proposal draft via the api"
+        )
 
-    payload_extra = {
-        "title": title,
-        "summary": summary,
-        "level": level,
-        "rationale": rationale,
-        "test_questions": test_questions,
-        "seed": seed[:400],
-    }
-
-    delta = await delta_client.write(
-        content=content + "\n\n[meta] " + json.dumps(payload_extra, ensure_ascii=False),
-        tags=tags,
-        source="reflective-agent",
-    )
-    return delta.get("id") or ""
+    async with httpx.AsyncClient(timeout=30.0) as client:
+        resp = await client.post(
+            f"{api_url}/v1/proposals/draft",
+            headers={"Authorization": f"Bearer {api_key}"},
+            json={
+                "payload": payload,
+                "tags": base_tags,
+                "source": "reflective-agent",
+                "session_tag": session_tag,
+            },
+        )
+        resp.raise_for_status()
+        out = resp.json()
+    return out.get("lake_id") or ""
 
 
 # ─── main ──────────────────────────────────────────────────────────────
@@ -545,8 +577,12 @@ async def _main(args) -> int:
         print("Skipped.")
         return 0
 
-    new_id = await write_proposal(proposal, seed=seed)
-    print(f"\nWritten: {new_id}")
+    new_id = await write_proposal(proposal, seed=seed, session_tag=session_tag)
+    print(f"\nProposal delta: {new_id}")
+    print(
+        f"Visible in dashboard feed; approve via UI or POST "
+        f"/v1/proposals/{new_id}/approve"
+    )
     return 0
 
 

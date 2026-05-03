@@ -72,6 +72,72 @@ def _parse_args_from_card(d: dict) -> dict:
     return args if isinstance(args, dict) else {}
 
 
+async def _approve_provenance_create(
+    args: dict, *, proposal: dict | None
+) -> dict:
+    """Approve a reflective-agent provenance proposal — write the real
+    kind:provenance delta with the args the operator approved (which
+    may have been edited from the proposal's original args).
+
+    Mirrors the producer-maker workspace's write shape: kind:provenance
+    + provenance-level:<n> + provenance-version:v1-experimental + a
+    title slug + from:<id> for each constituent. Returns the new delta's
+    id and tag list so the decision delta can record what landed.
+    """
+    title = (args.get("title") or "").strip()
+    summary = (args.get("summary") or "").strip()
+    level_raw = args.get("level")
+    try:
+        level = int(level_raw) if level_raw is not None else 1
+    except (TypeError, ValueError):
+        level = 1
+    if level < 0 or level > 3:
+        level = max(0, min(3, level))
+    from_ids = [
+        str(x).strip()
+        for x in (args.get("from_ids") or [])
+        if isinstance(x, (str, int)) and str(x).strip()
+    ]
+
+    if not title:
+        raise ValueError("title is required")
+    if not summary:
+        raise ValueError("summary is required")
+    if not from_ids:
+        raise ValueError("from_ids must contain at least one constituent")
+
+    title_slug = title.lower().replace(" ", "-")[:80]
+    proposal_id = (proposal or {}).get("id") or ""
+
+    tags = [
+        "kind:provenance",
+        f"provenance-level:{level}",
+        "provenance-version:v1-experimental",
+        "produced-by:reflective-agent",
+        f"title:{title_slug}",
+    ]
+    for fid in from_ids[:60]:  # generous cap; 60 sources is more than enough
+        tags.append(f"from:{fid}")
+    if proposal_id:
+        tags.append(f"approved-from-proposal:{proposal_id}")
+
+    content = f"{title}\n\n{summary}"
+    if len(content) > 4000:
+        content = content[:4000] + "…"
+
+    written = await delta_client.write(
+        content=content,
+        tags=tags,
+        source="reflective-agent-approved",
+    )
+    return {
+        "delta_id": (written or {}).get("id") or "",
+        "title": title,
+        "level": level,
+        "from_count": len(from_ids),
+    }
+
+
 async def _write_decision(*, proposal_id: str, status: str,
                           reason: str = "", result: dict | None = None) -> dict:
     """Write the decision delta linked to the original proposal."""
@@ -131,7 +197,21 @@ async def approve_proposal(delta_id: str, body: dict | None = None):
     action = (args.get("action") or _proposal_action(tags) or "").strip()
 
     result: dict
-    if tool == "routines":
+    if tool == "provenance":
+        if action == "create":
+            args.pop("action", None)
+            args.pop("confirm", None)
+            try:
+                result = await _approve_provenance_create(
+                    args, proposal=proposal
+                )
+            except ValueError as e:
+                raise HTTPException(status_code=400, detail=str(e)) from e
+        else:
+            raise HTTPException(
+                status_code=400, detail=f"unknown provenance action: {action!r}"
+            )
+    elif tool == "routines":
         if action == "create":
             args.pop("action", None)
             args.pop("confirm", None)
@@ -195,6 +275,84 @@ async def deny_proposal(delta_id: str, body: dict | None = None):
     return {
         "denied": True,
         "decision_delta_id": decision.get("id") if isinstance(decision, dict) else None,
+    }
+
+
+@router.post(
+    "/v1/proposals/draft",
+    dependencies=[Depends(auth.require_admin)],
+)
+async def draft_proposal(body: dict):
+    """Submit a proposal draft from a producer that runs out-of-process.
+
+    The reflective agent (and future producers — topical agent, manual
+    proposers) builds a proposal payload but lives in a separate Python
+    process from the api. Without this endpoint they'd write to the
+    lake successfully but couldn't echo to the api's in-process puddle,
+    which is what the dashboard feed reads.
+
+    This handler does the dual-write inside the api process: lake-write
+    + puddle-echo + (optionally) a session-tag so the proposal lands in
+    the live feed.
+
+    Body shape (only `payload` and `tags` are mandatory; the producer
+    composes the witness-card-shaped payload itself):
+      · payload: dict — the JSON object the dashboard parses (kicker,
+        title, body, tail, route, tool, tool_args, etc.)
+      · tags: list[str] — base tags (without CONVO/session prefixes,
+        which the handler appends for puddle echo)
+      · source: str — defaults to "draft-proposal"
+      · session_tag: str — optional; defaults to a fresh
+        session:draft-... tag used only for the puddle entry
+
+    Returns the lake delta id so the producer can reference it for
+    later approve/deny calls.
+    """
+    import uuid
+
+    from ..loop.intents import CONVO_TAG
+    from ..loop.puddle import puddle as _puddle
+
+    payload = body.get("payload")
+    tags = body.get("tags") or []
+    source = (body.get("source") or "draft-proposal").strip() or "draft-proposal"
+    session_tag = (body.get("session_tag") or "").strip()
+    if not session_tag:
+        session_tag = f"session:draft-{uuid.uuid4().hex[:8]}"
+
+    if not isinstance(payload, dict):
+        raise HTTPException(status_code=400, detail="payload must be a JSON object")
+    if not isinstance(tags, list) or not all(isinstance(t, str) for t in tags):
+        raise HTTPException(status_code=400, detail="tags must be a list of strings")
+
+    payload_json = json.dumps(payload, ensure_ascii=False)
+
+    lake_delta = await delta_client.write(
+        content=payload_json,
+        tags=list(tags),
+        source=source,
+    )
+    lake_id = (lake_delta or {}).get("id") or ""
+
+    puddle_tags = [CONVO_TAG, session_tag, *tags]
+    if lake_id:
+        puddle_tags.append(f"lake-id:{lake_id}")
+        puddle_tags.append(f"recalled-id:{lake_id[:24]}")
+    try:
+        await _puddle.write(
+            content=payload_json,
+            tags=puddle_tags,
+            source=source,
+            ttl_seconds=7 * 24 * 60 * 60,
+        )
+    except Exception as e:
+        # Non-fatal — the lake write is the source of truth; puddle
+        # is just for live feed visibility.
+        print(f"[proposals/draft] puddle echo failed: {type(e).__name__}: {e}")
+
+    return {
+        "lake_id": lake_id,
+        "session_tag": session_tag,
     }
 
 
