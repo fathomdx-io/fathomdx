@@ -343,19 +343,100 @@ async def _dispatch_response(
         if lake_id and not first_lake_id:
             first_lake_id = lake_id
 
+    cited_ids = witness_mod._clean_id_list(response.get("cited_ids"))
+
     if first_lake_id:
         try:
             await witness_mod._write_constituting_writes(
                 lake_card_id=first_lake_id,
                 attestation=(response.get("attestation") or "").strip(),
                 mood_shift=witness_mod._parse_mood_shift(response.get("mood_shift")),
-                cited_ids=witness_mod._clean_id_list(response.get("cited_ids")),
+                cited_ids=cited_ids,
                 dropped_ids=witness_mod._clean_id_list(response.get("dropped_ids")),
             )
         except Exception as e:
             print(f"[harness] constituting-act writes failed: {type(e).__name__}: {e}")
 
+        # Q/A marker — record that this question was asked and the answer
+        # leaned on these citations. Written alongside fresh recall on
+        # future fires, not in place of it. After enough markers stack
+        # up on a recurring topic, a higher-level provenance can fold
+        # them into a "you've been here many times" summary.
+        try:
+            await _write_qa_marker(
+                pending=pending,
+                cards=cards,
+                cited_ids=cited_ids,
+                lake_card_id=first_lake_id,
+            )
+        except Exception as e:
+            print(f"[harness] qa-marker write failed: {type(e).__name__}: {e}")
+
     return full_addressed_union
+
+
+async def _write_qa_marker(
+    *,
+    pending: list[dict],
+    cards: list[dict],
+    cited_ids: list[str],
+    lake_card_id: str,
+) -> None:
+    """Write a Q/A provenance marker after the harness responds.
+
+    Records that this question was asked, what was said, and which
+    deltas the answer leaned on. Future fires that resonate with this
+    question will surface this marker as additional context — not as
+    a cache replacing fresh recall, but as recognition that the
+    question has been visited before.
+
+    Skipped when:
+      - No pending intent text (no question to anchor on)
+      - No cards (silent / NEIFAMA fire — nothing said)
+      - No cited_ids (no provenance to mark over)
+
+    The marker carries `kind:provenance` so it surfaces through the
+    same ascend/expand machinery as the hand-curated hierarchy. Tagged
+    `provenance-level:0` to sit BELOW level-1 episodes — these are
+    pre-episode, question-anchored, prone to being folded up later.
+    """
+    from ... import delta_client
+
+    if not pending or not cards or not cited_ids:
+        return
+
+    question = (pending[0].get("content") or "").strip()
+    question = question.split("\n\n[intent-payload]", 1)[0].strip()
+    if not question:
+        return
+
+    # Combine card bodies into one answer text. Most fires emit one
+    # card; multi-card fires (chat-reply + feed-card) get concatenated.
+    answer_parts = [c.get("body", "").strip() for c in cards if c.get("body")]
+    answer = "\n\n".join(p for p in answer_parts if p)
+    if not answer:
+        return
+
+    content = f"Q: {question}\n\nA: {answer}"
+    if len(content) > 2400:
+        content = content[:2400] + "…"
+
+    tags = [
+        "kind:provenance",
+        "kind:qa-marker",
+        "provenance-level:0",
+        "provenance-version:v1-experimental",
+        f"from-card:{lake_card_id}",
+    ]
+    for cid in cited_ids[:30]:
+        if cid:
+            tags.append(f"from:{cid}")
+
+    await delta_client.write(
+        content=content,
+        tags=tags,
+        source="harness-qa-marker",
+    )
 
 
 # ─── intent rendering (mirrors witness) ────────────────────────────────

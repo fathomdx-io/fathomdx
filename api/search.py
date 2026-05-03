@@ -416,19 +416,47 @@ def _valence_modifier(cloud: list[dict]) -> float:
     return 1.0 - shift
 
 
+_PROVENANCE_KIND_TAGS = frozenset({"kind:provenance", "kind:sediment"})
+# Provenance gets a flat 15% distance reduction (lower = better).
+# Higher than valence's 30% cap because provenance-vs-moment is a
+# structural distinction, not an engagement signal — provenance always
+# carries more density than a base moment when both match a query.
+# Q/A markers (provenance-level:0) get a smaller boost since they're
+# question-anchored snapshots rather than narrative consolidation.
+_PROVENANCE_BONUS = 0.85
+_QA_MARKER_BONUS = 0.92
+
+
+def _provenance_modifier(d: dict) -> float:
+    """Return distance multiplier for provenance/sediment deltas. 1.0 for
+    base moments. <1.0 for provenance-shaped deltas — they carry more
+    information per token than the moments they summarize, so when both
+    match a query the provenance should rank higher."""
+    tags = d.get("tags") or []
+    if not any(t in _PROVENANCE_KIND_TAGS for t in tags):
+        return 1.0
+    if "kind:qa-marker" in tags or "provenance-level:0" in tags:
+        return _QA_MARKER_BONUS
+    return _PROVENANCE_BONUS
+
+
 def _apply_valence_rerank(deltas_by_step: dict[str, list[dict]]) -> None:
-    """Multiply each delta's distance by its valence modifier and re-sort
-    each step's list. Mutates in place. Deltas without a distance keep
-    their input order — relevant for filter/aggregate steps that produced
-    no semantic distance to begin with."""
+    """Multiply each delta's distance by valence + provenance modifiers
+    and re-sort each step's list. Mutates in place. Deltas without a
+    distance keep their input order — relevant for filter/aggregate
+    steps that produced no semantic distance to begin with."""
     for deltas in deltas_by_step.values():
         any_distance = False
         for d in deltas:
-            cloud = d.get("engagement_cloud") or []
             base = d.get("distance")
-            if base is None or not cloud:
+            if base is None:
                 continue
-            d["distance"] = float(base) * _valence_modifier(cloud)
+            multiplier = _provenance_modifier(d)
+            cloud = d.get("engagement_cloud") or []
+            if cloud:
+                multiplier *= _valence_modifier(cloud)
+            if multiplier != 1.0:
+                d["distance"] = float(base) * multiplier
             any_distance = True
         if any_distance:
             deltas.sort(
