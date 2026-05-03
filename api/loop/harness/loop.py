@@ -21,8 +21,10 @@ helper.
 
 from __future__ import annotations
 
+import inspect
 import json
 import re
+from typing import Any, Awaitable, Callable
 
 from .. import witness as witness_mod
 from ..intents import intent_kind
@@ -36,6 +38,25 @@ MAX_TURNS = 8                # hard cap on tool calls per fire
 MAX_TOKENS_PER_TURN = 4096   # response budget — final card needs room
 
 
+# Event callback signature: `(event_type: str, payload: dict) -> None | Awaitable[None]`.
+# Used by harness_test's SSE endpoint to stream the loop's progress to a
+# visualizer in real time. Production callers (worker.py) pass None.
+EventCallback = Callable[[str, dict], Any]
+
+
+async def _emit(cb: EventCallback | None, event: str, payload: dict) -> None:
+    """Fire an event callback if one was provided. Soft-fails on
+    callback exceptions so a buggy visualizer can't break the loop."""
+    if cb is None:
+        return
+    try:
+        result = cb(event, payload)
+        if inspect.isawaitable(result):
+            await result
+    except Exception as e:
+        print(f"[harness] event callback raised on {event!r}: {type(e).__name__}: {e}")
+
+
 # ─── entry point ───────────────────────────────────────────────────────
 
 
@@ -45,6 +66,7 @@ async def run_harness(
     pending: list[dict],
     voice_order: list[str] | None = None,  # back-compat: accepted but unused
     standpoint=None,
+    event_callback: EventCallback | None = None,
 ) -> list[str]:
     """Run one full harness fire — drop-in replacement for `run_witness`.
 
@@ -53,9 +75,19 @@ async def run_harness(
     for signature compatibility but ignored — the harness elects its own
     deliberation via the `deliberate` tool, so an outer parliament order
     isn't meaningful here.
+
+    `event_callback` (optional) is called at key points in the loop with
+    structured payloads. Used by the harness-test visualizer to stream
+    progress; production callers (worker.py) pass None.
     """
     if not pending:
         return []
+    cb = event_callback
+    await _emit(cb, "start", {
+        "session_tag": session_tag,
+        "intent_count": len(pending),
+        "max_turns": MAX_TURNS,
+    })
 
     # Pre-render the persistent context blocks that don't change across
     # tool-call turns within this fire. Re-rendered once per turn so
@@ -71,6 +103,13 @@ async def run_harness(
 
     tool_history: list[dict] = []
     final_response: dict | None = None
+
+    await _emit(cb, "context_built", {
+        "intent_block": intent_block,
+        "standpoint_block": standpoint_block,
+        "hosts_block": hosts_block,
+        "routines_block": routines_block,
+    })
 
     for turn in range(1, MAX_TURNS + 1):
         # Re-render anchors + feed each turn so telepathy refreshes
@@ -91,6 +130,8 @@ async def run_harness(
             max_turns=MAX_TURNS,
         )
 
+        await _emit(cb, "turn_begin", {"turn": turn, "prompt_chars": len(prompt)})
+
         try:
             raw = await loop_generate(
                 prompt=prompt,
@@ -101,6 +142,8 @@ async def run_harness(
             )
         except Exception as e:
             print(f"[harness] LLM call crashed turn {turn}: {type(e).__name__}: {e}")
+            await _emit(cb, "error", {"where": "llm_call", "turn": turn,
+                                      "type": type(e).__name__, "message": str(e)})
             return []
 
         parsed = _parse_envelope(raw)
@@ -113,6 +156,7 @@ async def run_harness(
                 "turn": turn, "tool": "(parse-error)", "args": {},
                 "error": "response was not valid JSON envelope",
             })
+            await _emit(cb, "parse_error", {"turn": turn, "raw_head": raw[:200], "raw_tail": raw[-120:]})
             continue
 
         kind = (parsed.get("kind") or "").strip()
@@ -120,6 +164,14 @@ async def run_harness(
         if kind == "respond":
             final_response = parsed
             print(f"[harness] turn {turn}: RESPOND ({len(parsed.get('cards') or [])} cards)")
+            await _emit(cb, "respond", {
+                "turn": turn,
+                "cards": parsed.get("cards") or [],
+                "attestation": parsed.get("attestation") or "",
+                "mood_shift": parsed.get("mood_shift"),
+                "cited_ids": parsed.get("cited_ids") or [],
+                "dropped_ids": parsed.get("dropped_ids") or [],
+            })
             break
 
         if kind == "tool_call":
@@ -130,6 +182,9 @@ async def run_harness(
                 print(f"[harness] turn {turn}: {tool_name} — {thinking[:120]}")
             else:
                 print(f"[harness] turn {turn}: {tool_name}")
+            await _emit(cb, "tool_call", {
+                "turn": turn, "tool": tool_name, "args": args_raw, "thinking": thinking,
+            })
             entry = await _dispatch_tool(
                 turn=turn,
                 tool_name=tool_name,
@@ -139,6 +194,11 @@ async def run_harness(
                 standpoint=standpoint,
             )
             tool_history.append(entry)
+            await _emit(cb, "tool_result", {
+                "turn": turn, "tool": tool_name,
+                "result": entry.get("result"),
+                "error": entry.get("error"),
+            })
             continue
 
         # Unknown kind — log and consume the turn.
@@ -147,18 +207,22 @@ async def run_harness(
             "turn": turn, "tool": "(unknown-kind)", "args": {},
             "error": f"unknown envelope kind: {kind!r}",
         })
+        await _emit(cb, "unknown_kind", {"turn": turn, "kind": kind, "raw": parsed})
 
     if final_response is None:
         print(f"[harness] hit max turns ({MAX_TURNS}) without responding — silent fire")
+        await _emit(cb, "max_turns_reached", {"max_turns": MAX_TURNS})
         return []
 
-    return await _dispatch_response(
+    addressed = await _dispatch_response(
         response=final_response,
         pending=pending,
         short_to_full=short_to_full,
         session_tag=session_tag,
         voice_order=voice_order,
     )
+    await _emit(cb, "done", {"addressed": addressed})
+    return addressed
 
 
 # ─── tool dispatch ─────────────────────────────────────────────────────
