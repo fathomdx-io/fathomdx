@@ -74,6 +74,17 @@ relate(action="help" | "with_contact" | "engagement" | "dropped_around" |
   is about a PERSON or VALENCE: "what about Steph", "what have I
   affirmed lately", "what was rejected around this idea."
 
+propose_provenance(level: 1|2|3, title: str, summary: str,
+                   from_ids: list[str], rationale: str,
+                   test_questions: list[str])
+  Draft a provenance PROPOSAL into the dashboard feed for the operator
+  to review. Use when the working set in this fire reveals a coherent
+  stretch worth naming — an episode (level 1), a topic spanning
+  episodes (level 2), or an era (level 3). DOES NOT write provenance
+  directly; only a proposal that the operator approves. Don't propose
+  reflexively — propose only when a real shape emerges from the
+  material you've already pulled.
+
 Most tools return delta ids — feed them into expand/ascend/
 semantic to navigate further.
 

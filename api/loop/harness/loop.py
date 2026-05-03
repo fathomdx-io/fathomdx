@@ -264,6 +264,8 @@ async def _dispatch_tool(
         cleaned["session_tag"] = session_tag
         cleaned["pending"] = pending
         cleaned["standpoint"] = standpoint
+    elif tool_name == "propose_provenance":
+        cleaned["session_tag"] = session_tag
 
     try:
         result = await handler(**cleaned)

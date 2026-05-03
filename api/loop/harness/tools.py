@@ -1,9 +1,9 @@
 """Harness tools — what Fathom can call from inside the agentic loop.
 
-Eight peer tools, each addressing a different way of seeing the lake:
+Nine peer tools, each addressing a different way of seeing or shaping
+the lake:
 
-  semantic
-                 — LLM-composed multi-step search plan over embeddings.
+  semantic       — LLM-composed multi-step search plan over embeddings.
                    The heavy hitter; expensive and powerful. Use when
                    the question has a CONTENT anchor that can be named.
   expand         — graph traversal: fetch children of a provenance delta.
@@ -20,10 +20,15 @@ Eight peer tools, each addressing a different way of seeing the lake:
                    Call time(action='help').
   relate         — engagement + relational: who, what's been affirmed,
                    what's been dropped. Call relate(action='help').
+  propose_provenance — write a provenance PROPOSAL into the dashboard
+                   feed for human review. Use when the working set in
+                   this fire reveals a coherent stretch worth naming
+                   (an episode, a topic, an era). Drafts; doesn't write
+                   real provenance — the operator approves.
 
 Most tools surface delta ids — feed them into expand/ascend/
-semantic to navigate further. Lenses surface;
-graph tools traverse.
+semantic to navigate further. Lenses surface; graph tools traverse;
+propose_provenance shapes the lake's structure.
 
 `deliberate` wraps the existing convener + parliament one-round path; it
 does NOT reimplement deliberation. The harness inverts the relationship —
@@ -936,20 +941,166 @@ async def tool_relate(*, action: str = "help", **kwargs) -> str:
     return f"ERROR: unknown relate action {action!r} — try relate(action='help')"
 
 
+# ─── propose_provenance ────────────────────────────────────────────────
+
+
+async def tool_propose_provenance(
+    *,
+    level: int = 1,
+    title: str = "",
+    summary: str = "",
+    from_ids: list | None = None,
+    rationale: str = "",
+    test_questions: list | None = None,
+    session_tag: str = "",
+) -> str:
+    """Draft a provenance proposal into the dashboard feed.
+
+    Use when the working set in this fire reveals a coherent stretch
+    that doesn't yet have a name — an episode (level 1), a topic
+    spanning episodes (level 2), or an era (level 3). The proposal
+    lands in the feed as `kind:proposal tool:provenance`; the operator
+    sees Edit/Deny/Approve. On approve, the existing proposals.py
+    handler writes the real `kind:provenance` delta with the same args.
+
+    DOES NOT write provenance directly — only a proposal. This keeps
+    the model from polluting the hierarchy with low-confidence
+    inferences. If you're confident enough to write directly, you're
+    confident enough to wait for the operator to approve.
+
+    Args:
+      level: 1 (episode) | 2 (topic) | 3 (era). Default 1.
+      title: short, evocative, the name a human would search for
+      summary: 2-4 sentences; first or third person fine
+      from_ids: list of constituent delta ids (must be 1+)
+      rationale: one sentence — why these are one stretch
+      test_questions: 1-3 questions whose right answer should surface
+        this provenance
+      session_tag: harness-injected, ignored by the model
+    """
+    title = (title or "").strip()
+    summary = (summary or "").strip()
+    rationale = (rationale or "").strip()
+    try:
+        level_int = int(level) if level is not None else 1
+    except (TypeError, ValueError):
+        level_int = 1
+    if level_int < 0 or level_int > 3:
+        return f"ERROR: level must be 0-3, got {level!r}"
+
+    raw_ids = from_ids or []
+    if not isinstance(raw_ids, (list, tuple)):
+        return "ERROR: from_ids must be a list of delta-id strings"
+    cleaned_ids: list[str] = []
+    for x in raw_ids:
+        if isinstance(x, str):
+            s = x.strip()
+            if s and s not in cleaned_ids:
+                cleaned_ids.append(s)
+    if not cleaned_ids:
+        return "ERROR: from_ids must contain at least one constituent id"
+
+    if not title:
+        return "ERROR: title is required"
+    if not summary:
+        return "ERROR: summary is required"
+
+    raw_qs = test_questions or []
+    if not isinstance(raw_qs, (list, tuple)):
+        raw_qs = []
+    cleaned_qs = [q for q in raw_qs if isinstance(q, str) and q.strip()]
+
+    payload = {
+        "kicker": f"harness · level-{level_int}",
+        "title": title,
+        "body": summary,
+        "tail": rationale,
+        "route": "tool:provenance",
+        "tool": "provenance",
+        "tool_args": {
+            "action": "create",
+            "title": title,
+            "summary": summary,
+            "level": level_int,
+            "from_ids": cleaned_ids,
+            "rationale": rationale,
+            "test_questions": cleaned_qs,
+            "seed": "in-situ harness call",
+        },
+        "axes": {},
+    }
+    payload_json = json.dumps(payload, ensure_ascii=False)
+
+    title_slug = "".join(c if c.isalnum() else "-" for c in title.lower()).strip("-")[:80] or "untitled"
+    base_tags = [
+        "feed-card",
+        "synthesis",
+        "kind:proposal",
+        "proposal-status:pending",
+        "tool:provenance",
+        "action:create",
+        "route:tool:provenance",
+        f"provenance-level:{level_int}",
+        "provenance-version:v1-experimental",
+        "produced-by:harness",
+        f"title:{title_slug}",
+    ]
+
+    try:
+        lake_delta = await delta_client.write(
+            content=payload_json,
+            tags=list(base_tags),
+            source="harness-proposal",
+        )
+    except Exception as e:
+        return f"ERROR: lake write failed — {type(e).__name__}: {e}"
+    lake_id = (lake_delta or {}).get("id") or ""
+
+    # Puddle echo so the dashboard feed surfaces it immediately. We're
+    # already inside the api process here (the harness runs in api),
+    # so puddle.write reaches the same Puddle instance the dashboard
+    # reads from.
+    puddle_tags = [CONVO_TAG, *base_tags]
+    if session_tag:
+        puddle_tags.insert(1, session_tag)
+    if lake_id:
+        puddle_tags.append(f"lake-id:{lake_id}")
+        puddle_tags.append(f"recalled-id:{lake_id[:24]}")
+    try:
+        await puddle.write(
+            content=payload_json,
+            tags=puddle_tags,
+            source="harness-proposal",
+            ttl_seconds=7 * 24 * 60 * 60,
+        )
+    except Exception as e:
+        # Soft-fail — the lake write is the source of truth; puddle
+        # is just for live feed visibility.
+        print(f"[propose_provenance] puddle echo failed: {type(e).__name__}: {e}")
+
+    return (
+        f"Proposal drafted as {lake_id[:12]} (level={level_int}, "
+        f"{len(cleaned_ids)} constituents). Visible in the dashboard "
+        f"feed for the operator to Edit / Deny / Approve. The real "
+        f"kind:provenance delta is written only on approve."
+    )
+
+
 # ─── tool dispatch ─────────────────────────────────────────────────────
 
 
 # Tool registry — the loop driver looks up handlers here. Each handler
 # is async, takes kwargs, returns a string.
 TOOL_HANDLERS = {
-    "semantic": tool_search,
-    "expand":     tool_expand,
-    "ascend":     tool_ascend,
-    "deliberate": tool_deliberate,
-    "state":      tool_state,
-    "pattern":    tool_pattern,
-    "time":       tool_time,
-    "relate":     tool_relate,
+    "semantic":           tool_search,
+    "expand":             tool_expand,
+    "ascend":             tool_ascend,
+    "deliberate":         tool_deliberate,
+    "state":              tool_state,
+    "pattern":            tool_pattern,
+    "time":               tool_time,
+    "relate":             tool_relate,
+    "propose_provenance": tool_propose_provenance,
 }
 
 
@@ -962,14 +1113,17 @@ TOOL_HANDLERS = {
 # their menus are open-ended (action + action-specific args). The
 # dispatcher passes everything through and the handler validates inside.
 TOOL_MODEL_ARGS = {
-    "semantic": {"query", "depth"},
-    "expand":     {"delta_id"},
-    "ascend":     {"delta_id"},
-    "deliberate": {"question"},
-    "state":      {"action", "hours", "group_by"},
-    "pattern":    {"action", "tag", "since", "limit", "group_by", "hours",
-                   "silent_for_days", "min_chars"},
-    "time":       {"action", "start", "end", "source", "tag", "limit",
-                   "period", "since", "group_by"},
-    "relate":     {"action", "slug", "limit", "direction", "hours", "delta_id"},
+    "semantic":           {"query", "depth"},
+    "expand":             {"delta_id"},
+    "ascend":             {"delta_id"},
+    "deliberate":         {"question"},
+    "state":              {"action", "hours", "group_by"},
+    "pattern":            {"action", "tag", "since", "limit", "group_by",
+                           "hours", "silent_for_days", "min_chars"},
+    "time":               {"action", "start", "end", "source", "tag",
+                           "limit", "period", "since", "group_by"},
+    "relate":             {"action", "slug", "limit", "direction", "hours",
+                           "delta_id"},
+    "propose_provenance": {"level", "title", "summary", "from_ids",
+                           "rationale", "test_questions"},
 }
