@@ -113,27 +113,39 @@ async def tool_expand(*, delta_id: str) -> str:
 async def tool_ascend(*, delta_id: str) -> str:
     """Find sediment/provenance that contains this delta.
 
-    Queries the lake for `kind:sediment` deltas carrying `from:<delta_id>`.
-    Returns the parent provenance — none, one, or several (a moment can
-    belong to multiple sediments, the start of the many-to-many that the
-    Phase 2 facet design will make findable via embedding too).
+    Queries the lake for both `kind:sediment` (reactive recall-driven)
+    AND `kind:provenance` (intentional hierarchical) deltas carrying
+    `from:<delta_id>`. Returns the parent — none, one, or several (a
+    moment can belong to multiple parents; many-to-many is the design).
+
+    The provenance kind carries a `provenance-level:N` tag — level:1
+    is an episode, level:2 is a topic spanning episodes, level:3 is
+    an era spanning topics. Ascending repeatedly walks UP the hierarchy.
     """
     delta_id = (delta_id or "").strip()
     if not delta_id:
         return "ERROR: delta_id is empty"
-    try:
-        parents = await delta_client.query(
-            tags_include=["kind:sediment", f"from:{delta_id}"],
-            limit=_ASCEND_LIMIT,
-        )
-    except Exception as e:
-        return f"ERROR: ascend query failed — {type(e).__name__}: {e}"
+    parents: list[dict] = []
+    seen: set[str] = set()
+    for kind in ("kind:provenance", "kind:sediment"):
+        try:
+            hits = await delta_client.query(
+                tags_include=[kind, f"from:{delta_id}"],
+                limit=_ASCEND_LIMIT,
+            )
+        except Exception as e:
+            return f"ERROR: ascend query failed — {type(e).__name__}: {e}"
+        for h in hits or []:
+            hid = h.get("id") or ""
+            if hid and hid not in seen:
+                seen.add(hid)
+                parents.append(h)
     if not parents:
         return (
             f"(no provenance contains {delta_id[:12]} — either it's standalone "
-            f"or no sediment has been written that cites it yet)"
+            f"or no sediment/provenance has been written that cites it yet)"
         )
-    blocks: list[str] = [f"Provenance containing {delta_id[:12]} ({len(parents)}):", ""]
+    blocks: list[str] = [f"Containing provenance for {delta_id[:12]} ({len(parents)}):", ""]
     for p in parents:
         blocks.append(_render_delta_brief(p))
     return "\n".join(blocks)

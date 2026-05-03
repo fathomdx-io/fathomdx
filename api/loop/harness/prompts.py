@@ -32,12 +32,15 @@ search(query: str, depth: "shallow"|"deep" = "deep")
   Use when the intent points at something specific and you don't yet have it.
 
 expand(delta_id: str)
-  Get the constituent moments a sediment/provenance summarizes (its `from:` targets).
-  Use when a sediment surfaced and you want to see what it actually covers.
+  Get the constituent moments a provenance/sediment summarizes (its `from:` targets).
+  Use when a provenance surfaced and you want to see what it actually covers.
+  A level-2 provenance's children are level-1 provenances; expand again to reach base moments.
 
 ascend(delta_id: str)
-  Find sediment/provenance that contains this delta — `kind:sediment` deltas carrying `from:<delta_id>`.
-  Use when a moment surfaced and you want its surrounding context.
+  Find provenance that contains this delta. Walks UP the hierarchy:
+  base moment → level-1 episode → level-2 topic → level-3 era.
+  Use when a moment surfaced and you want its surrounding context, or when
+  you want to see whether a level-1 episode belongs to a larger arc.
 
 deliberate(question: str)
   Spin up parliament voices on this question. Returns voice thoughts as text.
