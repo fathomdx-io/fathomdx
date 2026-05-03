@@ -1,26 +1,29 @@
 """Harness tools — what Fathom can call from inside the agentic loop.
 
-Two tiers:
+Eight peer tools, each addressing a different way of seeing the lake:
 
-  First tier (always visible to the model):
-    search       — semantic recall via the LLM-composed plan executor
-    expand       — graph traversal: fetch children of a provenance delta
-    ascend       — graph traversal: find provenance that contains a delta
-    deliberate   — synthesis: parliament voices on a question
-    state        — current attention: intents, proposals, mood, crystal,
-                   recent activity. Call state(action='help') to discover.
-    pattern      — aggregations + lake-wide analysis: tag filters, counts,
+  semantic_compositional_search
+                 — LLM-composed multi-step search plan over embeddings.
+                   The heavy hitter; expensive and powerful. Use when
+                   the question has a CONTENT anchor that can be named.
+  expand         — graph traversal: fetch children of a provenance delta.
+  ascend         — graph traversal: find provenance that contains a delta.
+  deliberate     — synthesis: parliament voices on a question. Expensive,
+                   for genuine antagonism only.
+  state          — current attention: intents, proposals, mood, crystal,
+                   recent activity. The puddle's home turf. Call
+                   state(action='help') to discover sub-actions.
+  pattern        — aggregations + structural queries: tag filters, counts,
                    salience rankings, dormant signals. Call
                    pattern(action='help').
-    time         — temporal-window queries: between dates, group-by-day.
+  time           — temporal-window queries: between dates, group-by-day.
                    Call time(action='help').
-    relate       — engagement / relational: who, what's been affirmed,
+  relate         — engagement + relational: who, what's been affirmed,
                    what's been dropped. Call relate(action='help').
 
-  Second tier (sub-actions on the lens tools above): each lens has a
-  small menu of structured queries. Their return shapes always include
-  delta ids the model can feed back into `expand`/`ascend`/`search` —
-  the lenses surface, the first-tier tools navigate.
+Most tools surface delta ids — feed them into expand/ascend/
+semantic_compositional_search to navigate further. Lenses surface;
+graph tools traverse.
 
 `deliberate` wraps the existing convener + parliament one-round path; it
 does NOT reimplement deliberation. The harness inverts the relationship —
@@ -948,7 +951,7 @@ async def tool_relate(*, action: str = "help", **kwargs) -> str:
 # Tool registry — the loop driver looks up handlers here. Each handler
 # is async, takes kwargs, returns a string.
 TOOL_HANDLERS = {
-    "search":     tool_search,
+    "semantic_compositional_search": tool_search,
     "expand":     tool_expand,
     "ascend":     tool_ascend,
     "deliberate": tool_deliberate,
@@ -968,7 +971,7 @@ TOOL_HANDLERS = {
 # their menus are open-ended (action + action-specific args). The
 # dispatcher passes everything through and the handler validates inside.
 TOOL_MODEL_ARGS = {
-    "search":     {"query", "depth"},
+    "semantic_compositional_search": {"query", "depth"},
     "expand":     {"delta_id"},
     "ascend":     {"delta_id"},
     "deliberate": {"question"},

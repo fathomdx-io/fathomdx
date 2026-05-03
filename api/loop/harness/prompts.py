@@ -25,56 +25,57 @@ You have a harness of tools. Use them as needed before responding. When you have
 ══ THE INTENTS ══
 {intent_block}
 
-{hosts_block}{routines_block}══ TOOLS — first tier (always callable) ══
+{hosts_block}{routines_block}══ TOOLS ══
 
-search(query: str, depth: "shallow"|"deep" = "deep")
-  Semantic recall via the LLM-composed plan executor. Pulls timeline strips
-  around content-matching hits. Use when the intent points at something
-  specific you can name in words.
+Eight peer tools, each a different way of seeing the lake. Pick the
+shape that matches the question — semantic recall is one mode among
+many, not the default.
+
+semantic_compositional_search(query: str, depth: "shallow"|"deep" = "deep")
+  LLM-composed multi-step plan over embedding similarity. Heavy and
+  powerful. Use when the question has a CONTENT anchor that can be
+  named in words ("tell me about X", "what did we say about Y").
+  Don't reach for this when the question is about CURRENT STATE or
+  PATTERNS — semantic recall won't surface "what's pending" or "what's
+  been forgotten" because those questions don't have a content anchor.
 
 expand(delta_id: str)
-  Get the constituent moments a provenance summarizes (its `from:` targets).
-  A level-2 provenance's children are level-1 provenances; expand again
-  to reach base moments.
+  Graph traversal — fetch a provenance delta's `from:` children.
+  Walks DOWN: era → topics, topic → episodes, episode → base moments.
 
 ascend(delta_id: str)
-  Find provenance that contains this delta. Walks UP the hierarchy:
-  base moment → level-1 episode → level-2 topic → level-3 era.
+  Graph traversal — find provenance that contains this delta.
+  Walks UP: moment → episode → topic → era.
 
 deliberate(question: str)
-  Spin up parliament voices on this question. Returns voice thoughts as text.
-  Expensive — use only when the question calls for antagonism (values /
-  ethics / judgment-under-tension), not when search is enough.
-
-══ TOOLS — lens tier (current state, patterns, time windows, engagement) ══
-
-These complement `search` for questions semantic recall can't answer well —
-"what's pending right now," "what have I been working on lately," "what
-have I forgotten," "what have I refuted," "how often does X happen." Each
-lens has a menu — call action="help" first to see what's available.
+  Synthesis — spin up parliament voices on this question. Expensive,
+  for genuine antagonism only (values / ethics / judgment-under-tension).
+  Not retrieval; don't call when you just need substrate.
 
 state(action="help" | "pending_intents" | "proposals" | "mood" |
               "crystal" | "recent", **kwargs)
-  Current attention. The puddle's home turf. Use this for "what's on my
-  mind right now" / "what's waiting" / "what's been alive lately."
+  Current attention. The puddle's home turf. Reach for this when the
+  question is about NOW: "what's on my mind", "what's waiting",
+  "what's been alive lately."
 
 pattern(action="help" | "tagged" | "count_by" | "salient_recent" |
                "dormant", **kwargs)
-  Aggregations and lake-wide structural queries. Use this for "how many
-  of X" / "what's the most-engaged-with thing" / "what have I forgotten."
+  Aggregations and lake-wide structure. Reach for this when the
+  question is about the SHAPE of the lake: "how many of X", "what
+  have I been most engaged with", "what have I forgotten."
 
 time(action="help" | "between" | "bucket_by", **kwargs)
-  Time-window queries. Use this for "what happened on date X" /
-  "show me activity per day."
+  Temporal-window queries. Reach for this when the question is
+  TIME-anchored: "what happened on April 6", "show me activity per day."
 
 relate(action="help" | "with_contact" | "engagement" | "dropped_around" |
               "cited_by", **kwargs)
-  Relational and engagement queries. Use this for "what about Steph" /
-  "what have I affirmed lately" / "what was rejected around this idea."
+  Engagement and relational queries. Reach for this when the question
+  is about a PERSON or VALENCE: "what about Steph", "what have I
+  affirmed lately", "what was rejected around this idea."
 
-The lens results always include delta ids — feed them into expand/
-ascend/search to navigate further. Lenses surface; expand/ascend/search
-navigate.
+Most tools return delta ids — feed them into expand/ascend/
+semantic_compositional_search to navigate further.
 
 ══ TOOL CALLS THIS FIRE ══
 {tool_history}
