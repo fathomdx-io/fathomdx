@@ -458,7 +458,6 @@ async def write_proposal(p: dict, *, seed: str, session_tag: str) -> str:
         },
         "axes": {},
     }
-    payload_json = json.dumps(payload, ensure_ascii=False)
 
     title_slug = title.lower().replace(" ", "-")[:80]
     base_tags = [
