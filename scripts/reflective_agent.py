@@ -51,11 +51,10 @@ sys.path.insert(0, str(ROOT))
 from api import delta_client  # noqa: E402
 from api import search as search_mod  # noqa: E402
 from api import standpoint as standpoint_mod  # noqa: E402
-from api.loop.convener import run_convener  # noqa: E402
+from api.loop.harness.deliberate import deliberate as harness_deliberate  # noqa: E402
 from api.loop.harness.tools import tool_ascend, tool_expand  # noqa: E402
 from api.loop.intents import CONVO_TAG  # noqa: E402
 from api.loop.llm import loop_generate  # noqa: E402
-from api.loop.process import run_process  # noqa: E402
 from api.loop.puddle import puddle  # noqa: E402
 
 REFLECTIVE_PROMPT = """\
@@ -279,63 +278,25 @@ async def run_reflective_parliament(
     standpoint: Any,
 ) -> str:
     """Convene voices on 'what does this stretch mean?' Returns rendered
-    voice takes as text for the drafting prompt. Soft-fails to an empty
-    string if the parliament can't run — the drafter still has the
-    substrate alone."""
-    reflection_intent = {
-        "id": f"reflect-{uuid.uuid4().hex[:12]}",
-        "content": (
-            f"Reflect on this seed and substrate. What's the narrative "
-            f"shape? What stretch of self-experience is this naming?\n\n"
-            f"SEED: {seed}"
-        ),
-        "tags": ["kind:reflection", "reflective-agent"],
-        "source": "reflective-agent",
-    }
+    voice takes as text for the drafting prompt.
 
+    Uses the harness's self-contained deliberate module — trimurti
+    fan-out, no convener pre-pass. Soft-fails to an empty string on
+    crash so the drafter can still proceed with substrate alone.
+
+    `session_tag` and `standpoint` are accepted for caller-signature
+    stability but unused in the new shape.
+    """
+    question = (
+        f"Reflect on this seed and substrate. What's the narrative "
+        f"shape? What stretch of self-experience is this naming?\n\n"
+        f"SEED: {seed}"
+    )
     try:
-        verdict = await run_convener(
-            session_tag=session_tag,
-            pending=[reflection_intent],
-            standpoint=standpoint,
-        )
+        return await harness_deliberate(question=question)
     except Exception as e:
-        print(f"[parliament] convener crashed: {type(e).__name__}: {e}")
+        print(f"[parliament] deliberate crashed: {type(e).__name__}: {e}")
         return ""
-
-    if verdict.depth == "zero" or not verdict.voices:
-        print("[parliament] convener picked depth=zero — skipping voices")
-        return ""
-
-    print(f"[parliament] depth={verdict.depth} voices={[v['name'] for v in verdict.voices]}")
-    voice_coros = [
-        run_process(
-            pid=f"reflect-{v['name']}-{uuid.uuid4().hex[:6]}",
-            session_tag=session_tag,
-            voice=v,
-            pending=[reflection_intent],
-            peer_voices=verdict.voices,
-            standpoint=standpoint,
-        )
-        for v in verdict.voices
-    ]
-    try:
-        results = await asyncio.gather(*voice_coros, return_exceptions=True)
-    except Exception as e:
-        print(f"[parliament] gather crashed: {type(e).__name__}: {e}")
-        return ""
-
-    blocks: list[str] = []
-    for v, res in zip(verdict.voices, results, strict=True):
-        if isinstance(res, Exception):
-            continue
-        text = (res or "").strip()
-        if not text:
-            continue
-        blocks.append(f"VOICE: {v['name'].upper()}")
-        blocks.append(f"  {text}")
-        blocks.append("")
-    return "\n".join(blocks).rstrip()
 
 
 # ─── drafting ──────────────────────────────────────────────────────────
