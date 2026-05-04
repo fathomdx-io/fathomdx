@@ -173,7 +173,11 @@ async def run_harness(
             print(f"[harness] turn {turn}: RESPOND ({len(parsed.get('cards') or [])} cards)")
             await _emit(cb, "respond", {
                 "turn": turn,
+                # Lean shape: {kind: "respond", body: "..."} carries body
+                # at top level. Full shape: cards: [...]. Forward both
+                # so the page can render whichever the model emitted.
                 "cards": parsed.get("cards") or [],
+                "body": parsed.get("body") or "",
                 "attestation": parsed.get("attestation") or "",
                 "mood_shift": parsed.get("mood_shift"),
                 "cited_ids": parsed.get("cited_ids") or [],
@@ -470,7 +474,7 @@ async def _write_qa_marker(
 # ─── anchors + conversation feed (untruncated) ─────────────────────────
 
 
-_FEED_USER_SOURCES = {"openai-compat", "fathom-chat", "claude-code"}
+_FEED_USER_SOURCES = {"openai-compat", "fathom-chat", "claude-code", "harness-test"}
 _FEED_WINDOW_LIMIT = 30  # chronological window of prior turns shown to the harness
 
 

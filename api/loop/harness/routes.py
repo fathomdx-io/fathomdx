@@ -37,7 +37,11 @@ def _sse(event: str, data: Any) -> str:
 
 
 @router.get("/v1/harness/test")
-async def harness_test(question: str, request: Request) -> StreamingResponse:
+async def harness_test(
+    question: str,
+    request: Request,
+    session_tag: str | None = None,
+) -> StreamingResponse:
     """Run a single harness fire end-to-end and stream the trace.
 
     `question` is the synthetic intent text. We seed it as a
@@ -46,6 +50,11 @@ async def harness_test(question: str, request: Request) -> StreamingResponse:
     callback event back as SSE. Resulting cards land in the lake +
     puddle the same way a real fire does — visible in the dashboard
     feed afterward.
+
+    `session_tag` (optional) — when provided, reuse it across fires
+    so the harness sees prior Q/A in the conversation feed (the
+    "river" — each new question lands inside the same session and
+    benefits from prior context). When absent, mint a fresh one.
     """
     question = (question or "").strip()
     if not question:
@@ -53,7 +62,11 @@ async def harness_test(question: str, request: Request) -> StreamingResponse:
     if len(question) > 2000:
         raise HTTPException(status_code=400, detail="question is too long (max 2000 chars)")
 
-    session_tag = f"session:harness-test-{uuid.uuid4().hex[:8]}"
+    if session_tag and session_tag.startswith("session:") and len(session_tag) <= 80:
+        # Use the operator-supplied tag — keeps the river going.
+        pass
+    else:
+        session_tag = f"session:harness-test-{uuid.uuid4().hex[:8]}"
 
     async def event_gen():
         # Bridge the harness's awaitable callback into an asyncio queue

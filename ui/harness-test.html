@@ -90,6 +90,136 @@
     overflow-y: auto;
     padding: 18px;
   }
+  /* Chat-shape trace */
+  .msg {
+    display: flex;
+    margin-bottom: 14px;
+  }
+  .msg-bubble {
+    max-width: 76%;
+    padding: 10px 14px;
+    border-radius: 8px;
+    font-size: 14px;
+    line-height: 1.5;
+    white-space: pre-wrap;
+    word-break: break-word;
+  }
+  .msg.user { justify-content: flex-end; }
+  .msg.user .msg-bubble {
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    border-radius: 8px 8px 2px 8px;
+  }
+  .msg.assistant { justify-content: flex-start; }
+  .msg.assistant .msg-bubble {
+    background: var(--surface);
+    border: 1px solid var(--accent);
+    border-left-width: 3px;
+    border-radius: 2px 8px 8px 8px;
+    max-width: 86%;
+  }
+  .msg-bubble .kicker {
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--accent);
+    margin-bottom: 2px;
+  }
+  .msg-bubble .title {
+    font-weight: 600;
+    margin-bottom: 6px;
+  }
+  .msg-bubble .body {
+    color: var(--text);
+  }
+  .msg-bubble .tail {
+    color: var(--text-dim);
+    font-style: italic;
+    margin-top: 6px;
+    font-size: 13px;
+  }
+  .msg-bubble .meta {
+    margin-top: 6px;
+    font: 11px/1.4 var(--mono);
+    color: var(--text-dim);
+  }
+  .msg-bubble details.activity {
+    margin-top: 8px;
+    border-top: 1px dashed var(--border);
+    padding-top: 8px;
+  }
+  .msg-bubble details.activity > summary {
+    cursor: pointer;
+    color: var(--text-dim);
+    font: 11px/1.4 var(--mono);
+    list-style: none;
+  }
+  .msg-bubble details.activity > summary::before {
+    content: '▶ ';
+    transition: transform 0.1s;
+    display: inline-block;
+  }
+  .msg-bubble details.activity[open] > summary::before {
+    content: '▼ ';
+  }
+  .msg-bubble details.activity > summary:hover {
+    color: var(--accent);
+  }
+  .activity-list {
+    margin-top: 8px;
+    padding-top: 6px;
+  }
+  .activity-event {
+    margin-bottom: 6px;
+    border-left: 2px solid var(--border);
+    padding: 2px 8px;
+  }
+  .activity-event.ev-tool_call { border-left-color: var(--tool-search); }
+  .activity-event.ev-tool_result { border-left-color: var(--tool-expand); }
+  .activity-event.ev-deliberate { border-left-color: var(--tool-deliberate); }
+  .activity-event.ev-error { border-left-color: var(--err); }
+  .activity-event .label {
+    font: 600 10px/1 var(--mono);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--text-dim);
+  }
+  .activity-event .thinking {
+    color: var(--text-dim);
+    font-style: italic;
+    margin: 4px 0;
+    font-size: 12px;
+  }
+  .activity-event pre {
+    margin: 4px 0;
+    font: 11px/1.5 var(--mono);
+    color: var(--text);
+    background: var(--bg);
+    padding: 6px 8px;
+    border-radius: 3px;
+    max-height: 240px;
+    overflow-y: auto;
+    white-space: pre-wrap;
+    word-break: break-word;
+  }
+  .new-chat-btn {
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    color: var(--text-dim);
+    font: 11px/1 var(--mono);
+    padding: 4px 10px;
+    border-radius: 3px;
+    cursor: pointer;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    margin-left: auto;
+    margin-right: 12px;
+  }
+  .new-chat-btn:hover { color: var(--accent); border-color: var(--accent); }
+  .session-pill {
+    font: 11px/1 var(--mono);
+    color: var(--text-dim);
+  }
   #lake {
     overflow: hidden;
     padding: 0;
@@ -331,8 +461,10 @@
   </header>
 
   <div class="composer">
-    <input id="question" type="text" placeholder='ask anything — e.g. "what have we been working on lately?"' autocomplete="off">
+    <input id="question" type="text" placeholder='ask anything — questions in this session build on each other' autocomplete="off">
     <button id="fire">Fire</button>
+    <button id="new-chat" class="new-chat-btn" type="button" title="Start a new chat session (resets the river)">New Chat</button>
+    <span id="session-pill" class="session-pill"></span>
   </div>
 
   <main>
@@ -374,6 +506,38 @@ let _abortController = null;
 let _t0 = 0;
 let _turnCount = 0;
 let _elapsedTimer = null;
+let _currentAssistantBubble = null;
+let _currentActivityList = null;
+let _chatSessionTag = null;
+const $newChat = document.getElementById('new-chat');
+const $sessionPill = document.getElementById('session-pill');
+
+function loadOrMintSessionTag() {
+  try {
+    const stored = localStorage.getItem('harness-test-session-tag');
+    if (stored && stored.startsWith('session:')) {
+      _chatSessionTag = stored;
+      return;
+    }
+  } catch {}
+  mintNewSessionTag();
+}
+function mintNewSessionTag() {
+  const hex = Math.random().toString(36).slice(2, 10);
+  _chatSessionTag = `session:harness-test-${hex}`;
+  try { localStorage.setItem('harness-test-session-tag', _chatSessionTag); } catch {}
+}
+function updateSessionPill() {
+  $sessionPill.textContent = _chatSessionTag ? _chatSessionTag.slice(8, 26) : '';
+}
+loadOrMintSessionTag();
+updateSessionPill();
+
+$newChat.addEventListener('click', () => {
+  mintNewSessionTag();
+  updateSessionPill();
+  clearTrace();
+});
 
 function getToken() {
   try { return localStorage.getItem('fathom-api-key') || ''; } catch { return ''; }
@@ -382,6 +546,7 @@ function getToken() {
 function clearTrace() {
   $trace.innerHTML = '';
   _turnCount = 0;
+  _currentAssistantBubble = null;
   $turns.textContent = '';
   $elapsed.textContent = '';
 }
@@ -504,27 +669,118 @@ function renderContext(payload) {
   return body;
 }
 
+// Chat-shape rendering: each fire produces a user bubble + an
+// assistant bubble. The assistant bubble starts as a placeholder
+// (kicker/title/body fill in on RESPOND), and an "activity"
+// accordion below it accumulates SEED / STANDPOINT / CONTEXT /
+// tool_call / tool_result / parse_error / done events as they
+// arrive. The body (and kicker/title/tail when present) live in
+// the chat thread proper; everything else lives behind the
+// disclosure triangle.
+
+function _addUserBubble(question) {
+  const wrap = el('div', { class: 'msg user' });
+  wrap.appendChild(el('div', { class: 'msg-bubble', text: question }));
+  $trace.appendChild(wrap);
+  $trace.scrollTop = $trace.scrollHeight;
+}
+
+function _addAssistantBubble() {
+  const wrap = el('div', { class: 'msg assistant' });
+  const bubble = el('div', { class: 'msg-bubble' });
+  // Placeholder content while we wait for RESPOND
+  const placeholder = el('div', { class: 'thinking', text: 'thinking…' });
+  bubble.appendChild(placeholder);
+  // Activity disclosure starts collapsed; events get appended to its list.
+  const det = el('details', { class: 'activity' });
+  det.appendChild(el('summary', { text: 'show activity' }));
+  const list = el('div', { class: 'activity-list' });
+  det.appendChild(list);
+  bubble.appendChild(det);
+  wrap.appendChild(bubble);
+  $trace.appendChild(wrap);
+  $trace.scrollTop = $trace.scrollHeight;
+  _currentAssistantBubble = { wrap, bubble, placeholder, det, list, eventCount: 0 };
+  return _currentAssistantBubble;
+}
+
+function _appendActivity(label, eventClass, body) {
+  if (!_currentAssistantBubble) return;
+  const ev = el('div', { class: 'activity-event ev-' + eventClass });
+  ev.appendChild(el('div', { class: 'label', text: label }));
+  if (body) ev.appendChild(body);
+  _currentAssistantBubble.list.appendChild(ev);
+  _currentAssistantBubble.eventCount++;
+  // Update the summary count
+  const summary = _currentAssistantBubble.det.querySelector('summary');
+  if (summary) summary.textContent = `show activity (${_currentAssistantBubble.eventCount})`;
+}
+
+function _fillAssistantBubble(payload) {
+  if (!_currentAssistantBubble) return;
+  const { bubble, placeholder } = _currentAssistantBubble;
+  // Wipe placeholder
+  if (placeholder && placeholder.parentNode === bubble) {
+    bubble.removeChild(placeholder);
+  }
+  // Render cards (or the lean body)
+  const cards = payload.cards || [];
+  if (cards.length === 0 && payload.body) {
+    // Lean shape — just body
+    const bodyEl = el('div', { class: 'body', text: payload.body });
+    bubble.insertBefore(bodyEl, bubble.firstChild);
+  } else {
+    for (let i = cards.length - 1; i >= 0; i--) {
+      const card = cards[i];
+      const cardWrap = el('div');
+      if (card.kicker) cardWrap.appendChild(el('div', { class: 'kicker', text: card.kicker }));
+      if (card.title) cardWrap.appendChild(el('div', { class: 'title', text: card.title }));
+      if (card.body) cardWrap.appendChild(el('div', { class: 'body', text: card.body }));
+      if (card.tail) cardWrap.appendChild(el('div', { class: 'tail', text: card.tail }));
+      const metaParts = [];
+      if (card.route && card.route !== 'chat-reply') metaParts.push('route: ' + card.route);
+      if (card.addresses && card.addresses.length) metaParts.push('addresses: [' + card.addresses.join(', ') + ']');
+      if (metaParts.length) cardWrap.appendChild(el('div', { class: 'meta', text: metaParts.join(' · ') }));
+      bubble.insertBefore(cardWrap, bubble.firstChild);
+    }
+  }
+  // Stash attestation/mood/citations inside the activity area
+  if (payload.attestation || payload.mood_shift || (payload.cited_ids || []).length) {
+    const inner = el('div');
+    if (payload.attestation) {
+      inner.appendChild(el('div', { class: 'thinking', text: payload.attestation }));
+    }
+    if (payload.mood_shift) {
+      inner.appendChild(el('pre', {
+        text: `mood: ${payload.mood_shift.direction}${payload.mood_shift.axis} ` +
+              `(${payload.mood_shift.magnitude}) — ${payload.mood_shift.reason || ''}`,
+      }));
+    }
+    if ((payload.cited_ids || []).length) {
+      inner.appendChild(el('pre', { text: 'cited: ' + payload.cited_ids.join(', ') }));
+    }
+    if ((payload.dropped_ids || []).length) {
+      inner.appendChild(el('pre', { text: 'dropped: ' + payload.dropped_ids.join(', ') }));
+    }
+    _appendActivity('attestation + mood + citations', 'respond', inner);
+  }
+}
+
 function handleEvent(eventName, payload) {
   switch (eventName) {
     case 'seeded':
-      addEvent({
-        kind: 'seeded',
-        label: 'seed',
-        body: el('pre', { text:
-          `session: ${payload.session_tag}\nintent:  ${payload.intent_id}\nquestion: ${payload.question}` }),
-      });
+      _addUserBubble(payload.question || '');
+      _addAssistantBubble();
+      _appendActivity('seed', 'seeded', el('pre', { text:
+        `session: ${payload.session_tag}\nintent: ${payload.intent_id}` }));
       break;
     case 'standpoint':
-      addEvent({
-        kind: 'standpoint',
-        label: 'standpoint',
-        body: el('pre', { text:
-          `posture: ${payload.posture}\naffect:  ${payload.affect_state}\n` +
-          `endorsements: ${payload.endorsements}\nunderstanding: ${payload.understanding}` }),
-      });
+      _appendActivity('standpoint', 'standpoint', el('pre', { text:
+        `posture: ${payload.posture} · affect: ${payload.affect_state}\n` +
+        `endorsements: ${payload.endorsements} · understanding: ${payload.understanding}` }));
       break;
     case 'context_built':
-      addEvent({ kind: 'context_built', label: 'context', body: renderContext(payload) });
+      _appendActivity('context', 'context', renderContext(payload));
       break;
     case 'turn_begin':
       _turnCount = payload.turn;
@@ -532,91 +788,53 @@ function handleEvent(eventName, payload) {
       break;
     case 'tool_call': {
       const tool = (payload.tool || '').toLowerCase();
-      addEvent({
-        kind: 'tool_call',
-        label: tool,
-        turn: payload.turn,
-        badgeClass: 'tool-' + (tool || 'unknown'),
-        body: renderToolCall(payload),
-      });
+      _appendActivity('turn ' + payload.turn + ' · ' + tool, 'tool_call', renderToolCall(payload));
       break;
     }
     case 'tool_result':
-      addEvent({
-        kind: 'tool_result',
-        label: 'result',
-        turn: payload.turn,
-        body: renderToolResult(payload),
-      });
+      _appendActivity('turn ' + payload.turn + ' · result', 'tool_result', renderToolResult(payload));
       break;
     case 'respond':
-      addEvent({
-        kind: 'respond',
-        label: 'respond',
-        turn: payload.turn,
-        badgeClass: 'respond',
-        body: renderRespond(payload),
-      });
+      _fillAssistantBubble(payload);
       break;
     case 'parse_error':
-      addEvent({
-        kind: 'parse_error',
-        label: 'parse-error',
-        turn: payload.turn,
-        badgeClass: 'error',
-        body: el('pre', { text: `head: ${payload.raw_head}\ntail: ${payload.raw_tail}` }),
-      });
+      _appendActivity('turn ' + payload.turn + ' · parse-error', 'error',
+        el('pre', { text: `head: ${payload.raw_head}\ntail: ${payload.raw_tail}` }));
       break;
     case 'unknown_kind':
-      addEvent({
-        kind: 'unknown_kind',
-        label: 'unknown-kind',
-        turn: payload.turn,
-        badgeClass: 'error',
-        body: el('pre', { text: `kind: ${payload.kind}\nraw: ${JSON.stringify(payload.raw)}` }),
-      });
+      _appendActivity('turn ' + payload.turn + ' · unknown-kind', 'error',
+        el('pre', { text: `kind: ${payload.kind}\nraw: ${JSON.stringify(payload.raw)}` }));
       break;
     case 'max_turns_reached':
-      addEvent({
-        kind: 'max_turns_reached',
-        label: 'max-turns',
-        badgeClass: 'error',
-        body: el('div', { class: 'thinking', text:
-          `Hit ${payload.max_turns} turn cap without responding — silent fire.` }),
-      });
+      _appendActivity('max-turns', 'error', el('div', { class: 'thinking', text:
+        `Hit ${payload.max_turns} turn cap without responding — silent fire.` }));
+      if (_currentAssistantBubble && _currentAssistantBubble.placeholder) {
+        _currentAssistantBubble.placeholder.textContent = '(silent — max turns hit)';
+      }
       break;
     case 'finished':
       $status.innerHTML = '<span class="ok">finished</span>';
-      addEvent({
-        kind: 'finished',
-        label: 'done',
-        badgeClass: 'respond',
-        body: el('pre', { text: `addressed: ${JSON.stringify(payload.addressed)}` }),
-      });
+      // Already handled by `respond`; finished is the SSE completion marker.
       break;
     case 'warning':
-      addEvent({
-        kind: 'warning',
-        label: 'warning',
-        body: el('pre', { text: `${payload.where}: ${payload.type}: ${payload.message}` }),
-      });
+      _appendActivity('warning', 'error', el('pre', {
+        text: `${payload.where}: ${payload.type}: ${payload.message}`,
+      }));
       break;
     case 'error':
       $status.innerHTML = '<span class="err">error</span>';
-      addEvent({
-        kind: 'error',
-        label: 'error',
-        badgeClass: 'error',
-        body: el('pre', { text: `${payload.where || '?'}: ${payload.type || ''}: ${payload.message || ''}` }),
-      });
+      _appendActivity('error', 'error', el('pre', {
+        text: `${payload.where || '?'}: ${payload.type || ''}: ${payload.message || ''}`,
+      }));
+      if (_currentAssistantBubble && _currentAssistantBubble.placeholder) {
+        _currentAssistantBubble.placeholder.textContent = '(error — see activity)';
+      }
       break;
     default:
-      addEvent({
-        kind: eventName,
-        label: eventName,
-        body: el('pre', { text: JSON.stringify(payload, null, 2) }),
-      });
+      _appendActivity(eventName, eventName,
+        el('pre', { text: JSON.stringify(payload, null, 2) }));
   }
+  $trace.scrollTop = $trace.scrollHeight;
 }
 
 async function fire() {
@@ -632,7 +850,8 @@ async function fire() {
   _firing = true;
   $fire.disabled = true;
   $status.textContent = 'firing…';
-  clearTrace();
+  // Don't clearTrace() — we want the river of prior Q/A to stay
+  // visible. New chat is the explicit reset path.
 
   _t0 = performance.now();
   _elapsedTimer = setInterval(() => {
@@ -642,7 +861,8 @@ async function fire() {
 
   _abortController = new AbortController();
   try {
-    const url = '/v1/harness/test?question=' + encodeURIComponent(q);
+    const url = '/v1/harness/test?question=' + encodeURIComponent(q) +
+      '&session_tag=' + encodeURIComponent(_chatSessionTag || '');
     const resp = await fetch(url, {
       method: 'GET',
       headers: { 'Authorization': 'Bearer ' + token, 'Accept': 'text/event-stream' },
@@ -652,6 +872,9 @@ async function fire() {
       throw new Error('HTTP ' + resp.status + ': ' + (await resp.text()));
     }
     if (!resp.body) throw new Error('no response body');
+
+    // Clear the input — the next question types fresh.
+    $question.value = '';
 
     const reader = resp.body.getReader();
     const decoder = new TextDecoder();
