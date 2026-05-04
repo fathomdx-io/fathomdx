@@ -5,15 +5,17 @@
 
 ## Next
 
-**Active scoped run: `ralph/agent-harness-sweep`** (off `feat/agent-harness`).
-Scope is the harness surface introduced on the branch — see
-"Active scoped run" section below for the file list and iteration cap.
+**Scoped run `ralph/agent-harness-sweep` — DONE 2026-05-04.**
+See iteration log entry below; harness surface is ruff-clean,
+pytest 339 (8 red) → 386 (all green), +47 tests added or restored.
 
 **Prior runs**
 
 - Broad fathomdx sweep — RALPH COMPLETE 2026-04-23.
 - Grand Loop search-surface follow-up — DONE 2026-04-28 on
   `ralph/grand-loop-sweep` (5 iterations, 4 substantive commits + 1 chore).
+- Agent-harness sweep — DONE 2026-05-04 on `ralph/agent-harness-sweep`
+  (3 substantive iterations, 11 commits).
 
 Open follow-up: same `.replace(tzinfo=UTC)` bug pattern fixed in
 plan.py:_parse_ts also exists in `migrate.py:31`, `store.py:26`, and
@@ -58,6 +60,111 @@ modified vs `main`):
 4. Senior Dev Audit — assess whether `loop.py` and `tools.py` need split
    before migration to production worker.py
 5. Verify + tracking
+
+## Iteration log — agent-harness sweep
+
+### 2026-05-04 — Agent-harness sweep / fathomdx
+
+Scoped RALPH run on `ralph/agent-harness-sweep` (off `feat/agent-harness`).
+11 commits. pytest 339 (with 8 red) → 386 (green); ruff 48 → 0 on the
+in-scope surface; format clean.
+
+**Iter 1 — Dead Code & Cleanup (8 commits)**
+
+Ruff autofix landed 32 mechanical fixes across 7 files (F401, I001,
+F541, UP-series). Manual follow-ups:
+
+- `4e24401` — B023 fix on `run_dialogue.round_cb`. Three closure sites
+  captured `round_num` and `captured` from the enclosing for-loop. The
+  current control flow is safe (round_cb runs to completion within the
+  same iteration), but bound the variables via default args so a future
+  refactor can't accidentally late-bind.
+- `d5789ee` — F841 dead `payload_json` line in scripts/reflective_agent.py.
+  `payload` is forwarded as `json=payload` to httpx; the dumps() was
+  orphan from a prior shape.
+- `ae844e4` — SIM105 sweep: 7 try/except/pass → contextlib.suppress.
+  Three SSE routes (/test, /sit, /dialogue), each with a put_nowait
+  guard against asyncio.QueueFull and a runner-task cleanup against
+  (CancelledError, Exception); plus one json.JSONDecodeError swallow
+  on a malformed for-card axes blob in tools.py.
+- `737274a` — B905: zip(voices, results) carries strict=True. Both
+  parliament-shape sites (tools.py + reflective_agent.py); results
+  comes from gather over voice_coros, so the lengths are equal by
+  construction.
+- `9471ca9` — E402: hoisted six relative imports in loop.py above the
+  `_render_now_block` module-level helper. tools↔loop cycle is broken
+  by tools.py's lazy import of run_harness; verified by importing the
+  module after the move. Plus two missing E402 noqa markers in
+  reflective_agent.py.
+
+**Iter 2 — Test Creation: restore 8 red tests + pin new contracts (2 commits)**
+
+`feat/agent-harness` introduced two behaviour shifts the prior
+`ralph/grand-loop-sweep` tests didn't pick up. They were red on the
+branch HEAD before this run started.
+
+- `96af131` — api/search.py:`_apply_valence_rerank` now always sorts
+  when distances are present (because `_provenance_modifier` can
+  silently shift distance even with no engagement cloud). Two tests
+  that pinned the old "skip-sort if nothing changed" optimization
+  reframed; added 4 explicit `_provenance_modifier` tests covering
+  the kind:provenance / kind:sediment / kind:qa-marker / provenance-
+  level:0 branches plus the polarity invariant. 26 → 30 tests.
+- `d0db718` — delta-store/deltas/plan.py:`_apply_noise_rerank` now
+  hard-drops pure noise (empty content, sub-LENGTH_DROP_THRESHOLD,
+  exact NOISE_SEEDS match) before any modifier fires. Six tests that
+  used "ok" (2 chars + seed match) to exercise the length-only path
+  reworked to "short remark" (12 chars, not a seed). 4 new tests
+  pinning the hard-drop contract: empty, sub-threshold, exact seed,
+  case + whitespace insensitivity. 11 → 15 tests.
+
+**Iter 3 — Bug Hunt + Test Creation: harness invariants (1 commit)**
+
+Read api/provenance_centroid.py and api/routes/proposals.py line-by-
+line. No bugs found — both surfaces are well-bounded (cycle protection
+via seen-set, depth and leaf caps, defensive non-string-tag handling
+on the gate). But neither had any test coverage. Both are PRD-flagged
+as critical: get them wrong and the lake silently corrupts.
+
+- `ffb00cb` — pinned 31 invariants across two new test modules:
+  - `api/tests/test_provenance_centroid.py` (13 tests): empty input,
+    qa-marker as leaf, recursion through from:* (skipping prov own
+    title+summary embedding), 2-level walk, mixed prov+base layer,
+    cycle (A→B→A) terminates, depth cap (10-deep chain), leaf cap
+    (350-leaf prov), batch_get failure mid-walk doesn't crash,
+    wrong-dim / missing embedding silently skipped.
+  - `api/tests/test_proposals_auto_approve.py` (18 tests): both tag
+    helpers (`_produced_by_from_tags`, `_provenance_level_from_tags`)
+    against first-match, default-fallback, empty-suffix, non-string
+    tolerance, duplicate attribution, unparseable-skip-continues; gate
+    boundary at L0 / L1 / L2 (auto-approve), L3+ / None (manual),
+    negative-level (currently auto-approves; documented as a contract
+    test that will signal if/when policy clamps).
+
+**Iter 4-5 collapsed into Verify + tracking**
+
+Full pytest 386 passing across four consecutive runs (one initial
+order-dependent flake on `test_routine_scheduler.py` did not
+reproduce). Ruff check + format both clean on the in-scope surface.
+The `loop.py` (1419 LOC) and `tools.py` (1534 LOC) ceiling violations
+were noted but not split — the harness is still experimental on
+port 8301 and the migration to production worker.py is the right
+moment to either split or accept the larger files. Logged for the
+migration acceptance gates rather than this scoped run.
+
+**Outstanding**
+
+- `loop.py` / `tools.py` over the 800-LOC ceiling. Decision deferred
+  to migration day — split or grandfather. Both files are coherent
+  single-responsibility modules at their current size.
+- The integrated `/v1/proposals/draft` endpoint is not under unit-test
+  coverage — only its level-parsing helpers and the gate boundary
+  itself. Integration coverage relies on manual harness fires against
+  the prov stack on port 8301.
+- Self-dialogue (`run_dialogue`) and introspection (`run_introspection`)
+  paths in `loop.py` were not exercised by tests this run. The B023
+  fix removed a latent bite in `run_dialogue.round_cb`, but full path
+  coverage on Sit-mode behaviour is a separate iteration.
 
 ## Coverage matrix
 

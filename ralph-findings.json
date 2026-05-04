@@ -239,6 +239,33 @@
         "04950d9 chore: ruff cleanup on new RALPH test files"
       ],
       "outstanding": "Same `.replace(tzinfo=UTC)` bug pattern exists in delta-store/deltas/migrate.py:31, store.py:26, and inline at query.py:169 / :589. Out of this run's scope; needs a focused timezone-handling sweep."
+    },
+    "agent_harness_sweep_2026_05_04": {
+      "status": "DONE (11 commits on ralph/agent-harness-sweep)",
+      "scope": "Harness surface — api/loop/harness/* + api/provenance_centroid.py + api/routes/proposals.py + scripts/{reflective,topical}_agent.py + their delta-store touches. UI and docs out of scope per ralph-prd.md.",
+      "iterations": 3,
+      "ruff_baseline": 48,
+      "ruff_after": 0,
+      "ruff_format_files_baseline": 8,
+      "ruff_format_files_after": 0,
+      "pytest_baseline": "339 (8 red — pre-existing on feat/agent-harness from prior grand-loop tests not updated when centroid work landed)",
+      "pytest_after": 386,
+      "tests_added_or_restored": 47,
+      "bugs_fixed": 1,
+      "commits": [
+        "352d9e5 docs(ralph): open scoped sweep on ralph/agent-harness-sweep",
+        "b9bca3b chore(harness): ruff autofix pass — 32 fixes across 7 files",
+        "175188a chore(harness): ruff format pass — 8 files reformatted",
+        "4e24401 fix(harness): bind round_num + captured into dialogue round_cb closure (B023)",
+        "d5789ee chore(reflective-agent): drop dead payload_json line (F841)",
+        "ae844e4 chore(harness): SIM105 sweep — 7 try/except/pass → contextlib.suppress",
+        "737274a chore(harness): B905 — zip(voices, results) carries strict=True",
+        "9471ca9 chore(harness): E402 — hoist loop.py imports above module helper",
+        "96af131 test(api): pin _provenance_modifier (4 new) + reframe rerank no-op contract (2 reds)",
+        "d0db718 test(delta-store): pin pure-noise hard-drop (4 new) + restore reds (6)",
+        "ffb00cb test(harness): pin provenance centroid recursion (13) + auto-approve gate (18)"
+      ],
+      "outstanding": "loop.py (1419 LOC) and tools.py (1534 LOC) over the 800-LOC ceiling — defer split or grandfather decision to migration day. /v1/proposals/draft integration coverage relies on manual harness fires against port 8301. run_dialogue + run_introspection path coverage is a separate iteration. Note: negative provenance-level tags currently auto-approve under `level <= 2`; captured as a contract test in test_proposals_auto_approve.py — flag if a future policy clamps."
     }
   }
 }
