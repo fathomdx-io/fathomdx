@@ -38,7 +38,6 @@ question calls for antagonism, instead of being a mandatory pre-step.
 
 from __future__ import annotations
 
-import asyncio
 import contextlib
 import json
 import uuid
@@ -48,10 +47,7 @@ from typing import Any
 
 from ... import delta_client
 from ... import search as search_mod
-from .. import resonance  # noqa: F401  — process imports it transitively
-from ..convener import run_convener
 from ..intents import CONVO_TAG, intent_kind, pending_intents
-from ..process import run_process
 from ..puddle import puddle
 
 # Hard caps on per-call result counts — these limit how many items a
@@ -185,84 +181,25 @@ async def tool_ascend(*, delta_id: str) -> str:
 async def tool_deliberate(
     *,
     question: str,
-    session_tag: str,
-    pending: list[dict],
-    standpoint: Any,
+    session_tag: str = "",
+    pending: list[dict] | None = None,
+    standpoint: Any = None,
 ) -> str:
-    """Spin up parliament voices on a question and return their thoughts.
+    """Run a parliament round on a question — return voices' takes.
 
-    Wraps the existing convener + one round of parallel voices. Voice
-    thought deltas land in the puddle under `session_tag` so subsequent
-    harness turns can also see them via resonance, but the immediate
-    return is a rendered text block of the takes.
+    Self-contained via `harness/deliberate.py`: hardcoded trimurti
+    (creator / preserver / destroyer), N parallel LLM calls, no
+    convener pre-pass and no substrate gathering — the harness already
+    has substrate via its other tools.
 
-    `pending` and `standpoint` are the harness's outer-loop snapshot —
-    convener reads them as constraint context. The `question` argument
-    is what the harness wants the parliament to think about specifically;
-    it gets surfaced in the convener's intent_block alongside the outer
-    pending intents so depth/voice picks reflect this narrower focus.
+    `session_tag`, `pending`, and `standpoint` are accepted for
+    signature compatibility with the harness dispatcher (which injects
+    them automatically) but are unused in this implementation. The
+    deliberate machinery operates only on the question.
     """
-    question = (question or "").strip()
-    if not question:
-        return "ERROR: empty deliberation question"
+    from .deliberate import deliberate as _deliberate
 
-    # Synthesize a minimal intent dict the convener can read. Not written
-    # to the puddle — this is just an in-memory shape for the convener's
-    # _render_intent_block helper.
-    deliberation_intent = {
-        "id": f"deliberate-{uuid.uuid4().hex[:12]}",
-        "content": question,
-        "tags": ["kind:deliberation", "harness:deliberate"],
-        "source": "harness",
-    }
-    convener_pending = [deliberation_intent] + (pending or [])
-
-    try:
-        verdict = await run_convener(
-            session_tag=session_tag,
-            pending=convener_pending,
-            standpoint=standpoint,
-        )
-    except Exception as e:
-        return f"ERROR: convener crashed — {type(e).__name__}: {e}"
-
-    if verdict.depth == "zero" or not verdict.voices:
-        return (
-            f"(convener picked depth=zero — voices declined to weigh in. "
-            f"Rationale: {verdict.rationale or 'no rationale given'})"
-        )
-
-    voice_coros = [
-        run_process(
-            pid=f"harness-{v['name']}-{uuid.uuid4().hex[:6]}",
-            session_tag=session_tag,
-            voice=v,
-            pending=convener_pending,
-            peer_voices=verdict.voices,
-            standpoint=standpoint,
-        )
-        for v in verdict.voices
-    ]
-    try:
-        results = await asyncio.gather(*voice_coros, return_exceptions=True)
-    except Exception as e:
-        return f"ERROR: parliament crashed — {type(e).__name__}: {e}"
-
-    blocks: list[str] = [
-        f"Parliament — depth={verdict.depth}, voices=[{', '.join(v['name'] for v in verdict.voices)}]",
-        f"Rationale: {verdict.rationale or '(no rationale)'}",
-        "",
-    ]
-    for v, res in zip(verdict.voices, results, strict=True):
-        if isinstance(res, Exception):
-            blocks.append(f"VOICE: {v['name'].upper()} — crashed ({type(res).__name__}: {res})")
-            blocks.append("")
-            continue
-        text = (res or "").strip() or "(silence)"
-        blocks.append(f"VOICE: {v['name'].upper()}")
-        blocks.append(f"  {text}")
-        blocks.append("")
-    return "\n".join(blocks).rstrip()
+    return await _deliberate(question=question)
 
 
 # ─── shared helpers ────────────────────────────────────────────────────
