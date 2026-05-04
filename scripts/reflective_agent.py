@@ -49,8 +49,8 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
 from api import delta_client  # noqa: E402
-from api import search as search_mod
-from api import standpoint as standpoint_mod
+from api import search as search_mod  # noqa: E402
+from api import standpoint as standpoint_mod  # noqa: E402
 from api.loop.convener import run_convener  # noqa: E402
 from api.loop.harness.tools import tool_ascend, tool_expand  # noqa: E402
 from api.loop.intents import CONVO_TAG  # noqa: E402

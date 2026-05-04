@@ -30,6 +30,18 @@ from datetime import UTC, datetime
 from typing import Any
 from zoneinfo import ZoneInfo
 
+from .. import witness as witness_mod
+from ..intents import CONVO_TAG, intent_kind
+from ..llm import loop_generate
+from ..puddle import puddle
+from .prompts import (
+    HARNESS_SYSTEM,
+    INTROSPECTION_SYSTEM,
+    REVIEW_SYSTEM,
+    render_tool_history,
+)
+from .tools import TOOL_HANDLERS, TOOL_MODEL_ARGS
+
 # Local timezone for the NOW block. UTC reads sterile and confuses the
 # model when humans say "this morning" — anchor to the operator's wall
 # clock instead. Override with FATHOM_LOCAL_TZ if Fathom moves.
@@ -69,18 +81,6 @@ def _render_now_block() -> str:
         f"UTC {utc.strftime('%H:%M')}"
     )
 
-
-from .. import witness as witness_mod
-from ..intents import CONVO_TAG, intent_kind
-from ..llm import loop_generate
-from ..puddle import puddle
-from .prompts import (
-    HARNESS_SYSTEM,
-    INTROSPECTION_SYSTEM,
-    REVIEW_SYSTEM,
-    render_tool_history,
-)
-from .tools import TOOL_HANDLERS, TOOL_MODEL_ARGS
 
 MAX_TURNS = 8  # hard cap on tool calls per fire
 MAX_TOKENS_PER_TURN = 4096  # response budget — final card needs room
