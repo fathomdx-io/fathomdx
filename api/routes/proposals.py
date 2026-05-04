@@ -72,17 +72,42 @@ def _parse_args_from_card(d: dict) -> dict:
     return args if isinstance(args, dict) else {}
 
 
+def _produced_by_from_tags(tags: list[str], default: str = "unknown") -> str:
+    """Pull the producer name off a proposal card's tags."""
+    for t in tags or []:
+        if isinstance(t, str) and t.startswith("produced-by:"):
+            return t.split(":", 1)[1] or default
+    return default
+
+
+def _provenance_level_from_tags(tags: list[str]) -> int | None:
+    """Pull the proposed provenance level off the tags. Returns None when
+    no `provenance-level:<n>` tag is present."""
+    for t in tags or []:
+        if isinstance(t, str) and t.startswith("provenance-level:"):
+            try:
+                return int(t.split(":", 1)[1])
+            except (TypeError, ValueError):
+                continue
+    return None
+
+
 async def _approve_provenance_create(
-    args: dict, *, proposal: dict | None
+    args: dict, *, proposal: dict | None,
+    produced_by: str = "reflective-agent",
+    source: str | None = None,
 ) -> dict:
-    """Approve a reflective-agent provenance proposal — write the real
-    kind:provenance delta with the args the operator approved (which
-    may have been edited from the proposal's original args).
+    """Write the real kind:provenance delta with the args being approved
+    (which may have been edited from the proposal's original args).
 
     Mirrors the producer-maker workspace's write shape: kind:provenance
     + provenance-level:<n> + provenance-version:v1-experimental + a
     title slug + from:<id> for each constituent. Returns the new delta's
     id and tag list so the decision delta can record what landed.
+
+    `produced_by` flows through to a `produced-by:<value>` tag — caller
+    should pass the actual producer (harness, topical-agent, etc.) so
+    later analysis can tell apart auto-approved batches by source.
     """
     title = (args.get("title") or "").strip()
     summary = (args.get("summary") or "").strip()
@@ -113,7 +138,7 @@ async def _approve_provenance_create(
         "kind:provenance",
         f"provenance-level:{level}",
         "provenance-version:v1-experimental",
-        "produced-by:reflective-agent",
+        f"produced-by:{produced_by}",
         f"title:{title_slug}",
     ]
     for fid in from_ids[:60]:  # generous cap; 60 sources is more than enough
@@ -128,7 +153,7 @@ async def _approve_provenance_create(
     written = await delta_client.write(
         content=content,
         tags=tags,
-        source="reflective-agent-approved",
+        source=source or f"{produced_by}-approved",
     )
     return {
         "delta_id": (written or {}).get("id") or "",
@@ -138,15 +163,55 @@ async def _approve_provenance_create(
     }
 
 
+async def auto_approve_provenance(
+    *,
+    proposal_id: str,
+    args: dict,
+    produced_by: str,
+    decided_by: str = "auto-policy:level<=2",
+) -> dict:
+    """Auto-approve an L1/L2 provenance proposal at write time.
+
+    Skips the human-review step: writes the kind:provenance delta with
+    `produced_by` matching the proposing producer, then writes a
+    proposal-decision delta tagged `decided-by:<value>` so the audit
+    trail distinguishes auto-approval from operator approval.
+
+    The proposal itself stays in the lake — the proposals pane folds in
+    decisions client-side and the row will render as approved.
+    """
+    result = await _approve_provenance_create(
+        args, proposal={"id": proposal_id} if proposal_id else None,
+        produced_by=produced_by,
+    )
+    decision = await _write_decision(
+        proposal_id=proposal_id, status="approved",
+        result=result, decided_by=decided_by,
+    )
+    return {
+        "auto_approved": True,
+        "decided_by": decided_by,
+        "result": result,
+        "decision_delta_id": (decision or {}).get("id") if isinstance(decision, dict) else None,
+    }
+
+
 async def _write_decision(*, proposal_id: str, status: str,
-                          reason: str = "", result: dict | None = None) -> dict:
-    """Write the decision delta linked to the original proposal."""
+                          reason: str = "", result: dict | None = None,
+                          decided_by: str = "operator") -> dict:
+    """Write the decision delta linked to the original proposal.
+
+    `decided_by` distinguishes operator approvals from auto-approved
+    proposals (e.g. "auto-policy:level<=2"). Goes onto a
+    `decided-by:<value>` tag for later filtering.
+    """
     tags = [
         "proposal-decision",
         f"decides:{proposal_id}",
         f"proposal-status:{status}",
+        f"decided-by:{decided_by}",
     ]
-    body = {"status": status, "reason": reason}
+    body = {"status": status, "reason": reason, "decided_by": decided_by}
     if result:
         body["result"] = result
     return await delta_client.write(
@@ -201,9 +266,10 @@ async def approve_proposal(delta_id: str, body: dict | None = None):
         if action == "create":
             args.pop("action", None)
             args.pop("confirm", None)
+            produced_by = _produced_by_from_tags(tags, default="reflective-agent")
             try:
                 result = await _approve_provenance_create(
-                    args, proposal=proposal
+                    args, proposal=proposal, produced_by=produced_by,
                 )
             except ValueError as e:
                 raise HTTPException(status_code=400, detail=str(e)) from e
@@ -350,9 +416,37 @@ async def draft_proposal(body: dict):
         # is just for live feed visibility.
         print(f"[proposals/draft] puddle echo failed: {type(e).__name__}: {e}")
 
+    # Auto-approve gate: L1 (episodes) and L2 (topics) are bounded
+    # enough that operator review just creates friction. L3 eras and
+    # higher still require explicit approval — they make stronger
+    # claims about identity/structure that warrant a human pass.
+    auto_approved: dict | None = None
+    try:
+        level_int = _provenance_level_from_tags(tags)
+        tool_args = (payload.get("tool_args") or {}) if isinstance(payload, dict) else {}
+        if (
+            level_int is not None
+            and level_int <= 2
+            and isinstance(tool_args, dict)
+            and (payload.get("tool") or "") == "provenance"
+            and lake_id
+        ):
+            produced_by = _produced_by_from_tags(tags, default="unknown")
+            auto_approved = await auto_approve_provenance(
+                proposal_id=lake_id,
+                args=dict(tool_args),
+                produced_by=produced_by,
+            )
+    except Exception as e:
+        # Non-fatal — proposal is in the lake, just unapproved. Log
+        # and let the operator approve manually.
+        print(f"[proposals/draft] auto-approve failed: {type(e).__name__}: {e}")
+        auto_approved = None
+
     return {
         "lake_id": lake_id,
         "session_tag": session_tag,
+        "auto_approved": auto_approved,
     }
 
 

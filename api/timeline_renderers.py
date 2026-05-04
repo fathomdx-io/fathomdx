@@ -120,9 +120,28 @@ def _anchor_marker(d: dict) -> str:
     return "▸" if d.get("is_anchor") else " "
 
 
+def _id_prefix(d: dict) -> str:
+    """Show the 12-char delta id on anchor lines so the model has real
+    references when it wants to engage / cite / propose constituents.
+    Without this, the recall output renders timestamps + sources but
+    not ids — the model fabricates id-shaped strings from the format
+    it remembers (e.g. "20260420T042833Z-fathom-chat-a1b2c3"), which
+    don't resolve in the lake.
+
+    Anchor items only — ambient lines stay clean. They're context,
+    not citation material; ids would just clutter the render.
+    """
+    if not d.get("is_anchor"):
+        return ""
+    did = (d.get("id") or "").strip()
+    if not did:
+        return ""
+    return f"[{did[:12]}] "
+
+
 def _render_default(d: dict) -> str:
     src = (d.get("source") or "?").ljust(13)[:13]
-    return f"{_anchor_marker(d)} {_short_ts(d)}  {src}· {_content_oneline(d)}"
+    return f"{_anchor_marker(d)} {_short_ts(d)}  {src}· {_id_prefix(d)}{_content_oneline(d)}"
 
 
 def _render_collapsed(d: dict) -> str:
@@ -143,7 +162,7 @@ def _render_dialog(d: dict) -> str:
     src = (d.get("source") or "?").ljust(13)[:13]
     role_str = f" {role}:" if role else ""
     return (
-        f"{_anchor_marker(d)} {_short_ts(d)}  {src}·{role_str} {_content_oneline(d)}"
+        f"{_anchor_marker(d)} {_short_ts(d)}  {src}·{role_str} {_id_prefix(d)}{_content_oneline(d)}"
     )
 
 
@@ -158,7 +177,7 @@ def _render_sediment(d: dict) -> str:
     n_from = sum(1 for t in (d.get("tags") or []) if t.startswith("from:"))
     src = "sediment".ljust(13)
     suffix = f" (from {n_from} sources)" if n_from else ""
-    return f"{_anchor_marker(d)} {_short_ts(d)}  {src}· {first}{suffix}"
+    return f"{_anchor_marker(d)} {_short_ts(d)}  {src}· {_id_prefix(d)}{first}{suffix}"
 
 
 def _render_routine_fire(d: dict) -> str:
@@ -167,7 +186,7 @@ def _render_routine_fire(d: dict) -> str:
         "?",
     )
     src = "routine".ljust(13)
-    return f"{_anchor_marker(d)} {_short_ts(d)}  {src}· [routine {rid} fired]"
+    return f"{_anchor_marker(d)} {_short_ts(d)}  {src}· {_id_prefix(d)}[routine {rid} fired]"
 
 
 def _render_mood(d: dict) -> str:
@@ -177,11 +196,46 @@ def _render_mood(d: dict) -> str:
     )
     src = "mood".ljust(13)
     label = f"feeling: {state}" if state else _content_oneline(d, cap=80)
-    return f"{_anchor_marker(d)} {_short_ts(d)}  {src}· {label}"
+    return f"{_anchor_marker(d)} {_short_ts(d)}  {src}· {_id_prefix(d)}{label}"
+
+
+def _render_provenance(d: dict) -> str:
+    """Provenance containers — render with their level + constituent
+    count + id so the model recognizes them AS named stretches when
+    they show up in recall output. Without this, a `kind:provenance`
+    delta renders identically to a base moment and the model can't
+    naturally tell "this stretch already has a name."
+
+    Catches both proper provenance (L1+) and Q/A markers (L0,
+    `kind:qa-marker` + `kind:provenance`). Level surfaces in either
+    case, so the model sees the difference between a marker and a
+    real episode at a glance.
+    """
+    tags = d.get("tags") or []
+    level = "?"
+    for t in tags:
+        if isinstance(t, str) and t.startswith("provenance-level:"):
+            level = t.split(":", 1)[1]
+            break
+    n_from = sum(1 for t in tags if isinstance(t, str) and t.startswith("from:"))
+    is_qa = any(t == "kind:qa-marker" for t in tags if isinstance(t, str))
+    title = ""
+    for t in tags:
+        if isinstance(t, str) and t.startswith("title:"):
+            title = t.split(":", 1)[1].replace("-", " ")
+            break
+    if not title:
+        title = _content_oneline(d, cap=130)
+    src = ("qa-marker" if is_qa else "prov").ljust(13)
+    did = (d.get("id") or "")[:12]
+    badge = f"[L{level} · {n_from} delta{'s' if n_from != 1 else ''} · {did}] "
+    return f"{_anchor_marker(d)} {_short_ts(d)}  {src}· {badge}{title}"
 
 
 # Registration — most-specific first.
 register("kind:collapsed", _render_collapsed)
+register("kind:provenance", _render_provenance)
+register("kind:qa-marker", _render_provenance)
 register("kind:routine-fire", _render_routine_fire)
 register("kind:sediment", _render_sediment)
 register("kind:mood", _render_mood)

@@ -534,7 +534,10 @@ def _format_strip_header(t_start: str, t_end: str) -> str:
     return f"{t_start} – {t_end}"
 
 
-def _render_timelines(timelines: list[dict], *, query: str) -> str:
+def _render_timelines(
+    timelines: list[dict], *, query: str,
+    provenance_deltas: list[dict] | None = None,
+) -> str:
     """Render a list of timeline strips as the LLM-facing markdown block.
 
     Strips are delimited by a thick rule with a date/time-range header,
@@ -549,6 +552,13 @@ def _render_timelines(timelines: list[dict], *, query: str) -> str:
 
     Anchor lines carry a ``▸`` marker; ambient lines do not. Tag-keyed
     dispatch in ``timeline_renderers`` formats each line.
+
+    `provenance_deltas` (optional) — kind:provenance / kind:qa-marker
+    deltas that landed via upward expansion. Rendered as a leading
+    "containers active" block BEFORE the chronological strips so the
+    model sees existing named stretches up front and can naturally
+    extend / skip rather than re-propose. Sorted by level descending
+    (eras first, then topics, episodes, qa-markers).
 
     Honors a hard char budget (``_TIMELINE_RENDER_BUDGET_CHARS``):
     strips render in order until the budget is exhausted, then a
@@ -568,6 +578,33 @@ def _render_timelines(timelines: list[dict], *, query: str) -> str:
     used = len(blocks[0])
     skipped_strips = 0
     rule = "═" * 8
+
+    # Containers-active block — provenance / qa-marker deltas that the
+    # upward expansion pulled in. Sorted level-desc so eras read first.
+    if provenance_deltas:
+        def _level(d: dict) -> int:
+            for t in (d.get("tags") or []):
+                if isinstance(t, str) and t.startswith("provenance-level:"):
+                    try:
+                        return int(t.split(":", 1)[1])
+                    except (TypeError, ValueError):
+                        return 0
+            return 0
+        sorted_provs = sorted(provenance_deltas, key=lambda d: -_level(d))
+        cont_lines = [
+            "  ── containers active in this recall ──",
+        ]
+        for d in sorted_provs:
+            # Force is_anchor so the renderer emits the [<id>] slug.
+            d_anchor = dict(d)
+            d_anchor["is_anchor"] = True
+            line = timeline_renderers.render_delta(d_anchor)
+            if line:
+                cont_lines.append(line)
+        if len(cont_lines) > 1:  # skip if only the header
+            block = "\n".join(cont_lines)
+            blocks.append("\n" + block)
+            used += len(block) + 1
 
     for i, tl in enumerate(timelines):
         header = _format_strip_header(tl.get("t_start", ""), tl.get("t_end", ""))
@@ -910,7 +947,27 @@ async def _build_result_from_plan_response(
         thinking_prose, thinking_id = None, None
 
     if view == "timeline" and timelines:
-        as_prompt = _render_timelines(timelines, query=text)
+        # Pull any kind:provenance / kind:qa-marker deltas that landed
+        # via upward expansion (or any other step) into a leading
+        # "containers active" block. These don't appear in the
+        # chronological strips because they were added after the
+        # timeline was built — but the model needs to see them so it
+        # can naturally extend / skip rather than re-propose.
+        provenance_deltas: list[dict] = []
+        prov_seen: set[str] = set()
+        for sid, ds in deltas_by_step.items():
+            for d in ds:
+                tags = d.get("tags") or []
+                if "kind:provenance" not in tags and "kind:qa-marker" not in tags:
+                    continue
+                did = d.get("id") or ""
+                if not did or did in prov_seen:
+                    continue
+                prov_seen.add(did)
+                provenance_deltas.append(d)
+        as_prompt = _render_timelines(
+            timelines, query=text, provenance_deltas=provenance_deltas,
+        )
     else:
         as_prompt = _render_tree(tree, deltas_by_step)
 
