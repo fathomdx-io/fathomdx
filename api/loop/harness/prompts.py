@@ -98,7 +98,14 @@ Emit ONE of these JSON shapes per turn — nothing else.
 Tool call:
 {{"kind": "tool_call", "tool": "<name>", "args": {{...}}, "thinking": "<one sentence on why>"}}
 
-Final card (same schema as today's witness output):
+LEAN chat-reply (the high-frequency case — just a conversational reply):
+{{"kind": "respond", "body": "<your answer>"}}
+The harness will route this to chat-reply automatically and address
+all pending intents. Use this shape unless you specifically need a
+non-chat route or a multi-card fire.
+
+FULL response (only when you need it — feed-card, claude-code dispatch,
+tool proposal, multiple cards, mood/attestation/citations):
 {{"kind": "respond",
  "cards": [
    {{"kicker": "...", "title": "...", "body": "...", "tail": "...",

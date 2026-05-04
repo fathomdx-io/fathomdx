@@ -946,7 +946,7 @@ async def tool_relate(*, action: str = "help", **kwargs) -> str:
 
 async def tool_propose_provenance(
     *,
-    level: int = 1,
+    level: int | None = None,
     title: str = "",
     summary: str = "",
     from_ids: list | None = None,
@@ -981,12 +981,6 @@ async def tool_propose_provenance(
     title = (title or "").strip()
     summary = (summary or "").strip()
     rationale = (rationale or "").strip()
-    try:
-        level_int = int(level) if level is not None else 1
-    except (TypeError, ValueError):
-        level_int = 1
-    if level_int < 0 or level_int > 3:
-        return f"ERROR: level must be 0-3, got {level!r}"
 
     raw_ids = from_ids or []
     if not isinstance(raw_ids, (list, tuple)):
@@ -1004,6 +998,51 @@ async def tool_propose_provenance(
         return "ERROR: title is required"
     if not summary:
         return "ERROR: summary is required"
+
+    # Derive the minimum legal level from the constituents. A provenance
+    # must sit STRICTLY ABOVE its children: base moments (no level tag)
+    # → ≥1, contains an L1 → ≥2, contains an L2 → ≥3. We cap the schema
+    # at 3 today; if children include L3, the new provenance can also be
+    # L3 (peer-grouping allowed at the top of the hierarchy until we
+    # extend the schema).
+    max_child_level = -1  # -1 sentinel = pure base moments
+    for fid in cleaned_ids:
+        try:
+            d = await delta_client.get_delta(fid)
+        except Exception:
+            continue
+        if not isinstance(d, dict):
+            continue
+        for t in d.get("tags") or []:
+            if isinstance(t, str) and t.startswith("provenance-level:"):
+                try:
+                    lvl = int(t.split(":", 1)[1])
+                except (TypeError, ValueError):
+                    continue
+                if lvl > max_child_level:
+                    max_child_level = lvl
+    if max_child_level < 0:
+        min_level = 1
+    elif max_child_level >= 3:
+        min_level = 3  # cap; no L4 in the current schema
+    else:
+        min_level = max_child_level + 1
+
+    if level is None:
+        level_int = min_level
+    else:
+        try:
+            level_int = int(level)
+        except (TypeError, ValueError):
+            return f"ERROR: level must be an integer, got {level!r}"
+    if level_int < min_level:
+        return (
+            f"ERROR: level {level_int} is below the minimum {min_level} for "
+            f"these constituents (highest child level is {max_child_level}). "
+            f"A provenance must sit at or above its children."
+        )
+    if level_int > 3:
+        return f"ERROR: level must be 1-3 (current schema cap), got {level_int}"
 
     raw_qs = test_questions or []
     if not isinstance(raw_qs, (list, tuple)):

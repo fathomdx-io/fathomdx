@@ -301,13 +301,32 @@ async def _dispatch_response(
     Re-uses `witness._dispatch_card` per card and `_write_constituting_writes`
     for the fire-level attestation/mood-shift/citation writes, anchored
     to the first card's lake-id (same convention the witness uses today).
+
+    The response payload accepts two shapes:
+
+      Lean (chat-reply only — the high-frequency case):
+        {"kind": "respond", "body": "..."}
+      The harness fills in route="chat-reply", addresses=all pending
+      intent ids, kicker/title/tail empty. No need for the model to
+      pad out a feed-card form when the answer is just conversation.
+
+      Full (any route — feed-card / claude-code dispatch / tool
+      proposal / multi-card fire):
+        {"kind": "respond", "cards": [...], "attestation": "...", ...}
     """
-    cards_raw = response.get("cards") or []
+    cards_raw = response.get("cards")
     available_hosts = await witness_mod._available_claude_code_hosts()
     primary_intent = (pending[0].get("content") or "").strip() if pending else ""
 
+    # Lean chat-reply path: a top-level `body` with no `cards` array.
+    # Synthesize a single chat-reply card from it.
+    if not cards_raw:
+        body = (response.get("body") or "").strip()
+        if body:
+            cards_raw = [{"route": "chat-reply", "body": body}]
+
     cards: list[dict] = []
-    for card in cards_raw:
+    for card in (cards_raw or []):
         if not isinstance(card, dict):
             continue
         body = (card.get("body") or "").strip()
