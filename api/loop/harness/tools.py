@@ -253,7 +253,7 @@ async def tool_deliberate(
         f"Rationale: {verdict.rationale or '(no rationale)'}",
         "",
     ]
-    for v, res in zip(verdict.voices, results):
+    for v, res in zip(verdict.voices, results, strict=True):
         if isinstance(res, Exception):
             blocks.append(f"VOICE: {v['name'].upper()} — crashed ({type(res).__name__}: {res})")
             blocks.append("")

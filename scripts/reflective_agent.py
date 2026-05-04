@@ -326,7 +326,7 @@ async def run_reflective_parliament(
         return ""
 
     blocks: list[str] = []
-    for v, res in zip(verdict.voices, results):
+    for v, res in zip(verdict.voices, results, strict=True):
         if isinstance(res, Exception):
             continue
         text = (res or "").strip()
