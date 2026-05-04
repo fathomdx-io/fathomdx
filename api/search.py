@@ -900,6 +900,7 @@ async def _build_result_from_plan_response(
         deltas_by_step[sid] = cleaned
 
     await _expand_sediment_provenance(plan, tree, deltas_by_step, seen_ids)
+    await _expand_upward_to_provenance(plan, tree, deltas_by_step, seen_ids)
     await _attach_engagement_clouds(deltas_by_step, seen_ids)
     _apply_valence_rerank(deltas_by_step)
 
@@ -932,6 +933,135 @@ async def _build_result_from_plan_response(
 # retrieval; if the ceiling truncates, the original sediment still surfaces
 # with its full content.
 _SEDIMENT_PROVENANCE_LIMIT = 24
+
+
+_PROVENANCE_PARENT_CACHE: dict[str, list[str]] = {}
+_PROVENANCE_PARENT_CACHE_TS: float = 0.0
+_PROVENANCE_PARENT_CACHE_TTL_S: float = 60.0
+_UPWARD_EXPANSION_MAX_DEPTH = 3
+_UPWARD_EXPANSION_FETCH_CAP = 60
+
+
+async def _load_provenance_parent_index() -> dict[str, list[str]]:
+    """Build a reverse index `child_id → [parent_provenance_ids]` by
+    reading every `kind:provenance` and `kind:sediment` delta once and
+    parsing their `from:` tags. Cached at module scope for 60s.
+
+    Used by the upward auto-expansion: when a recall hits a base
+    moment (or a level-1 episode), this index lets us pull every
+    enclosing provenance — episode, topic, era — without doing a
+    per-id lake query.
+
+    Cache miss cost: roughly one read per kind, ~155 provenance
+    deltas in the prov stack today, similar order in production. Hot
+    path is constant.
+    """
+    import time
+    global _PROVENANCE_PARENT_CACHE, _PROVENANCE_PARENT_CACHE_TS
+    now = time.time()
+    if (
+        _PROVENANCE_PARENT_CACHE
+        and (now - _PROVENANCE_PARENT_CACHE_TS) < _PROVENANCE_PARENT_CACHE_TTL_S
+    ):
+        return _PROVENANCE_PARENT_CACHE
+
+    parents: dict[str, list[str]] = {}
+    for kind in ("kind:provenance", "kind:sediment"):
+        try:
+            items = await delta_client.query(tags_include=[kind], limit=3000)
+        except Exception:
+            log.exception("upward expansion: %s query failed", kind)
+            continue
+        for d in items or []:
+            pid = d.get("id")
+            if not pid:
+                continue
+            for t in d.get("tags") or []:
+                if isinstance(t, str) and t.startswith("from:"):
+                    cid = t[len("from:"):].strip()
+                    if cid:
+                        parents.setdefault(cid, []).append(pid)
+
+    _PROVENANCE_PARENT_CACHE = parents
+    _PROVENANCE_PARENT_CACHE_TS = now
+    return parents
+
+
+async def _expand_upward_to_provenance(
+    plan: dict,
+    tree: list[dict],
+    deltas_by_step: dict[str, list[dict]],
+    seen_ids: set[str],
+) -> None:
+    """For every delta surfaced so far, walk UP through provenance
+    parents (kind:provenance / kind:sediment with from:<id>). Adds
+    new ancestors as a synthetic `_ascendance` step.
+
+    Symmetrical to `_expand_sediment_provenance` which walks DOWN
+    (sediment → its from: targets). The downward walk gives you "what
+    a summary covers"; the upward walk gives you "what surrounds this
+    moment." Both run after the plan executor on every deep search,
+    so any recalled delta lands with its full provenance stack
+    available to the consumer.
+
+    Recursive up to `_UPWARD_EXPANSION_MAX_DEPTH` (3) so a base
+    moment's L1 episode → L2 topic → L3 era all come along; capped
+    fetch at `_UPWARD_EXPANSION_FETCH_CAP` (60) so a hot moment with
+    fanout doesn't balloon the result.
+    """
+    parent_index = await _load_provenance_parent_index()
+    if not parent_index:
+        return
+
+    seen_set = set(seen_ids)
+    new_ids: list[str] = []
+    current_layer = [cid for cid in seen_set]
+
+    for _ in range(_UPWARD_EXPANSION_MAX_DEPTH):
+        next_layer: list[str] = []
+        for cid in current_layer:
+            for pid in parent_index.get(cid, []):
+                if pid not in seen_set:
+                    seen_set.add(pid)
+                    new_ids.append(pid)
+                    next_layer.append(pid)
+        if not next_layer:
+            break
+        current_layer = next_layer
+
+    if not new_ids:
+        return
+    new_ids = new_ids[:_UPWARD_EXPANSION_FETCH_CAP]
+
+    try:
+        fetched = await delta_client.batch_get(new_ids)
+    except Exception:
+        log.exception("upward expansion: batch_get failed")
+        return
+    if not fetched:
+        return
+
+    fresh: list[dict] = []
+    for d in fetched:
+        did = d.get("id") or ""
+        if not did or did in seen_ids:
+            continue
+        seen_ids.add(did)
+        fresh.append(d)
+    if not fresh:
+        return
+
+    sid = "_ascendance"
+    deltas_by_step[sid] = fresh
+    tree.append(
+        {
+            "id": sid,
+            "relation": "and the provenance above them",
+            "parents": [],
+            "action": "search",
+            "search": "<provenance walking up from recall>",
+        }
+    )
 
 
 def _provenance_ids_from_deltas(
