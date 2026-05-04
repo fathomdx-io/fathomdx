@@ -30,7 +30,12 @@ from .. import witness as witness_mod
 from ..intents import CONVO_TAG, intent_kind
 from ..llm import loop_generate
 from ..puddle import puddle
-from .prompts import HARNESS_SYSTEM, render_tool_history
+from .prompts import (
+    HARNESS_SYSTEM,
+    INTROSPECTION_SYSTEM,
+    REVIEW_SYSTEM,
+    render_tool_history,
+)
 from .tools import TOOL_HANDLERS, TOOL_MODEL_ARGS
 
 
@@ -67,6 +72,7 @@ async def run_harness(
     voice_order: list[str] | None = None,  # back-compat: accepted but unused
     standpoint=None,
     event_callback: EventCallback | None = None,
+    disabled_tools: set[str] | None = None,
 ) -> list[str]:
     """Run one full harness fire — drop-in replacement for `run_witness`.
 
@@ -83,6 +89,13 @@ async def run_harness(
     if not pending:
         return []
     cb = event_callback
+    # Provenance consolidation lives in the post-response review pass —
+    # disable it in the main loop so the model doesn't compete between
+    # answering and consolidating. Caller may add more disables (e.g.
+    # introspect() child fires disable nested introspect for depth-1).
+    main_loop_disabled = {"propose_provenance"}
+    if disabled_tools:
+        main_loop_disabled = main_loop_disabled | disabled_tools
     await _emit(cb, "start", {
         "session_tag": session_tag,
         "intent_count": len(pending),
@@ -110,6 +123,10 @@ async def run_harness(
 
     tool_history: list[dict] = []
     final_response: dict | None = None
+    # Active plan state — populated when the model calls plan(question);
+    # rendered into the prompt with progress markers each subsequent
+    # turn. Empty list means "no plan set, free-form mode."
+    current_plan: list[dict] = []
 
     await _emit(cb, "context_built", {
         "intent_block": intent_block,
@@ -132,6 +149,7 @@ async def run_harness(
             intent_block=intent_block,
             hosts_block=hosts_block,
             routines_block=routines_block,
+            plan_block=_render_plan_block(current_plan),
             tool_history=render_tool_history(tool_history),
             turn_number=turn,
             max_turns=MAX_TURNS,
@@ -189,13 +207,24 @@ async def run_harness(
             tool_name = (parsed.get("tool") or "").strip()
             args_raw = parsed.get("args") or {}
             thinking = (parsed.get("thinking") or "").strip()
+            # The model may declare which plan step this call advances.
+            # Used to flip ○ → ⟳ on dispatch and ⟳ → ✓ on success. Plain
+            # int or string-int both accepted.
+            plan_step_raw = parsed.get("plan_step")
+            plan_step = _coerce_plan_step(plan_step_raw, current_plan)
             if thinking:
                 print(f"[harness] turn {turn}: {tool_name} — {thinking[:120]}")
             else:
                 print(f"[harness] turn {turn}: {tool_name}")
             await _emit(cb, "tool_call", {
-                "turn": turn, "tool": tool_name, "args": args_raw, "thinking": thinking,
+                "turn": turn, "tool": tool_name, "args": args_raw,
+                "thinking": thinking, "plan_step": plan_step,
             })
+            if plan_step is not None:
+                _set_plan_status(current_plan, plan_step, "in_progress")
+                await _emit(cb, "plan_step_status", {
+                    "step": plan_step, "status": "in_progress",
+                })
             entry = await _dispatch_tool(
                 turn=turn,
                 tool_name=tool_name,
@@ -203,13 +232,33 @@ async def run_harness(
                 session_tag=session_tag,
                 pending=pending,
                 standpoint=standpoint,
+                disabled_tools=main_loop_disabled,
             )
             tool_history.append(entry)
+            # Plan tool special handling — parse the steps payload and
+            # update current_plan. Replaces any existing plan (revisions
+            # are deliberate moves; the prior plan's progress is reset).
+            if tool_name == "plan" and not entry.get("error"):
+                new_plan = _parse_plan_payload(entry.get("result") or "")
+                if new_plan:
+                    revision = bool(current_plan)
+                    current_plan = new_plan
+                    await _emit(cb, "plan_revised" if revision else "plan_set", {
+                        "steps": current_plan,
+                    })
             await _emit(cb, "tool_result", {
                 "turn": turn, "tool": tool_name,
                 "result": entry.get("result"),
                 "error": entry.get("error"),
+                "plan_step": plan_step,
             })
+            # Mark plan step done after tool result, regardless of error
+            # (the model can re-step or revise; we don't gate on success).
+            if plan_step is not None and not entry.get("error"):
+                _set_plan_status(current_plan, plan_step, "done")
+                await _emit(cb, "plan_step_status", {
+                    "step": plan_step, "status": "done",
+                })
             continue
 
         # Unknown kind — log and consume the turn.
@@ -232,8 +281,604 @@ async def run_harness(
         session_tag=session_tag,
         voice_order=voice_order,
     )
+
+    # Post-response review pass — separate turn whose only job is to
+    # consolidate. Looks at what was recalled + what was said, decides
+    # whether a coherent stretch deserves a name. Soft-fails so a
+    # broken review never blocks the addressed-intents return.
+    try:
+        await _run_post_response_review(
+            cb=cb,
+            session_tag=session_tag,
+            pending=pending,
+            tool_history=tool_history,
+            final_response=final_response,
+        )
+    except Exception as e:
+        print(f"[harness] post-response review crashed: {type(e).__name__}: {e}")
+        await _emit(cb, "review_error", {"type": type(e).__name__, "message": str(e)})
+
     await _emit(cb, "done", {"addressed": addressed})
     return addressed
+
+
+# ─── introspection mode ────────────────────────────────────────────────
+
+
+INTROSPECTION_MAX_TURNS = 8
+
+
+async def run_introspection(
+    *,
+    focus: str,
+    session_tag: str,
+    event_callback: EventCallback | None = None,
+) -> dict:
+    """Run an introspection fire — Fathom sitting with itself.
+
+    No user intent, no card to dispatch. The model walks its own
+    substrate via the same harness tools and writes a reflection
+    delta when it's seen enough.
+
+    `focus` is what to sit with — a string like "the navier-stokes
+    work this past week" or "my mood drift since the harness
+    refactor." For Phase 1 the caller supplies it explicitly. For
+    Phase 2 a focus pre-pass picks it from substrate signals.
+
+    Returns a small dict with the outcome:
+      {"kind": "reflect", "delta_id": "...", "shape": "...", "from_count": N}
+      {"kind": "skip", "reason": "..."}
+      {"kind": "max_turns"}
+      {"kind": "error", "type": "...", "message": "..."}
+
+    The reflection itself lands as `kind:reflection` in the lake with
+    `from:<id>` provenance pointers — same engagement-graph machinery
+    as any other delta.
+    """
+    from ... import standpoint as standpoint_mod
+    from ... import delta_client
+
+    cb = event_callback
+    focus = (focus or "").strip()
+    if not focus:
+        return {"kind": "error", "type": "ValueError",
+                "message": "focus is required"}
+
+    await _emit(cb, "introspection_start", {
+        "session_tag": session_tag,
+        "focus": focus,
+        "max_turns": INTROSPECTION_MAX_TURNS,
+    })
+
+    try:
+        standpoint = await standpoint_mod.current(session_tag=session_tag)
+    except Exception as e:
+        print(f"[introspection] standpoint fetch failed: {type(e).__name__}: {e}")
+        standpoint = None
+
+    standpoint_block = (
+        _render_standpoint_full(standpoint) if standpoint
+        else "(standpoint unavailable — speak from anchors only)"
+    )
+    focus_block = focus
+
+    tool_history: list[dict] = []
+    final_reflection: dict | None = None
+
+    for turn in range(1, INTROSPECTION_MAX_TURNS + 1):
+        anchors_block = _render_anchors_full()
+        prompt = INTROSPECTION_SYSTEM.format(
+            focus_block=focus_block,
+            standpoint_block=standpoint_block,
+            anchors_block=anchors_block,
+            tool_history=render_tool_history(tool_history),
+            turn_number=turn,
+            max_turns=INTROSPECTION_MAX_TURNS,
+        )
+        await _emit(cb, "introspection_turn_begin", {
+            "turn": turn, "prompt_chars": len(prompt),
+        })
+
+        try:
+            raw = await loop_generate(
+                prompt=prompt,
+                tier="hard",
+                max_tokens=MAX_TOKENS_PER_TURN,
+                temperature=0.7,
+                json_mode=True,
+            )
+        except Exception as e:
+            print(f"[introspection] LLM call crashed turn {turn}: "
+                  f"{type(e).__name__}: {e}")
+            await _emit(cb, "error", {"where": "llm_call", "turn": turn,
+                                      "type": type(e).__name__, "message": str(e)})
+            return {"kind": "error", "type": type(e).__name__, "message": str(e)}
+
+        parsed = _parse_envelope(raw)
+        if parsed is None:
+            tool_history.append({
+                "turn": turn, "tool": "(parse-error)", "args": {},
+                "error": "envelope unparseable",
+            })
+            await _emit(cb, "parse_error", {
+                "turn": turn, "raw_head": raw[:200], "raw_tail": raw[-120:],
+            })
+            continue
+
+        kind = (parsed.get("kind") or "").strip()
+
+        if kind == "reflect":
+            # Hard rule: refuse to settle without at least one successful
+            # tool call. Without this, the model can paraphrase the
+            # standpoint block (which carries recently-committed deltas,
+            # mood, identity) and call it a reflection — sounds plausible
+            # but isn't actually a substrate walk. Force at least one
+            # turn of looking before allowing settle.
+            successful_tool_calls = sum(
+                1 for h in tool_history
+                if h.get("tool") and h.get("tool") not in ("(parse-error)", "(unknown-kind)")
+                and not h.get("error")
+            )
+            if successful_tool_calls == 0:
+                tool_history.append({
+                    "turn": turn, "tool": "(early-reflect)", "args": {},
+                    "error": "rejected — must walk the substrate before settling. "
+                             "Call a tool (semantic / time / pattern / state / relate / "
+                             "expand / ascend / deliberate) on yourself first.",
+                })
+                await _emit(cb, "introspection_early_reflect_rejected", {
+                    "turn": turn,
+                })
+                continue
+            final_reflection = parsed
+            await _emit(cb, "introspection_reflect", {
+                "turn": turn,
+                "body": parsed.get("body") or "",
+                "from_ids": parsed.get("from_ids") or [],
+                "shape": parsed.get("shape") or "",
+            })
+            break
+
+        if kind == "skip":
+            reason = (parsed.get("reason") or "").strip() or "(no reason)"
+            await _emit(cb, "introspection_skipped", {
+                "turn": turn, "reason": reason,
+            })
+            return {"kind": "skip", "reason": reason}
+
+        if kind == "tool_call":
+            tool_name = (parsed.get("tool") or "").strip()
+            args_raw = parsed.get("args") or {}
+            thinking = (parsed.get("thinking") or "").strip()
+            await _emit(cb, "tool_call", {
+                "turn": turn, "tool": tool_name, "args": args_raw,
+                "thinking": thinking,
+            })
+            entry = await _dispatch_tool(
+                turn=turn,
+                tool_name=tool_name,
+                args=args_raw,
+                session_tag=session_tag,
+                pending=[],
+                standpoint=standpoint,
+            )
+            tool_history.append(entry)
+            await _emit(cb, "tool_result", {
+                "turn": turn, "tool": tool_name,
+                "result": entry.get("result"),
+                "error": entry.get("error"),
+            })
+            continue
+
+        # Unknown envelope kind — log and consume the turn.
+        tool_history.append({
+            "turn": turn, "tool": "(unknown-kind)", "args": {},
+            "error": f"unknown envelope kind: {kind!r}",
+        })
+        await _emit(cb, "unknown_kind", {"turn": turn, "kind": kind, "raw": parsed})
+
+    if final_reflection is None:
+        await _emit(cb, "introspection_max_turns", {
+            "max_turns": INTROSPECTION_MAX_TURNS,
+        })
+        return {"kind": "max_turns"}
+
+    body = (final_reflection.get("body") or "").strip()
+    if not body:
+        await _emit(cb, "introspection_skipped", {
+            "turn": turn, "reason": "reflect envelope had empty body",
+        })
+        return {"kind": "skip", "reason": "empty body"}
+
+    raw_from = final_reflection.get("from_ids") or []
+    from_ids: list[str] = []
+    seen: set[str] = set()
+    for fid in raw_from:
+        if not isinstance(fid, str):
+            continue
+        s = fid.strip()
+        if len(s) == 12 and all(c in "0123456789abcdef" for c in s) and s not in seen:
+            seen.add(s)
+            from_ids.append(s)
+
+    shape = (final_reflection.get("shape") or "").strip()[:80]
+    shape_slug = "".join(
+        c if c.isalnum() else "-" for c in shape.lower()
+    ).strip("-")[:80] or "unshaped"
+
+    tags = [
+        "kind:reflection",
+        "produced-by:harness-introspection",
+        f"shape:{shape_slug}",
+    ]
+    for fid in from_ids[:60]:
+        tags.append(f"from:{fid}")
+
+    content = body
+    if len(content) > 6000:
+        content = content[:6000] + "…"
+
+    try:
+        written = await delta_client.write(
+            content=content,
+            tags=tags,
+            source="harness-introspection",
+        )
+    except Exception as e:
+        print(f"[introspection] reflection write failed: {type(e).__name__}: {e}")
+        await _emit(cb, "error", {"where": "reflection_write",
+                                  "type": type(e).__name__, "message": str(e)})
+        return {"kind": "error", "type": type(e).__name__, "message": str(e)}
+
+    delta_id = (written or {}).get("id") or ""
+    await _emit(cb, "introspection_recorded", {
+        "delta_id": delta_id,
+        "shape": shape,
+        "from_count": len(from_ids),
+    })
+    return {
+        "kind": "reflect",
+        "delta_id": delta_id,
+        "shape": shape,
+        "from_count": len(from_ids),
+    }
+
+
+# ─── dialogue mode ─────────────────────────────────────────────────────
+
+
+async def run_dialogue(
+    *,
+    seed: str,
+    session_tag: str,
+    event_callback: EventCallback | None = None,
+    max_rounds: int = 4,
+) -> dict:
+    """Self-dialogue — fire `run_harness` in a loop, feeding each round's
+    response back as the next round's prompt.
+
+    No new prompts, no voice gymnastics. The harness already does
+    Q → A; dialogue just makes the next Q be the prior A. The
+    conversation emerges because each call genuinely deliberates over
+    fresh substrate.
+
+    Each round:
+      1. Seed an intent in the puddle with the current message.
+      2. Fire `run_harness` against it; capture the response body
+         from the `respond` event.
+      3. If a body comes back, use it as the next round's input.
+         Otherwise stop.
+
+    `max_rounds` caps the conversation. There's no settle detection —
+    by design. If the dialogue feels too long, the operator interrupts.
+    """
+    from ..intents import CONVO_TAG
+    from ..puddle import puddle as _puddle
+
+    cb = event_callback
+    seed = (seed or "").strip()
+    if not seed:
+        return {"kind": "error", "type": "ValueError",
+                "message": "seed is required"}
+
+    await _emit(cb, "dialogue_start", {
+        "session_tag": session_tag, "seed": seed, "max_rounds": max_rounds,
+    })
+
+    transcript: list[dict] = []
+    current_message = seed
+
+    for round_num in range(1, max_rounds + 1):
+        await _emit(cb, "dialogue_round_begin", {
+            "round": round_num, "max_rounds": max_rounds,
+            "input": current_message,
+        })
+
+        # Captured response body for this round; populated when the
+        # wrapped callback sees the harness's `respond` event.
+        captured: dict[str, str] = {"body": ""}
+
+        async def round_cb(event: str, payload: dict) -> None:
+            if event == "respond":
+                cards = payload.get("cards") or []
+                if cards and isinstance(cards[0], dict):
+                    captured["body"] = (cards[0].get("body") or "").strip()
+                elif payload.get("body"):
+                    captured["body"] = (payload.get("body") or "").strip()
+            # Tag every wrapped event with the round so the UI can
+            # scope activity per round if it wants to.
+            if cb is not None:
+                await _emit(cb, event, {"round": round_num, **payload})
+
+        # Seed the intent. The harness needs a pending intent to fire.
+        try:
+            intent = await _puddle.write(
+                content=current_message,
+                tags=[
+                    CONVO_TAG, session_tag, "intent", "kind:question",
+                    "harness-dialogue",
+                ],
+                source="harness-dialogue-self",
+                ttl_seconds=60 * 60,
+            )
+        except Exception as e:
+            await _emit(cb, "dialogue_error", {
+                "round": round_num, "where": "seed_intent",
+                "type": type(e).__name__, "message": str(e),
+            })
+            break
+
+        try:
+            await run_harness(
+                session_tag=session_tag,
+                pending=[intent],
+                event_callback=round_cb,
+            )
+        except Exception as e:
+            await _emit(cb, "dialogue_error", {
+                "round": round_num, "where": "run_harness",
+                "type": type(e).__name__, "message": str(e),
+            })
+            break
+
+        body = captured["body"]
+        if not body:
+            await _emit(cb, "dialogue_round_skipped", {
+                "round": round_num,
+                "reason": "harness produced no response body",
+            })
+            break
+
+        transcript.append({
+            "round": round_num,
+            "input": current_message,
+            "response": body,
+        })
+        await _emit(cb, "dialogue_round_end", {
+            "round": round_num, "input": current_message, "response": body,
+        })
+
+        current_message = body
+
+    await _emit(cb, "dialogue_done", {
+        "rounds": len(transcript),
+        "transcript": transcript,
+    })
+    return {
+        "kind": "dialogue",
+        "rounds": len(transcript),
+        "transcript": transcript,
+    }
+
+
+# ─── plan helpers ──────────────────────────────────────────────────────
+
+
+_PLAN_GLYPH = {"pending": "○", "in_progress": "⟳", "done": "✓"}
+
+
+def _render_plan_block(current_plan: list[dict]) -> str:
+    """Format the active plan for inclusion in the turn prompt.
+
+    Empty when no plan is set — the model is in free-form mode and the
+    block disappears entirely. When a plan exists, render each step
+    with its progress glyph + purpose + hint, and remind the model to
+    declare `plan_step:<n>` on tool calls.
+    """
+    if not current_plan:
+        return ""
+    lines = ["══ ACTIVE PLAN ══"]
+    for step in current_plan:
+        glyph = _PLAN_GLYPH.get(step.get("status", "pending"), "○")
+        purpose = step.get("purpose", "")
+        hint = step.get("hint", "")
+        suffix = f" — {hint}" if hint else ""
+        lines.append(f"  {glyph} {step.get('step', '?')}. {purpose}{suffix}")
+    lines.append(
+        "\nWork through the pending steps. On each tool call, include "
+        '`"plan_step": <n>` so progress reflects in the trace. Call '
+        "`plan(question)` again only if a result genuinely invalidates "
+        "the plan — revising too freely defeats the point."
+    )
+    return "\n".join(lines) + "\n\n"
+
+
+def _coerce_plan_step(raw, plan: list[dict]) -> int | None:
+    """Pull a plan-step number off a tool_call envelope. Tolerates int
+    or string-int. Returns None when no plan exists, the value isn't a
+    number, or the step is out of range."""
+    if not plan or raw is None:
+        return None
+    try:
+        n = int(raw)
+    except (TypeError, ValueError):
+        return None
+    if n < 1 or n > len(plan):
+        return None
+    return n
+
+
+def _set_plan_status(plan: list[dict], step: int, status: str) -> None:
+    """Mark a plan step's status. Mutates plan in place."""
+    for s in plan:
+        if s.get("step") == step:
+            s["status"] = status
+            return
+
+
+def _parse_plan_payload(result: str) -> list[dict]:
+    """Parse the JSON the plan tool returned and produce a fresh plan
+    list ready to render. Tolerant of both well-formed JSON and JSON
+    inside an error wrapper.
+
+    Each step is normalized to:
+      {"step": <n>, "purpose": "...", "hint": "...", "status": "pending"}
+    """
+    if not result:
+        return []
+    try:
+        parsed = json.loads(result)
+    except Exception:
+        return []
+    if not isinstance(parsed, dict):
+        return []
+    steps_raw = parsed.get("steps")
+    if not isinstance(steps_raw, list):
+        return []
+    plan: list[dict] = []
+    for i, s in enumerate(steps_raw, start=1):
+        if not isinstance(s, dict):
+            continue
+        purpose = (s.get("purpose") or "").strip()
+        hint = (s.get("hint") or "").strip()
+        if not purpose:
+            continue
+        plan.append({
+            "step": i,
+            "purpose": purpose,
+            "hint": hint,
+            "status": "pending",
+        })
+    return plan
+
+
+# ─── post-response review ──────────────────────────────────────────────
+
+
+async def _run_post_response_review(
+    *,
+    cb: EventCallback | None,
+    session_tag: str,
+    pending: list[dict],
+    tool_history: list[dict],
+    final_response: dict,
+) -> None:
+    """Fire one focused turn whose only job is to decide whether the
+    fire's working set deserves a provenance proposal.
+
+    The main loop is for answering. This pass is for consolidating.
+    Splitting them means the model isn't choosing between competing
+    objectives in one turn — the answer gets full attention, then the
+    review gets a stripped prompt with one job.
+
+    Only outcome paths:
+      · `tool_call` → propose_provenance (auto-approves at L1/L2)
+      · `skip`      → no-op, with a one-sentence reason logged
+
+    Anything else is treated as skip.
+    """
+    if not pending:
+        return
+
+    question = (pending[0].get("content") or "").strip()
+    question = question.split("\n\n[intent-payload]", 1)[0].strip()
+    if not question:
+        return
+
+    cards = final_response.get("cards") or []
+    if cards:
+        answer = "\n\n".join(
+            (c.get("body") or "").strip()
+            for c in cards
+            if isinstance(c, dict) and (c.get("body") or "").strip()
+        )
+    else:
+        answer = (final_response.get("body") or "").strip()
+    if not answer:
+        return
+
+    # Skip if nothing was actually pulled — pure-standpoint fires have
+    # no working set to consolidate over.
+    real_tool_calls = [
+        h for h in tool_history
+        if h.get("tool") and h.get("tool") not in ("(parse-error)", "(unknown-kind)")
+        and not h.get("error")
+    ]
+    if not real_tool_calls:
+        await _emit(cb, "review_skipped", {"reason": "no successful tool calls — nothing to consolidate"})
+        return
+
+    prompt = REVIEW_SYSTEM.format(
+        question=question,
+        answer=answer,
+        tool_history=render_tool_history(tool_history),
+    )
+
+    await _emit(cb, "review_begin", {"prompt_chars": len(prompt)})
+
+    try:
+        raw = await loop_generate(
+            prompt=prompt,
+            tier="hard",
+            max_tokens=MAX_TOKENS_PER_TURN,
+            temperature=0.6,
+            json_mode=True,
+        )
+    except Exception as e:
+        await _emit(cb, "review_error", {"where": "llm_call",
+                                         "type": type(e).__name__, "message": str(e)})
+        return
+
+    parsed = _parse_envelope(raw)
+    if parsed is None:
+        await _emit(cb, "review_skipped", {"reason": "review envelope unparseable"})
+        return
+
+    kind = (parsed.get("kind") or "").strip()
+    if kind == "skip":
+        reason = (parsed.get("reason") or "").strip() or "(no reason given)"
+        print(f"[harness] review: skip — {reason[:200]}")
+        await _emit(cb, "review_skipped", {"reason": reason})
+        return
+
+    if kind != "tool_call":
+        await _emit(cb, "review_skipped", {"reason": f"unknown review kind: {kind!r}"})
+        return
+
+    tool_name = (parsed.get("tool") or "").strip()
+    if tool_name != "propose_provenance":
+        await _emit(cb, "review_skipped", {"reason": f"review may only call propose_provenance, got {tool_name!r}"})
+        return
+
+    args_raw = parsed.get("args") or {}
+    thinking = (parsed.get("thinking") or "").strip()
+    print(f"[harness] review: propose_provenance — {thinking[:120]}")
+    await _emit(cb, "review_proposing", {"tool": tool_name, "args": args_raw, "thinking": thinking})
+
+    entry = await _dispatch_tool(
+        turn=0,
+        tool_name=tool_name,
+        args=args_raw,
+        session_tag=session_tag,
+        pending=pending,
+        standpoint=None,
+        disabled_tools=set(),  # review pass: propose_provenance allowed
+    )
+    await _emit(cb, "review_result", {
+        "tool": tool_name,
+        "result": entry.get("result"),
+        "error": entry.get("error"),
+    })
 
 
 # ─── tool dispatch ─────────────────────────────────────────────────────
@@ -247,8 +892,28 @@ async def _dispatch_tool(
     session_tag: str,
     pending: list[dict],
     standpoint,
+    disabled_tools: set[str] | None = None,
 ) -> dict:
-    """Run one tool call. Returns the history entry to append."""
+    """Run one tool call. Returns the history entry to append.
+
+    `disabled_tools` is the set of tool names this fire isn't allowed to
+    call. Used to:
+      · suppress `propose_provenance` in the main loop (it runs in the
+        post-response review pass instead)
+      · suppress `introspect` in child fires spawned by an outer
+        introspect() call (depth-1 recursion cap)
+
+    Default `None` is treated as `{"propose_provenance"}` — the safe
+    default since provenance writes are consolidation, not answering.
+    Pass an explicit empty set or different set to override.
+    """
+    if disabled_tools is None:
+        disabled_tools = {"propose_provenance"}
+    if tool_name in disabled_tools:
+        return {
+            "turn": turn, "tool": tool_name, "args": args,
+            "error": f"{tool_name!r} is not available in this fire",
+        }
     handler = TOOL_HANDLERS.get(tool_name)
     if handler is None:
         return {
@@ -269,6 +934,8 @@ async def _dispatch_tool(
         cleaned["pending"] = pending
         cleaned["standpoint"] = standpoint
     elif tool_name == "propose_provenance":
+        cleaned["session_tag"] = session_tag
+    elif tool_name == "introspect":
         cleaned["session_tag"] = session_tag
 
     try:
@@ -657,16 +1324,39 @@ def _render_intent_block(pending: list[dict]) -> tuple[str, dict[str, str]]:
 
 def _parse_envelope(raw: str) -> dict | None:
     """Parse the model's JSON envelope. Tolerant of preamble/wrapping
-    quirks the same way `witness._call_witness` is."""
+    quirks the same way `witness._call_witness` is.
+
+    Sometimes Gemini returns the envelope wrapped in a list (e.g.
+    `[{"kind": "tool_call", ...}]`). Unwrap a single-item list of
+    dicts. Return None for any other shape — including a list of
+    multiple envelopes, which would require the model to slow down
+    and emit one envelope per turn.
+    """
     if not raw:
         return None
+
+    def _unwrap(v):
+        # Accept a dict directly. If we get a list, take the first dict
+        # (Gemini sometimes returns multiple envelopes per response —
+        # we honor the first and ignore the rest, which forces the
+        # model to slow down to one envelope per turn next time).
+        if isinstance(v, dict):
+            return v
+        if isinstance(v, list):
+            for item in v:
+                if isinstance(item, dict):
+                    return item
+        return None
+
     try:
-        return json.loads(raw)
+        return _unwrap(json.loads(raw))
     except Exception:
-        m = re.search(r"\{.*\}", raw, re.DOTALL)
-        if not m:
-            return None
-        try:
-            return json.loads(m.group(0))
-        except Exception:
-            return None
+        pass
+    # Fall back to extracting the first JSON-shaped object from prose
+    m = re.search(r"\{.*\}", raw, re.DOTALL)
+    if not m:
+        return None
+    try:
+        return _unwrap(json.loads(m.group(0)))
+    except Exception:
+        return None

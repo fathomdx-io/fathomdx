@@ -13,6 +13,6 @@ harness API.
 
 from __future__ import annotations
 
-from .loop import run_harness
+from .loop import run_dialogue, run_harness, run_introspection
 
-__all__ = ["run_harness"]
+__all__ = ["run_dialogue", "run_harness", "run_introspection"]

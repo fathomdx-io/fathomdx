@@ -23,7 +23,7 @@ from fastapi.responses import StreamingResponse
 from ... import standpoint as standpoint_mod
 from ..intents import CONVO_TAG
 from ..puddle import puddle
-from . import run_harness
+from . import run_dialogue, run_harness, run_introspection
 
 
 router = APIRouter()
@@ -169,5 +169,208 @@ async def harness_test(
         headers={
             "Cache-Control": "no-cache",
             "X-Accel-Buffering": "no",  # tells nginx-style proxies to flush
+        },
+    )
+
+
+@router.get("/v1/harness/sit")
+async def harness_sit(
+    focus: str,
+    request: Request,
+    session_tag: str | None = None,
+) -> StreamingResponse:
+    """Run an introspection fire — Fathom sitting with itself.
+
+    No user intent. The model walks its own substrate via the same
+    harness tools and writes a `kind:reflection` delta when it's
+    seen enough. Streams every callback event as SSE so the page
+    can render the sitting in real time.
+
+    `focus` is what to sit with (e.g. "the navier-stokes work this
+    past week"). For Phase 1 the caller supplies it; later a focus
+    pre-pass will pick it from substrate signals.
+
+    `session_tag` (optional) — kept for the puddle-anchor convention.
+    Reflections live in the lake regardless.
+    """
+    focus = (focus or "").strip()
+    if not focus:
+        raise HTTPException(status_code=400, detail="focus is required")
+    if len(focus) > 600:
+        raise HTTPException(status_code=400, detail="focus too long (max 600 chars)")
+
+    if session_tag and session_tag.startswith("session:") and len(session_tag) <= 80:
+        pass
+    else:
+        session_tag = f"session:harness-sit-{uuid.uuid4().hex[:8]}"
+
+    async def event_gen():
+        q: asyncio.Queue = asyncio.Queue(maxsize=1024)
+        DONE = object()
+
+        async def callback(event: str, payload: dict) -> None:
+            try:
+                q.put_nowait((event, payload))
+            except asyncio.QueueFull:
+                pass
+
+        # No `seeded` event — the page-side already created its own
+        # introspection bubble before opening the SSE stream. Sending
+        # chat-shape `seeded` here would conflict with that bubble.
+
+        async def runner():
+            try:
+                outcome = await run_introspection(
+                    focus=focus,
+                    session_tag=session_tag,
+                    event_callback=callback,
+                )
+                await q.put(("__finished__", {"outcome": outcome}))
+            except Exception as e:
+                await q.put(("__crashed__", {"type": type(e).__name__,
+                                             "message": str(e)}))
+            finally:
+                await q.put((DONE, None))
+
+        task = asyncio.create_task(runner())
+        try:
+            while True:
+                if await request.is_disconnected():
+                    task.cancel()
+                    return
+                try:
+                    event, payload = await asyncio.wait_for(q.get(), timeout=1.0)
+                except asyncio.TimeoutError:
+                    yield ": keepalive\n\n"
+                    continue
+                if event is DONE:
+                    return
+                if event == "__finished__":
+                    yield _sse("finished", payload)
+                    continue
+                if event == "__crashed__":
+                    yield _sse("error", {"where": "run_introspection", **payload})
+                    continue
+                yield _sse(event, payload)
+        finally:
+            if not task.done():
+                task.cancel()
+                try:
+                    await task
+                except (asyncio.CancelledError, Exception):
+                    pass
+
+    return StreamingResponse(
+        event_gen(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "X-Accel-Buffering": "no",
+        },
+    )
+
+
+@router.get("/v1/harness/dialogue")
+async def harness_dialogue(
+    seed: str,
+    request: Request,
+    session_tag: str | None = None,
+    max_rounds: int = 4,
+) -> StreamingResponse:
+    """Run a self-dialogue — Fathom in literal back-and-forth conversation
+    with itself.
+
+    Each round is a full harness fire (multi-turn tool use) ending in
+    one utterance. The next round's prompt includes prior utterances
+    as conversation context, so the model literally responds to itself
+    across rounds. Continues until `settled: true` or `max_rounds`.
+
+    Different from `/v1/harness/sit` (which runs a single fire with
+    multi-turn tool walking → one reflection): this is N fires, each a
+    full deliberation, in conversation. Use it when you want to see
+    the inquiry as dialogue, not as a single noticing.
+
+    `seed` is the opening prompt — the thing the dialogue starts from.
+    `max_rounds` (1-8) caps the conversation; default 6.
+    """
+    seed = (seed or "").strip()
+    if not seed:
+        raise HTTPException(status_code=400, detail="seed is required")
+    if len(seed) > 600:
+        raise HTTPException(status_code=400, detail="seed too long (max 600 chars)")
+    if max_rounds < 1 or max_rounds > 8:
+        max_rounds = 6
+
+    if session_tag and session_tag.startswith("session:") and len(session_tag) <= 80:
+        pass
+    else:
+        session_tag = f"session:harness-dialogue-{uuid.uuid4().hex[:8]}"
+
+    async def event_gen():
+        q: asyncio.Queue = asyncio.Queue(maxsize=2048)
+        DONE = object()
+
+        async def callback(event: str, payload: dict) -> None:
+            try:
+                q.put_nowait((event, payload))
+            except asyncio.QueueFull:
+                pass
+
+        # No `seeded` event — page-side already created the dialogue
+        # bubble before opening the SSE stream.
+
+        async def runner():
+            try:
+                outcome = await run_dialogue(
+                    seed=seed,
+                    session_tag=session_tag,
+                    event_callback=callback,
+                    max_rounds=max_rounds,
+                )
+                await q.put(("__finished__", {"outcome": outcome}))
+            except Exception as e:
+                import traceback
+                tb = traceback.format_exc()
+                print(f"[harness/dialogue] crashed:\n{tb}")
+                await q.put(("__crashed__", {"type": type(e).__name__,
+                                             "message": str(e),
+                                             "traceback": tb[:2000]}))
+            finally:
+                await q.put((DONE, None))
+
+        task = asyncio.create_task(runner())
+        try:
+            while True:
+                if await request.is_disconnected():
+                    task.cancel()
+                    return
+                try:
+                    event, payload = await asyncio.wait_for(q.get(), timeout=1.0)
+                except asyncio.TimeoutError:
+                    yield ": keepalive\n\n"
+                    continue
+                if event is DONE:
+                    return
+                if event == "__finished__":
+                    yield _sse("finished", payload)
+                    continue
+                if event == "__crashed__":
+                    yield _sse("error", {"where": "run_dialogue", **payload})
+                    continue
+                yield _sse(event, payload)
+        finally:
+            if not task.done():
+                task.cancel()
+                try:
+                    await task
+                except (asyncio.CancelledError, Exception):
+                    pass
+
+    return StreamingResponse(
+        event_gen(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "X-Accel-Buffering": "no",
         },
     )

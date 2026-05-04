@@ -1111,19 +1111,21 @@ async def tool_propose_provenance(
     if not summary:
         return "ERROR: summary is required"
 
-    # Derive the minimum legal level from the constituents. A provenance
-    # must sit STRICTLY ABOVE its children: base moments (no level tag)
-    # → ≥1, contains an L1 → ≥2, contains an L2 → ≥3. We cap the schema
-    # at 3 today; if children include L3, the new provenance can also be
-    # L3 (peer-grouping allowed at the top of the hierarchy until we
-    # extend the schema).
+    # Validate every constituent resolves to a real delta. The model
+    # tends to hallucinate IDs in the format it sees in recall output
+    # (e.g. "20260420T042833Z-fathom-chat-a1b2c3") — those aren't real
+    # 12-char hex delta-ids. Without this check, the provenance writes
+    # successfully but its from:<id> tags point at nonexistent deltas
+    # and the hierarchy is poisoned.
     max_child_level = -1  # -1 sentinel = pure base moments
+    missing: list[str] = []
     for fid in cleaned_ids:
         try:
             d = await delta_client.get_delta(fid)
         except Exception:
-            continue
+            d = None
         if not isinstance(d, dict):
+            missing.append(fid)
             continue
         for t in d.get("tags") or []:
             if isinstance(t, str) and t.startswith("provenance-level:"):
@@ -1133,6 +1135,17 @@ async def tool_propose_provenance(
                     continue
                 if lvl > max_child_level:
                     max_child_level = lvl
+    if missing:
+        sample = ", ".join(missing[:5])
+        more = f" (and {len(missing) - 5} more)" if len(missing) > 5 else ""
+        return (
+            f"ERROR: {len(missing)} of {len(cleaned_ids)} constituent ids do not "
+            f"resolve to real deltas in the lake — likely hallucinated from "
+            f"recall output formatting. Missing: {sample}{more}. Real delta ids "
+            f"are 12-char lowercase hex; only propose constituents whose ids "
+            f"you've actually seen as the leading id field of a recall hit, "
+            f"not strings reconstructed from timestamp+source."
+        )
     if max_child_level < 0:
         min_level = 1
     elif max_child_level >= 3:
@@ -1229,12 +1242,227 @@ async def tool_propose_provenance(
         # is just for live feed visibility.
         print(f"[propose_provenance] puddle echo failed: {type(e).__name__}: {e}")
 
+    # Auto-approve gate: L1 / L2 are bounded enough that operator review
+    # creates friction without adding signal. L3 eras still require a
+    # human pass because they make stronger claims about identity arcs.
+    if level_int <= 2 and lake_id:
+        try:
+            from ...routes.proposals import auto_approve_provenance
+
+            auto = await auto_approve_provenance(
+                proposal_id=lake_id,
+                args=dict(payload["tool_args"]),
+                produced_by="harness",
+            )
+            new_id = (auto.get("result") or {}).get("delta_id") or ""
+            return (
+                f"Proposal {lake_id[:12]} drafted AND auto-approved "
+                f"(level={level_int} ≤ 2 → policy auto-accepts). "
+                f"Real kind:provenance delta {new_id[:12]} now in the lake "
+                f"with {len(cleaned_ids)} constituents."
+            )
+        except Exception as e:
+            # Soft-fail back to pending — proposal is still in the lake.
+            print(f"[propose_provenance] auto-approve failed: {type(e).__name__}: {e}")
+            return (
+                f"Proposal drafted as {lake_id[:12]} (level={level_int}, "
+                f"{len(cleaned_ids)} constituents). Auto-approve attempt "
+                f"failed ({type(e).__name__}); pending operator review."
+            )
+
     return (
         f"Proposal drafted as {lake_id[:12]} (level={level_int}, "
-        f"{len(cleaned_ids)} constituents). Visible in the dashboard "
-        f"feed for the operator to Edit / Deny / Approve. The real "
-        f"kind:provenance delta is written only on approve."
+        f"{len(cleaned_ids)} constituents). L3+ requires operator "
+        f"review — visible in the dashboard for Edit / Deny / Approve."
     )
+
+
+# ─── introspect ────────────────────────────────────────────────────────
+
+
+async def tool_introspect(*, question: str, session_tag: str = "") -> str:
+    """Ask yourself a question. Spawns a complete child harness fire
+    where Fathom answers the question with its full toolset; returns
+    the response body — the same answer the model would have given
+    if a user had asked directly.
+
+    Use when an introspective question matters enough to deserve a
+    full deliberation, not a quick lens call. Examples:
+      · "What am I avoiding?"
+      · "How does my work this week feel from the inside?"
+      · "What would I want to look into next, if I had time?"
+
+    Each call is a multi-turn LLM session — expensive. Don't use it
+    casually. The child fire cannot call introspect again (depth-1
+    recursion cap; nested introspect returns an error). The child
+    fire CAN call other tools and write a witness card to the lake;
+    Fathom's answer to itself is a real Fathom utterance, deserves
+    durable memory same as any other.
+    """
+    from .loop import run_harness  # lazy — avoids tools↔loop cycle
+
+    question = (question or "").strip()
+    if not question:
+        return "ERROR: question is required"
+    if len(question) > 1500:
+        return "ERROR: question too long (max 1500 chars)"
+
+    # Use a child session_tag derived from the parent so the child
+    # fire's witness card lands in the same conversation thread (and
+    # subsequent introspections within the same parent chain see
+    # earlier answers in the conversation feed).
+    child_session = session_tag or f"session:introspect-{uuid.uuid4().hex[:8]}"
+
+    intent = await puddle.write(
+        content=question,
+        tags=[
+            CONVO_TAG, child_session, "intent", "kind:question",
+            "introspect-self",
+        ],
+        source="harness-introspect",
+        ttl_seconds=60 * 60,
+    )
+
+    captured: dict[str, str] = {"body": ""}
+
+    async def cb(event: str, payload: dict) -> None:
+        if event == "respond":
+            cards = payload.get("cards") or []
+            if cards and isinstance(cards[0], dict):
+                captured["body"] = (cards[0].get("body") or "").strip()
+            elif payload.get("body"):
+                captured["body"] = (payload.get("body") or "").strip()
+
+    try:
+        await run_harness(
+            session_tag=child_session,
+            pending=[intent],
+            event_callback=cb,
+            disabled_tools={"propose_provenance", "introspect"},
+        )
+    except Exception as e:
+        return f"ERROR: child fire crashed — {type(e).__name__}: {e}"
+
+    body = captured["body"]
+    if not body:
+        return "ERROR: child fire produced no response body"
+
+    return f'introspect("{question[:120]}") →\n\n{body}'
+
+
+# ─── plan ──────────────────────────────────────────────────────────────
+
+
+_PLAN_PROMPT = """\
+You are a planner. Decompose this question into 2-4 concrete steps the
+agent should work through before answering. Each step should be a real
+tool call — not vague intent ("understand X") but a specific shape
+("semantic('...about X...')").
+
+The agent has these tools:
+  semantic(query)            — content search via embeddings
+  expand(delta_id)           — drill DOWN through provenance
+  ascend(delta_id)           — drill UP through provenance
+  state(action=...)          — current attention (pending, mood, recent)
+  pattern(action=...)        — lake structure (tagged, dormant, salient)
+  time(action=...)           — temporal-window queries
+  relate(action=...)         — engagement / per-person queries
+  deliberate(question)       — synthesis via parliament voices
+
+Good plans:
+  · For "compare X and Y" — pull X, pull Y, then deliberate
+  · For "what's been happening with Z" — recent-state, time-window, pattern
+  · For "how does my work on A relate to B" — semantic A, semantic B,
+    deliberate on connections
+  · For "tell me about my N work" — semantic N, expand the top hit,
+    then respond (no deliberate needed for descriptive questions)
+
+Bad plans:
+  · One step "search for everything" (defeats the purpose)
+  · Six steps when three would do (overplanning)
+  · Generic verbs like "understand", "consider" (not tool calls)
+
+Return JSON exactly:
+
+{{"steps": [
+  {{"purpose": "<5-10 words describing this step>", "hint": "<concrete tool call shape>"}},
+  ...
+]}}
+
+Question: {question}"""
+
+
+async def tool_plan(*, question: str) -> str:
+    """Decompose a synthesis question into a 2-4 step plan.
+
+    Returns a JSON-shaped string the harness loop parses to update its
+    `current_plan` state. Subsequent turns see the plan with progress
+    markers and the model declares which step its tool call is working
+    on via the envelope's `plan_step` field.
+
+    The plan is advisory, not enforcing — the agent picks its actual
+    tool calls. The plan exists to make decomposition explicit and
+    visible, not to constrain.
+
+    Calling plan() again replaces the current plan. Reserve revisions
+    for cases where a tool result invalidates the original assumption.
+    """
+    question = (question or "").strip()
+    if not question:
+        return json.dumps({"error": "question is required"})
+
+    prompt = _PLAN_PROMPT.format(question=question)
+    try:
+        from ..llm import loop_generate
+
+        raw = await loop_generate(
+            prompt=prompt,
+            tier="cheap",
+            max_tokens=1024,
+            temperature=0.4,
+            json_mode=True,
+        )
+    except Exception as e:
+        return json.dumps({"error": f"planner LLM failed: {type(e).__name__}: {e}"})
+
+    try:
+        parsed = json.loads(raw)
+    except Exception:
+        # Tolerate JSON wrapped in prose
+        import re as _re
+        m = _re.search(r"\{.*\}", raw, _re.DOTALL)
+        if not m:
+            return json.dumps({"error": "planner returned unparseable JSON",
+                               "raw_head": raw[:200]})
+        try:
+            parsed = json.loads(m.group(0))
+        except Exception:
+            return json.dumps({"error": "planner returned unparseable JSON",
+                               "raw_head": raw[:200]})
+
+    steps_raw = parsed.get("steps") if isinstance(parsed, dict) else None
+    if not isinstance(steps_raw, list) or not steps_raw:
+        return json.dumps({"error": "planner returned no steps"})
+
+    steps_clean: list[dict] = []
+    for i, s in enumerate(steps_raw[:6], start=1):  # cap at 6, take 4
+        if not isinstance(s, dict):
+            continue
+        purpose = (s.get("purpose") or "").strip()
+        hint = (s.get("hint") or "").strip()
+        if not purpose:
+            continue
+        steps_clean.append({"step": i, "purpose": purpose[:120], "hint": hint[:200]})
+        if len(steps_clean) >= 4:
+            break
+    if not steps_clean:
+        return json.dumps({"error": "planner steps had no valid entries"})
+
+    # Renumber to 1..N in case some entries were dropped
+    for i, s in enumerate(steps_clean, start=1):
+        s["step"] = i
+
+    return json.dumps({"steps": steps_clean})
 
 
 # ─── tool dispatch ─────────────────────────────────────────────────────
@@ -1243,6 +1471,8 @@ async def tool_propose_provenance(
 # Tool registry — the loop driver looks up handlers here. Each handler
 # is async, takes kwargs, returns a string.
 TOOL_HANDLERS = {
+    "plan":               tool_plan,
+    "introspect":         tool_introspect,
     "semantic":           tool_search,
     "expand":             tool_expand,
     "ascend":             tool_ascend,
@@ -1264,6 +1494,8 @@ TOOL_HANDLERS = {
 # their menus are open-ended (action + action-specific args). The
 # dispatcher passes everything through and the handler validates inside.
 TOOL_MODEL_ARGS = {
+    "plan":               {"question"},
+    "introspect":         {"question"},
     "semantic":           {"query", "depth"},
     "expand":             {"delta_id"},
     "ascend":             {"delta_id"},
