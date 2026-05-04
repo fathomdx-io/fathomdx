@@ -41,6 +41,11 @@ _READ_RECEIPT_TAG = "alert-viewed-at"
 # items that surface here for operator decision. L0/L1/L2 land silently.
 _PROPOSAL_MIN_LEVEL = 3
 
+# Non-provenance proposal tools always require operator decision —
+# helper-dispatch can do anything on a host machine; mint-routine
+# schedules a recurring action. There's no auto-approve for these.
+_OPERATOR_REVIEW_TOOLS = {"helper-dispatch", "routines"}
+
 
 def _is_alert_card(d: dict) -> bool:
     """True for puddle deltas the bell should surface.
@@ -95,22 +100,33 @@ def _provenance_level(tags: list[str]) -> int | None:
     return None
 
 
-def _proposal_preview(d: dict) -> tuple[str, str]:
-    """(title, preview) for a kind:proposal tool:provenance delta.
+def _proposal_preview(
+    d: dict,
+    *,
+    tool: str = "",
+    level: int | None = None,
+) -> tuple[str, str]:
+    """(title, preview) for a kind:proposal delta.
 
-    The proposal payload carries a tool_args dict with `title`, `summary`,
-    `from_ids`, and `rationale`. Surface the proposed title and a short
-    rationale so the operator can decide without opening anything.
+    Tool-aware title prefix:
+      · provenance       → "L<n> proposal: <title>"
+      · helper-dispatch  → "Helper on <host>: <title>"
+      · routines         → "Mint routine: <name>"
+      · other            → "Proposal: <title>"
     """
     raw = (d.get("content") or "").strip()
     title = ""
     preview = ""
     constituents = 0
+    args: dict = {}
+    payload: dict = {}
     if raw:
         try:
             payload = json.loads(raw)
-            args = payload.get("tool_args") or {}
-            if isinstance(args, dict):
+            if isinstance(payload, dict):
+                args = payload.get("tool_args") or {}
+                if not isinstance(args, dict):
+                    args = {}
                 title = (args.get("title") or "").strip()
                 rationale = (args.get("rationale") or "").strip()
                 summary = (args.get("summary") or "").strip()
@@ -118,48 +134,83 @@ def _proposal_preview(d: dict) -> tuple[str, str]:
                 from_ids = args.get("from_ids") or []
                 if isinstance(from_ids, list):
                     constituents = len(from_ids)
-            if not title:
-                title = (payload.get("title") or payload.get("kicker") or "").strip()
-            if not preview:
-                preview = (payload.get("body") or "").strip()
+                if not title:
+                    title = (payload.get("title") or payload.get("kicker") or "").strip()
+                if not preview:
+                    preview = (payload.get("body") or "").strip()
         except Exception:
             preview = raw
-    level = _provenance_level(d.get("tags") or [])
-    title_prefix = f"L{level} proposal" if level is not None else "Proposal"
-    if title:
-        title = f"{title_prefix}: {title}"
+
+    if tool == "provenance":
+        prefix = f"L{level} proposal" if level is not None else "Proposal"
+        title_text = f"{prefix}: {title}" if title else prefix
+        if constituents:
+            preview = f"({constituents} constituents) {preview}"
+    elif tool == "helper-dispatch":
+        host = (args.get("host") or "").strip()
+        task = (args.get("task") or "").strip()
+        title_text = f"Helper on {host}: {title or task[:60]}" if host else f"Helper: {title or task[:60]}"
+        preview = task or preview
+    elif tool == "routines":
+        name = (args.get("name") or "").strip()
+        schedule = (args.get("schedule") or "").strip()
+        prompt = (args.get("prompt") or "").strip()
+        title_text = f"Mint routine: {name or title}"
+        sched_part = f"[{schedule}] " if schedule else ""
+        preview = f"{sched_part}{prompt or preview}"
     else:
-        title = title_prefix
-    if constituents:
-        preview = f"({constituents} constituents) {preview}"
-    return title, (preview or "")[:200]
+        title_text = f"Proposal: {title}" if title else "Proposal"
+
+    return title_text, (preview or "")[:200]
+
+
+def _proposal_tool(tags: list[str]) -> str:
+    """Read `tool:<name>` off a proposal's tags."""
+    for t in tags or []:
+        if isinstance(t, str) and t.startswith("tool:"):
+            return t.split(":", 1)[1]
+    return ""
 
 
 async def _pending_proposal_alerts() -> list[dict]:
-    """Query the lake for L3+ provenance proposals that have no decision.
+    """Query the lake for pending proposals that need operator attention.
 
-    Auto-approve handles L1 + L2 silently — those land as kind:provenance
-    directly. Only L3 and higher reach the operator. We filter by level
-    here (the lake doesn't have a comparison operator on tags) so the
-    set reaching the bell is small.
+    Surfaces:
+      · L3+ provenance proposals (L1/L2 auto-approve and never reach here)
+      · helper-dispatch proposals (always operator-gated — these run
+        claude-code on a host machine)
+      · routine-mint proposals (always operator-gated — these schedule
+        recurring actions)
+
+    Filters out anything with an existing decision delta.
     """
     try:
         proposals = await delta_client.query(
-            tags_include=["kind:proposal", "tool:provenance", "proposal-status:pending"],
+            tags_include=["kind:proposal", "proposal-status:pending"],
             limit=50,
         )
     except Exception:
         return []
     out: list[dict] = []
     for p in proposals:
-        level = _provenance_level(p.get("tags") or [])
-        if level is None or level < _PROPOSAL_MIN_LEVEL:
+        tags = p.get("tags") or []
+        tool = _proposal_tool(tags)
+        level = _provenance_level(tags)
+        # Tool-kind gating:
+        #   provenance → only surface L3+ (L1/L2 auto-approve elsewhere)
+        #   helper-dispatch / routines → always surface (always operator-gated)
+        #   anything else → ignore (unknown tool, conservative skip)
+        if tool == "provenance":
+            if level is None or level < _PROPOSAL_MIN_LEVEL:
+                continue
+        elif tool in _OPERATOR_REVIEW_TOOLS:
+            pass
+        else:
             continue
         delta_id = p.get("id") or ""
         if not delta_id:
             continue
-        # Filter out anything that already has a decision recorded —
-        # those proposals have a `decides:<id>` delta in the lake.
+        # Filter out anything that already has a decision recorded.
         try:
             decisions = await delta_client.query(
                 tags_include=[f"decides:{delta_id}"],
@@ -169,7 +220,7 @@ async def _pending_proposal_alerts() -> list[dict]:
             decisions = []
         if decisions:
             continue
-        title, preview = _proposal_preview(p)
+        title, preview = _proposal_preview(p, tool=tool, level=level)
         ts = p.get("timestamp") or ""
         out.append(
             {
@@ -180,6 +231,7 @@ async def _pending_proposal_alerts() -> list[dict]:
                 "unread_since": ts,
                 "updated_at": ts,
                 "kind": "proposal",
+                "tool": tool,
                 "level": level,
             }
         )

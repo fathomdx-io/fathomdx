@@ -125,6 +125,24 @@ relate(action="help" | "with_contact" | "engagement" | "dropped_around" |
   is about a PERSON or VALENCE: "what about Steph", "what have I
   affirmed lately", "what was rejected around this idea."
 
+dispatch_helper(host: str, task: str, title: str = "")
+  Self-acting — propose a claude-code task on a connected helper host.
+  Drafts an operator-gated proposal that surfaces in the header bell;
+  on approve, claude-code runs the task on the named host. Use when
+  the work needs to happen on a host machine (file edits, commands,
+  anything outside the lake). NOT a tool for retrieval — it's how you
+  ACT on a directive. `host` must match a connected helper from the
+  hosts block above.
+
+mint_routine(name: str, schedule: str, prompt: str, workspace: str = "fathom",
+             route_to: str = "feed", title: str = "")
+  Self-acting — propose a new scheduled routine. Drafts an operator-
+  gated proposal; on approve, the routine starts firing on its cron.
+  Use when something should happen on a recurring clock (periodic
+  checks, daily summaries, conditional alerts). `schedule` is a cron
+  expression (`0 9 * * *` = daily at 09:00). Validate the schedule
+  before drafting.
+
 Most tools return delta ids — feed them into expand/ascend/
 semantic to navigate further.
 

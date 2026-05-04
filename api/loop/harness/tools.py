@@ -1485,6 +1485,240 @@ async def tool_plan(*, question: str) -> str:
     return json.dumps({"steps": steps_clean})
 
 
+# ─── self-acting tools (helper / routines) ─────────────────────────────
+
+
+async def tool_dispatch_helper(
+    *,
+    host: str,
+    task: str,
+    title: str = "",
+    session_tag: str = "",
+) -> str:
+    """Propose a claude-code dispatch on a connected helper host.
+
+    Use when the work needs to happen on a host machine — file edits,
+    shell commands, anything outside the lake. The dispatch is
+    operator-gated: this tool drafts a `kind:proposal tool:helper-dispatch`
+    proposal that surfaces in the header bell. On approve, a real
+    `route:claude-code:<host>` delta lands; the claude-code-watcher
+    picks it up and runs `claude-code` on the named host.
+
+    Args:
+      host: slug of a connected host (visible to the model in the
+        hosts block — e.g. `myras-fedora-laptop`). Validates against
+        the live host list.
+      task: the prompt to hand claude-code. Be specific.
+      title: short label for the bell preview (defaults to the first
+        line of `task`).
+      session_tag: harness-injected; ignored by the model.
+    """
+    from ... import delta_client
+    from .. import witness as witness_mod
+    from ..intents import CONVO_TAG
+    from ..puddle import puddle as _puddle
+
+    host = (host or "").strip()
+    task = (task or "").strip()
+    if not host:
+        return "ERROR: host is required"
+    if not task:
+        return "ERROR: task is required"
+
+    # _available_claude_code_hosts returns list[str] of host slugs that
+    # have a recent heartbeat AND advertise dispatch capability. Empty
+    # list means nothing dispatch-capable is online — refuse the call
+    # rather than draft a proposal for a host that won't pick it up.
+    available = await witness_mod._available_claude_code_hosts() or []
+    available_names = set(available)
+    if not available_names:
+        return (
+            "ERROR: no helper hosts are currently dispatch-capable "
+            "(no recent heartbeats with kitty plugin). Wait for a "
+            "host to come online or check the helpers panel."
+        )
+    if host not in available_names:
+        return (
+            f"ERROR: host {host!r} is not in the connected helper list. "
+            f"Available: {sorted(available_names)}"
+        )
+
+    if not title:
+        title = task.split("\n", 1)[0][:80].strip() or "helper task"
+
+    payload = {
+        "kicker": f"helper · {host}",
+        "title": title,
+        "body": task,
+        "tail": f"Dispatch to claude-code on {host}",
+        "route": "tool:helper-dispatch",
+        "tool": "helper-dispatch",
+        "tool_args": {
+            "action": "run",
+            "host": host,
+            "task": task,
+        },
+    }
+    payload_json = json.dumps(payload, ensure_ascii=False)
+    base_tags = [
+        "feed-card",
+        "kind:proposal",
+        "proposal-status:pending",
+        "tool:helper-dispatch",
+        "action:run",
+        "route:tool:helper-dispatch",
+        f"helper-host:{host}",
+        "produced-by:harness",
+    ]
+
+    try:
+        lake_delta = await delta_client.write(
+            content=payload_json,
+            tags=list(base_tags),
+            source="harness-proposal",
+        )
+    except Exception as e:
+        return f"ERROR: lake write failed — {type(e).__name__}: {e}"
+    lake_id = (lake_delta or {}).get("id") or ""
+
+    puddle_tags = [CONVO_TAG, *base_tags]
+    if session_tag:
+        puddle_tags.insert(1, session_tag)
+    if lake_id:
+        puddle_tags.append(f"lake-id:{lake_id}")
+        puddle_tags.append(f"recalled-id:{lake_id[:24]}")
+    try:
+        await _puddle.write(
+            content=payload_json,
+            tags=puddle_tags,
+            source="harness-proposal",
+            ttl_seconds=7 * 24 * 60 * 60,
+        )
+    except Exception as e:
+        print(f"[dispatch_helper] puddle echo failed: {type(e).__name__}: {e}")
+
+    return (
+        f"Helper-dispatch proposal {lake_id[:12]} drafted for host={host}. "
+        f"Pending operator approval — visible in the header bell. On "
+        f"approve, claude-code will run on {host} with the given task."
+    )
+
+
+async def tool_mint_routine(
+    *,
+    name: str,
+    schedule: str,
+    prompt: str,
+    workspace: str = "fathom",
+    route_to: str = "feed",
+    title: str = "",
+    session_tag: str = "",
+) -> str:
+    """Propose a new scheduled routine.
+
+    Use when there's something Fathom should run on a recurring clock
+    that ISN'T just "answer the next message" — periodic checks, daily
+    summaries, conditional alerts. The routine is operator-gated: this
+    tool drafts a `kind:proposal tool:routines action:create` proposal.
+    On approve, the existing proposals.py handler calls
+    `routines.create()` to materialize it.
+
+    Args:
+      name: human-readable routine name (slug derived from this).
+      schedule: cron expression — `0 9 * * *` for "every day at 09:00".
+        Validate before drafting; ill-formed schedules return an error.
+      prompt: the prompt the routine fires when the schedule trips.
+      workspace: workspace tag for the routine. Defaults to "fathom".
+      route_to: where the routine's output should land — "feed",
+        "alert", or a contact slug. Defaults to "feed".
+      title: short label for the bell preview (defaults to `name`).
+      session_tag: harness-injected; ignored by the model.
+    """
+    from ... import delta_client
+    from ... import routines as routines_mod
+    from ..intents import CONVO_TAG
+    from ..puddle import puddle as _puddle
+
+    name = (name or "").strip()
+    schedule = (schedule or "").strip()
+    prompt = (prompt or "").strip()
+    workspace = (workspace or "fathom").strip()
+    route_to = (route_to or "feed").strip()
+
+    if not name:
+        return "ERROR: name is required"
+    if not schedule:
+        return "ERROR: schedule (cron expression) is required"
+    if not prompt:
+        return "ERROR: prompt is required"
+    if not routines_mod.validate_cron(schedule):
+        return f"ERROR: schedule {schedule!r} is not a valid cron expression"
+
+    if not title:
+        title = name[:80]
+
+    payload = {
+        "kicker": f"routine · {workspace}",
+        "title": f"Mint routine: {name}",
+        "body": f"Schedule: `{schedule}`\nWorkspace: {workspace}\nRoute: {route_to}\n\n{prompt}",
+        "tail": f"Will fire on cron `{schedule}` — operator approves before scheduling.",
+        "route": "tool:routines",
+        "tool": "routines",
+        "tool_args": {
+            "action": "create",
+            "name": name,
+            "schedule": schedule,
+            "prompt": prompt,
+            "workspace": workspace,
+            "route_to": route_to,
+        },
+    }
+    payload_json = json.dumps(payload, ensure_ascii=False)
+    base_tags = [
+        "feed-card",
+        "kind:proposal",
+        "proposal-status:pending",
+        "tool:routines",
+        "action:create",
+        "route:tool:routines",
+        f"workspace:{workspace}",
+        "produced-by:harness",
+    ]
+
+    try:
+        lake_delta = await delta_client.write(
+            content=payload_json,
+            tags=list(base_tags),
+            source="harness-proposal",
+        )
+    except Exception as e:
+        return f"ERROR: lake write failed — {type(e).__name__}: {e}"
+    lake_id = (lake_delta or {}).get("id") or ""
+
+    puddle_tags = [CONVO_TAG, *base_tags]
+    if session_tag:
+        puddle_tags.insert(1, session_tag)
+    if lake_id:
+        puddle_tags.append(f"lake-id:{lake_id}")
+        puddle_tags.append(f"recalled-id:{lake_id[:24]}")
+    try:
+        await _puddle.write(
+            content=payload_json,
+            tags=puddle_tags,
+            source="harness-proposal",
+            ttl_seconds=7 * 24 * 60 * 60,
+        )
+    except Exception as e:
+        print(f"[mint_routine] puddle echo failed: {type(e).__name__}: {e}")
+
+    return (
+        f"Routine proposal {lake_id[:12]} drafted: name={name!r} "
+        f"schedule={schedule!r}. Pending operator approval — visible in "
+        f"the header bell. On approve, the routine starts firing on its "
+        f"schedule."
+    )
+
+
 # ─── tool dispatch ─────────────────────────────────────────────────────
 
 
@@ -1502,6 +1736,8 @@ TOOL_HANDLERS = {
     "time": tool_time,
     "relate": tool_relate,
     "propose_provenance": tool_propose_provenance,
+    "dispatch_helper": tool_dispatch_helper,
+    "mint_routine": tool_mint_routine,
 }
 
 
@@ -1546,4 +1782,6 @@ TOOL_MODEL_ARGS = {
     },
     "relate": {"action", "slug", "limit", "direction", "hours", "delta_id"},
     "propose_provenance": {"level", "title", "summary", "from_ids", "rationale", "test_questions"},
+    "dispatch_helper": {"host", "task", "title"},
+    "mint_routine": {"name", "schedule", "prompt", "workspace", "route_to", "title"},
 }

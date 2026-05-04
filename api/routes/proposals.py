@@ -328,6 +328,41 @@ async def approve_proposal(delta_id: str, body: dict | None = None):
                 raise HTTPException(status_code=404, detail=str(e)) from e
         else:
             raise HTTPException(status_code=400, detail=f"unknown action: {action!r}")
+    elif tool == "helper-dispatch":
+        if action == "run":
+            host = (args.get("host") or "").strip()
+            task = (args.get("task") or "").strip()
+            if not host:
+                raise HTTPException(status_code=400, detail="host required")
+            if not task:
+                raise HTTPException(status_code=400, detail="task required")
+            # Approval materializes the dispatch as a route:claude-code:<host>
+            # delta. The claude-code-watcher polls those and runs the task on
+            # the target host. Approval is the authorization handshake — the
+            # operator is consenting that this task should run.
+            dispatch = await delta_client.write(
+                content=task,
+                tags=[
+                    "feed-card",
+                    f"route:claude-code:{host}",
+                    f"host:{host}",
+                    "kind:helper-dispatch",
+                    f"approved-from-proposal:{delta_id}",
+                    "produced-by:harness",
+                ],
+                source="harness-helper-dispatch",
+            )
+            result = {
+                "dispatched": True,
+                "host": host,
+                "task_chars": len(task),
+                "dispatch_delta_id": (dispatch or {}).get("id"),
+            }
+        else:
+            raise HTTPException(
+                status_code=400,
+                detail=f"unknown helper-dispatch action: {action!r}",
+            )
     else:
         raise HTTPException(status_code=400, detail=f"unknown tool: {tool!r}")
 
