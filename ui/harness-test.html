@@ -74,6 +74,63 @@
   .composer button:disabled {
     opacity: 0.5; cursor: not-allowed;
   }
+  .composer button#sit {
+    background: var(--surface-2);
+    color: var(--accent);
+    border: 1px solid var(--accent);
+  }
+  .composer button#sit:hover {
+    background: var(--accent);
+    color: #1a0d00;
+  }
+  .msg.introspection {
+    justify-content: flex-start;
+  }
+  .msg.introspection .msg-bubble {
+    background: linear-gradient(180deg, #1a1518 0%, #15171b 100%);
+    border: 1px solid #4a3e30;
+    border-left: 3px solid #b04a18;
+    border-radius: 8px;
+    max-width: 86%;
+    font: 14px/1.6 Georgia, serif;
+  }
+  .msg.introspection .focus-line {
+    font: 11px/1.4 var(--mono);
+    color: var(--text-dim);
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    margin-bottom: 8px;
+  }
+  .msg.introspection .reflection-shape {
+    color: #d09060;
+    font: 600 10px/1 var(--mono);
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    margin-bottom: 6px;
+  }
+  .msg.introspection .reflection-body {
+    color: var(--text);
+    white-space: pre-wrap;
+  }
+  .msg.introspection .reflection-meta {
+    margin-top: 10px;
+    font: 11px/1.4 var(--mono);
+    color: var(--text-dim);
+  }
+  /* Self-dialogue — each round shows as a normal user+assistant pair
+     in the same chat thread. Visual marker: a small "self" tag on the
+     user bubble of automated rounds so you can tell which messages
+     came from Fathom-as-self vs Fathom-as-respondent. */
+  .msg.user.self-utterance .msg-bubble {
+    border-left: 3px solid #b04a18;
+  }
+  .self-tag {
+    font: 9px/1 var(--mono);
+    color: #d09060;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    margin-bottom: 4px;
+  }
   main {
     flex: 1; min-height: 0;
     display: grid;
@@ -144,9 +201,68 @@
     color: var(--text-dim);
   }
   .msg-bubble details.activity {
-    margin-top: 8px;
-    border-top: 1px dashed var(--border);
-    padding-top: 8px;
+    margin-bottom: 8px;
+    border-bottom: 1px dashed var(--border);
+    padding-bottom: 8px;
+  }
+  .msg-bubble details.activity[open] {
+    margin-bottom: 12px;
+  }
+  .plan-board {
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    border-left: 3px solid var(--accent);
+    border-radius: 4px;
+    padding: 8px 12px;
+    margin: 8px 0;
+    font: 12px/1.55 var(--mono);
+  }
+  .plan-board .plan-header {
+    color: var(--accent);
+    font: 600 10px/1 var(--mono);
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    margin-bottom: 6px;
+  }
+  .plan-board .plan-step {
+    display: flex;
+    gap: 8px;
+    margin: 3px 0;
+    color: var(--text-dim);
+    transition: color 0.2s;
+  }
+  .plan-board .plan-step .glyph {
+    width: 14px;
+    text-align: center;
+    flex-shrink: 0;
+  }
+  .plan-board .plan-step.status-pending .glyph { color: var(--text-dim); }
+  .plan-board .plan-step.status-in_progress {
+    color: var(--accent);
+  }
+  .plan-board .plan-step.status-in_progress .glyph {
+    color: var(--accent);
+    animation: spin 1.4s linear infinite;
+    display: inline-block;
+  }
+  .plan-board .plan-step.status-done {
+    color: var(--ok);
+    text-decoration: line-through;
+    text-decoration-color: rgba(110, 208, 137, 0.45);
+  }
+  .plan-board .plan-step.status-done .glyph {
+    color: var(--ok);
+    animation: none;
+  }
+  .plan-board .plan-step .hint {
+    color: var(--text-dim);
+    font-style: italic;
+    margin-left: 6px;
+    opacity: 0.7;
+  }
+  @keyframes spin {
+    0%   { transform: rotate(0deg);   }
+    100% { transform: rotate(360deg); }
   }
   .msg-bubble details.activity > summary {
     cursor: pointer;
@@ -332,6 +448,36 @@
   }
   .proposal-row.status-approved { border-left-color: var(--ok); opacity: 0.75; }
   .proposal-row.status-denied   { border-left-color: var(--err); opacity: 0.55; }
+  .proposal-actions {
+    display: flex; gap: 6px;
+    margin-top: 6px;
+  }
+  .proposal-actions button {
+    flex: 1;
+    padding: 4px 8px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    color: var(--text-dim);
+    font: 600 10px/1 var(--mono);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    border-radius: 3px;
+    cursor: pointer;
+  }
+  .proposal-actions button.approve:hover {
+    background: var(--ok); color: #002b0d; border-color: var(--ok);
+  }
+  .proposal-actions button.deny:hover {
+    background: var(--err); color: #2b0500; border-color: var(--err);
+  }
+  .proposal-actions button:disabled {
+    opacity: 0.4; cursor: not-allowed;
+  }
+  .proposal-row .decided-note {
+    margin-top: 6px;
+    font: 10px/1.4 var(--mono);
+    color: var(--text-dim);
+  }
   .event {
     margin-bottom: 8px;
     background: var(--surface);
@@ -463,6 +609,7 @@
   <div class="composer">
     <input id="question" type="text" placeholder='ask anything — questions in this session build on each other' autocomplete="off">
     <button id="fire">Fire</button>
+    <button id="sit" type="button" title="Run an introspection fire — Fathom sits with itself. Optional: type a focus into the question box first.">Sit</button>
     <button id="new-chat" class="new-chat-btn" type="button" title="Start a new chat session (resets the river)">New Chat</button>
     <span id="session-pill" class="session-pill"></span>
   </div>
@@ -688,20 +835,71 @@ function _addUserBubble(question) {
 function _addAssistantBubble() {
   const wrap = el('div', { class: 'msg assistant' });
   const bubble = el('div', { class: 'msg-bubble' });
-  // Placeholder content while we wait for RESPOND
-  const placeholder = el('div', { class: 'thinking', text: 'thinking…' });
-  bubble.appendChild(placeholder);
-  // Activity disclosure starts collapsed; events get appended to its list.
+  // Activity disclosure FIRST — events accumulate here as they arrive.
+  // Layout stays consistent: activity on top, status (then response)
+  // below.
   const det = el('details', { class: 'activity' });
   det.appendChild(el('summary', { text: 'show activity' }));
   const list = el('div', { class: 'activity-list' });
   det.appendChild(list);
   bubble.appendChild(det);
+  // Plan board sits between activity and response — visible by default
+  // when a plan exists, hidden until then. Updates live as steps
+  // progress through pending → in_progress → done.
+  const planBoard = el('div', { class: 'plan-board', style: 'display:none' });
+  bubble.appendChild(planBoard);
+  // Placeholder where the response will land — shows live stage labels
+  // during the fire, gets replaced with cards/body when RESPOND arrives.
+  const placeholder = el('div', { class: 'thinking', text: 'thinking…' });
+  bubble.appendChild(placeholder);
   wrap.appendChild(bubble);
   $trace.appendChild(wrap);
   $trace.scrollTop = $trace.scrollHeight;
-  _currentAssistantBubble = { wrap, bubble, placeholder, det, list, eventCount: 0 };
+  _currentAssistantBubble = {
+    wrap, bubble, placeholder, det, list,
+    planBoard, planSteps: [],
+    eventCount: 0,
+  };
   return _currentAssistantBubble;
+}
+
+function _renderPlanBoard() {
+  if (!_currentAssistantBubble) return;
+  const { planBoard, planSteps } = _currentAssistantBubble;
+  if (!planSteps || planSteps.length === 0) {
+    planBoard.style.display = 'none';
+    return;
+  }
+  planBoard.style.display = 'block';
+  planBoard.innerHTML = '';
+  planBoard.appendChild(el('div', { class: 'plan-header', text: 'Active plan' }));
+  for (const s of planSteps) {
+    const status = s.status || 'pending';
+    const glyph = status === 'done' ? '✓'
+      : status === 'in_progress' ? '⟳'
+      : '○';
+    const row = el('div', { class: 'plan-step status-' + status });
+    row.appendChild(el('span', { class: 'glyph', text: glyph }));
+    const text = el('span');
+    text.appendChild(document.createTextNode(s.step + '. ' + (s.purpose || '')));
+    if (s.hint) {
+      text.appendChild(el('span', { class: 'hint', text: '— ' + s.hint }));
+    }
+    row.appendChild(text);
+    planBoard.appendChild(row);
+  }
+}
+
+function _setPlanStepStatus(step, status) {
+  if (!_currentAssistantBubble) return;
+  const planSteps = _currentAssistantBubble.planSteps || [];
+  for (const s of planSteps) {
+    if (s.step === step) {
+      s.status = status;
+      break;
+    }
+  }
+  _renderPlanBoard();
 }
 
 function _appendActivity(label, eventClass, body) {
@@ -723,15 +921,14 @@ function _fillAssistantBubble(payload) {
   if (placeholder && placeholder.parentNode === bubble) {
     bubble.removeChild(placeholder);
   }
-  // Render cards (or the lean body)
+  // Render cards (or the lean body) BELOW the activity disclosure —
+  // the layout reads top-down: "here's what I did → here's my answer".
   const cards = payload.cards || [];
   if (cards.length === 0 && payload.body) {
     // Lean shape — just body
-    const bodyEl = el('div', { class: 'body', text: payload.body });
-    bubble.insertBefore(bodyEl, bubble.firstChild);
+    bubble.appendChild(el('div', { class: 'body', text: payload.body }));
   } else {
-    for (let i = cards.length - 1; i >= 0; i--) {
-      const card = cards[i];
+    for (const card of cards) {
       const cardWrap = el('div');
       if (card.kicker) cardWrap.appendChild(el('div', { class: 'kicker', text: card.kicker }));
       if (card.title) cardWrap.appendChild(el('div', { class: 'title', text: card.title }));
@@ -741,7 +938,7 @@ function _fillAssistantBubble(payload) {
       if (card.route && card.route !== 'chat-reply') metaParts.push('route: ' + card.route);
       if (card.addresses && card.addresses.length) metaParts.push('addresses: [' + card.addresses.join(', ') + ']');
       if (metaParts.length) cardWrap.appendChild(el('div', { class: 'meta', text: metaParts.join(' · ') }));
-      bubble.insertBefore(cardWrap, bubble.firstChild);
+      bubble.appendChild(cardWrap);
     }
   }
   // Stash attestation/mood/citations inside the activity area
@@ -824,6 +1021,47 @@ function handleEvent(eventName, payload) {
       if (_currentAssistantBubble && _currentAssistantBubble.placeholder) {
         _currentAssistantBubble.placeholder.textContent = '(silent — max turns hit)';
       }
+      break;
+    case 'plan_set':
+    case 'plan_revised':
+      if (_currentAssistantBubble) {
+        // Reset planSteps with the new plan; revisions clobber the old.
+        _currentAssistantBubble.planSteps = (payload.steps || []).map(s => ({
+          step: s.step, purpose: s.purpose, hint: s.hint,
+          status: s.status || 'pending',
+        }));
+        _renderPlanBoard();
+      }
+      _appendActivity(eventName === 'plan_set' ? 'plan · set' : 'plan · revised',
+        'tool_call',
+        el('pre', { text: (payload.steps || [])
+          .map(s => `  ${s.step}. ${s.purpose}${s.hint ? ' — ' + s.hint : ''}`)
+          .join('\n') }));
+      break;
+    case 'plan_step_status':
+      _setPlanStepStatus(payload.step, payload.status);
+      break;
+    case 'review_begin':
+      _appendActivity('review · consolidating', 'tool_call',
+        el('div', { class: 'thinking', text: 'post-response: scanning the working set for a coherent stretch worth naming' }));
+      break;
+    case 'review_proposing':
+      _appendActivity('review · proposing', 'tool_call',
+        renderToolCall({ tool: 'propose_provenance', args: payload.args || {}, thinking: payload.thinking }));
+      break;
+    case 'review_result':
+      _appendActivity('review · result', 'tool_result', renderToolResult(payload));
+      // Also nudge the proposals pane to refresh — a new proposal may
+      // have just landed.
+      if (typeof fetchProposals === 'function') fetchProposals();
+      break;
+    case 'review_skipped':
+      _appendActivity('review · skipped', 'tool_result',
+        el('pre', { text: payload.reason || '(no reason given)' }));
+      break;
+    case 'review_error':
+      _appendActivity('review · error', 'error',
+        el('pre', { text: `${payload.where || '?'}: ${payload.type || ''}: ${payload.message || ''}` }));
       break;
     case 'finished':
       $status.innerHTML = '<span class="ok">finished</span>';
@@ -936,6 +1174,293 @@ $question.addEventListener('keydown', (e) => {
 });
 $question.focus();
 
+// ─── introspection (Sit) ─────────────────────────────────────────
+// Pressing Sit fires an introspection harness session. The focus is
+// either whatever is currently in the question box, or a default
+// "look at recent activity" string. No user-bubble — the session
+// renders as a single sepia-tinted reflection bubble that fills as
+// the introspection settles.
+
+const $sit = document.getElementById('sit');
+
+function _addIntrospectionBubble(focus) {
+  const wrap = el('div', { class: 'msg introspection' });
+  const bubble = el('div', { class: 'msg-bubble' });
+  const focusLine = el('div', { class: 'focus-line', text: 'sitting with: ' + focus });
+  bubble.appendChild(focusLine);
+  // Activity disclosure
+  const det = el('details', { class: 'activity' });
+  det.appendChild(el('summary', { text: 'show activity' }));
+  const list = el('div', { class: 'activity-list' });
+  det.appendChild(list);
+  bubble.appendChild(det);
+  // Placeholder for the reflection body
+  const placeholder = el('div', { class: 'thinking', text: 'sitting…' });
+  bubble.appendChild(placeholder);
+  wrap.appendChild(bubble);
+  $trace.appendChild(wrap);
+  $trace.scrollTop = $trace.scrollHeight;
+  _currentAssistantBubble = {
+    wrap, bubble, placeholder, det, list,
+    eventCount: 0, isIntrospection: true,
+  };
+  return _currentAssistantBubble;
+}
+
+function _fillReflectionBubble(payload) {
+  if (!_currentAssistantBubble) return;
+  const { bubble, placeholder } = _currentAssistantBubble;
+  if (placeholder && placeholder.parentNode === bubble) {
+    bubble.removeChild(placeholder);
+  }
+  const shape = (payload.shape || '').trim();
+  if (shape) {
+    bubble.appendChild(el('div', { class: 'reflection-shape', text: shape }));
+  }
+  bubble.appendChild(el('div', { class: 'reflection-body', text: payload.body || '' }));
+  const fromCount = (payload.from_ids || []).length;
+  if (fromCount) {
+    bubble.appendChild(el('div', { class: 'reflection-meta',
+      text: `anchored in ${fromCount} delta${fromCount === 1 ? '' : 's'}` }));
+  }
+}
+
+function _setIntrospectionStage(text) {
+  if (_currentAssistantBubble && _currentAssistantBubble.placeholder) {
+    _currentAssistantBubble.placeholder.textContent = text;
+  }
+}
+
+const _origHandleEvent2 = handleEvent;
+handleEvent = function(eventName, payload) {
+  // Introspection-specific events route to the reflection bubble
+  switch (eventName) {
+    case 'introspection_start':
+      _setIntrospectionStage('beginning to sit…');
+      _appendActivity('start', 'seeded',
+        el('pre', { text: `focus: ${payload.focus}\nsession: ${payload.session_tag}` }));
+      return;
+    case 'introspection_turn_begin':
+      _setIntrospectionStage(`turn ${payload.turn} · looking…`);
+      return;
+    case 'introspection_reflect':
+      _fillReflectionBubble(payload);
+      _appendActivity('reflection · drafted', 'respond',
+        el('pre', { text: `shape: ${payload.shape}\nfrom_ids: ${(payload.from_ids || []).length}` }));
+      return;
+    case 'introspection_skipped':
+      if (_currentAssistantBubble && _currentAssistantBubble.placeholder) {
+        _currentAssistantBubble.placeholder.textContent =
+          '(skipped — ' + (payload.reason || 'nothing arose') + ')';
+        _currentAssistantBubble.placeholder.style.fontStyle = 'italic';
+      }
+      _appendActivity('skipped', 'tool_result', el('pre', { text: payload.reason || '' }));
+      return;
+    case 'introspection_max_turns':
+      if (_currentAssistantBubble && _currentAssistantBubble.placeholder) {
+        _currentAssistantBubble.placeholder.textContent =
+          '(silent — hit ' + payload.max_turns + ' turn cap)';
+      }
+      _appendActivity('max-turns', 'error',
+        el('div', { class: 'thinking', text: `Hit ${payload.max_turns} turns without settling.` }));
+      return;
+    case 'introspection_recorded':
+      _appendActivity('reflection · written', 'respond',
+        el('pre', { text:
+          `delta: ${payload.delta_id}\nshape: ${payload.shape}\nfrom_count: ${payload.from_count}` }));
+      return;
+    case 'introspection_early_reflect_rejected':
+      _setIntrospectionStage(`turn ${payload.turn} · tried to settle early — walking required`);
+      _appendActivity('early reflect rejected', 'error',
+        el('div', { class: 'thinking', text:
+          'Model tried to emit a reflection without walking the substrate first. ' +
+          'Forcing at least one tool call before settling.' }));
+      return;
+  }
+  return _origHandleEvent2.call(this, eventName, payload);
+};
+
+async function sit() {
+  if (_firing) return;
+  const focus = $question.value.trim() || 'recent activity, mood, anything pulling at me';
+  const token = getToken();
+  if (!token) {
+    alert('No API token in localStorage. Log in to the dashboard first.');
+    return;
+  }
+  _firing = true;
+  $fire.disabled = true;
+  $sit.disabled = true;
+  $status.textContent = 'sitting…';
+  $question.value = '';
+  _addIntrospectionBubble(focus);
+
+  _t0 = performance.now();
+  _elapsedTimer = setInterval(() => {
+    const s = (performance.now() - _t0) / 1000;
+    $elapsed.textContent = s.toFixed(1) + 's';
+  }, 100);
+
+  _abortController = new AbortController();
+  try {
+    const url = '/v1/harness/sit?focus=' + encodeURIComponent(focus) +
+      '&session_tag=' + encodeURIComponent(_chatSessionTag || '');
+    const resp = await fetch(url, {
+      method: 'GET',
+      headers: { 'Authorization': 'Bearer ' + token, 'Accept': 'text/event-stream' },
+      signal: _abortController.signal,
+    });
+    if (!resp.ok) {
+      throw new Error('HTTP ' + resp.status + ': ' + (await resp.text()));
+    }
+    const reader = resp.body.getReader();
+    const decoder = new TextDecoder();
+    let buf = '';
+    while (true) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      buf += decoder.decode(value, { stream: true });
+      let idx;
+      while ((idx = buf.indexOf('\n\n')) !== -1) {
+        const block = buf.slice(0, idx);
+        buf = buf.slice(idx + 2);
+        let event = 'message', data = '';
+        for (const line of block.split('\n')) {
+          if (line.startsWith(':')) continue;
+          if (line.startsWith('event: ')) event = line.slice(7).trim();
+          else if (line.startsWith('data: ')) data += line.slice(6);
+        }
+        if (!data) continue;
+        let payload;
+        try { payload = JSON.parse(data); } catch { payload = { _raw: data }; }
+        handleEvent(event, payload);
+      }
+    }
+    $status.innerHTML = '<span class="ok">finished</span>';
+  } catch (e) {
+    if (e.name !== 'AbortError') {
+      $status.innerHTML = '<span class="err">' + (e.message || 'error') + '</span>';
+      console.error(e);
+    }
+  } finally {
+    clearInterval(_elapsedTimer);
+    _firing = false;
+    $fire.disabled = false;
+    $sit.disabled = false;
+  }
+}
+$sit.addEventListener('click', sit);
+
+// ─── self-dialogue ──────────────────────────────────────────────
+// Sit fires `run_dialogue` server-side: `run_harness` in a loop where
+// each round's response becomes the next round's input. Visually it
+// reads as a normal chat — the inner harness's `seeded` events create
+// user bubbles (with each round's input text), `respond` events fill
+// assistant bubbles. The dialogue_* events are just for status.
+
+const _origHandleEvent3 = handleEvent;
+handleEvent = function(eventName, payload) {
+  switch (eventName) {
+    case 'dialogue_start':
+      $status.textContent = 'sitting…';
+      return;
+    case 'dialogue_round_begin':
+      $status.textContent = `round ${payload.round} of ${payload.max_rounds} · sitting…`;
+      // The inner harness doesn't emit a `seeded` event (routes.py
+      // does that for the test endpoint, not the harness itself).
+      // So we create the user+assistant bubbles here, with this
+      // round's input as the user-bubble text.
+      _addUserBubble(payload.input || '');
+      _addAssistantBubble();
+      return;
+    case 'dialogue_round_end':
+    case 'dialogue_round_skipped':
+      return;
+    case 'dialogue_error':
+      $status.innerHTML = '<span class="err">round ' + payload.round +
+        ' · ' + (payload.where || '?') + ': ' + (payload.message || '') + '</span>';
+      return;
+    case 'dialogue_done':
+      $status.innerHTML = `<span class="ok">finished · ${payload.rounds} round${payload.rounds === 1 ? '' : 's'}</span>`;
+      return;
+  }
+  return _origHandleEvent3.call(this, eventName, payload);
+};
+
+async function dialogue(seed) {
+  if (_firing) return;
+  const token = getToken();
+  if (!token) {
+    alert('No API token in localStorage. Log in to the dashboard first.');
+    return;
+  }
+  _firing = true;
+  $fire.disabled = true;
+  $sit.disabled = true;
+  $status.textContent = 'sitting…';
+  $question.value = '';
+
+  _t0 = performance.now();
+  _elapsedTimer = setInterval(() => {
+    const s = (performance.now() - _t0) / 1000;
+    $elapsed.textContent = s.toFixed(1) + 's';
+  }, 100);
+
+  _abortController = new AbortController();
+  try {
+    const url = '/v1/harness/dialogue?seed=' + encodeURIComponent(seed) +
+      '&session_tag=' + encodeURIComponent(_chatSessionTag || '');
+    const resp = await fetch(url, {
+      method: 'GET',
+      headers: { 'Authorization': 'Bearer ' + token, 'Accept': 'text/event-stream' },
+      signal: _abortController.signal,
+    });
+    if (!resp.ok) throw new Error('HTTP ' + resp.status + ': ' + (await resp.text()));
+    const reader = resp.body.getReader();
+    const decoder = new TextDecoder();
+    let buf = '';
+    while (true) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      buf += decoder.decode(value, { stream: true });
+      let idx;
+      while ((idx = buf.indexOf('\n\n')) !== -1) {
+        const block = buf.slice(0, idx);
+        buf = buf.slice(idx + 2);
+        let event = 'message', data = '';
+        for (const line of block.split('\n')) {
+          if (line.startsWith(':')) continue;
+          if (line.startsWith('event: ')) event = line.slice(7).trim();
+          else if (line.startsWith('data: ')) data += line.slice(6);
+        }
+        if (!data) continue;
+        let payload;
+        try { payload = JSON.parse(data); } catch { payload = { _raw: data }; }
+        handleEvent(event, payload);
+      }
+    }
+    $status.innerHTML = '<span class="ok">finished</span>';
+  } catch (e) {
+    if (e.name !== 'AbortError') {
+      $status.innerHTML = '<span class="err">' + (e.message || 'error') + '</span>';
+      console.error(e);
+    }
+  } finally {
+    clearInterval(_elapsedTimer);
+    _firing = false;
+    $fire.disabled = false;
+    $sit.disabled = false;
+  }
+}
+
+// Override Sit click to fire dialogue mode by default. Single-fire
+// reflection mode is still reachable via `sit()` directly if needed.
+$sit.removeEventListener('click', sit);
+$sit.addEventListener('click', () => {
+  const seed = $question.value.trim() || 'recent activity, what shape has this taken';
+  dialogue(seed);
+});
+
 
 // ─── Proposals pane ──────────────────────────────────────────────────
 // Polls the lake for kind:proposal tool:provenance deltas every 4s
@@ -950,12 +1475,42 @@ async function fetchProposals() {
   if (_proposalsPolling) return;
   _proposalsPolling = true;
   try {
-    const url = '/v1/deltas?tags_include=' + encodeURIComponent('kind:proposal,tool:provenance') + '&limit=50';
-    const resp = await fetch(url, { headers: authHeaders() });
-    if (!resp.ok) return;
-    const data = await resp.json();
+    // Fetch proposals + their decisions in parallel. Decisions live in
+    // separate proposal-decision deltas tagged `decides:<proposal-id>`,
+    // so we need to fold them in client-side to know which proposals
+    // have been approved/denied.
+    const [propsResp, decsResp] = await Promise.all([
+      fetch('/v1/deltas?tags_include=' + encodeURIComponent('kind:proposal,tool:provenance') + '&limit=50',
+        { headers: authHeaders() }),
+      fetch('/v1/deltas?tags_include=' + encodeURIComponent('proposal-decision') + '&limit=200',
+        { headers: authHeaders() }),
+    ]);
+    if (!propsResp.ok) return;
+    const data = await propsResp.json();
     const items = Array.isArray(data) ? data : (data.results || data.deltas || []);
-    renderProposals(items);
+    let decisions = [];
+    if (decsResp.ok) {
+      const dd = await decsResp.json();
+      decisions = Array.isArray(dd) ? dd : (dd.results || dd.deltas || []);
+    }
+    // proposal-id → most-recent decision status
+    const decisionByProposal = new Map();
+    for (const dec of decisions) {
+      const tags = dec.tags || [];
+      let proposalId = null, status = null;
+      for (const t of tags) {
+        if (typeof t !== 'string') continue;
+        if (t.startsWith('decides:')) proposalId = t.slice(8);
+        else if (t.startsWith('proposal-status:')) status = t.slice(16);
+      }
+      if (proposalId && status) {
+        const prior = decisionByProposal.get(proposalId);
+        if (!prior || (dec.timestamp || '') > (prior.ts || '')) {
+          decisionByProposal.set(proposalId, { status, ts: dec.timestamp || '' });
+        }
+      }
+    }
+    renderProposals(items, decisionByProposal);
   } catch (e) {
     // soft-fail; keep last render
   } finally {
@@ -968,7 +1523,8 @@ function authHeaders() {
   return t ? { 'Authorization': 'Bearer ' + t } : {};
 }
 
-function renderProposals(items) {
+function renderProposals(items, decisionByProposal) {
+  decisionByProposal = decisionByProposal || new Map();
   // Newest first.
   items.sort((a, b) => (b.timestamp || '').localeCompare(a.timestamp || ''));
 
@@ -1012,7 +1568,11 @@ function renderProposals(items) {
       }
       return 'unknown';
     })();
-    const status = (function() {
+    // Status: the proposal's own tag is always "pending" — the actual
+    // decision lives in a separate proposal-decision delta. Prefer the
+    // decision's status when one exists.
+    const decision = decisionByProposal.get(d.id);
+    const status = decision ? decision.status : (function() {
       for (const t of tags) {
         if (typeof t === 'string' && t.startsWith('proposal-status:')) {
           return t.split(':', 2)[1];
@@ -1054,7 +1614,52 @@ function renderProposals(items) {
       row.appendChild(det);
     }
 
+    if (status === 'pending') {
+      const actions = el('div', { class: 'proposal-actions' });
+      const approveBtn = el('button', { class: 'approve', text: 'approve' });
+      const denyBtn = el('button', { class: 'deny', text: 'deny' });
+      approveBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        decideProposal(d.id, 'approve', approveBtn, denyBtn);
+      });
+      denyBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        decideProposal(d.id, 'deny', approveBtn, denyBtn);
+      });
+      actions.appendChild(approveBtn);
+      actions.appendChild(denyBtn);
+      row.appendChild(actions);
+    }
+
     $proposalsList.appendChild(row);
+  }
+}
+
+async function decideProposal(id, action, approveBtn, denyBtn) {
+  if (!id) return;
+  const url = `/v1/proposals/${encodeURIComponent(id)}/${action}`;
+  approveBtn.disabled = true;
+  denyBtn.disabled = true;
+  const orig = action === 'approve' ? approveBtn : denyBtn;
+  const origText = orig.textContent;
+  orig.textContent = action === 'approve' ? 'approving…' : 'denying…';
+  try {
+    const resp = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...authHeaders() },
+      body: JSON.stringify({}),
+    });
+    if (!resp.ok) {
+      const txt = await resp.text();
+      throw new Error('HTTP ' + resp.status + ': ' + txt.slice(0, 200));
+    }
+    // Optimistic: re-poll so the row's status flips and buttons disappear.
+    await fetchProposals();
+  } catch (e) {
+    orig.textContent = origText;
+    approveBtn.disabled = false;
+    denyBtn.disabled = false;
+    alert(`${action} failed: ${e.message || e}`);
   }
 }
 
