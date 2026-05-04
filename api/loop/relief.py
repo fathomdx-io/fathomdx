@@ -129,26 +129,46 @@ RELIEF_TIERS: list[dict[str, Any]] = [
 
 _cooldown_lock = asyncio.Lock()
 
+# Tiers grouped under one umbrella that should round-robin instead of
+# the picker hitting the first one every time. Currently only `sit`
+# (reflection / drift share floor + cooldown) — without alternation
+# reflection always wins because it precedes drift in RELIEF_TIERS.
+SIT_GROUP = ("reflection", "drift")
+
 
 def _cooldown_path() -> Path:
-    """File-backed cooldown table. Lives next to the feed-pressure
-    state so a single LAKE_DIR mount carries both."""
+    """File-backed cooldown table + last-sit-flavor index. Lives next
+    to the feed-pressure state so a single LAKE_DIR mount carries
+    both."""
     base = Path(settings.feed_pressure_state_path).parent
     return base / "relief-cooldowns.json"
 
 
-def _load_cooldowns() -> dict[str, str]:
+def _load_cooldowns() -> dict[str, Any]:
+    """Read the persisted cooldowns + last-sit-flavor index.
+
+    Schema:
+      {
+        "<tier-name>": "<iso-timestamp-of-last-fire>",   # cooldown stamps
+        "_last_sit": "reflection" | "drift",             # round-robin index
+      }
+
+    Old files without `_last_sit` parse fine — the picker treats a
+    missing key as "haven't fired sit yet, start with reflection."
+    """
     p = _cooldown_path()
     if not p.exists():
         return {}
     try:
         data = json.loads(p.read_text())
-        return {k: v for k, v in data.items() if isinstance(v, str)}
+        if not isinstance(data, dict):
+            return {}
+        return data
     except Exception:
         return {}
 
 
-def _save_cooldowns(state: dict[str, str]) -> None:
+def _save_cooldowns(state: dict[str, Any]) -> None:
     p = _cooldown_path()
     p.parent.mkdir(parents=True, exist_ok=True)
     fd, tmp = tempfile.mkstemp(prefix=".relief-cooldowns-", dir=str(p.parent))
@@ -166,9 +186,9 @@ def _now() -> datetime:
     return datetime.now(UTC)
 
 
-def _is_on_cooldown(tier_name: str, cooldown_seconds: int, state: dict[str, str]) -> bool:
+def _is_on_cooldown(tier_name: str, cooldown_seconds: int, state: dict[str, Any]) -> bool:
     last_iso = state.get(tier_name)
-    if not last_iso:
+    if not isinstance(last_iso, str) or not last_iso:
         return False
     try:
         last = datetime.fromisoformat(last_iso.replace("Z", "+00:00"))
@@ -177,21 +197,72 @@ def _is_on_cooldown(tier_name: str, cooldown_seconds: int, state: dict[str, str]
     return (_now() - last) < timedelta(seconds=cooldown_seconds)
 
 
+def _next_sit_flavor(state: dict[str, Any]) -> str:
+    """Round-robin between reflection and drift. Returns the flavor
+    that should fire NEXT given which one fired LAST.
+
+    First sit ever (no `_last_sit` key) → reflection. After a reflection
+    fire, next sit → drift. After a drift fire, next sit → reflection.
+    """
+    last = state.get("_last_sit")
+    if last == "reflection":
+        return "drift"
+    return "reflection"
+
+
 # ── Tier picker + fire ──────────────────────────────────────────────────
 
 
-async def pick_tier(pressure_ratio: float) -> dict[str, Any] | None:
+async def pick_tier(
+    pressure_ratio: float,
+    *,
+    bypass_floor: bool = False,
+) -> dict[str, Any] | None:
     """Find the lowest tier eligible to fire right now.
 
     Eligible = `pressure_ratio` >= tier's floor AND not on cooldown.
     Bottom-up walk so we always pick the cheapest relief that the
     current pressure justifies; pressure that survives the cooldown
     elevates the cycle next tick.
+
+    For the sit group (reflection / drift — same floor, same cooldown),
+    we round-robin instead of always picking the first one in the list.
+    `_last_sit` in the cooldown file remembers which flavor fired last.
+
+    `bypass_floor=True` skips the pressure-floor check — used by the
+    manual fire button so a click guarantees a tier fires even on
+    quiet substrate. Cooldowns still apply (no spamming alert), so
+    the manual button can't loop-pin a tier.
     """
     async with _cooldown_lock:
         state = _load_cooldowns()
+    next_sit = _next_sit_flavor(state)
     for tier in RELIEF_TIERS:
-        if pressure_ratio < tier["min_pressure_ratio"]:
+        if not bypass_floor and pressure_ratio < tier["min_pressure_ratio"]:
+            continue
+        if _is_on_cooldown(tier["name"], tier["cooldown_seconds"], state):
+            continue
+        # Sit group: skip the off-rotation flavor when both are
+        # eligible, so reflection and drift alternate. If the
+        # round-robin choice is itself on cooldown (rare — we already
+        # filtered on cooldown above, but the matching flavor might be
+        # on cooldown while the other isn't), fall through to the next
+        # iteration which will pick the available one.
+        if tier["name"] in SIT_GROUP and tier["name"] != next_sit:
+            # The next-up flavor wasn't available; this one is. Take it.
+            # Without this fallthrough, both sit flavors could be skipped
+            # on a tick where one is cooled but the round-robin pointed
+            # at the other.
+            continue
+        return tier
+    # Round-robin fallback: if we got here because the picker skipped
+    # the off-rotation sit flavor and that flavor's partner was on
+    # cooldown, try once more without the round-robin filter so we
+    # don't leave eligible substrate unaddressed.
+    for tier in RELIEF_TIERS:
+        if tier["name"] not in SIT_GROUP:
+            continue
+        if not bypass_floor and pressure_ratio < tier["min_pressure_ratio"]:
             continue
         if _is_on_cooldown(tier["name"], tier["cooldown_seconds"], state):
             continue
@@ -203,27 +274,38 @@ async def _stamp_cooldown(tier_name: str) -> None:
     async with _cooldown_lock:
         state = _load_cooldowns()
         state[tier_name] = _now().isoformat()
+        if tier_name in SIT_GROUP:
+            state["_last_sit"] = tier_name
         _save_cooldowns(state)
 
 
-async def fire_relief(reason: str) -> dict[str, Any]:
+async def fire_relief(
+    reason: str,
+    *,
+    bypass_floor: bool = False,
+) -> dict[str, Any]:
     """Pick a tier and execute it.
 
     `reason` is the trigger label from the watcher (`pressure`,
     `contrast-wake`, manual `pulse`). Surfaced in the relief log line
     and into the intent payload so traces are legible.
 
+    `bypass_floor=True` ignores the per-tier pressure-floor gate so
+    a manual click on the dashboard's FIRE button always fires
+    something. Cooldowns still apply.
+
     Returns `{"fired": tier_name | None, "engine": ..., "consume": ..., "reason": ...}`.
-    On no-eligible-tier (everything on cooldown OR pressure below floor),
-    returns `{"fired": None, "reason": "no_eligible_tier"}` and DOES NOT
-    consume pressure — the watcher will look again on its next tick.
+    On no-eligible-tier (everything on cooldown OR — unless bypass_floor —
+    pressure below floor), returns `{"fired": None, "reason": "no_eligible_tier"}`
+    and DOES NOT consume pressure — the watcher will look again on its
+    next tick.
     """
     p = await feed_pressure.read_pressure()
     threshold = p.get("threshold") or 1.0
     volume = p.get("volume") or 0.0
     ratio = volume / threshold if threshold > 0 else 0.0
 
-    tier = await pick_tier(ratio)
+    tier = await pick_tier(ratio, bypass_floor=bypass_floor)
     if tier is None:
         return {
             "fired": None,

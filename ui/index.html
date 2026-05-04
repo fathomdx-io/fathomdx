@@ -3564,7 +3564,7 @@
               <label><input type="checkbox" data-category="routine"> Routine Activity</label>
             </div>
           </span>
-          <button class="fire-pulse-btn" id="firePulseBtn" type="button" title="Fire a feed synthesis pulse — drops one intent per pass (reflection / drift / bridging / alert) into the puddle. Same primitive the pressure-watcher fires automatically when substrate pressure crosses threshold.">fire</button>
+          <button class="fire-pulse-btn" id="firePulseBtn" type="button" title="Trigger one tier of pressure relief — picks the lowest non-cooled-down tier (alert → bridging → sit) and fires it. Bypasses the pressure-floor gate so a click always does something; cooldowns still apply (alert ~10m, bridging ~30m, sit ~3h).">fire</button>
           <span class="feed-meta-sep" id="feedMetaSep" hidden> · </span>
           <span id="feedMeta"></span>
         </span>
@@ -11477,13 +11477,15 @@ GET  /v1/usage               Usage stats`,
       // return data covering the visible span (pressure default is 36h).
       const sinceSeconds = Math.ceil(ECG_WINDOW_DAYS * 24 * 3600);
 
+      let reliefTiers = { threshold: 0, tiers: [] };
       try {
         [usageTotal, usageHist, recallHist, pressureHist, driftHist, moodHist, crystalEvents,
-         feedDriftHist, feedConfHist, feedEngagementHist, feedCrystalEvents, feedRegenEvents] = await Promise.all([
+         feedDriftHist, feedConfHist, feedEngagementHist, feedCrystalEvents, feedRegenEvents,
+         reliefTiers] = await Promise.all([
           api('/v1/usage').catch(() => ({ days: [], total: 0 })),
           api(`/v1/usage/history?since_seconds=${sinceSeconds}&buckets=60`).catch(() => ({ history: [] })),
           api(`/v1/recall/history?since_seconds=${sinceSeconds}&buckets=60`).catch(() => ({ history: [] })),
-          api(`/v1/pressure/history?since_seconds=${sinceSeconds}`).catch(() => ({ history: [] })),
+          api(`/v1/feed-pressure/history?since_seconds=${sinceSeconds}`).catch(() => ({ history: [] })),
           api(`/v1/drift/history?since_seconds=${sinceSeconds}`).catch(() => ({ history: [] })),
           api('/v1/moods/history').catch(() => ({ history: [] })),
           api(`/v1/crystal/events?since_seconds=${sinceSeconds}`).catch(() => ({ events: [] })),
@@ -11492,6 +11494,7 @@ GET  /v1/usage               Usage stats`,
           api(`/v1/feed/engagement/history?since_seconds=${sinceSeconds}`).catch(() => ({ history: [] })),
           api(`/v1/feed/crystal/events?since_seconds=${sinceSeconds}`).catch(() => ({ events: [] })),
           api(`/v1/feed/regen/events?since_seconds=${sinceSeconds}`).catch(() => ({ events: [] })),
+          api('/v1/loop/relief-tiers').catch(() => ({ threshold: 0, tiers: [] })),
         ]);
       } catch (e) { /* noop */ }
       const usage = usageTotal;  // total + days array still come from /v1/usage
@@ -11523,7 +11526,7 @@ GET  /v1/usage               Usage stats`,
       }
 
       renderActivityCard({ usage, usageHist, recallHist, crystalEvents });
-      renderPressureMoodCard({ pressureHist, moodHist, crystalEvents, feedRegenEvents });
+      renderPressureMoodCard({ pressureHist, moodHist, crystalEvents, feedRegenEvents, reliefTiers });
       renderDriftCard({ driftHist, crystalEvents });
       renderFeedOrientCard({ feedDriftHist, feedConfHist, feedEngagementHist, feedCrystalEvents });
 
@@ -11819,7 +11822,7 @@ GET  /v1/usage               Usage stats`,
       _drawXLabels(ctx, ticks);
     }
 
-    function renderPressureMoodCard({ pressureHist, moodHist, crystalEvents, feedRegenEvents }) {
+    function renderPressureMoodCard({ pressureHist, moodHist, crystalEvents, feedRegenEvents, reliefTiers }) {
       const svg = document.getElementById('svgPressureMood');
       if (!svg) return;
       const ctx = _chartCtx(svg, 200);
@@ -11870,12 +11873,87 @@ GET  /v1/usage               Usage stats`,
       }));
 
       // ── Pressure line on top ─────────────────
+      // Y-axis is fraction-of-threshold, NOT fraction-of-data-max. The
+      // relief tiers gate by `pressure / threshold`, so the chart
+      // matches the mental model: floors at fixed positions (alert at
+      // 0.3, bridging at 0.5, sit at 0.7), threshold line at 1.0.
+      // Spikes above 1.0 stay visible up to the chart's hard cap.
       const pHist = (pressureHist.history || []).filter(e => new Date(e.t).getTime() >= ctx.tStart);
-      if (pHist.length) {
-        const maxP = Math.max(0.5, ...pHist.map(e => e.v));
-        const pts = pHist.map(e => [ctx.xForT(new Date(e.t).getTime()), yFor(e.v / maxP)]);
+      const reliefThreshold = (reliefTiers && reliefTiers.threshold) || 0;
+
+      if (reliefThreshold > 0) {
+        // Headroom above 1.0 so spikes show above the threshold line.
+        // Caps at 1.5 (×threshold) — anything beyond is clamped to the
+        // top edge so the chart doesn't visually re-scale on every
+        // outlier. The clamp is a deliberate choice: relief fires the
+        // same whether pressure is 1.5× or 4× threshold (every tier is
+        // already eligible past 0.7), so the visual ceiling at 1.5
+        // costs no information.
+        const yMax = 1.5;
+        const ratio = (v) => Math.min(yMax, Math.max(0, v / reliefThreshold));
+
+        // Floor + threshold reference lines. Drawn BEFORE the pressure
+        // path so the line sits on top.
+        const refs = [];
+        const seen = new Set();
+        for (const tier of (reliefTiers.tiers || [])) {
+          const r = tier.min_pressure_ratio;
+          if (typeof r !== 'number' || r <= 0) continue;
+          if (seen.has(r)) continue;
+          seen.add(r);
+          const sameFloor = (reliefTiers.tiers || []).filter(t => t.min_pressure_ratio === r);
+          refs.push({
+            ratio: r,
+            label: sameFloor.length > 1 ? sameFloor.map(t => t.name).join(' / ') : sameFloor[0].name,
+            kind: 'floor',
+          });
+        }
+        // Add the threshold line (1.0) — visual marker for "default
+        // fire-everything" pressure level.
+        refs.push({ratio: 1.0, label: 'threshold', kind: 'threshold'});
+
+        for (const ref of refs) {
+          const y = yFor(ref.ratio / yMax);
+          const isThreshold = ref.kind === 'threshold';
+          ctx.svg.appendChild(ecgSvgNS('line', {
+            x1: ctx.padding.left, x2: ctx.W - ctx.padding.right,
+            y1: y, y2: y,
+            stroke: '#f0a060',
+            'stroke-width': isThreshold ? 0.9 : 0.6,
+            'stroke-opacity': isThreshold ? 0.55 : 0.35,
+            'stroke-dasharray': isThreshold ? '6 3' : '3 4',
+          }));
+          const lbl = ecgSvgNS('text', {
+            x: ctx.padding.left + 4, y: y - 2,
+            'font-family': 'var(--mono)', 'font-size': '9px',
+            fill: '#f0a060',
+            'fill-opacity': isThreshold ? 0.85 : 0.7,
+          });
+          lbl.textContent = ref.label;
+          const tip = ecgSvgNS('title');
+          tip.textContent = isThreshold
+            ? `pressure threshold (${reliefThreshold.toFixed(0)})`
+            : `${ref.label} fires at pressure ≥ ${(ref.ratio * reliefThreshold).toFixed(0)} (${(ref.ratio * 100).toFixed(0)}% of threshold)`;
+          lbl.appendChild(tip);
+          ctx.svg.appendChild(lbl);
+        }
+
+        if (pHist.length) {
+          const pts = pHist.map(e => [ctx.xForT(new Date(e.t).getTime()), yFor(ratio(e.v) / yMax)]);
+          const path = _smoothPath(pts);
+          // Dark halo underneath so the line stays legible across mood washes
+          ctx.svg.appendChild(ecgSvgNS('path', {
+            class: 'ecg-line', d: path,
+            stroke: 'var(--bg)', 'stroke-width': 3, 'stroke-opacity': 0.45, fill: 'none',
+          }));
+          ctx.svg.appendChild(ecgSvgNS('path', { class: 'ecg-line ecg-line-pressure', d: path }));
+        }
+      } else if (pHist.length) {
+        // Fallback when relief threshold isn't available — original
+        // dataMax-relative rendering, no floor lines.
+        const dataMax = Math.max(0.5, ...pHist.map(e => e.v));
+        const pts = pHist.map(e => [ctx.xForT(new Date(e.t).getTime()), yFor(e.v / dataMax)]);
         const path = _smoothPath(pts);
-        // Dark halo underneath so the line stays legible across mood washes
         ctx.svg.appendChild(ecgSvgNS('path', {
           class: 'ecg-line', d: path,
           stroke: 'var(--bg)', 'stroke-width': 3, 'stroke-opacity': 0.45, fill: 'none',

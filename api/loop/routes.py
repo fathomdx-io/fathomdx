@@ -598,18 +598,49 @@ def get_intents() -> dict:
     return {"intents": out}
 
 
+@router.get("/v1/loop/relief-tiers")
+async def relief_tiers() -> dict:
+    """Tier table + thresholds for the dashboard pressure chart.
+
+    Returns each tier's name, engine, pressure-floor ratio, consume
+    weight, and cooldown — plus the absolute pressure threshold so
+    the UI can render reference lines on the pressure chart.
+    """
+    from . import relief
+    from ..settings import settings
+
+    threshold = settings.feed_pressure_threshold
+    return {
+        "threshold": threshold,
+        "tiers": [
+            {
+                "name": t["name"],
+                "engine": t["engine"],
+                "min_pressure_ratio": t["min_pressure_ratio"],
+                "min_pressure_value": t["min_pressure_ratio"] * threshold,
+                "consume_weight": t["consume_weight"],
+                "cooldown_seconds": t["cooldown_seconds"],
+            }
+            for t in relief.RELIEF_TIERS
+        ],
+    }
+
+
 @router.post("/v1/puddle/pulse")
 async def fire_pulse(reason: str = "manual") -> dict:
-    """Trigger one tier of pressure relief — same path the pressure-
-    watcher takes on a threshold crossing. Picks a tier from
-    `RELIEF_TIERS` (alert / bridging / reflection / drift) based on
-    current pressure ratio and per-tier cooldowns; fires it; consumes
-    the tier's `consume_weight` fraction of pressure.
+    """Trigger one tier of pressure relief.
 
-    Manual entry point for testing the relief gradient or kicking the
-    cycle when ambient pressure is below threshold."""
+    Manual entry — the pressure-watcher's automatic path has its own
+    floor gate (only fires when pressure crosses thresholds). This
+    endpoint bypasses the floor so a button click always fires
+    SOMETHING when nothing's on cooldown. Per-tier cooldowns still
+    apply, so spamming the button can't loop-pin one tier.
+
+    Returns the relief outcome — which tier fired, on what engine,
+    or `fired: None` if every tier is on cooldown.
+    """
     from . import relief
-    result = await relief.fire_relief(reason)
+    result = await relief.fire_relief(reason, bypass_floor=True)
     return {"ok": True, **result}
 
 

@@ -71,6 +71,20 @@ async def get_pressure_history(since_seconds: int | None = None):
     return {"history": items}
 
 
+@router.get("/v1/feed-pressure/history")
+async def get_feed_pressure_history(since_seconds: int | None = None):
+    """Rolling FEED-pressure samples — the curve relief tiers operate on.
+
+    Sibling of `/v1/pressure/history` (which serves mood-pressure).
+    Same primitive, different source weights — see `api/feed_pressure.py`.
+    Used by the dashboard's pressure chart so the relief tier floor
+    lines (alert / bridging / sit) land on the curve they actually gate.
+    """
+    from .. import feed_pressure
+    items = await feed_pressure.history(since_seconds=since_seconds)
+    return {"history": items}
+
+
 @router.get("/v1/usage/history")
 async def get_usage_history(since_seconds: int = 7 * 24 * 3600, buckets: int = 60):
     """Bucketed write-count timeline (moments arriving)."""

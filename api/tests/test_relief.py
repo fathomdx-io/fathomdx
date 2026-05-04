@@ -87,6 +87,148 @@ async def test_pick_tier_returns_none_when_all_cooled(relief_state_dir, monkeypa
     assert tier is None
 
 
+@pytest.mark.asyncio
+async def test_pick_tier_bypass_floor_picks_alert_at_zero_pressure(relief_state_dir):
+    """Manual button bypass — even at 0 pressure, alert is eligible
+    when no cooldowns are active."""
+    tier = await relief.pick_tier(pressure_ratio=0.0, bypass_floor=True)
+    assert tier is not None
+    assert tier["name"] == "alert"
+
+
+@pytest.mark.asyncio
+async def test_pick_tier_bypass_floor_still_respects_cooldown(relief_state_dir, monkeypatch):
+    """Bypass floor doesn't bypass cooldown — alert on cooldown still
+    skips to bridging even with bypass."""
+    from datetime import UTC, datetime
+
+    monkeypatch.setattr(
+        relief, "_cooldown_path", lambda: relief_state_dir / "relief-cooldowns.json"
+    )
+    state = {"alert": datetime.now(UTC).isoformat()}
+    relief._save_cooldowns(state)
+    tier = await relief.pick_tier(pressure_ratio=0.0, bypass_floor=True)
+    assert tier is not None
+    assert tier["name"] == "bridging"
+
+
+# ── sit round-robin ────────────────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_first_sit_picks_reflection(relief_state_dir, monkeypatch):
+    """No prior sit fired — round-robin starts at reflection."""
+    from datetime import UTC, datetime, timedelta
+
+    monkeypatch.setattr(
+        relief, "_cooldown_path", lambda: relief_state_dir / "relief-cooldowns.json"
+    )
+    # Fresh state. Stamp alert + bridging as on-cooldown so the picker
+    # has to choose between sit flavors.
+    now = datetime.now(UTC)
+    relief._save_cooldowns({
+        "alert": now.isoformat(),
+        "bridging": now.isoformat(),
+    })
+    tier = await relief.pick_tier(pressure_ratio=0.8)
+    assert tier is not None
+    assert tier["name"] == "reflection"
+
+
+@pytest.mark.asyncio
+async def test_after_reflection_round_robin_picks_drift(relief_state_dir, monkeypatch):
+    """After reflection fires, next sit cycle picks drift."""
+    from datetime import UTC, datetime
+
+    monkeypatch.setattr(
+        relief, "_cooldown_path", lambda: relief_state_dir / "relief-cooldowns.json"
+    )
+    # Stamp alert + bridging as just-fired so the picker has to choose
+    # among sit tiers. Reflection fired in the past (per _last_sit).
+    now_iso = datetime.now(UTC).isoformat()
+    relief._save_cooldowns({
+        "alert": now_iso,
+        "bridging": now_iso,
+        "_last_sit": "reflection",
+    })
+    tier = await relief.pick_tier(pressure_ratio=0.8)
+    assert tier is not None
+    assert tier["name"] == "drift"
+
+
+@pytest.mark.asyncio
+async def test_after_drift_round_robin_picks_reflection(relief_state_dir, monkeypatch):
+    """After drift fires, next sit cycle picks reflection."""
+    from datetime import UTC, datetime
+
+    monkeypatch.setattr(
+        relief, "_cooldown_path", lambda: relief_state_dir / "relief-cooldowns.json"
+    )
+    now_iso = datetime.now(UTC).isoformat()
+    relief._save_cooldowns({
+        "alert": now_iso,
+        "bridging": now_iso,
+        "_last_sit": "drift",
+    })
+    tier = await relief.pick_tier(pressure_ratio=0.8)
+    assert tier is not None
+    assert tier["name"] == "reflection"
+
+
+@pytest.mark.asyncio
+async def test_round_robin_falls_through_when_chosen_flavor_on_cooldown(
+    relief_state_dir, monkeypatch
+):
+    """If round-robin says 'drift' but drift is on cooldown and
+    reflection isn't, the picker falls through to reflection rather
+    than emitting None."""
+    from datetime import UTC, datetime, timedelta
+
+    monkeypatch.setattr(
+        relief, "_cooldown_path", lambda: relief_state_dir / "relief-cooldowns.json"
+    )
+    now_iso = datetime.now(UTC).isoformat()
+    long_ago = (datetime.now(UTC) - timedelta(hours=4)).isoformat()
+    # Drift fired 30 min ago (still on 3h cooldown). _last_sit says
+    # reflection so round-robin would point at drift, but drift is
+    # locked. Reflection's last fire was 4h ago, so it's available.
+    recent_drift = (datetime.now(UTC) - timedelta(minutes=30)).isoformat()
+    relief._save_cooldowns({
+        "alert": long_ago,  # past 10-min cooldown — actually still eligible
+        "bridging": long_ago,
+        "drift": recent_drift,
+        "reflection": long_ago,
+        "_last_sit": "reflection",  # round-robin would point at drift
+    })
+    # Force just-fired alert + bridging so only sit tiers are eligible.
+    relief._save_cooldowns({
+        "alert": now_iso,
+        "bridging": now_iso,
+        "drift": recent_drift,
+        "_last_sit": "reflection",
+    })
+    tier = await relief.pick_tier(pressure_ratio=0.8)
+    # Round-robin says drift, but drift is on cooldown — fallback path
+    # picks reflection.
+    assert tier is not None
+    assert tier["name"] == "reflection"
+
+
+@pytest.mark.asyncio
+async def test_stamp_cooldown_records_last_sit(relief_state_dir, monkeypatch):
+    """_stamp_cooldown stamps `_last_sit` only when the tier is in
+    SIT_GROUP. Non-sit tiers don't perturb the round-robin pointer."""
+    monkeypatch.setattr(
+        relief, "_cooldown_path", lambda: relief_state_dir / "relief-cooldowns.json"
+    )
+    await relief._stamp_cooldown("alert")
+    assert relief._load_cooldowns().get("_last_sit") is None
+    await relief._stamp_cooldown("reflection")
+    assert relief._load_cooldowns().get("_last_sit") == "reflection"
+    await relief._stamp_cooldown("drift")
+    assert relief._load_cooldowns().get("_last_sit") == "drift"
+
+
 # ── partial mark_synthesis ──────────────────────────────────────────────
 
 
