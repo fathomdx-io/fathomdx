@@ -223,7 +223,10 @@ async def gather_substrate(seed: str, *, max_strips: int = 5) -> tuple[str, list
     # 1. Search.
     try:
         result = await search_mod.search(
-            text=seed.strip(), depth="deep", view="timeline", limit=30,
+            text=seed.strip(),
+            depth="deep",
+            view="timeline",
+            limit=30,
         )
     except Exception as e:
         print(f"[substrate] search failed: {type(e).__name__}: {e}")
@@ -304,9 +307,7 @@ async def run_reflective_parliament(
         print("[parliament] convener picked depth=zero — skipping voices")
         return ""
 
-    print(
-        f"[parliament] depth={verdict.depth} voices={[v['name'] for v in verdict.voices]}"
-    )
+    print(f"[parliament] depth={verdict.depth} voices={[v['name'] for v in verdict.voices]}")
     voice_coros = [
         run_process(
             pid=f"reflect-{v['name']}-{uuid.uuid4().hex[:6]}",
@@ -369,6 +370,7 @@ async def draft_proposal(
         parsed = json.loads(raw)
     except Exception:
         import re
+
         m = re.search(r"\{.*\}", raw, re.DOTALL)
         if not m:
             print(f"[draft] no parsable JSON; raw[:200]={raw[:200]!r}")
@@ -429,6 +431,7 @@ async def write_proposal(p: dict, *, seed: str, session_tag: str) -> str:
     import os
 
     import httpx
+
     title = (p.get("title") or "").strip()
     summary = (p.get("summary") or "").strip()
     level = int(p.get("level") or 1)
@@ -533,9 +536,7 @@ async def _main(args) -> int:
     # Standpoint.
     try:
         sp = await standpoint_mod.current(session_tag=session_tag)
-        print(
-            f"standpoint: posture={sp.posture} affect={sp.affect.state}\n"
-        )
+        print(f"standpoint: posture={sp.posture} affect={sp.affect.state}\n")
     except Exception as e:
         print(f"standpoint gather failed: {type(e).__name__}: {e}\n")
         sp = None
@@ -563,7 +564,9 @@ async def _main(args) -> int:
     # Draft.
     print("[draft] composing proposal…")
     proposal = await draft_proposal(
-        seed=seed, substrate=substrate, voice_takes=voice_takes,
+        seed=seed,
+        substrate=substrate,
+        voice_takes=voice_takes,
     )
     if proposal is None:
         print("[draft] reflective layer declined — no coherent stretch found.")
@@ -594,10 +597,7 @@ async def _main(args) -> int:
 
     new_id = await write_proposal(proposal, seed=seed, session_tag=session_tag)
     print(f"\nProposal delta: {new_id}")
-    print(
-        f"Visible in dashboard feed; approve via UI or POST "
-        f"/v1/proposals/{new_id}/approve"
-    )
+    print(f"Visible in dashboard feed; approve via UI or POST /v1/proposals/{new_id}/approve")
     return 0
 
 
@@ -605,14 +605,18 @@ def _parse_args() -> argparse.Namespace:
     ap = argparse.ArgumentParser(description=__doc__)
     g = ap.add_mutually_exclusive_group()
     g.add_argument("--seed", help="explicit seed string")
-    g.add_argument("--seed-from-crystal", action="store_true",
-                   help="seed from an identity crystal facet (default)")
-    g.add_argument("--seed-from-mood", action="store_true",
-                   help="seed from current mood")
-    g.add_argument("--seed-from-recent-provenance", action="store_true",
-                   help="seed from a recently-written provenance")
-    ap.add_argument("--auto", action="store_true",
-                    help="skip interactive approval prompt")
+    g.add_argument(
+        "--seed-from-crystal",
+        action="store_true",
+        help="seed from an identity crystal facet (default)",
+    )
+    g.add_argument("--seed-from-mood", action="store_true", help="seed from current mood")
+    g.add_argument(
+        "--seed-from-recent-provenance",
+        action="store_true",
+        help="seed from a recently-written provenance",
+    )
+    ap.add_argument("--auto", action="store_true", help="skip interactive approval prompt")
     return ap.parse_args()
 
 

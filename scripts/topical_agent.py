@@ -58,20 +58,22 @@ from api.loop.llm import loop_generate  # noqa: E402
 # sysinfo. We aggregate them into counts rather than passing content,
 # which keeps the prompt budget bounded and stops the LLM from clustering
 # around noise.
-NOISE_SOURCES = frozenset({
-    "laptop-health",
-    "system-info",
-    "rss",
-    "rss/atlas-obscura",
-    "rss/reddit-memes",
-    "rss/self-hosted",
-    "feed-pressure",
-    "telepathy",
-    "judge",
-    "convener",
-    "agent-heartbeat",
-    "loop-metric",
-})
+NOISE_SOURCES = frozenset(
+    {
+        "laptop-health",
+        "system-info",
+        "rss",
+        "rss/atlas-obscura",
+        "rss/reddit-memes",
+        "rss/self-hosted",
+        "feed-pressure",
+        "telepathy",
+        "judge",
+        "convener",
+        "agent-heartbeat",
+        "loop-metric",
+    }
+)
 
 # Per-source content sampling — for dense sources (claude-code, vault),
 # we pass the actual content so the LLM has something to cluster on.
@@ -238,9 +240,7 @@ clusterable activity (e.g. all noise sources).
 """
 
 
-async def _pull_window(
-    *, start_iso: str, end_iso: str, limit: int = 800
-) -> list[dict]:
+async def _pull_window(*, start_iso: str, end_iso: str, limit: int = 800) -> list[dict]:
     """Fetch every delta in the window via delta-store HTTP."""
     delta_store_url = os.environ.get("FATHOM_DELTA_STORE_URL") or "http://delta-store:8000"
     async with httpx.AsyncClient(timeout=60.0) as client:
@@ -282,9 +282,7 @@ def _compress_window_by_source(deltas: list[dict]) -> str:
         first_ts = (ds[-1].get("timestamp") or "")[:19]
         last_ts = (ds[0].get("timestamp") or "")[:19]
         if src in NOISE_SOURCES:
-            blocks.append(
-                f"── {src} (NOISE — {count} deltas, {first_ts} … {last_ts}) ──"
-            )
+            blocks.append(f"── {src} (NOISE — {count} deltas, {first_ts} … {last_ts}) ──")
             continue
         blocks.append(f"── {src} ({count} deltas, {first_ts} … {last_ts}) ──")
         for d in ds[:MAX_SAMPLES_PER_SOURCE]:
@@ -294,8 +292,7 @@ def _compress_window_by_source(deltas: list[dict]) -> str:
             if len(content) > MAX_SAMPLE_CHARS:
                 content = content[:MAX_SAMPLE_CHARS] + "…"
             tags_short = [
-                t for t in (d.get("tags") or [])
-                if t.startswith("kind:") or t.startswith("chat:")
+                t for t in (d.get("tags") or []) if t.startswith("kind:") or t.startswith("chat:")
             ][:3]
             tag_suffix = f" {tags_short}" if tags_short else ""
             blocks.append(f"  {did} {ts}{tag_suffix} {content}")
@@ -328,10 +325,7 @@ async def run_level_1(
     valid_ids = {d.get("id") for d in deltas if d.get("id")}
 
     window_block = (
-        f"start: {start_iso}\n"
-        f"end:   {end_iso}\n"
-        f"hours: {hours}\n"
-        f"total deltas: {len(deltas)}"
+        f"start: {start_iso}\nend:   {end_iso}\nhours: {hours}\ntotal deltas: {len(deltas)}"
     )
 
     prompt = L1_PROMPT.format(
@@ -372,12 +366,9 @@ async def run_level_1(
         summary = (cluster.get("summary") or "").strip()
         rationale = (cluster.get("rationale") or "").strip()
         from_ids = [
-            x for x in (cluster.get("from_ids") or [])
-            if isinstance(x, str) and x in valid_ids
+            x for x in (cluster.get("from_ids") or []) if isinstance(x, str) and x in valid_ids
         ]
-        test_questions = [
-            q for q in (cluster.get("test_questions") or []) if isinstance(q, str)
-        ]
+        test_questions = [q for q in (cluster.get("test_questions") or []) if isinstance(q, str)]
         if not (title and summary and from_ids):
             print(f"  [skip] incomplete cluster: title={title!r} from_count={len(from_ids)}")
             continue
@@ -395,14 +386,20 @@ async def run_level_1(
                 continue
 
         payload, tags = _build_proposal_payload(
-            title=title, summary=summary, level=1, from_ids=from_ids,
-            rationale=rationale, test_questions=test_questions,
+            title=title,
+            summary=summary,
+            level=1,
+            from_ids=from_ids,
+            rationale=rationale,
+            test_questions=test_questions,
             seed_label=seed_label,
         )
         try:
             new_id = await _post_proposal_draft(
-                payload=payload, tags=tags,
-                source="topical-agent", session_tag=session_tag,
+                payload=payload,
+                tags=tags,
+                source="topical-agent",
+                session_tag=session_tag,
             )
             print(f"    wrote proposal: {new_id}")
             written += 1
@@ -505,9 +502,7 @@ async def run_level_2(*, auto: bool) -> int:
         content = (d.get("content") or "").strip().replace("\n", " ")
         if len(content) > 220:
             content = content[:220] + "…"
-        episodes_block_lines.append(
-            f"  {did} {ts} title={title!r}\n      {content}"
-        )
+        episodes_block_lines.append(f"  {did} {ts} title={title!r}\n      {content}")
 
     episodes_block = "\n".join(episodes_block_lines)
 
@@ -548,12 +543,9 @@ async def run_level_2(*, auto: bool) -> int:
         summary = (topic.get("summary") or "").strip()
         rationale = (topic.get("rationale") or "").strip()
         from_ids = [
-            x for x in (topic.get("from_ids") or [])
-            if isinstance(x, str) and x in valid_ids
+            x for x in (topic.get("from_ids") or []) if isinstance(x, str) and x in valid_ids
         ]
-        test_questions = [
-            q for q in (topic.get("test_questions") or []) if isinstance(q, str)
-        ]
+        test_questions = [q for q in (topic.get("test_questions") or []) if isinstance(q, str)]
         if not (title and summary) or len(from_ids) < 2:
             print(f"  [skip] incomplete topic: title={title!r} from_count={len(from_ids)}")
             continue
@@ -571,14 +563,20 @@ async def run_level_2(*, auto: bool) -> int:
                 continue
 
         payload, tags = _build_proposal_payload(
-            title=title, summary=summary, level=2, from_ids=from_ids,
-            rationale=rationale, test_questions=test_questions,
+            title=title,
+            summary=summary,
+            level=2,
+            from_ids=from_ids,
+            rationale=rationale,
+            test_questions=test_questions,
             seed_label=seed_label,
         )
         try:
             new_id = await _post_proposal_draft(
-                payload=payload, tags=tags,
-                source="topical-agent", session_tag=session_tag,
+                payload=payload,
+                tags=tags,
+                source="topical-agent",
+                session_tag=session_tag,
             )
             print(f"    wrote proposal: {new_id}")
             written += 1
@@ -621,19 +619,26 @@ def _parse_iso(s: str) -> datetime:
 def _parse_args() -> argparse.Namespace:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument(
-        "--level", type=int, choices=[1, 2], required=True,
+        "--level",
+        type=int,
+        choices=[1, 2],
+        required=True,
         help="1 = window-based episodes; 2 = topic groupings over existing L1",
     )
     ap.add_argument(
-        "--window-start", default="",
+        "--window-start",
+        default="",
         help="ISO timestamp where the window begins (level 1 only)",
     )
     ap.add_argument(
-        "--window-hours", type=float, default=6.0,
+        "--window-hours",
+        type=float,
+        default=6.0,
         help="window size in hours (level 1 only, default 6)",
     )
     ap.add_argument(
-        "--auto", action="store_true",
+        "--auto",
+        action="store_true",
         help="skip per-cluster confirmation; drop everything to the dashboard",
     )
     return ap.parse_args()
@@ -643,8 +648,7 @@ async def _main(args) -> int:
     if args.level == 1:
         if not args.window_start:
             print(
-                "level-1 requires --window-start ISO timestamp (e.g. "
-                "2026-04-06T00:00:00Z)",
+                "level-1 requires --window-start ISO timestamp (e.g. 2026-04-06T00:00:00Z)",
                 file=sys.stderr,
             )
             return 2

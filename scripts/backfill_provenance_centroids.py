@@ -117,24 +117,30 @@ async def main(force: bool, dry_run: bool) -> int:
                 r.raise_for_status()
             written += 1
             if i % 25 == 0:
-                print(f"  [{i}/{len(needs_update)}] wrote {written}, "
-                      f"skipped {skipped_no_constituents + skipped_no_embeddings}")
+                print(
+                    f"  [{i}/{len(needs_update)}] wrote {written}, "
+                    f"skipped {skipped_no_constituents + skipped_no_embeddings}"
+                )
         except Exception as e:
             failed += 1
             print(f"  [{i}] {delta_id} failed: {type(e).__name__}: {e}")
 
     print()
-    print(f"Done. wrote={written} "
-          f"skipped_no_constituents={skipped_no_constituents} "
-          f"skipped_no_embeddings={skipped_no_embeddings} failed={failed}")
+    print(
+        f"Done. wrote={written} "
+        f"skipped_no_constituents={skipped_no_constituents} "
+        f"skipped_no_embeddings={skipped_no_embeddings} failed={failed}"
+    )
     return 0 if failed == 0 else 1
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("--force", action="store_true",
-                        help="recompute centroids even if already present")
-    parser.add_argument("--dry-run", action="store_true",
-                        help="show what would be written, don't write")
+    parser.add_argument(
+        "--force", action="store_true", help="recompute centroids even if already present"
+    )
+    parser.add_argument(
+        "--dry-run", action="store_true", help="show what would be written, don't write"
+    )
     args = parser.parse_args()
     sys.exit(asyncio.run(main(force=args.force, dry_run=args.dry_run)))

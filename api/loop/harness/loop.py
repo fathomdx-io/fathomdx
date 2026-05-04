@@ -69,6 +69,7 @@ def _render_now_block() -> str:
         f"UTC {utc.strftime('%H:%M')}"
     )
 
+
 from .. import witness as witness_mod
 from ..intents import CONVO_TAG, intent_kind
 from ..llm import loop_generate
@@ -81,8 +82,8 @@ from .prompts import (
 )
 from .tools import TOOL_HANDLERS, TOOL_MODEL_ARGS
 
-MAX_TURNS = 8                # hard cap on tool calls per fire
-MAX_TOKENS_PER_TURN = 4096   # response budget — final card needs room
+MAX_TURNS = 8  # hard cap on tool calls per fire
+MAX_TOKENS_PER_TURN = 4096  # response budget — final card needs room
 
 
 # Event callback signature: `(event_type: str, payload: dict) -> None | Awaitable[None]`.
@@ -138,11 +139,15 @@ async def run_harness(
     main_loop_disabled = {"propose_provenance"}
     if disabled_tools:
         main_loop_disabled = main_loop_disabled | disabled_tools
-    await _emit(cb, "start", {
-        "session_tag": session_tag,
-        "intent_count": len(pending),
-        "max_turns": MAX_TURNS,
-    })
+    await _emit(
+        cb,
+        "start",
+        {
+            "session_tag": session_tag,
+            "intent_count": len(pending),
+            "max_turns": MAX_TURNS,
+        },
+    )
 
     # Pre-render the persistent context blocks that don't change across
     # tool-call turns within this fire. Re-rendered once per turn so
@@ -170,12 +175,16 @@ async def run_harness(
     # turn. Empty list means "no plan set, free-form mode."
     current_plan: list[dict] = []
 
-    await _emit(cb, "context_built", {
-        "intent_block": intent_block,
-        "standpoint_block": standpoint_block,
-        "hosts_block": hosts_block,
-        "routines_block": routines_block,
-    })
+    await _emit(
+        cb,
+        "context_built",
+        {
+            "intent_block": intent_block,
+            "standpoint_block": standpoint_block,
+            "hosts_block": hosts_block,
+            "routines_block": routines_block,
+        },
+    )
 
     for turn in range(1, MAX_TURNS + 1):
         # Re-render anchors + feed each turn so telepathy refreshes
@@ -198,11 +207,15 @@ async def run_harness(
             max_turns=MAX_TURNS,
         )
 
-        await _emit(cb, "turn_begin", {
-            "turn": turn,
-            "prompt_chars": len(prompt),
-            "prompt": prompt,  # full text so the page can show what was sent
-        })
+        await _emit(
+            cb,
+            "turn_begin",
+            {
+                "turn": turn,
+                "prompt_chars": len(prompt),
+                "prompt": prompt,  # full text so the page can show what was sent
+            },
+        )
 
         try:
             raw = await loop_generate(
@@ -214,8 +227,11 @@ async def run_harness(
             )
         except Exception as e:
             print(f"[harness] LLM call crashed turn {turn}: {type(e).__name__}: {e}")
-            await _emit(cb, "error", {"where": "llm_call", "turn": turn,
-                                      "type": type(e).__name__, "message": str(e)})
+            await _emit(
+                cb,
+                "error",
+                {"where": "llm_call", "turn": turn, "type": type(e).__name__, "message": str(e)},
+            )
             return []
 
         parsed = _parse_envelope(raw)
@@ -224,11 +240,17 @@ async def run_harness(
                 f"[harness] turn {turn} unparseable — "
                 f"raw[:200]={raw[:200]!r} raw[-120:]={raw[-120:]!r}"
             )
-            tool_history.append({
-                "turn": turn, "tool": "(parse-error)", "args": {},
-                "error": "response was not valid JSON envelope",
-            })
-            await _emit(cb, "parse_error", {"turn": turn, "raw_head": raw[:200], "raw_tail": raw[-120:]})
+            tool_history.append(
+                {
+                    "turn": turn,
+                    "tool": "(parse-error)",
+                    "args": {},
+                    "error": "response was not valid JSON envelope",
+                }
+            )
+            await _emit(
+                cb, "parse_error", {"turn": turn, "raw_head": raw[:200], "raw_tail": raw[-120:]}
+            )
             continue
 
         kind = (parsed.get("kind") or "").strip()
@@ -236,18 +258,22 @@ async def run_harness(
         if kind == "respond":
             final_response = parsed
             print(f"[harness] turn {turn}: RESPOND ({len(parsed.get('cards') or [])} cards)")
-            await _emit(cb, "respond", {
-                "turn": turn,
-                # Lean shape: {kind: "respond", body: "..."} carries body
-                # at top level. Full shape: cards: [...]. Forward both
-                # so the page can render whichever the model emitted.
-                "cards": parsed.get("cards") or [],
-                "body": parsed.get("body") or "",
-                "attestation": parsed.get("attestation") or "",
-                "mood_shift": parsed.get("mood_shift"),
-                "cited_ids": parsed.get("cited_ids") or [],
-                "dropped_ids": parsed.get("dropped_ids") or [],
-            })
+            await _emit(
+                cb,
+                "respond",
+                {
+                    "turn": turn,
+                    # Lean shape: {kind: "respond", body: "..."} carries body
+                    # at top level. Full shape: cards: [...]. Forward both
+                    # so the page can render whichever the model emitted.
+                    "cards": parsed.get("cards") or [],
+                    "body": parsed.get("body") or "",
+                    "attestation": parsed.get("attestation") or "",
+                    "mood_shift": parsed.get("mood_shift"),
+                    "cited_ids": parsed.get("cited_ids") or [],
+                    "dropped_ids": parsed.get("dropped_ids") or [],
+                },
+            )
             break
 
         if kind == "tool_call":
@@ -263,15 +289,27 @@ async def run_harness(
                 print(f"[harness] turn {turn}: {tool_name} — {thinking[:120]}")
             else:
                 print(f"[harness] turn {turn}: {tool_name}")
-            await _emit(cb, "tool_call", {
-                "turn": turn, "tool": tool_name, "args": args_raw,
-                "thinking": thinking, "plan_step": plan_step,
-            })
+            await _emit(
+                cb,
+                "tool_call",
+                {
+                    "turn": turn,
+                    "tool": tool_name,
+                    "args": args_raw,
+                    "thinking": thinking,
+                    "plan_step": plan_step,
+                },
+            )
             if plan_step is not None:
                 _set_plan_status(current_plan, plan_step, "in_progress")
-                await _emit(cb, "plan_step_status", {
-                    "step": plan_step, "status": "in_progress",
-                })
+                await _emit(
+                    cb,
+                    "plan_step_status",
+                    {
+                        "step": plan_step,
+                        "status": "in_progress",
+                    },
+                )
             entry = await _dispatch_tool(
                 turn=turn,
                 tool_name=tool_name,
@@ -290,30 +328,48 @@ async def run_harness(
                 if new_plan:
                     revision = bool(current_plan)
                     current_plan = new_plan
-                    await _emit(cb, "plan_revised" if revision else "plan_set", {
-                        "steps": current_plan,
-                    })
-            await _emit(cb, "tool_result", {
-                "turn": turn, "tool": tool_name,
-                "result": entry.get("result"),
-                "error": entry.get("error"),
-                "plan_step": plan_step,
-            })
+                    await _emit(
+                        cb,
+                        "plan_revised" if revision else "plan_set",
+                        {
+                            "steps": current_plan,
+                        },
+                    )
+            await _emit(
+                cb,
+                "tool_result",
+                {
+                    "turn": turn,
+                    "tool": tool_name,
+                    "result": entry.get("result"),
+                    "error": entry.get("error"),
+                    "plan_step": plan_step,
+                },
+            )
             # Mark plan step done after tool result, regardless of error
             # (the model can re-step or revise; we don't gate on success).
             if plan_step is not None and not entry.get("error"):
                 _set_plan_status(current_plan, plan_step, "done")
-                await _emit(cb, "plan_step_status", {
-                    "step": plan_step, "status": "done",
-                })
+                await _emit(
+                    cb,
+                    "plan_step_status",
+                    {
+                        "step": plan_step,
+                        "status": "done",
+                    },
+                )
             continue
 
         # Unknown kind — log and consume the turn.
         print(f"[harness] turn {turn} unknown kind {kind!r}")
-        tool_history.append({
-            "turn": turn, "tool": "(unknown-kind)", "args": {},
-            "error": f"unknown envelope kind: {kind!r}",
-        })
+        tool_history.append(
+            {
+                "turn": turn,
+                "tool": "(unknown-kind)",
+                "args": {},
+                "error": f"unknown envelope kind: {kind!r}",
+            }
+        )
         await _emit(cb, "unknown_kind", {"turn": turn, "kind": kind, "raw": parsed})
 
     if final_response is None:
@@ -388,14 +444,17 @@ async def run_introspection(
     cb = event_callback
     focus = (focus or "").strip()
     if not focus:
-        return {"kind": "error", "type": "ValueError",
-                "message": "focus is required"}
+        return {"kind": "error", "type": "ValueError", "message": "focus is required"}
 
-    await _emit(cb, "introspection_start", {
-        "session_tag": session_tag,
-        "focus": focus,
-        "max_turns": INTROSPECTION_MAX_TURNS,
-    })
+    await _emit(
+        cb,
+        "introspection_start",
+        {
+            "session_tag": session_tag,
+            "focus": focus,
+            "max_turns": INTROSPECTION_MAX_TURNS,
+        },
+    )
 
     try:
         standpoint = await standpoint_mod.current(session_tag=session_tag)
@@ -404,7 +463,8 @@ async def run_introspection(
         standpoint = None
 
     standpoint_block = (
-        _render_standpoint_full(standpoint) if standpoint
+        _render_standpoint_full(standpoint)
+        if standpoint
         else "(standpoint unavailable — speak from anchors only)"
     )
     focus_block = focus
@@ -423,9 +483,15 @@ async def run_introspection(
             turn_number=turn,
             max_turns=INTROSPECTION_MAX_TURNS,
         )
-        await _emit(cb, "introspection_turn_begin", {
-            "turn": turn, "prompt_chars": len(prompt), "prompt": prompt,
-        })
+        await _emit(
+            cb,
+            "introspection_turn_begin",
+            {
+                "turn": turn,
+                "prompt_chars": len(prompt),
+                "prompt": prompt,
+            },
+        )
 
         try:
             raw = await loop_generate(
@@ -436,21 +502,33 @@ async def run_introspection(
                 json_mode=True,
             )
         except Exception as e:
-            print(f"[introspection] LLM call crashed turn {turn}: "
-                  f"{type(e).__name__}: {e}")
-            await _emit(cb, "error", {"where": "llm_call", "turn": turn,
-                                      "type": type(e).__name__, "message": str(e)})
+            print(f"[introspection] LLM call crashed turn {turn}: {type(e).__name__}: {e}")
+            await _emit(
+                cb,
+                "error",
+                {"where": "llm_call", "turn": turn, "type": type(e).__name__, "message": str(e)},
+            )
             return {"kind": "error", "type": type(e).__name__, "message": str(e)}
 
         parsed = _parse_envelope(raw)
         if parsed is None:
-            tool_history.append({
-                "turn": turn, "tool": "(parse-error)", "args": {},
-                "error": "envelope unparseable",
-            })
-            await _emit(cb, "parse_error", {
-                "turn": turn, "raw_head": raw[:200], "raw_tail": raw[-120:],
-            })
+            tool_history.append(
+                {
+                    "turn": turn,
+                    "tool": "(parse-error)",
+                    "args": {},
+                    "error": "envelope unparseable",
+                }
+            )
+            await _emit(
+                cb,
+                "parse_error",
+                {
+                    "turn": turn,
+                    "raw_head": raw[:200],
+                    "raw_tail": raw[-120:],
+                },
+            )
             continue
 
         kind = (parsed.get("kind") or "").strip()
@@ -463,45 +541,70 @@ async def run_introspection(
             # but isn't actually a substrate walk. Force at least one
             # turn of looking before allowing settle.
             successful_tool_calls = sum(
-                1 for h in tool_history
-                if h.get("tool") and h.get("tool") not in ("(parse-error)", "(unknown-kind)")
+                1
+                for h in tool_history
+                if h.get("tool")
+                and h.get("tool") not in ("(parse-error)", "(unknown-kind)")
                 and not h.get("error")
             )
             if successful_tool_calls == 0:
-                tool_history.append({
-                    "turn": turn, "tool": "(early-reflect)", "args": {},
-                    "error": "rejected — must walk the substrate before settling. "
-                             "Call a tool (semantic / time / pattern / state / relate / "
-                             "expand / ascend / deliberate) on yourself first.",
-                })
-                await _emit(cb, "introspection_early_reflect_rejected", {
-                    "turn": turn,
-                })
+                tool_history.append(
+                    {
+                        "turn": turn,
+                        "tool": "(early-reflect)",
+                        "args": {},
+                        "error": "rejected — must walk the substrate before settling. "
+                        "Call a tool (semantic / time / pattern / state / relate / "
+                        "expand / ascend / deliberate) on yourself first.",
+                    }
+                )
+                await _emit(
+                    cb,
+                    "introspection_early_reflect_rejected",
+                    {
+                        "turn": turn,
+                    },
+                )
                 continue
             final_reflection = parsed
-            await _emit(cb, "introspection_reflect", {
-                "turn": turn,
-                "body": parsed.get("body") or "",
-                "from_ids": parsed.get("from_ids") or [],
-                "shape": parsed.get("shape") or "",
-            })
+            await _emit(
+                cb,
+                "introspection_reflect",
+                {
+                    "turn": turn,
+                    "body": parsed.get("body") or "",
+                    "from_ids": parsed.get("from_ids") or [],
+                    "shape": parsed.get("shape") or "",
+                },
+            )
             break
 
         if kind == "skip":
             reason = (parsed.get("reason") or "").strip() or "(no reason)"
-            await _emit(cb, "introspection_skipped", {
-                "turn": turn, "reason": reason,
-            })
+            await _emit(
+                cb,
+                "introspection_skipped",
+                {
+                    "turn": turn,
+                    "reason": reason,
+                },
+            )
             return {"kind": "skip", "reason": reason}
 
         if kind == "tool_call":
             tool_name = (parsed.get("tool") or "").strip()
             args_raw = parsed.get("args") or {}
             thinking = (parsed.get("thinking") or "").strip()
-            await _emit(cb, "tool_call", {
-                "turn": turn, "tool": tool_name, "args": args_raw,
-                "thinking": thinking,
-            })
+            await _emit(
+                cb,
+                "tool_call",
+                {
+                    "turn": turn,
+                    "tool": tool_name,
+                    "args": args_raw,
+                    "thinking": thinking,
+                },
+            )
             entry = await _dispatch_tool(
                 turn=turn,
                 tool_name=tool_name,
@@ -511,31 +614,49 @@ async def run_introspection(
                 standpoint=standpoint,
             )
             tool_history.append(entry)
-            await _emit(cb, "tool_result", {
-                "turn": turn, "tool": tool_name,
-                "result": entry.get("result"),
-                "error": entry.get("error"),
-            })
+            await _emit(
+                cb,
+                "tool_result",
+                {
+                    "turn": turn,
+                    "tool": tool_name,
+                    "result": entry.get("result"),
+                    "error": entry.get("error"),
+                },
+            )
             continue
 
         # Unknown envelope kind — log and consume the turn.
-        tool_history.append({
-            "turn": turn, "tool": "(unknown-kind)", "args": {},
-            "error": f"unknown envelope kind: {kind!r}",
-        })
+        tool_history.append(
+            {
+                "turn": turn,
+                "tool": "(unknown-kind)",
+                "args": {},
+                "error": f"unknown envelope kind: {kind!r}",
+            }
+        )
         await _emit(cb, "unknown_kind", {"turn": turn, "kind": kind, "raw": parsed})
 
     if final_reflection is None:
-        await _emit(cb, "introspection_max_turns", {
-            "max_turns": INTROSPECTION_MAX_TURNS,
-        })
+        await _emit(
+            cb,
+            "introspection_max_turns",
+            {
+                "max_turns": INTROSPECTION_MAX_TURNS,
+            },
+        )
         return {"kind": "max_turns"}
 
     body = (final_reflection.get("body") or "").strip()
     if not body:
-        await _emit(cb, "introspection_skipped", {
-            "turn": turn, "reason": "reflect envelope had empty body",
-        })
+        await _emit(
+            cb,
+            "introspection_skipped",
+            {
+                "turn": turn,
+                "reason": "reflect envelope had empty body",
+            },
+        )
         return {"kind": "skip", "reason": "empty body"}
 
     raw_from = final_reflection.get("from_ids") or []
@@ -550,9 +671,9 @@ async def run_introspection(
             from_ids.append(s)
 
     shape = (final_reflection.get("shape") or "").strip()[:80]
-    shape_slug = "".join(
-        c if c.isalnum() else "-" for c in shape.lower()
-    ).strip("-")[:80] or "unshaped"
+    shape_slug = (
+        "".join(c if c.isalnum() else "-" for c in shape.lower()).strip("-")[:80] or "unshaped"
+    )
 
     tags = [
         "kind:reflection",
@@ -574,16 +695,21 @@ async def run_introspection(
         )
     except Exception as e:
         print(f"[introspection] reflection write failed: {type(e).__name__}: {e}")
-        await _emit(cb, "error", {"where": "reflection_write",
-                                  "type": type(e).__name__, "message": str(e)})
+        await _emit(
+            cb, "error", {"where": "reflection_write", "type": type(e).__name__, "message": str(e)}
+        )
         return {"kind": "error", "type": type(e).__name__, "message": str(e)}
 
     delta_id = (written or {}).get("id") or ""
-    await _emit(cb, "introspection_recorded", {
-        "delta_id": delta_id,
-        "shape": shape,
-        "from_count": len(from_ids),
-    })
+    await _emit(
+        cb,
+        "introspection_recorded",
+        {
+            "delta_id": delta_id,
+            "shape": shape,
+            "from_count": len(from_ids),
+        },
+    )
     return {
         "kind": "reflect",
         "delta_id": delta_id,
@@ -626,21 +752,31 @@ async def run_dialogue(
     cb = event_callback
     seed = (seed or "").strip()
     if not seed:
-        return {"kind": "error", "type": "ValueError",
-                "message": "seed is required"}
+        return {"kind": "error", "type": "ValueError", "message": "seed is required"}
 
-    await _emit(cb, "dialogue_start", {
-        "session_tag": session_tag, "seed": seed, "max_rounds": max_rounds,
-    })
+    await _emit(
+        cb,
+        "dialogue_start",
+        {
+            "session_tag": session_tag,
+            "seed": seed,
+            "max_rounds": max_rounds,
+        },
+    )
 
     transcript: list[dict] = []
     current_message = seed
 
     for round_num in range(1, max_rounds + 1):
-        await _emit(cb, "dialogue_round_begin", {
-            "round": round_num, "max_rounds": max_rounds,
-            "input": current_message,
-        })
+        await _emit(
+            cb,
+            "dialogue_round_begin",
+            {
+                "round": round_num,
+                "max_rounds": max_rounds,
+                "input": current_message,
+            },
+        )
 
         # Captured response body for this round; populated when the
         # wrapped callback sees the harness's `respond` event.
@@ -663,17 +799,26 @@ async def run_dialogue(
             intent = await _puddle.write(
                 content=current_message,
                 tags=[
-                    CONVO_TAG, session_tag, "intent", "kind:question",
+                    CONVO_TAG,
+                    session_tag,
+                    "intent",
+                    "kind:question",
                     "harness-dialogue",
                 ],
                 source="harness-dialogue-self",
                 ttl_seconds=60 * 60,
             )
         except Exception as e:
-            await _emit(cb, "dialogue_error", {
-                "round": round_num, "where": "seed_intent",
-                "type": type(e).__name__, "message": str(e),
-            })
+            await _emit(
+                cb,
+                "dialogue_error",
+                {
+                    "round": round_num,
+                    "where": "seed_intent",
+                    "type": type(e).__name__,
+                    "message": str(e),
+                },
+            )
             break
 
         try:
@@ -683,35 +828,57 @@ async def run_dialogue(
                 event_callback=round_cb,
             )
         except Exception as e:
-            await _emit(cb, "dialogue_error", {
-                "round": round_num, "where": "run_harness",
-                "type": type(e).__name__, "message": str(e),
-            })
+            await _emit(
+                cb,
+                "dialogue_error",
+                {
+                    "round": round_num,
+                    "where": "run_harness",
+                    "type": type(e).__name__,
+                    "message": str(e),
+                },
+            )
             break
 
         body = captured["body"]
         if not body:
-            await _emit(cb, "dialogue_round_skipped", {
-                "round": round_num,
-                "reason": "harness produced no response body",
-            })
+            await _emit(
+                cb,
+                "dialogue_round_skipped",
+                {
+                    "round": round_num,
+                    "reason": "harness produced no response body",
+                },
+            )
             break
 
-        transcript.append({
-            "round": round_num,
-            "input": current_message,
-            "response": body,
-        })
-        await _emit(cb, "dialogue_round_end", {
-            "round": round_num, "input": current_message, "response": body,
-        })
+        transcript.append(
+            {
+                "round": round_num,
+                "input": current_message,
+                "response": body,
+            }
+        )
+        await _emit(
+            cb,
+            "dialogue_round_end",
+            {
+                "round": round_num,
+                "input": current_message,
+                "response": body,
+            },
+        )
 
         current_message = body
 
-    await _emit(cb, "dialogue_done", {
-        "rounds": len(transcript),
-        "transcript": transcript,
-    })
+    await _emit(
+        cb,
+        "dialogue_done",
+        {
+            "rounds": len(transcript),
+            "transcript": transcript,
+        },
+    )
     return {
         "kind": "dialogue",
         "rounds": len(transcript),
@@ -801,12 +968,14 @@ def _parse_plan_payload(result: str) -> list[dict]:
         hint = (s.get("hint") or "").strip()
         if not purpose:
             continue
-        plan.append({
-            "step": i,
-            "purpose": purpose,
-            "hint": hint,
-            "status": "pending",
-        })
+        plan.append(
+            {
+                "step": i,
+                "purpose": purpose,
+                "hint": hint,
+                "status": "pending",
+            }
+        )
     return plan
 
 
@@ -858,12 +1027,16 @@ async def _run_post_response_review(
     # Skip if nothing was actually pulled — pure-standpoint fires have
     # no working set to consolidate over.
     real_tool_calls = [
-        h for h in tool_history
-        if h.get("tool") and h.get("tool") not in ("(parse-error)", "(unknown-kind)")
+        h
+        for h in tool_history
+        if h.get("tool")
+        and h.get("tool") not in ("(parse-error)", "(unknown-kind)")
         and not h.get("error")
     ]
     if not real_tool_calls:
-        await _emit(cb, "review_skipped", {"reason": "no successful tool calls — nothing to consolidate"})
+        await _emit(
+            cb, "review_skipped", {"reason": "no successful tool calls — nothing to consolidate"}
+        )
         return
 
     prompt = REVIEW_SYSTEM.format(
@@ -883,8 +1056,9 @@ async def _run_post_response_review(
             json_mode=True,
         )
     except Exception as e:
-        await _emit(cb, "review_error", {"where": "llm_call",
-                                         "type": type(e).__name__, "message": str(e)})
+        await _emit(
+            cb, "review_error", {"where": "llm_call", "type": type(e).__name__, "message": str(e)}
+        )
         return
 
     parsed = _parse_envelope(raw)
@@ -905,7 +1079,11 @@ async def _run_post_response_review(
 
     tool_name = (parsed.get("tool") or "").strip()
     if tool_name != "propose_provenance":
-        await _emit(cb, "review_skipped", {"reason": f"review may only call propose_provenance, got {tool_name!r}"})
+        await _emit(
+            cb,
+            "review_skipped",
+            {"reason": f"review may only call propose_provenance, got {tool_name!r}"},
+        )
         return
 
     args_raw = parsed.get("args") or {}
@@ -922,11 +1100,15 @@ async def _run_post_response_review(
         standpoint=None,
         disabled_tools=set(),  # review pass: propose_provenance allowed
     )
-    await _emit(cb, "review_result", {
-        "tool": tool_name,
-        "result": entry.get("result"),
-        "error": entry.get("error"),
-    })
+    await _emit(
+        cb,
+        "review_result",
+        {
+            "tool": tool_name,
+            "result": entry.get("result"),
+            "error": entry.get("error"),
+        },
+    )
 
 
 # ─── tool dispatch ─────────────────────────────────────────────────────
@@ -959,18 +1141,24 @@ async def _dispatch_tool(
         disabled_tools = {"propose_provenance"}
     if tool_name in disabled_tools:
         return {
-            "turn": turn, "tool": tool_name, "args": args,
+            "turn": turn,
+            "tool": tool_name,
+            "args": args,
             "error": f"{tool_name!r} is not available in this fire",
         }
     handler = TOOL_HANDLERS.get(tool_name)
     if handler is None:
         return {
-            "turn": turn, "tool": tool_name, "args": args,
+            "turn": turn,
+            "tool": tool_name,
+            "args": args,
             "error": f"unknown tool {tool_name!r} — valid: {sorted(TOOL_HANDLERS)}",
         }
     if not isinstance(args, dict):
         return {
-            "turn": turn, "tool": tool_name, "args": {},
+            "turn": turn,
+            "tool": tool_name,
+            "args": {},
             "error": f"args must be a JSON object, got {type(args).__name__}",
         }
     allowed = TOOL_MODEL_ARGS.get(tool_name, set())
@@ -988,16 +1176,22 @@ async def _dispatch_tool(
         result = await handler(**cleaned)
     except TypeError as e:
         return {
-            "turn": turn, "tool": tool_name, "args": cleaned,
+            "turn": turn,
+            "tool": tool_name,
+            "args": cleaned,
             "error": f"bad args — {e}",
         }
     except Exception as e:
         return {
-            "turn": turn, "tool": tool_name, "args": cleaned,
+            "turn": turn,
+            "tool": tool_name,
+            "args": cleaned,
             "error": f"{type(e).__name__}: {e}",
         }
     return {
-        "turn": turn, "tool": tool_name, "args": cleaned,
+        "turn": turn,
+        "tool": tool_name,
+        "args": cleaned,
         "result": result,
     }
 
@@ -1043,26 +1237,28 @@ async def _dispatch_response(
             cards_raw = [{"route": "chat-reply", "body": body}]
 
     cards: list[dict] = []
-    for card in (cards_raw or []):
+    for card in cards_raw or []:
         if not isinstance(card, dict):
             continue
         body = (card.get("body") or "").strip()
         if not body:
             continue
         tool_args_raw = card.get("tool_args")
-        cards.append({
-            "kicker": (card.get("kicker") or "").strip(),
-            "title": (card.get("title") or "").strip(),
-            "body": body,
-            "tail": (card.get("tail") or "").strip(),
-            "body_image": (card.get("body_image") or "").strip(),
-            "link": (card.get("link") or "").strip(),
-            "links": card.get("links") or [],
-            "route": (card.get("route") or "chat-reply").strip(),
-            "addresses": card.get("addresses") or [],
-            "tool": (card.get("tool") or "").strip(),
-            "tool_args": tool_args_raw if isinstance(tool_args_raw, dict) else {},
-        })
+        cards.append(
+            {
+                "kicker": (card.get("kicker") or "").strip(),
+                "title": (card.get("title") or "").strip(),
+                "body": body,
+                "tail": (card.get("tail") or "").strip(),
+                "body_image": (card.get("body_image") or "").strip(),
+                "link": (card.get("link") or "").strip(),
+                "links": card.get("links") or [],
+                "route": (card.get("route") or "chat-reply").strip(),
+                "addresses": card.get("addresses") or [],
+                "tool": (card.get("tool") or "").strip(),
+                "tool_args": tool_args_raw if isinstance(tool_args_raw, dict) else {},
+            }
+        )
 
     if not cards:
         print("[harness] respond payload had no usable cards — silent fire")
@@ -1182,6 +1378,7 @@ async def _write_qa_marker(
     # equal to the single delta's embedding). Skipped if compute
     # fails — the marker still lands with summary-only retrieval.
     from ... import provenance_centroid
+
     centroid = await provenance_centroid.compute_centroid(cited_ids)
 
     await delta_client.write(
@@ -1219,8 +1416,7 @@ def _render_anchors_full() -> str:
     if facet_lines:
         parts.append(
             "Who you are right now (your identity crystal — let these inflect "
-            "your voice naturally, never quote them verbatim):\n"
-            + "\n".join(facet_lines)
+            "your voice naturally, never quote them verbatim):\n" + "\n".join(facet_lines)
         )
     if mood_line:
         parts.append(
@@ -1351,7 +1547,7 @@ def _render_intent_block(pending: list[dict]) -> tuple[str, dict[str, str]]:
         text = (it.get("content") or "").strip().replace("\n", " ")
 
         contact = ""
-        for t in (it.get("tags") or []):
+        for t in it.get("tags") or []:
             if isinstance(t, str) and t.startswith("contact:"):
                 contact = t.split(":", 1)[1]
                 break

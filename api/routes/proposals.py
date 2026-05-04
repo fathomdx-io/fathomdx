@@ -56,9 +56,7 @@ async def _load_proposal(delta_id: str) -> dict:
         raise HTTPException(status_code=404, detail="proposal not found")
     tags = d.get("tags") or []
     if "kind:proposal" not in tags:
-        raise HTTPException(
-            status_code=400, detail="delta is not a proposal card"
-        )
+        raise HTTPException(status_code=400, detail="delta is not a proposal card")
     return d
 
 
@@ -93,7 +91,9 @@ def _provenance_level_from_tags(tags: list[str]) -> int | None:
 
 
 async def _approve_provenance_create(
-    args: dict, *, proposal: dict | None,
+    args: dict,
+    *,
+    proposal: dict | None,
     produced_by: str = "reflective-agent",
     source: str | None = None,
 ) -> dict:
@@ -157,6 +157,7 @@ async def _approve_provenance_create(
     # `embedding` column) at search time via min(d_dist, p_dist) so
     # the provenance ranks on either substantive OR meta queries.
     from .. import provenance_centroid
+
     centroid = await provenance_centroid.compute_centroid(from_ids)
 
     written = await delta_client.write(
@@ -192,12 +193,15 @@ async def auto_approve_provenance(
     decisions client-side and the row will render as approved.
     """
     result = await _approve_provenance_create(
-        args, proposal={"id": proposal_id} if proposal_id else None,
+        args,
+        proposal={"id": proposal_id} if proposal_id else None,
         produced_by=produced_by,
     )
     decision = await _write_decision(
-        proposal_id=proposal_id, status="approved",
-        result=result, decided_by=decided_by,
+        proposal_id=proposal_id,
+        status="approved",
+        result=result,
+        decided_by=decided_by,
     )
     return {
         "auto_approved": True,
@@ -207,9 +211,14 @@ async def auto_approve_provenance(
     }
 
 
-async def _write_decision(*, proposal_id: str, status: str,
-                          reason: str = "", result: dict | None = None,
-                          decided_by: str = "operator") -> dict:
+async def _write_decision(
+    *,
+    proposal_id: str,
+    status: str,
+    reason: str = "",
+    result: dict | None = None,
+    decided_by: str = "operator",
+) -> dict:
     """Write the decision delta linked to the original proposal.
 
     `decided_by` distinguishes operator approvals from auto-approved
@@ -280,14 +289,14 @@ async def approve_proposal(delta_id: str, body: dict | None = None):
             produced_by = _produced_by_from_tags(tags, default="reflective-agent")
             try:
                 result = await _approve_provenance_create(
-                    args, proposal=proposal, produced_by=produced_by,
+                    args,
+                    proposal=proposal,
+                    produced_by=produced_by,
                 )
             except ValueError as e:
                 raise HTTPException(status_code=400, detail=str(e)) from e
         else:
-            raise HTTPException(
-                status_code=400, detail=f"unknown provenance action: {action!r}"
-            )
+            raise HTTPException(status_code=400, detail=f"unknown provenance action: {action!r}")
     elif tool == "routines":
         if action == "create":
             args.pop("action", None)
@@ -318,17 +327,11 @@ async def approve_proposal(delta_id: str, body: dict | None = None):
             except FileNotFoundError as e:
                 raise HTTPException(status_code=404, detail=str(e)) from e
         else:
-            raise HTTPException(
-                status_code=400, detail=f"unknown action: {action!r}"
-            )
+            raise HTTPException(status_code=400, detail=f"unknown action: {action!r}")
     else:
-        raise HTTPException(
-            status_code=400, detail=f"unknown tool: {tool!r}"
-        )
+        raise HTTPException(status_code=400, detail=f"unknown tool: {tool!r}")
 
-    decision = await _write_decision(
-        proposal_id=delta_id, status="approved", result=result
-    )
+    decision = await _write_decision(proposal_id=delta_id, status="approved", result=result)
     return {
         "approved": True,
         "tool": tool,
@@ -346,9 +349,7 @@ async def deny_proposal(delta_id: str, body: dict | None = None):
     """Deny a proposal — write a decision delta with status=denied."""
     await _load_proposal(delta_id)  # 404 if missing / wrong shape
     reason = ((body or {}).get("reason") or "").strip()
-    decision = await _write_decision(
-        proposal_id=delta_id, status="denied", reason=reason
-    )
+    decision = await _write_decision(proposal_id=delta_id, status="denied", reason=reason)
     return {
         "denied": True,
         "decision_delta_id": decision.get("id") if isinstance(decision, dict) else None,

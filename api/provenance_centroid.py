@@ -98,8 +98,9 @@ async def compute_centroid(from_ids: list[str]) -> list[float] | None:
         try:
             deltas = await delta_client.batch_get(fresh)
         except Exception as e:
-            log.warning("centroid: batch_get failed at depth %d: %s: %s",
-                        depth, type(e).__name__, e)
+            log.warning(
+                "centroid: batch_get failed at depth %d: %s: %s", depth, type(e).__name__, e
+            )
             return
 
         next_layer: list[str] = []
@@ -107,15 +108,12 @@ async def compute_centroid(from_ids: list[str]) -> list[float] | None:
             if not isinstance(d, dict):
                 continue
             tags = d.get("tags") or []
-            is_provenance = ("kind:provenance" in tags
-                             and "kind:qa-marker" not in tags)
+            is_provenance = "kind:provenance" in tags and "kind:qa-marker" not in tags
             if is_provenance and depth < _MAX_DEPTH:
                 # Walk down — collect this provenance's constituents
                 # rather than using its (already-averaged) centroid.
                 child_ids = [
-                    t.split(":", 1)[1]
-                    for t in tags
-                    if isinstance(t, str) and t.startswith("from:")
+                    t.split(":", 1)[1] for t in tags if isinstance(t, str) and t.startswith("from:")
                 ]
                 next_layer.extend(child_ids)
             else:

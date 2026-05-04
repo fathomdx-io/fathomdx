@@ -92,29 +92,37 @@ async def harness_test(
                 ttl_seconds=60 * 60,
             )
         except Exception as e:
-            yield _sse("error", {"where": "seed_intent",
-                                 "type": type(e).__name__, "message": str(e)})
+            yield _sse(
+                "error", {"where": "seed_intent", "type": type(e).__name__, "message": str(e)}
+            )
             return
 
-        yield _sse("seeded", {
-            "session_tag": session_tag,
-            "intent_id": intent.get("id"),
-            "question": question,
-            "timestamp": time.time(),
-        })
+        yield _sse(
+            "seeded",
+            {
+                "session_tag": session_tag,
+                "intent_id": intent.get("id"),
+                "question": question,
+                "timestamp": time.time(),
+            },
+        )
 
         # Gather standpoint snapshot — same shape the worker uses.
         try:
             standpoint = await standpoint_mod.current(session_tag=session_tag)
-            yield _sse("standpoint", {
-                "posture": standpoint.posture,
-                "affect_state": getattr(standpoint.affect, "state", None),
-                "endorsements": len(standpoint.endorsements),
-                "understanding": len(standpoint.understanding),
-            })
+            yield _sse(
+                "standpoint",
+                {
+                    "posture": standpoint.posture,
+                    "affect_state": getattr(standpoint.affect, "state", None),
+                    "endorsements": len(standpoint.endorsements),
+                    "understanding": len(standpoint.understanding),
+                },
+            )
         except Exception as e:
-            yield _sse("warning", {"where": "standpoint",
-                                   "type": type(e).__name__, "message": str(e)})
+            yield _sse(
+                "warning", {"where": "standpoint", "type": type(e).__name__, "message": str(e)}
+            )
             standpoint = None
 
         # Spawn the harness as a task; we'll drain the queue concurrently.
@@ -128,8 +136,7 @@ async def harness_test(
                 )
                 await q.put(("__finished__", {"addressed": addressed}))
             except Exception as e:
-                await q.put(("__crashed__", {"type": type(e).__name__,
-                                             "message": str(e)}))
+                await q.put(("__crashed__", {"type": type(e).__name__, "message": str(e)}))
             finally:
                 await q.put((DONE, None))
 
@@ -226,8 +233,7 @@ async def harness_sit(
                 )
                 await q.put(("__finished__", {"outcome": outcome}))
             except Exception as e:
-                await q.put(("__crashed__", {"type": type(e).__name__,
-                                             "message": str(e)}))
+                await q.put(("__crashed__", {"type": type(e).__name__, "message": str(e)}))
             finally:
                 await q.put((DONE, None))
 
@@ -329,11 +335,15 @@ async def harness_dialogue(
                 await q.put(("__finished__", {"outcome": outcome}))
             except Exception as e:
                 import traceback
+
                 tb = traceback.format_exc()
                 print(f"[harness/dialogue] crashed:\n{tb}")
-                await q.put(("__crashed__", {"type": type(e).__name__,
-                                             "message": str(e),
-                                             "traceback": tb[:2000]}))
+                await q.put(
+                    (
+                        "__crashed__",
+                        {"type": type(e).__name__, "message": str(e), "traceback": tb[:2000]},
+                    )
+                )
             finally:
                 await q.put((DONE, None))
 

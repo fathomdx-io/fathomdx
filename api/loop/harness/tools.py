@@ -107,7 +107,7 @@ async def tool_expand(*, delta_id: str) -> str:
         return f"ERROR: delta {delta_id[:12]} not found"
 
     from_ids: list[str] = []
-    for tag in (delta.get("tags") or []):
+    for tag in delta.get("tags") or []:
         if isinstance(tag, str) and tag.startswith("from:"):
             tid = tag.split(":", 1)[1].strip()
             if tid and tid not in from_ids:
@@ -288,7 +288,7 @@ def _render_delta_brief(d: dict) -> str:
 # ─── lens tools: state / pattern / time / relate ──────────────────────
 
 
-_LENS_RESULT_LIMIT = 30          # cap items returned per lens call
+_LENS_RESULT_LIMIT = 30  # cap items returned per lens call
 
 
 def _short(d: dict, *, max_chars: int | None = None) -> str:
@@ -296,16 +296,16 @@ def _short(d: dict, *, max_chars: int | None = None) -> str:
     results. Untruncated by default; pass max_chars only when a caller
     explicitly wants a snippet (rare)."""
     did = (d.get("id") or "")[:12] or "?"
-    src = (d.get("source") or "lake")
+    src = d.get("source") or "lake"
     ts = (d.get("timestamp") or d.get("created_at") or "")[:19]
     content = (d.get("content") or "").strip()
     if max_chars is not None and len(content) > max_chars:
         content = content[:max_chars] + "…"
     tags = d.get("tags") or []
     salient = [
-        t for t in tags
-        if isinstance(t, str)
-        and (t.startswith("kind:") or t.startswith("provenance-level:"))
+        t
+        for t in tags
+        if isinstance(t, str) and (t.startswith("kind:") or t.startswith("provenance-level:"))
     ]
     tag_part = f" [{', '.join(salient)}]" if salient else ""
     return f"  · {did} {src} {ts}{tag_part}\n      {content}"
@@ -365,9 +365,7 @@ async def tool_state(*, action: str = "help", **kwargs) -> str:
         blocks = [f"Pending intents ({len(items)}):", ""]
         for it in items:
             kind = intent_kind(it)
-            content = (it.get("content") or "").strip().split(
-                "\n\n[intent-payload]", 1
-            )[0]
+            content = (it.get("content") or "").strip().split("\n\n[intent-payload]", 1)[0]
             iid = (it.get("id") or "")[:12]
             ts = (it.get("timestamp") or "")[:19]
             blocks.append(f"  · {iid} kind={kind} {ts}\n      {content}")
@@ -457,8 +455,7 @@ async def tool_state(*, action: str = "help", **kwargs) -> str:
         if group_by == "source":
             counts = Counter((d.get("source") or "?") for d in items)
             blocks = [
-                f"Activity in last {hours}h ({len(items)} deltas, "
-                f"{len(counts)} sources):",
+                f"Activity in last {hours}h ({len(items)} deltas, {len(counts)} sources):",
                 "",
             ]
             for src, n in counts.most_common(20):
@@ -541,7 +538,9 @@ async def tool_pattern(*, action: str = "help", **kwargs) -> str:
         since = (kwargs.get("since") or "").strip() or _hours_ago_iso(24 * 7)
         try:
             items = await delta_client.query(
-                tags_include=[], time_start=since, limit=2000,
+                tags_include=[],
+                time_start=since,
+                limit=2000,
             )
         except Exception as e:
             return f"ERROR: count query failed — {type(e).__name__}: {e}"
@@ -629,12 +628,12 @@ async def tool_pattern(*, action: str = "help", **kwargs) -> str:
                 payload = json.loads(c.get("content") or "{}")
             except Exception:
                 payload = {}
-            title = (payload.get("title") or payload.get("body") or "")
+            title = payload.get("title") or payload.get("body") or ""
             did = (c.get("id") or "")[:12]
             blocks.append(
                 f"  · {did} score={score:.2f} "
-                f"(s={ax.get('salience',0):.2f} r={ax.get('resonance',0):.2f} "
-                f"c={ax.get('confidence',0):.2f})\n      {title}"
+                f"(s={ax.get('salience', 0):.2f} r={ax.get('resonance', 0):.2f} "
+                f"c={ax.get('confidence', 0):.2f})\n      {title}"
             )
         return "\n".join(blocks)
 
@@ -655,14 +654,15 @@ async def tool_pattern(*, action: str = "help", **kwargs) -> str:
         cutoff = (datetime.now(UTC) - timedelta(days=silent_days)).isoformat()
         try:
             items = await delta_client.query(
-                tags_include=[], limit=300,
+                tags_include=[],
+                limit=300,
             )
         except Exception as e:
             return f"ERROR: dormant query failed — {type(e).__name__}: {e}"
         old = [
-            d for d in items
-            if (d.get("timestamp") or "") < cutoff
-            and len(d.get("content") or "") >= min_chars
+            d
+            for d in items
+            if (d.get("timestamp") or "") < cutoff and len(d.get("content") or "") >= min_chars
         ]
         if not old:
             return (
@@ -672,8 +672,7 @@ async def tool_pattern(*, action: str = "help", **kwargs) -> str:
             )
         old.sort(key=lambda d: d.get("timestamp") or "")
         blocks = [
-            f"Dormant deltas (older than {silent_days}d, "
-            f">={min_chars} chars, {len(old)} found):",
+            f"Dormant deltas (older than {silent_days}d, >={min_chars} chars, {len(old)} found):",
             "",
         ]
         for d in old[:_LENS_RESULT_LIMIT]:
@@ -738,10 +737,7 @@ async def tool_time(*, action: str = "help", **kwargs) -> str:
         except Exception as e:
             return f"ERROR: between query failed — {type(e).__name__}: {e}"
         # Client-side filter on end (delta_client.query only takes time_start).
-        items = [
-            d for d in (items or [])
-            if (d.get("timestamp") or "") <= end
-        ]
+        items = [d for d in (items or []) if (d.get("timestamp") or "") <= end]
         if not items:
             return f"(no deltas in {start}..{end})"
         blocks = [f"Window {start[:19]}..{end[:19]} ({len(items)}):", ""]
@@ -757,7 +753,9 @@ async def tool_time(*, action: str = "help", **kwargs) -> str:
             return f"ERROR: unknown period={period!r} (try hour/day/week)"
         try:
             items = await delta_client.query(
-                tags_include=[], time_start=since, limit=3000,
+                tags_include=[],
+                time_start=since,
+                limit=3000,
             )
         except Exception as e:
             return f"ERROR: bucket query failed — {type(e).__name__}: {e}"
@@ -772,9 +770,7 @@ async def tool_time(*, action: str = "help", **kwargs) -> str:
             if period == "week":
                 # ISO calendar week
                 try:
-                    dt = datetime.fromisoformat(
-                        (ts[:-1] + "+00:00") if ts.endswith("Z") else ts
-                    )
+                    dt = datetime.fromisoformat((ts[:-1] + "+00:00") if ts.endswith("Z") else ts)
                     iso = dt.isocalendar()
                     return f"{iso.year}-W{iso.week:02d}"
                 except Exception:
@@ -848,7 +844,8 @@ async def tool_time(*, action: str = "help", **kwargs) -> str:
         except Exception as e:
             return f"ERROR: window query failed — {type(e).__name__}: {e}"
         items = [
-            d for d in (items or [])
+            d
+            for d in (items or [])
             if (d.get("timestamp") or "") <= win_end_dt.isoformat()
             and (not anchor_source or (d.get("source") or "") == anchor_source)
         ]
@@ -956,7 +953,8 @@ async def tool_relate(*, action: str = "help", **kwargs) -> str:
         limit = max(1, min(100, limit))
         try:
             items = await delta_client.query(
-                tags_include=[f"contact:{slug}"], limit=limit,
+                tags_include=[f"contact:{slug}"],
+                limit=limit,
             )
         except Exception as e:
             return f"ERROR: contact query failed — {type(e).__name__}: {e}"
@@ -1001,9 +999,7 @@ async def tool_relate(*, action: str = "help", **kwargs) -> str:
             "",
         ]
         for attest_id, target_id in targets[:_LENS_RESULT_LIMIT]:
-            blocks.append(
-                f"  · {attest_id[:12]} → {target_id[:12]}"
-            )
+            blocks.append(f"  · {attest_id[:12]} → {target_id[:12]}")
         return "\n".join(blocks)
 
     if action == "dropped_around":
@@ -1012,7 +1008,8 @@ async def tool_relate(*, action: str = "help", **kwargs) -> str:
             return "ERROR: relate.dropped_around requires `delta_id`"
         try:
             items = await delta_client.query(
-                tags_include=[f"refutes:{target}"], limit=_LENS_RESULT_LIMIT,
+                tags_include=[f"refutes:{target}"],
+                limit=_LENS_RESULT_LIMIT,
             )
         except Exception as e:
             return f"ERROR: refutes query failed — {type(e).__name__}: {e}"
@@ -1032,7 +1029,8 @@ async def tool_relate(*, action: str = "help", **kwargs) -> str:
         for tag in (f"from:{target}", f"affirms:{target}"):
             try:
                 hits = await delta_client.query(
-                    tags_include=[tag], limit=_LENS_RESULT_LIMIT,
+                    tags_include=[tag],
+                    limit=_LENS_RESULT_LIMIT,
                 )
             except Exception:
                 continue
@@ -1214,7 +1212,9 @@ async def tool_propose_provenance(
     }
     payload_json = json.dumps(payload, ensure_ascii=False)
 
-    title_slug = "".join(c if c.isalnum() else "-" for c in title.lower()).strip("-")[:80] or "untitled"
+    title_slug = (
+        "".join(c if c.isalnum() else "-" for c in title.lower()).strip("-")[:80] or "untitled"
+    )
     base_tags = [
         "feed-card",
         "synthesis",
@@ -1335,7 +1335,10 @@ async def tool_introspect(*, question: str, session_tag: str = "") -> str:
     intent = await puddle.write(
         content=question,
         tags=[
-            CONVO_TAG, child_session, "intent", "kind:question",
+            CONVO_TAG,
+            child_session,
+            "intent",
+            "kind:question",
             "introspect-self",
         ],
         source="harness-introspect",
@@ -1449,15 +1452,14 @@ async def tool_plan(*, question: str) -> str:
     except Exception:
         # Tolerate JSON wrapped in prose
         import re as _re
+
         m = _re.search(r"\{.*\}", raw, _re.DOTALL)
         if not m:
-            return json.dumps({"error": "planner returned unparseable JSON",
-                               "raw_head": raw[:200]})
+            return json.dumps({"error": "planner returned unparseable JSON", "raw_head": raw[:200]})
         try:
             parsed = json.loads(m.group(0))
         except Exception:
-            return json.dumps({"error": "planner returned unparseable JSON",
-                               "raw_head": raw[:200]})
+            return json.dumps({"error": "planner returned unparseable JSON", "raw_head": raw[:200]})
 
     steps_raw = parsed.get("steps") if isinstance(parsed, dict) else None
     if not isinstance(steps_raw, list) or not steps_raw:
@@ -1490,16 +1492,16 @@ async def tool_plan(*, question: str) -> str:
 # Tool registry — the loop driver looks up handlers here. Each handler
 # is async, takes kwargs, returns a string.
 TOOL_HANDLERS = {
-    "plan":               tool_plan,
-    "introspect":         tool_introspect,
-    "semantic":           tool_search,
-    "expand":             tool_expand,
-    "ascend":             tool_ascend,
-    "deliberate":         tool_deliberate,
-    "state":              tool_state,
-    "pattern":            tool_pattern,
-    "time":               tool_time,
-    "relate":             tool_relate,
+    "plan": tool_plan,
+    "introspect": tool_introspect,
+    "semantic": tool_search,
+    "expand": tool_expand,
+    "ascend": tool_ascend,
+    "deliberate": tool_deliberate,
+    "state": tool_state,
+    "pattern": tool_pattern,
+    "time": tool_time,
+    "relate": tool_relate,
     "propose_provenance": tool_propose_provenance,
 }
 
@@ -1513,20 +1515,36 @@ TOOL_HANDLERS = {
 # their menus are open-ended (action + action-specific args). The
 # dispatcher passes everything through and the handler validates inside.
 TOOL_MODEL_ARGS = {
-    "plan":               {"question"},
-    "introspect":         {"question"},
-    "semantic":           {"query", "depth"},
-    "expand":             {"delta_id"},
-    "ascend":             {"delta_id"},
-    "deliberate":         {"question"},
-    "state":              {"action", "hours", "group_by"},
-    "pattern":            {"action", "tag", "since", "limit", "group_by",
-                           "hours", "silent_for_days", "min_chars"},
-    "time":               {"action", "start", "end", "source", "tag",
-                           "limit", "period", "since", "group_by",
-                           "delta_id", "gap_minutes"},
-    "relate":             {"action", "slug", "limit", "direction", "hours",
-                           "delta_id"},
-    "propose_provenance": {"level", "title", "summary", "from_ids",
-                           "rationale", "test_questions"},
+    "plan": {"question"},
+    "introspect": {"question"},
+    "semantic": {"query", "depth"},
+    "expand": {"delta_id"},
+    "ascend": {"delta_id"},
+    "deliberate": {"question"},
+    "state": {"action", "hours", "group_by"},
+    "pattern": {
+        "action",
+        "tag",
+        "since",
+        "limit",
+        "group_by",
+        "hours",
+        "silent_for_days",
+        "min_chars",
+    },
+    "time": {
+        "action",
+        "start",
+        "end",
+        "source",
+        "tag",
+        "limit",
+        "period",
+        "since",
+        "group_by",
+        "delta_id",
+        "gap_minutes",
+    },
+    "relate": {"action", "slug", "limit", "direction", "hours", "delta_id"},
+    "propose_provenance": {"level", "title", "summary", "from_ids", "rationale", "test_questions"},
 }
