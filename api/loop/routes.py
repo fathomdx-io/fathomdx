@@ -278,19 +278,28 @@ def get_feed(
             elif route == "chat-reply":
                 items.append({"kind": "fathom-message", **base})
             elif "kind:proposal" in tags:
-                # Tool-call proposal — witness asked the user to confirm a
-                # state change. Carry tool name + tool_args + decision (if
-                # one has landed) onto the item so the dashboard can render
-                # Edit/Deny/Approve buttons. The decision delta lives
-                # separately tagged `proposal-decision decides:<id>`.
-                #
-                # Surface lake_id so the UI can target /v1/proposals/<id>
-                # against the durable lake delta — the puddle copy is
-                # ephemeral and the proposals endpoint reads from the lake.
+                # Tool-call proposal — operator-actionable card with
+                # Edit / Deny / Approve buttons. The decision delta
+                # lives separately tagged `proposal-decision decides:<id>`.
                 tool = next(
                     (t.split(":", 1)[1] for t in tags if t.startswith("tool:")),
                     "",
                 )
+                # L1/L2 provenance proposals auto-approve at draft time.
+                # The harness-review row in the thinking accordion already
+                # surfaces "provenance made" — duplicating as a feed card
+                # is noise. Skip.
+                if tool == "provenance":
+                    level: int | None = None
+                    for t in tags:
+                        if isinstance(t, str) and t.startswith("provenance-level:"):
+                            try:
+                                level = int(t.split(":", 1)[1])
+                            except (TypeError, ValueError):
+                                level = None
+                            break
+                    if level is not None and level <= 2:
+                        continue
                 # `lake-id:<full>` is the witness's own dual-write cross-
                 # pointer; `recalled-id:<short>` is what telepathy stamps
                 # when it mirrors a durable lake delta back into the puddle
@@ -315,17 +324,22 @@ def get_feed(
             continue
 
         # ── Auxiliary types (filter-toggleable) ───────────
-        # Harness turn trace — one entry per tool call + respond per fire.
-        # The replacement for parliament's voice-thought stream now that
-        # the loop fires through the agentic harness instead. Body is a
+        # Harness turn trace — one entry per tool call. Body is a
         # JSON envelope (turn, tool, thinking, args_json, result, error)
         # so the dashboard can render the full per-turn shape — same
         # info harness-test.html shows live via SSE.
+        #
+        # respond turns are intentionally suppressed — they're redundant
+        # with the actual card that lands in the feed. The thinking
+        # accordion shouldn't repeat what the user already sees as a
+        # first-class card row.
         if "kind:harness-turn" in tags:
             tool = next(
                 (t.split(":", 1)[1] for t in tags if t.startswith("tool:")),
                 "",
             )
+            if tool == "respond":
+                continue
             turn_n = next(
                 (t.split(":", 1)[1] for t in tags if t.startswith("turn:")),
                 "",

@@ -714,6 +714,17 @@
     .feed .delta.thought.harness-review .d-kind { color: #34d399; }
     .feed .delta.thought.harness-review.review-error { border-left-color: #ef4444; }
     .feed .delta.thought.harness-review.review-error .d-kind { color: #ef4444; }
+    .feed .delta.thought.harness-review .harness-review-title {
+      font-family: var(--serif);
+      font-size: 14px;
+      color: var(--ink);
+      margin-top: 4px;
+      line-height: 1.35;
+    }
+    .feed .delta.thought.harness-review .harness-review-meta {
+      color: var(--ink-faint);
+      font-family: var(--mono); font-size: 11px;
+    }
     /* Pass intents (reflection / drift / bridging / alert) — italic purple. */
     .feed .delta.intent {
       border-left-color: #a78bfa;
@@ -950,6 +961,49 @@
     /* Per-cluster label flavors — match the .delta tinting so the
        open accordion's contents and its summary read as one. */
     .feed .accordion[data-category="thinking"] > summary .accordion-label { color: var(--accent); }
+    /* Live-status sub-elements inside the thinking accordion summary —
+       sits under the label, surfaces the latest harness turn's
+       reasoning + plan board with progress glyphs. */
+    .feed .accordion .accordion-thinking {
+      display: block;
+      flex: 1 1 100%;
+      margin-top: 4px;
+      font-style: italic; font-size: 12px;
+      color: var(--ink-soft); line-height: 1.45;
+    }
+    .feed .accordion .plan-board {
+      display: block;
+      flex: 1 1 100%;
+      margin-top: 6px;
+      font-family: var(--mono); font-size: 11px;
+    }
+    .feed .accordion .plan-glyph-row {
+      letter-spacing: 0.3em;
+      color: var(--ink-soft);
+      margin-bottom: 2px;
+    }
+    .feed .accordion .plan-steps {
+      list-style: none; margin: 0; padding: 0;
+      color: var(--ink-faint);
+    }
+    .feed .accordion .plan-steps .plan-step {
+      padding: 1px 0;
+      font-size: 11.5px;
+      line-height: 1.5;
+    }
+    .feed .accordion .plan-steps .plan-glyph {
+      display: inline-block; width: 14px;
+      color: var(--ink-soft);
+    }
+    .feed .accordion .plan-steps .plan-step-num {
+      color: var(--ink-faint);
+      margin-right: 2px;
+    }
+    .feed .accordion .plan-steps .plan-hint { color: var(--ink-faint); }
+    .feed .accordion .plan-steps .plan-step.plan-done       { color: var(--ink-soft); }
+    .feed .accordion .plan-steps .plan-step.plan-done       .plan-glyph { color: var(--accent); }
+    .feed .accordion .plan-steps .plan-step.plan-in_progress { color: var(--ink); }
+    .feed .accordion .plan-steps .plan-step.plan-in_progress .plan-glyph { color: var(--accent); }
     .feed .accordion[data-category="identity"] > summary .accordion-label { color: #c4b5fd; }
     .feed .accordion[data-category="prompts"]  > summary .accordion-label { color: #c4b5fd; }
     .feed .accordion[data-category="routine"]  > summary .accordion-label { color: var(--signal); }
@@ -9425,6 +9479,201 @@ GET  /v1/usage               Usage stats`,
     function _categoryOf(kind) {
       return KIND_TO_CATEGORY[kind] || '';
     }
+
+    // ── Harness live-status helpers ─────────────────
+    // Derives a "what the harness is currently doing" label + plan board
+    // from a stack of harness-turn items inside a thinking-category
+    // accordion. Replaces the static "Thinking" label with a
+    // status-shaped header: "Planning" / "Searching X" / "Deliberating",
+    // plus the active plan's progress glyphs when a plan tool fired
+    // earlier in the same session.
+    const _PLAN_GLYPH = { pending: '○', in_progress: '⟳', done: '✓' };
+
+    function _statusForTool(tool, args) {
+      if (!tool) return null;
+      const a = args || {};
+      switch (tool) {
+        case 'plan': return 'Planning';
+        case 'semantic': {
+          const q = (a.query || '').trim();
+          return q ? `Searching "${q.slice(0, 60)}${q.length > 60 ? '…' : ''}"` : 'Searching';
+        }
+        case 'introspect': {
+          const q = (a.question || '').trim();
+          return q ? `Introspecting "${q.slice(0, 60)}${q.length > 60 ? '…' : ''}"` : 'Introspecting';
+        }
+        case 'deliberate': return 'Deliberating';
+        case 'expand': return `Expanding ${(a.delta_id || '').slice(0, 8)}`;
+        case 'ascend': return `Ascending from ${(a.delta_id || '').slice(0, 8)}`;
+        case 'state': return `State · ${a.action || 'help'}`;
+        case 'pattern': return `Pattern · ${a.action || 'help'}`;
+        case 'time': return `Time · ${a.action || 'help'}`;
+        case 'relate': return `Relate · ${a.action || 'help'}`;
+        case 'propose_provenance': return 'Proposing provenance';
+        case 'dispatch_helper': return `Dispatching helper · ${a.host || ''}`;
+        case 'mint_routine': return `Minting routine · ${a.name || ''}`;
+        case 'respond': return 'Responding';
+        default: return tool.charAt(0).toUpperCase() + tool.slice(1);
+      }
+    }
+
+    function _harnessTurnStatusFromItem(item) {
+      if (!item || item.kind !== 'harness-turn') return null;
+      let args = {};
+      if (item.args_json) {
+        try { args = JSON.parse(item.args_json); } catch (e) { args = {}; }
+      }
+      return {
+        tool: item.tool,
+        turn: item.turn,
+        args,
+        thinking: (item.thinking || '').trim(),
+      };
+    }
+
+    function _planStateFromItems(items) {
+      // Find the most recent plan-tool turn in the items; parse its
+      // result (JSON {steps: [{step, purpose, hint, status}]}). Then
+      // mark steps done up to the highest plan_step seen on later turns.
+      // Returns {steps: [...]} or null.
+      const planTurns = items.filter(it => it.kind === 'harness-turn' && it.tool === 'plan');
+      if (!planTurns.length) return null;
+      // First in chronological order — items are newest-first per how
+      // the feed renders them, so the first plan-turn is the latest.
+      // For status purposes we want the LAST-WRITTEN plan (a plan
+      // revision clobbers the earlier one), so newest-first.first wins.
+      const planTurn = planTurns[0];
+      const result = planTurn.result || '';
+      let parsed;
+      try { parsed = JSON.parse(result); } catch (e) { return null; }
+      if (!parsed || !Array.isArray(parsed.steps) || !parsed.steps.length) return null;
+      const steps = parsed.steps.map(s => ({
+        step: s.step, purpose: s.purpose, hint: s.hint, status: 'pending',
+      }));
+      // Walk OTHER harness-turn items (non-plan) for plan_step references.
+      // A plan_step:N on a successful turn means step N executed.
+      const stepsExecuted = new Set();
+      for (const it of items) {
+        if (it.kind !== 'harness-turn') continue;
+        if (it.tool === 'plan') continue;
+        const ps = parseInt(it.plan_step || '', 10);
+        if (Number.isFinite(ps) && ps >= 1 && ps <= steps.length) {
+          // If the turn errored, the step wasn't really completed —
+          // leave it as in_progress.
+          if (it.error && it.error.length) {
+            steps[ps - 1].status = 'in_progress';
+          } else {
+            stepsExecuted.add(ps);
+          }
+        }
+      }
+      for (const n of stepsExecuted) steps[n - 1].status = 'done';
+      // The current step is the highest-numbered done+1, or the highest
+      // in_progress, whichever is further along.
+      const maxDone = Math.max(0, ...[...stepsExecuted]);
+      if (maxDone < steps.length && steps[maxDone].status === 'pending') {
+        steps[maxDone].status = 'in_progress';
+      }
+      return { steps };
+    }
+
+    function _harnessStatusForItems(items) {
+      // The latest (= first in newest-first array) harness-turn drives
+      // the current status. Skip respond turns (the fire is done; revert
+      // to a "Done" / category label).
+      const turns = items.filter(it => it.kind === 'harness-turn');
+      if (!turns.length) return null;
+      const latest = turns[0];
+      const status = _harnessTurnStatusFromItem(latest);
+      if (!status) return null;
+      const plan = _planStateFromItems(items);
+      const isDone = latest.tool === 'respond';
+      return {
+        label: isDone ? 'Done' : (_statusForTool(status.tool, status.args) || status.tool),
+        thinking: status.thinking,
+        plan,
+        latestTurn: latest.turn,
+        latestTool: latest.tool,
+      };
+    }
+
+    function _renderPlanBoard(plan) {
+      // Compact glyph row + step list. Returns an HTML string.
+      if (!plan || !plan.steps || !plan.steps.length) return '';
+      const glyphs = plan.steps
+        .map(s => _PLAN_GLYPH[s.status] || _PLAN_GLYPH.pending)
+        .join(' ');
+      const lines = plan.steps.map(s => {
+        const g = _PLAN_GLYPH[s.status] || _PLAN_GLYPH.pending;
+        const purpose = (s.purpose || '').replace(/[<>&]/g, c => ({'<':'&lt;','>':'&gt;','&':'&amp;'}[c]));
+        const hint = s.hint
+          ? `<span class="plan-hint"> — ${s.hint.replace(/[<>&]/g, c => ({'<':'&lt;','>':'&gt;','&':'&amp;'}[c]))}</span>`
+          : '';
+        return `<li class="plan-step plan-${s.status}"><span class="plan-glyph">${g}</span> <span class="plan-step-num">${s.step}.</span> ${purpose}${hint}</li>`;
+      }).join('');
+      return `<div class="plan-board">
+        <div class="plan-glyph-row" title="${plan.steps.map(s => `${s.step}. ${s.purpose}`).join(' · ')}">${glyphs}</div>
+        <ol class="plan-steps">${lines}</ol>
+      </div>`;
+    }
+
+    function _renderAccordionSummary(summary, category, items) {
+      // Status-aware label + count. For thinking accordions with
+      // harness-turns inside, derive a live-status label and append a
+      // plan board when one exists. Other categories fall back to the
+      // static CATEGORY_LABELS entry.
+      const labelText = CATEGORY_LABELS[category] || category;
+      let status = null;
+      let thinkingLine = '';
+      let planHtml = '';
+      if (category === 'thinking') {
+        status = _harnessStatusForItems(items);
+        if (status) {
+          thinkingLine = status.thinking;
+          planHtml = _renderPlanBoard(status.plan);
+        }
+      }
+      const headLabel = status ? status.label : labelText;
+      const stats = items.length;
+      summary.innerHTML = `
+        <span class="accordion-label">${_esc(headLabel)}</span>
+        <span class="accordion-stats">${stats}</span>
+        ${thinkingLine ? `<div class="accordion-thinking">${_esc(thinkingLine)}</div>` : ''}
+        ${planHtml}
+      `;
+    }
+
+    function _refreshAccordionSummary(detailsEl) {
+      if (!detailsEl || !detailsEl.classList.contains('accordion')) return;
+      const summary = detailsEl.querySelector('summary');
+      const body = detailsEl.querySelector('.accordion-body');
+      if (!summary || !body) return;
+      const category = detailsEl.dataset.category || '';
+      // Re-derive items from data attached to the rendered children.
+      const items = Array.from(body.children).map(child => {
+        const kind = child.dataset.kind || '';
+        const dataset = child.dataset || {};
+        let args_json = '';
+        let result = '';
+        let thinking = '';
+        let error = '';
+        const argsEl = child.querySelector('details.harness-detail summary');
+        // We can't reliably reconstruct args_json from rendered DOM —
+        // for plan-board reconstruction we need the original. Stash
+        // the raw item on the element when rendered (set in
+        // _renderPuddleItem below).
+        const raw = child._harnessItem;
+        if (raw) return raw;
+        // Fallback: minimal reconstruction.
+        return {
+          kind,
+          tool: dataset.tool || '',
+          turn: dataset.turn || '',
+          plan_step: dataset.planStep || '',
+        };
+      });
+      _renderAccordionSummary(summary, category, items);
+    }
     // Sections drive inter-item spacing in the feed. Three buckets:
     //   chat        — user/fathom messages (always-on)
     //   feed        — cards (the editorial layer)
@@ -10258,6 +10507,13 @@ GET  /v1/usage               Usage stats`,
       // Renders inline beside the turns from the same fire so the user
       // sees: "fire turns ... review fired propose_provenance / skipped
       // because X / errored Y."
+      //
+      // Framing matches auto-approval reality: when the review fires
+      // propose_provenance and the level is 1 or 2, the proposal
+      // auto-approves at draft time and a real kind:provenance delta
+      // lands. Surface that as "provenance made" — past tense. Levels
+      // 3+ stay as "provenance proposed" because the operator still
+      // has to approve.
       if (it.kind === 'harness-review') {
         const el = document.createElement('article');
         el.className = `delta thought harness-review review-${it.review_kind || 'unknown'}`;
@@ -10269,13 +10525,45 @@ GET  /v1/usage               Usage stats`,
         const sessionShort = it.session ? it.session.replace('session:', '').slice(0, 8) : '';
         const detail = (it.detail || '').trim();
         const args = (it.args_json || '').trim();
+        // Try to pull level + title out of args_json so we can frame
+        // proposing-vs-made correctly and surface the title in the
+        // header instead of just "review · proposing".
+        let level = null;
+        let proposalTitle = '';
+        let constituents = 0;
+        if (args) {
+          try {
+            const parsed = JSON.parse(args);
+            if (parsed && typeof parsed === 'object') {
+              if (typeof parsed.level === 'number') level = parsed.level;
+              proposalTitle = (parsed.title || '').trim();
+              if (Array.isArray(parsed.from_ids)) constituents = parsed.from_ids.length;
+            }
+          } catch (e) { /* ignore */ }
+        }
+        let headLabel = `review · ${reviewKind}`;
+        if (reviewKind === 'proposing' || reviewKind === 'result') {
+          if (level !== null && level <= 2) {
+            const levelTag = level === 1 ? 'L1' : 'L2';
+            headLabel = `provenance made · ${levelTag}`;
+          } else if (level !== null && level >= 3) {
+            headLabel = `provenance proposed · L${level}`;
+          }
+        } else if (reviewKind === 'skipped') {
+          headLabel = 'review · skipped';
+        } else if (reviewKind === 'error') {
+          headLabel = 'review · error';
+        }
         const parts = [
           `<header class="d-head">`,
-          `<span class="d-kind">review · ${_esc(reviewKind)}</span>`,
+          `<span class="d-kind">${_esc(headLabel)}</span>`,
           sessionShort ? `<span class="source-chip">${_esc(sessionShort)}</span>` : '',
           `<span class="d-ts">${timeStr}</span>`,
           `</header>`,
         ];
+        if (proposalTitle) {
+          parts.push(`<div class="harness-review-title">${_esc(proposalTitle)}${constituents ? ` <span class="harness-review-meta">· ${constituents} constituents</span>` : ''}</div>`);
+        }
         if (detail) {
           parts.push(`<div class="harness-thinking">${_esc(detail)}</div>`);
         }
@@ -10486,9 +10774,7 @@ GET  /v1/usage               Usage stats`,
       const sec = _CATEGORY_TO_SECTION[cat];
       if (sec) det.dataset.section = sec;
       if (session) det.dataset.session = session;
-      const labelText = CATEGORY_LABELS[cat] || cat;
       const summary = document.createElement('summary');
-      summary.innerHTML = `<span class="accordion-label">${_esc(labelText)}</span><span class="accordion-stats">${items.length}</span>`;
       const body = document.createElement('div');
       body.className = 'accordion-body';
       for (const item of items) {
@@ -10496,11 +10782,18 @@ GET  /v1/usage               Usage stats`,
         _renderedFeedIds.add(item.id);
         try {
           const child = _renderPuddleItem(item, 0);
-          if (child) body.appendChild(child);
+          if (child) {
+            // Stash the raw item on the rendered element so the
+            // accordion summary can re-derive status without
+            // reconstructing from DOM.
+            child._harnessItem = item;
+            body.appendChild(child);
+          }
         } catch (err) {
           console.warn('[feed] render failed for item', item.id, item.kind, err);
         }
       }
+      _renderAccordionSummary(summary, cat, items);
       det.appendChild(summary);
       det.appendChild(body);
       return det;
@@ -10532,7 +10825,11 @@ GET  /v1/usage               Usage stats`,
     //   * match is a flat .delta → convert into a 2-item accordion with
     //     the new node (newer) + the existing one (older)
     //   * no match → plain prepend at top of feed
-    function _mergeOrPrependNode(node, kind, session) {
+    //
+    // `item` is the raw puddle item — stashed onto the node so the
+    // accordion summary's status helper can re-derive live status from
+    // the rendered children.
+    function _mergeOrPrependNode(node, kind, session, item) {
       // Resolve from the DOM kind that _renderPuddleItem already
       // mapped (e.g. raw 'user-message' → DOM 'chat'); the raw `kind`
       // argument is the server shape, which doesn't map directly into
@@ -10552,8 +10849,9 @@ GET  /v1/usage               Usage stats`,
         const body = target.querySelector('.accordion-body');
         if (body) {
           body.insertBefore(node, body.firstChild);
-          const stats = target.querySelector('.accordion-stats');
-          if (stats) stats.textContent = String(body.children.length);
+          // Stash raw item for status re-derivation.
+          if (item) node._harnessItem = item;
+          _refreshAccordionSummary(target);
           return;
         }
       }
@@ -10564,15 +10862,23 @@ GET  /v1/usage               Usage stats`,
         det.className = 'accordion';
         det.dataset.category = category;
         if (session) det.dataset.session = session;
-        const labelText = CATEGORY_LABELS[category] || category;
         const summary = document.createElement('summary');
-        summary.innerHTML = `<span class="accordion-label">${_esc(labelText)}</span><span class="accordion-stats">2</span>`;
         const body = document.createElement('div');
         body.className = 'accordion-body';
+        if (item) node._harnessItem = item;
         body.appendChild(node);    // newer
         body.appendChild(target);  // older (re-parented from feed)
+        _refreshAccordionSummary(det);
         det.appendChild(summary);
         det.appendChild(body);
+        // _refreshAccordionSummary needs the summary attached first,
+        // so re-call after attach:
+        det.appendChild(summary); // already there but harmless idempotent
+        // Fix: write the summary content directly here since it isn't
+        // yet attached at refresh time.
+        const itemsForSummary = Array.from(body.children).map(c => c._harnessItem).filter(Boolean);
+        _renderAccordionSummary(summary, category, itemsForSummary);
+        det.insertBefore(summary, body);
         parent.insertBefore(det, anchor);
         return;
       }
@@ -10587,12 +10893,12 @@ GET  /v1/usage               Usage stats`,
       det.className = 'accordion';
       det.dataset.category = category;
       if (session) det.dataset.session = session;
-      const labelText = CATEGORY_LABELS[category] || category;
       const summary = document.createElement('summary');
-      summary.innerHTML = `<span class="accordion-label">${_esc(labelText)}</span><span class="accordion-stats">1</span>`;
       const body = document.createElement('div');
       body.className = 'accordion-body';
+      if (item) node._harnessItem = item;
       body.appendChild(node);
+      _renderAccordionSummary(summary, category, item ? [item] : []);
       det.appendChild(summary);
       det.appendChild(body);
       feed.insertBefore(det, feed.firstChild);
@@ -10698,7 +11004,7 @@ GET  /v1/usage               Usage stats`,
           _renderedFeedIds.add(it.id);
           try {
             const node = _renderPuddleItem(it, 0);
-            if (node) _mergeOrPrependNode(node, it.kind, it.session || '');
+            if (node) _mergeOrPrependNode(node, it.kind, it.session || '', it);
           } catch (err) {
             console.warn('[feed] render failed for item', it && it.id, it && it.kind, err);
           }
