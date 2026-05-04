@@ -9,10 +9,13 @@ it without these.
 from __future__ import annotations
 
 from api.search import (
+    _PROVENANCE_BONUS,
+    _QA_MARKER_BONUS,
     _SEDIMENT_PROVENANCE_LIMIT,
     _VALENCE_MAX_PCT,
     _apply_valence_rerank,
     _provenance_ids_from_deltas,
+    _provenance_modifier,
     _valence_modifier,
     _valence_score,
 )
@@ -107,6 +110,46 @@ def test_modifier_caps_at_max_pct_either_direction() -> None:
     assert _valence_modifier(big_refute) == 1.0 + _VALENCE_MAX_PCT
 
 
+# ── _provenance_modifier ───────────────────────────────────────────────
+
+
+def test_provenance_modifier_neutral_for_base_moments() -> None:
+    """Plain deltas (no kind:provenance / kind:sediment tag) get no shift."""
+    assert _provenance_modifier({"tags": []}) == 1.0
+    assert _provenance_modifier({"tags": ["routine-fire", "for-card:abc"]}) == 1.0
+    assert _provenance_modifier({}) == 1.0  # missing tags also OK
+
+
+def test_provenance_modifier_lifts_provenance_kinds() -> None:
+    """kind:provenance + kind:sediment both get the standard provenance bonus —
+    they pack more interpretation per token than the moments they cite."""
+    assert _provenance_modifier({"tags": ["kind:provenance"]}) == _PROVENANCE_BONUS
+    assert _provenance_modifier({"tags": ["kind:sediment"]}) == _PROVENANCE_BONUS
+
+
+def test_provenance_modifier_qa_marker_lifts_less() -> None:
+    """kind:qa-marker (in-situ Q/A capture from the harness) AND
+    provenance-level:0 (the lowest tier of the hierarchy) both get the
+    softer qa-marker bonus — they're snapshot-shaped, not narrative."""
+    assert (
+        _provenance_modifier({"tags": ["kind:provenance", "kind:qa-marker"]})
+        == _QA_MARKER_BONUS
+    )
+    assert (
+        _provenance_modifier({"tags": ["kind:provenance", "provenance-level:0"]})
+        == _QA_MARKER_BONUS
+    )
+
+
+def test_provenance_modifier_constants_carry_expected_polarity() -> None:
+    """Bonuses must be < 1.0 (lower distance → better rank). qa-marker
+    must be MILDER than the standard provenance bump — narrative
+    consolidation deserves the bigger lift than question-anchored snapshots."""
+    assert _PROVENANCE_BONUS < 1.0
+    assert _QA_MARKER_BONUS < 1.0
+    assert _PROVENANCE_BONUS < _QA_MARKER_BONUS
+
+
 # ── _apply_valence_rerank ──────────────────────────────────────────────
 
 
@@ -120,10 +163,14 @@ def _delta(id_: str, distance: float | None, cloud: list[dict] | None = None) ->
     return d
 
 
-def test_rerank_no_clouds_is_noop() -> None:
-    """Distances unchanged when no engagement clouds are attached. Order
-    is preserved — when no delta in the step has both distance and cloud,
-    `any_distance` stays False and the sort never fires."""
+def test_rerank_no_clouds_distances_unchanged_but_sorted() -> None:
+    """No clouds, no provenance — modifier is 1.0 across the board, so
+    distances are unchanged. The list is still sorted ascending though:
+    the rerank's contract is "if any distance is present, output is
+    sorted by distance," not "preserve input order on no-op."
+
+    Pinning this so a future refactor doesn't quietly reintroduce an
+    optimization that depends on input being pre-sorted."""
     deltas = [
         _delta("a", 0.1),
         _delta("b", 0.5),
@@ -131,8 +178,8 @@ def test_rerank_no_clouds_is_noop() -> None:
     ]
     deltas_by_step = {"s1": deltas}
     _apply_valence_rerank(deltas_by_step)
-    assert [d["id"] for d in deltas] == ["a", "b", "c"]
-    assert [d["distance"] for d in deltas] == [0.1, 0.5, 0.3]
+    assert [d["id"] for d in deltas] == ["a", "c", "b"]  # sorted by distance
+    assert [d["distance"] for d in deltas] == [0.1, 0.3, 0.5]  # unchanged
 
 
 def test_rerank_floats_affirmed_above_neutral() -> None:
@@ -194,14 +241,14 @@ def test_rerank_zero_distance_is_immutable() -> None:
 
 def test_rerank_iterates_all_steps_independently() -> None:
     """Each step's deltas list sorts independently. A refute in one step
-    doesn't bleed into another step's order."""
+    doesn't bleed into another step's order. Both steps carry distances,
+    so both get sorted under the always-sort contract."""
     s1 = [_delta("a", 0.2, [{"tags": ["refutes:x"]}]), _delta("b", 0.21)]
     s2 = [_delta("c", 0.5), _delta("d", 0.4)]
     deltas_by_step = {"s1": s1, "s2": s2}
     _apply_valence_rerank(deltas_by_step)
     assert [d["id"] for d in s1] == ["b", "a"]  # refute lifted a to back
-    # s2 had no clouds — any_distance stayed False, no sort fired
-    assert [d["id"] for d in s2] == ["c", "d"]
+    assert [d["id"] for d in s2] == ["d", "c"]  # sorted by distance ascending
 
 
 # ── _provenance_ids_from_deltas ────────────────────────────────────────
