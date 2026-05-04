@@ -279,6 +279,42 @@ async def _stamp_cooldown(tier_name: str) -> None:
         _save_cooldowns(state)
 
 
+# ── Pre-fire alert recency check ───────────────────────────────────────
+
+
+# How recent counts as "we just alerted on this." Slightly longer than
+# the dispatch-layer dedup window because pre-fire is the cheap line of
+# defense — better to suppress one extra fire than to pay for a fire
+# whose card gets dispatch-layer-dropped anyway.
+ALERT_RECENCY_S = 20 * 60
+
+
+async def _recent_alert_id() -> str:
+    """Return the most recent route:alert:* card's lake id if one
+    landed within ALERT_RECENCY_S, else empty string. Used to suppress
+    the alert tier from firing again while a fresh alert is still
+    "current."
+
+    Cheap query: bounded time window, limit=1, tag-filtered.
+    """
+    from .. import delta_client
+
+    cutoff_iso = (datetime.now(UTC) - timedelta(seconds=ALERT_RECENCY_S)).isoformat()
+    try:
+        rows = await delta_client.query(
+            tags_include=["feed-card"],
+            time_start=cutoff_iso,
+            limit=10,
+        )
+    except Exception:
+        return ""
+    for d in rows:
+        tags = d.get("tags") or []
+        if any(isinstance(t, str) and t.startswith("route:alert:") for t in tags):
+            return d.get("id") or ""
+    return ""
+
+
 async def fire_relief(
     reason: str,
     *,
@@ -312,6 +348,31 @@ async def fire_relief(
             "reason": "no_eligible_tier",
             "pressure_ratio": round(ratio, 3),
         }
+
+    # Pre-fire suppression for the alert tier. If a recent alert card
+    # already fired (within ALERT_RECENCY_S), skip writing the intent
+    # entirely. No intent → no harness fire → no LLM tokens spent.
+    # Without this, alert tier on a chronic-broken substrate spawns a
+    # full harness fire every cooldown window, each one costing tokens
+    # only for the dispatch-layer dedup to drop the resulting card.
+    if tier["name"] == "alert":
+        recent_alert_id = await _recent_alert_id()
+        if recent_alert_id:
+            print(
+                f"[relief] tier=alert SKIPPED — recent alert card "
+                f"{recent_alert_id[:12]} within {ALERT_RECENCY_S}s. "
+                f"Stamping cooldown anyway so the watcher elevates."
+            )
+            # Stamp the cooldown so the next tick walks past alert and
+            # picks bridging or sit. Without this, alert would be
+            # picker-eligible forever on chronic conditions.
+            await _stamp_cooldown(tier["name"])
+            return {
+                "fired": None,
+                "reason": "recent_alert_suppressed",
+                "duplicate_of": recent_alert_id,
+                "pressure_ratio": round(ratio, 3),
+            }
 
     print(
         f"[relief] firing tier={tier['name']} engine={tier['engine']} "
