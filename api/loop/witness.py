@@ -595,6 +595,79 @@ async def _write_constituting_writes(
         )
 
 
+# ── Alert dedup (anti-storm) ───────────────────────────────────────────
+
+
+# Window during which a near-duplicate alert is suppressed. After this,
+# a fresh alert about the same chronic condition is allowed through —
+# the operator may genuinely want a periodic reminder.
+ALERT_DEDUP_WINDOW_S = 15 * 60
+
+# Word-overlap threshold for "near-duplicate." Two alert bodies that
+# share more than this fraction of their non-trivial tokens are
+# treated as the same alert.
+ALERT_DEDUP_OVERLAP = 0.7
+
+
+def _alert_tokens(text: str) -> set[str]:
+    """Crude token set for body-overlap comparison. Lowercase, strip
+    punctuation, drop very short words. Sufficient for "is this the
+    same persistent failure being re-alerted" detection."""
+    if not text:
+        return set()
+    cleaned = "".join(ch.lower() if ch.isalnum() else " " for ch in text)
+    return {w for w in cleaned.split() if len(w) >= 4}
+
+
+async def _should_suppress_alert(*, body: str) -> tuple[bool, str]:
+    """True if a route:alert:* card with similar body already landed
+    in the dedup window. Returns (suppress, duplicate_lake_id).
+
+    Body-similarity check is intentionally loose — exact-string match
+    misses the case where the model regenerates the same alert with
+    slightly different wording each cron tick (4 fails vs 'four
+    consecutive fails', etc.)."""
+    if not body:
+        return False, ""
+    body_tokens = _alert_tokens(body)
+    if len(body_tokens) < 4:
+        # Too short to compare reliably. Don't suppress; let it through.
+        return False, ""
+
+    cutoff_iso = (datetime.now(UTC) - timedelta(seconds=ALERT_DEDUP_WINDOW_S)).isoformat()
+    try:
+        recent_alerts = await delta_client.query(
+            tags_include=["feed-card"],
+            time_start=cutoff_iso,
+            limit=20,
+        )
+    except Exception:
+        return False, ""
+
+    for d in recent_alerts:
+        tags = d.get("tags") or []
+        # Only compare against alert-route cards.
+        is_alert = any(t.startswith("route:alert:") for t in tags if isinstance(t, str))
+        if not is_alert:
+            continue
+        raw = d.get("content") or ""
+        try:
+            payload = json.loads(raw)
+            other_body = (payload.get("body") or "").strip()
+        except Exception:
+            other_body = raw
+        other_tokens = _alert_tokens(other_body)
+        if not other_tokens:
+            continue
+        # Jaccard overlap — symmetric, simple, good enough.
+        intersection = len(body_tokens & other_tokens)
+        union = len(body_tokens | other_tokens)
+        overlap = intersection / union if union else 0.0
+        if overlap >= ALERT_DEDUP_OVERLAP:
+            return True, d.get("id") or ""
+    return False, ""
+
+
 async def _dispatch_card(
     *,
     card: dict,
@@ -623,6 +696,44 @@ async def _dispatch_card(
     # responses. Letting them sweep all pending intents would silently
     # consume user questions that should belong to a chat-reply card.
     route_value = (card.get("route") or "chat-reply").strip()
+
+    # Alert dedup. Chronic broken substrate (e.g. a routine failing
+    # every cron tick) makes every harness fire route to alert because
+    # the failure IS genuinely the most piercing thing each time. The
+    # tier directive says "bias HARD against firing" but the model
+    # can't argue past what the substrate is shouting. Suppress here:
+    # if a route:alert:* card with a similar body landed in the last
+    # ALERT_DEDUP_WINDOW, downgrade this one to feed-card and write
+    # an audit delta. Operator can verify dedup is working.
+    if route_value.startswith("alert:"):
+        try:
+            should_suppress, dup_id = await _should_suppress_alert(
+                body=(card.get("body") or "").strip(),
+            )
+        except Exception as e:
+            print(f"[alert-dedup] check crashed: {type(e).__name__}: {e}")
+            should_suppress = False
+            dup_id = ""
+        if should_suppress:
+            print(
+                f"[alert-dedup] suppressed route={route_value!r} — "
+                f"near-duplicate of {dup_id[:12]} within window. "
+                f"Downgrading to feed-card."
+            )
+            try:
+                await delta_client.write(
+                    content=f"alert suppressed (near-duplicate of {dup_id[:12]})",
+                    tags=[
+                        "kind:alert-suppressed",
+                        f"would-be-route:{route_value}",
+                        f"duplicate-of:{dup_id}",
+                    ],
+                    source="alert-dedup",
+                )
+            except Exception as e:
+                print(f"[alert-dedup] audit write failed: {type(e).__name__}: {e}")
+            route_value = "feed-card"
+
     is_responsive_route = (
         route_value == "chat-reply"
         or route_value.startswith("claude-code:")

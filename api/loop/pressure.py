@@ -8,11 +8,18 @@ cooldowns live in `relief.py`; this module is just the trigger loop.
 Old `fire_pressure_pulse` (four-intents-per-trigger shape) was retired
 when the relief gradient landed. See `relief.py:RELIEF_TIERS` for
 where the directives went.
+
+Set `FATHOM_PRESSURE_RELIEF_DISABLED=1` to make the watcher a no-op.
+The manual /v1/puddle/pulse endpoint still works so the operator can
+fire relief deliberately. Used during alert-storm investigations or
+when the substrate has a chronic broken condition that's making every
+fire route to alert.
 """
 
 from __future__ import annotations
 
 import asyncio
+import os
 
 from .. import feed_pressure
 
@@ -22,6 +29,11 @@ from .. import feed_pressure
 # to load the lake, fast enough that "pressure built up over the last
 # stretch" lands within a minute.
 PRESSURE_POLL_S = 60
+
+# Operator kill-switch. When set, the watcher polls but never fires
+# relief — manual /v1/puddle/pulse is unaffected. Read once at module
+# load so a fresh container picks up the env without code changes.
+RELIEF_DISABLED = os.environ.get("FATHOM_PRESSURE_RELIEF_DISABLED", "0") == "1"
 
 
 async def pressure_watcher() -> None:
@@ -36,7 +48,10 @@ async def pressure_watcher() -> None:
     """
     from . import relief
 
-    print(f"[pressure watcher armed] poll={PRESSURE_POLL_S}s")
+    if RELIEF_DISABLED:
+        print("[pressure watcher] FATHOM_PRESSURE_RELIEF_DISABLED=1 — watcher idle")
+    else:
+        print(f"[pressure watcher armed] poll={PRESSURE_POLL_S}s")
     while True:
         try:
             await asyncio.sleep(PRESSURE_POLL_S)
@@ -50,7 +65,7 @@ async def pressure_watcher() -> None:
         # Skip first-run — we don't want to fire a pulse just because
         # the install is fresh and has never synthesized. Pressure-shaped
         # reasons (`pressure`, `contrast-wake`) are the real triggers.
-        if should and reason in ("pressure", "contrast-wake"):
+        if should and reason in ("pressure", "contrast-wake") and not RELIEF_DISABLED:
             try:
                 await relief.fire_relief(reason)
             except asyncio.CancelledError:
