@@ -3,6 +3,41 @@
 Project-specific conventions, architecture, and lake tag contracts. Read
 when working on the Grand Loop, search, routines, or agent plumbing.
 
+## Build the architecture right
+
+This is a new product, not gum and tape. When a problem surfaces, the
+first instinct should be "what's fundamentally wrong with the model?",
+not "where can I patch the symptom?" Stopgaps are sometimes the right
+move under time pressure, but every stopgap should be named as a
+stopgap and accompanied by a real fix that's tracked, not forgotten.
+
+A few specific habits that matter:
+
+- **Don't conflate the gauge with the source.** A pressure metric, a
+  drift score, a dedup token-overlap heuristic — these are read-side
+  measurements. Patching them changes what gets reported, not what's
+  actually happening underneath. When something looks wrong, ask
+  whether the underlying signal has changed or just the read of it.
+- **Prefer prompt-data architecture over write-side schema.** When
+  the model needs to know something about the past (recent alerts,
+  recent endorsements, who's been talked to), the cheap fix is to
+  load that data into the standpoint and render it into the prompt.
+  Adding new delta kinds, ack tags, or back-edits to existing deltas
+  is usually wrong — the lake is append-only and richly tagged
+  already.
+- **The lake is append-only.** Forever. No deltas get edited or
+  deleted. New facts override old ones by being newer; relevance
+  ranking surfaces newer-and-tighter material over older-and-fuzzier.
+  When a system path looks like it wants to "update" a delta, that
+  path is wrong — write a new delta that points at the old one.
+- **Read-side filters before write-side schema.** Almost every "we
+  need to track X" question is answerable with a query against
+  existing tags + a new lens, not a new tag prefix and a write hook.
+  Reach for tags only when the data genuinely doesn't exist anywhere.
+- **Backstops are not architecture.** Dispatch-layer dedup, env-flag
+  kill-switches, hard caps — these protect against pathological
+  cases. They don't replace the right shape underneath.
+
 ## Substrate and surfaces
 
 The Grand Loop is the **substrate** — where Fathom thinks. Everything

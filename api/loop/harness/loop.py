@@ -1715,6 +1715,24 @@ def _render_standpoint_full(sp) -> str:
         parts.append("recently concluded:")
         for s in sp.understanding:
             parts.append(f"  · {s.content}")
+    recent_alerts = getattr(sp, "recent_alerts", None) or []
+    if recent_alerts:
+        parts.append("")
+        parts.append(
+            "alerts you've already raised (don't re-raise unless a "
+            "delta NEWER than the alert reveals an actual change — "
+            "resolution, escalation, novel symptom; if the same "
+            "scary thing is still in your substrate, it's expected "
+            "and known, not new):"
+        )
+        for a in recent_alerts:
+            ts = (a.timestamp or "")[11:16]  # HH:MM
+            head = f"  · {ts} · {a.route} · {a.title}"
+            if a.cited_ids:
+                head += f"  ({len(a.cited_ids)} cited)"
+            parts.append(head)
+            if a.body:
+                parts.append(f"      {a.body}")
     return "\n".join(parts).rstrip()
 
 

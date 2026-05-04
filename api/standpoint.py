@@ -39,6 +39,7 @@ refetch, call `current()` again. There is no shared global cache.
 
 from __future__ import annotations
 
+import json
 import logging
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
@@ -126,6 +127,30 @@ class Sediment:
 
 
 @dataclass(frozen=True)
+class RecentAlert:
+    """One recent alert card the harness has already raised.
+
+    Surfaced into the harness prompt so the model knows which broken
+    conditions in the substrate it's already responded to. Without
+    this, every fire that examines substrate via tools rediscovers
+    the same chronic broken state and re-routes to alert — the
+    "alert storm on chronic conditions" pattern.
+
+    The lake is append-only and these cards exist there with their
+    cited_ids; we just need to surface a digest into the prompt so
+    re-raising becomes a deliberate choice (something genuinely
+    changed) rather than an unconscious one (the substrate looks
+    scary again)."""
+
+    delta_id: str
+    timestamp: str
+    route: str       # e.g. "alert:critical" / "alert:warn"
+    title: str       # short label
+    body: str        # excerpt — full body would bloat the prompt
+    cited_ids: list[str]
+
+
+@dataclass(frozen=True)
 class Standpoint:
     """The full self-state, gathered fresh for one River fire.
 
@@ -134,10 +159,10 @@ class Standpoint:
     filtering by endorsements), metric (coherence-of-self alongside
     spread), witness (integration through identity).
 
-    The four primary fields are independent reads — a stale crystal
-    doesn't poison mood, a missing mood doesn't poison endorsements.
-    Each field's own canonical source produced it; Standpoint just
-    surfaces them together."""
+    The fields are independent reads — a stale crystal doesn't poison
+    mood, a missing mood doesn't poison endorsements. Each field's
+    own canonical source produced it; Standpoint just surfaces them
+    together."""
 
     identity: Identity
     affect: Affect
@@ -148,6 +173,12 @@ class Standpoint:
     # Diagnostic — when was this snapshot taken
     captured_at: str = ""
     session_tag: str = ""
+
+    # Recent alerts the harness has already raised, surfaced into the
+    # prompt so re-raising chronic conditions is a deliberate move,
+    # not an unconscious one. Default empty list so existing
+    # construction sites keep working without the field.
+    recent_alerts: list[RecentAlert] = field(default_factory=list)
 
 
 # ── Posture inference ────────────────────────────────────────────────
@@ -376,7 +407,7 @@ async def _load_understanding() -> list[Sediment]:
 async def current(session_tag: str = "") -> Standpoint:
     """Gather a fresh Standpoint snapshot.
 
-    Each call hits the lake — fast (5 small queries, parallelizable).
+    Each call hits the lake — fast (small parallelizable queries).
     Callers should pass ONE snapshot through all stages of one fire
     rather than re-calling at each stage; that keeps mid-deliberation
     state consistent and avoids torn reads if a slow-clock regen
@@ -384,11 +415,12 @@ async def current(session_tag: str = "") -> Standpoint:
     """
     import asyncio
 
-    identity, affect, endorsements, understanding = await asyncio.gather(
+    identity, affect, endorsements, understanding, recent_alerts = await asyncio.gather(
         _load_identity(),
         _load_affect(),
         _load_endorsements(),
         _load_understanding(),
+        _load_recent_alerts(),
     )
     posture = _infer_posture(identity, affect)
     return Standpoint(
@@ -396,10 +428,94 @@ async def current(session_tag: str = "") -> Standpoint:
         affect=affect,
         endorsements=endorsements,
         understanding=understanding,
+        recent_alerts=recent_alerts,
         posture=posture,
         captured_at=datetime.now(UTC).isoformat(),
         session_tag=session_tag,
     )
+
+
+# ── Recent alerts loader ──────────────────────────────────────────────
+
+
+# How far back to look for alert cards. Long enough that a daily-cron
+# routine with a chronic failure surfaces every fire (so re-raising
+# requires a deliberate "something new" judgment), short enough that a
+# resolved condition can be re-alerted later if it actually recurs
+# weeks down the line.
+ALERT_LOOKBACK_HOURS = 6
+ALERT_LIMIT = 8
+
+
+async def _load_recent_alerts() -> list[RecentAlert]:
+    """Pull recent route:alert:* cards into a digest list.
+
+    Surfaced into the harness prompt so the model knows what it's
+    already alerted on. The architectural correction for the
+    "alert storm on chronic conditions" pattern: instead of the model
+    rediscovering the same broken substrate every fire and re-raising,
+    it sees the alert it already raised and only re-raises when
+    something genuinely new about the condition lands.
+
+    Soft-fails to empty list — recent_alerts is signal, not load-
+    bearing. A fire with no alert digest still works, just risks
+    re-raising on chronic conditions until the dispatch-layer dedup
+    catches it as backstop.
+    """
+    cutoff_iso = (
+        datetime.now(UTC) - timedelta(hours=ALERT_LOOKBACK_HOURS)
+    ).isoformat()
+    try:
+        rows = await delta_client.query(
+            tags_include=["feed-card"],
+            time_start=cutoff_iso,
+            limit=50,
+        )
+    except Exception as e:
+        log.warning(f"recent-alerts query failed: {type(e).__name__}: {e}")
+        return []
+
+    out: list[RecentAlert] = []
+    for d in rows:
+        tags = d.get("tags") or []
+        route = ""
+        for t in tags:
+            if isinstance(t, str) and t.startswith("route:alert:"):
+                route = t[len("route:") :]
+                break
+        if not route:
+            continue
+        delta_id = d.get("id") or ""
+        ts = d.get("timestamp") or ""
+        title = ""
+        body = ""
+        raw = d.get("content") or ""
+        if raw:
+            try:
+                payload = json.loads(raw)
+                if isinstance(payload, dict):
+                    title = (payload.get("title") or payload.get("kicker") or "").strip()
+                    body = (payload.get("body") or "").strip()
+            except Exception:
+                body = raw
+        cited = [
+            t.split(":", 1)[1]
+            for t in tags
+            if isinstance(t, str) and t.startswith("from:")
+        ]
+        out.append(
+            RecentAlert(
+                delta_id=delta_id,
+                timestamp=ts,
+                route=route,
+                title=title or "Alert",
+                body=body[:400],
+                cited_ids=cited,
+            )
+        )
+        if len(out) >= ALERT_LIMIT:
+            break
+    return out
 
 
 def render_for_prompt(sp: Standpoint, *, char_budget: int = 1200) -> str:
