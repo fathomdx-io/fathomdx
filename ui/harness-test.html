@@ -80,9 +80,60 @@
     grid-template-columns: 1fr 320px;
     overflow: hidden;
   }
-  #trace {
+  .panels {
+    position: relative;
+    overflow: hidden;
+  }
+  #trace, #lake {
+    position: absolute;
+    inset: 0;
     overflow-y: auto;
     padding: 18px;
+  }
+  #lake {
+    overflow: hidden;
+    padding: 0;
+    display: none;
+    background: #f3ede0;
+  }
+  body[data-tab="lake"] #trace { display: none; }
+  body[data-tab="lake"] #lake { display: block; }
+  .tabs {
+    display: flex;
+    gap: 4px;
+    margin-left: 18px;
+  }
+  .tabs button {
+    padding: 6px 14px;
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    color: var(--text-dim);
+    font: 600 12px/1 var(--mono);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    border-radius: 3px 3px 0 0;
+    border-bottom: none;
+    cursor: pointer;
+  }
+  .tabs button.active {
+    color: var(--accent);
+    border-color: var(--accent);
+    background: var(--surface);
+  }
+  /* Lake view — pencil-on-paper inside the dark dashboard chrome */
+  #lake svg.lake-svg {
+    width: 100%; height: 100%;
+    display: block;
+  }
+  #lake .lake-status {
+    position: absolute;
+    top: 10px; left: 16px;
+    font: 12px/1.4 Georgia, serif;
+    color: #4a3e30;
+    background: rgba(243, 237, 224, 0.85);
+    padding: 4px 8px;
+    border: 1px dashed #6e5e4a;
+    border-radius: 3px;
   }
   .empty {
     text-align: center; color: var(--text-dim);
@@ -273,6 +324,10 @@
   <header>
     <h1>Harness Test</h1>
     <span class="sub">live trace of one harness fire — agentic loop with search/expand/ascend/deliberate</span>
+    <div class="tabs">
+      <button id="tab-trace" class="active">Trace</button>
+      <button id="tab-lake">Lake</button>
+    </div>
   </header>
 
   <div class="composer">
@@ -281,8 +336,14 @@
   </div>
 
   <main>
-    <div id="trace">
-      <div class="empty">Type a question and hit Fire to watch the harness reason through it.</div>
+    <div class="panels">
+      <div id="trace">
+        <div class="empty">Type a question and hit Fire to watch the harness reason through it.</div>
+      </div>
+      <div id="lake">
+        <div class="lake-status" id="lake-status">load a fire to see what crosses the diagonal</div>
+        <svg class="lake-svg" id="lake-svg" preserveAspectRatio="none"></svg>
+      </div>
     </div>
     <aside class="proposals-pane" id="proposals-pane">
       <h2>Proposals <span class="sub" id="proposals-count">—</span></h2>
@@ -763,6 +824,292 @@ function renderProposals(items) {
 
 fetchProposals();
 setInterval(fetchProposals, 4000);
+
+
+// ─── Lake tab ─────────────────────────────────────────────────────
+// The Lake view shows the question's resonance: provenance rings as
+// the constant background, fibers populated DURING the fire from the
+// delta ids the harness's tools surface. Fire something → the
+// fibers light up at the timestamps of what crossed the diagonal
+// for THIS question.
+
+const $tabTrace = document.getElementById('tab-trace');
+const $tabLake = document.getElementById('tab-lake');
+const $lakeSvg = document.getElementById('lake-svg');
+const $lakeStatus = document.getElementById('lake-status');
+
+let _provenanceNodes = [];   // {id, ts, level, fromIds, title}
+let _provenanceById = new Map();
+let _recalledIds = new Set(); // ids seen during current fire
+let _recalledMeta = new Map(); // id → {ts, source}
+let _lakeXMin = 0, _lakeXMax = 0;
+
+function setTab(name) {
+  document.body.dataset.tab = name;
+  $tabTrace.classList.toggle('active', name === 'trace');
+  $tabLake.classList.toggle('active', name === 'lake');
+  if (name === 'lake') renderLake();
+}
+$tabTrace.addEventListener('click', () => setTab('trace'));
+$tabLake.addEventListener('click', () => setTab('lake'));
+
+async function loadProvenance() {
+  try {
+    const url = '/v1/deltas?tags_include=' + encodeURIComponent('kind:provenance') + '&limit=2000';
+    const r = await fetch(url, { headers: authHeaders() });
+    if (!r.ok) return;
+    const data = await r.json();
+    const items = Array.isArray(data) ? data : (data.results || data.deltas || []);
+    _provenanceNodes = items.map(d => {
+      const tags = d.tags || [];
+      const lvl = (function() {
+        for (const t of tags) {
+          if (typeof t === 'string' && t.startsWith('provenance-level:')) {
+            const n = parseInt(t.split(':',2)[1], 10);
+            if (Number.isFinite(n)) return n;
+          }
+        }
+        return tags.includes('kind:qa-marker') ? 0 : 1;
+      })();
+      const fromIds = (tags || []).filter(t => typeof t === 'string' && t.startsWith('from:')).map(t => t.slice(5));
+      const title = (function() {
+        for (const t of tags) {
+          if (typeof t === 'string' && t.startsWith('title:')) return t.slice(6).replace(/-/g, ' ');
+        }
+        return '';
+      })();
+      const ts = d.timestamp ? new Date(d.timestamp).getTime() : 0;
+      return { id: d.id, ts, level: lvl, fromIds, title };
+    }).filter(n => n.id);
+    _provenanceById = new Map(_provenanceNodes.map(n => [n.id, n]));
+    // Compute barycenters (median of children's times)
+    for (const n of _provenanceNodes) {
+      if (n.level <= 1) { n.barycenter = n.ts; continue; }
+      const childTs = n.fromIds.map(fid => _provenanceById.get(fid)).filter(Boolean).map(c => c.barycenter || c.ts);
+      if (childTs.length) { childTs.sort((a,b) => a-b); n.barycenter = childTs[Math.floor(childTs.length/2)]; }
+      else n.barycenter = n.ts;
+    }
+    for (const n of _provenanceNodes) {
+      if (n.level !== 3) continue;
+      const childTs = n.fromIds.map(fid => _provenanceById.get(fid)).filter(Boolean).map(c => c.barycenter || c.ts);
+      if (childTs.length) { childTs.sort((a,b) => a-b); n.barycenter = childTs[Math.floor(childTs.length/2)]; }
+    }
+    if (document.body.dataset.tab === 'lake') renderLake();
+  } catch (e) {
+    console.error('loadProvenance failed', e);
+  }
+}
+
+// Extract 12-char hex delta ids from a rendered tool result.
+// The harness's tools render ids in many places — search timeline
+// strips, expand/ascend lists, lens results — but always as 12-char
+// lowercase hex. Greedy match captures everything visible in context.
+function extractDeltaIds(text) {
+  if (!text) return [];
+  const ids = new Set();
+  const re = /\b([0-9a-f]{12})\b/g;
+  let m;
+  while ((m = re.exec(text)) !== null) ids.add(m[1]);
+  return [...ids];
+}
+
+async function fetchDeltaMeta(id) {
+  if (_recalledMeta.has(id)) return;
+  try {
+    const r = await fetch(`/v1/deltas/${encodeURIComponent(id)}`, { headers: authHeaders() });
+    if (!r.ok) return;
+    const d = await r.json();
+    _recalledMeta.set(id, {
+      ts: d.timestamp ? new Date(d.timestamp).getTime() : 0,
+      source: d.source || '',
+    });
+    if (document.body.dataset.tab === 'lake') renderLake();
+  } catch (e) { /* soft-fail */ }
+}
+
+// Hook into the existing event flow — extend handleEvent to also
+// build up the recalled set for the Lake view. We do this without
+// modifying the original handleEvent by wrapping it.
+const _origHandleEvent = handleEvent;
+window.handleEvent = function(eventName, payload) {
+  // Reset on a fresh fire
+  if (eventName === 'seeded') {
+    _recalledIds.clear();
+    _recalledMeta.clear();
+    $lakeStatus.textContent = `firing — ${payload.question || ''}`;
+  }
+  if (eventName === 'tool_result' && payload.result) {
+    const ids = extractDeltaIds(payload.result);
+    let added = 0;
+    for (const id of ids) {
+      if (!_recalledIds.has(id)) {
+        _recalledIds.add(id);
+        added++;
+        // Lazy-fetch metadata so we get a real timestamp + source.
+        fetchDeltaMeta(id);
+      }
+    }
+    if (added) {
+      $lakeStatus.textContent = `${_recalledIds.size} deltas resonated so far`;
+    }
+  }
+  if (eventName === 'finished') {
+    $lakeStatus.textContent = `fire complete — ${_recalledIds.size} deltas resonated`;
+  }
+  if (document.body.dataset.tab === 'lake') renderLake();
+  return _origHandleEvent.call(this, eventName, payload);
+};
+// Replace in the closure too — fire() calls handleEvent directly
+handleEvent = window.handleEvent;
+
+// ─── Lake render ──────────────────────────────────────────────────
+function jitter(amp = 1.5) { return (Math.random() - 0.5) * amp; }
+
+function sketchyCircle(cx, cy, r) {
+  const N = 24;
+  const pts = [];
+  for (let i = 0; i <= N; i++) {
+    const a = (i / N) * 2 * Math.PI;
+    const rj = r + jitter(2);
+    pts.push([cx + Math.cos(a) * rj, cy + Math.sin(a) * rj]);
+  }
+  let d = `M ${pts[0][0]} ${pts[0][1]}`;
+  for (let i = 1; i < pts.length; i++) {
+    const [x, y] = pts[i], [px, py] = pts[i-1];
+    d += ` Q ${px} ${py} ${(px+x)/2} ${(py+y)/2}`;
+  }
+  d += ' Z';
+  return d;
+}
+
+function sketchyLine(x1, y1, x2, y2, segs = 10) {
+  let d = `M ${x1 + jitter()} ${y1 + jitter()}`;
+  for (let i = 1; i <= segs; i++) {
+    const t = i / segs;
+    d += ` L ${x1 + (x2-x1)*t + jitter(1.4)} ${y1 + (y2-y1)*t + jitter(1.4)}`;
+  }
+  return d;
+}
+
+function escXml(s) {
+  return String(s == null ? '' : s)
+    .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
+    .replace(/"/g,'&quot;').replace(/'/g,'&apos;');
+}
+
+function renderLake() {
+  const W = $lakeSvg.clientWidth || 1200;
+  const H = $lakeSvg.clientHeight || 700;
+  $lakeSvg.setAttribute('viewBox', `0 0 ${W} ${H}`);
+
+  if (!_provenanceNodes.length) {
+    $lakeSvg.innerHTML = `<text x="${W/2}" y="${H/2}" text-anchor="middle" fill="#4a3e30" font-family="Georgia" font-style="italic">loading the lake…</text>`;
+    return;
+  }
+
+  // X scale spans both provenance barycenters AND any recalled delta
+  // timestamps that fall outside that range.
+  let xs = _provenanceNodes.map(n => n.barycenter).filter(Boolean);
+  for (const [, meta] of _recalledMeta) {
+    if (meta.ts) xs.push(meta.ts);
+  }
+  _lakeXMin = Math.min(...xs);
+  _lakeXMax = Math.max(...xs);
+  const xPad = 70;
+  const tx = ms => xPad + ((ms - _lakeXMin) / Math.max(1, _lakeXMax - _lakeXMin)) * (W - 2 * xPad);
+
+  const yTop = 50;
+  const yAxis = H - 60;
+  const yFor = lvl => {
+    if (lvl === 3) return yTop + 30;
+    if (lvl === 2) return yTop + 110;
+    if (lvl === 1) return yTop + 190;
+    return yAxis - 50;
+  };
+
+  const inkStroke = '#2a221a', dim = '#6e5e4a', accent = '#b04a18';
+  const eraColor = '#7a5a30', topicColor = '#5e4380', episodeColor = '#2c5d7e';
+
+  // Stable jitter per node
+  function jitterFor(id, range = 28) {
+    let h = 0;
+    for (const c of id) h = (h * 31 + c.charCodeAt(0)) >>> 0;
+    return ((h % 1000) / 1000 - 0.5) * range;
+  }
+
+  const parts = [];
+
+  // Axis
+  parts.push(`<path d="${sketchyLine(xPad - 30, yAxis, W - xPad + 30, yAxis, 50)}" stroke="${inkStroke}" stroke-width="1.5" fill="none" stroke-linecap="round"/>`);
+  parts.push(`<polygon points="${xPad-30},${yAxis} ${xPad-18},${yAxis-4} ${xPad-18},${yAxis+4}" fill="${inkStroke}"/>`);
+  parts.push(`<polygon points="${W-xPad+30},${yAxis} ${W-xPad+18},${yAxis-4} ${W-xPad+18},${yAxis+4}" fill="${inkStroke}"/>`);
+  parts.push(`<text x="${xPad-36}" y="${yAxis-12}" text-anchor="end" font-family="'Caveat','Bradley Hand',cursive" font-weight="700" font-size="13" fill="${inkStroke}">birth</text>`);
+  parts.push(`<text x="${W-xPad+36}" y="${yAxis-12}" text-anchor="start" font-family="'Caveat','Bradley Hand',cursive" font-weight="700" font-size="13" fill="${inkStroke}">now</text>`);
+  parts.push(`<text x="${W/2}" y="${yAxis+22}" text-anchor="middle" font-family="Georgia" font-style="italic" font-size="12" fill="${dim}">time →</text>`);
+
+  // Diagonal density-of-recall line
+  const dx1 = xPad+20, dy1 = yTop+10, dx2 = W-xPad-20, dy2 = yAxis-15;
+  parts.push(`<path d="${sketchyLine(dx1, dy1, dx2, dy2, 22)}" stroke="${inkStroke}" stroke-width="1.4" fill="none" stroke-linecap="round" stroke-dasharray="8 4 2 4" opacity="0.7"/>`);
+  const dlmX = (dx1+dx2)/2, dlmY = (dy1+dy2)/2 - 6;
+  const dlAngle = Math.atan2(dy2-dy1, dx2-dx1) * 180/Math.PI;
+  parts.push(`<text x="${dlmX}" y="${dlmY}" text-anchor="middle" transform="rotate(${dlAngle.toFixed(2)},${dlmX},${dlmY})" font-family="'Caveat',cursive" font-weight="700" font-size="13" fill="${dim}">density of recall</text>`);
+  parts.push(`<text x="${xPad}" y="${yTop+6}" font-family="'Caveat',cursive" font-weight="700" font-size="13" fill="${dim}">↑ identity</text>`);
+
+  // Fibers — recalled deltas, plotted at real timestamps
+  let plottedFibers = 0;
+  for (const [id, meta] of _recalledMeta) {
+    if (!meta.ts || meta.ts < _lakeXMin - 1 || meta.ts > _lakeXMax + 1) continue;
+    const x = tx(meta.ts);
+    const fy = yAxis - 8 + jitterFor(id, 10);
+    const w = 9 + (id.charCodeAt(0) % 6);
+    const h = 4 + (id.charCodeAt(1) % 3);
+    const segs = 3;
+    let d = `M ${x} ${fy}`;
+    for (let j = 1; j <= segs; j++) {
+      const dx = (j/segs)*w;
+      const sign = (j%2 === 0) ? 1 : -1;
+      d += ` L ${x+dx} ${fy + sign*h}`;
+    }
+    const isProv = _provenanceById.has(id);
+    const color = isProv ? accent : dim;
+    const op = isProv ? 0.95 : 0.7;
+    parts.push(`<path d="${d}" stroke="${color}" stroke-width="${isProv ? 1.4 : 1.0}" fill="none" stroke-linecap="round" opacity="${op}"/>`);
+    plottedFibers++;
+  }
+
+  // Provenance rings (always shown, regardless of recall)
+  const sorted = [..._provenanceNodes].sort((a,b) => b.level - a.level);
+  for (const n of sorted) {
+    if (!n.barycenter) continue;
+    const x = tx(n.barycenter);
+    const y = yFor(n.level) + jitterFor(n.id, 32);
+    const r = (n.level === 3 ? 26 : n.level === 2 ? 16 : n.level === 1 ? 10 : 6) + Math.sqrt(Math.max(1, n.fromIds.length)) * 1.3;
+    const stroke = n.level === 3 ? eraColor : n.level === 2 ? topicColor : n.level === 1 ? episodeColor : dim;
+    const wgt = n.level === 3 ? 2 : n.level === 2 ? 1.6 : 1.3;
+    // Highlight if this provenance was directly recalled this fire
+    const recalled = _recalledIds.has(n.id);
+    const fillOp = recalled ? 0.25 : 0.05;
+    const strokeFinal = recalled ? accent : stroke;
+    const strokeWFinal = recalled ? wgt + 0.6 : wgt;
+    parts.push(`<path d="${sketchyCircle(x, y, r)}" stroke="${strokeFinal}" stroke-width="${strokeWFinal}" fill="${accent}" fill-opacity="${fillOp}" stroke-linecap="round"/>`);
+    if (n.level >= 2 && n.title) {
+      parts.push(`<text x="${x}" y="${y+r+12}" text-anchor="middle" font-family="'Caveat',cursive" font-weight="600" font-size="11" fill="${inkStroke}">${escXml(n.title.slice(0, 32))}</text>`);
+    }
+  }
+
+  // Status line
+  if (plottedFibers > 0) {
+    parts.push(`<text x="${W-xPad}" y="${H-12}" text-anchor="end" font-family="Georgia" font-style="italic" font-size="11" fill="${dim}">${plottedFibers} delta${plottedFibers===1?'':'s'} resonated for this question</text>`);
+  }
+
+  $lakeSvg.innerHTML = parts.join('\n');
+}
+
+window.addEventListener('resize', () => {
+  if (document.body.dataset.tab === 'lake') renderLake();
+});
+
+loadProvenance();
 </script>
 </body>
 </html>
