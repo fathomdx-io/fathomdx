@@ -195,6 +195,7 @@ services:
       FATHOM_DELTA_STORE_URL: http://delta-store:8000
       FATHOM_DELTA_API_KEY: ${DELTA_API_KEY:-}
       FATHOM_SOURCE_RUNNER_URL: http://source-runner:8000
+      FATHOM_USE_HARNESS: ${FATHOM_USE_HARNESS:-0}
     depends_on:
       delta-store:
         condition: service_healthy
