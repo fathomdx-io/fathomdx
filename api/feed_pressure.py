@@ -98,6 +98,11 @@ def _empty_state() -> dict:
     return {
         "last_wake_at": None,
         "last_synthesis_at": None,
+        # Carried-over pressure from partial-consumption mark_synthesis
+        # calls. Read back as a floor on top of fresh-volume reads so
+        # tiered relief that bites less than 100% leaves the next
+        # watcher tick aware of the residual.
+        "pressure_floor": 0.0,
     }
 
 
@@ -110,6 +115,7 @@ def _load_raw() -> dict:
         return {
             "last_wake_at": data.get("last_wake_at"),
             "last_synthesis_at": data.get("last_synthesis_at"),
+            "pressure_floor": float(data.get("pressure_floor") or 0.0),
         }
     except Exception:
         return _empty_state()
@@ -159,8 +165,15 @@ async def read_pressure() -> dict:
 
     time_since_wake = (now - last_wake).total_seconds() if last_wake else None
     time_since_synth = (now - last_synth).total_seconds() if last_synth else None
+    floor = float(state.get("pressure_floor") or 0.0)
     return {
-        "volume": volume,
+        # Volume reported up = fresh-window volume + carried floor. The
+        # floor is set by partial-consumption mark_synthesis calls (the
+        # tiered relief gradient) and stays constant until the next
+        # mark_synthesis recomputes or zeros it.
+        "volume": volume + floor,
+        "fresh_volume": volume,
+        "pressure_floor": floor,
         "last_wake_at": last_wake,
         "last_synthesis_at": last_synth,
         "time_since_wake_seconds": time_since_wake,
@@ -216,8 +229,40 @@ async def mark_wake() -> None:
         _save_raw(state)
 
 
-async def mark_synthesis() -> None:
+async def mark_synthesis(weight: float = 1.0) -> None:
+    """Consume `weight` fraction of current pressure.
+
+    `weight=1.0` (default, original behavior): full reset — anchor
+    bumps to now, pressure_floor zeroed. Pressure drops to ~0.
+
+    `weight<1.0`: partial consumption — anchor bumps to now (so fresh
+    volume restarts from zero) AND `pressure_floor` is set to the
+    `(1 - weight)` carryover of the pre-fire pressure. Subsequent
+    read_pressure calls see `volume = fresh_volume + floor`. The floor
+    persists until the next mark_synthesis re-computes it.
+
+    Used by the tiered relief gradient (api/loop/relief.py): alert
+    bites 0.2, bridging bites 0.5, sit bites 1.0. Pressure that
+    survives a small bite is still detectable on the next watcher
+    tick, naturally elevating to the next tier (whose cooldown didn't
+    just stamp).
+    """
+    weight = max(0.0, min(1.0, weight))
+    if weight >= 1.0:
+        async with _lock:
+            state = _load_raw()
+            state["last_synthesis_at"] = _iso(_now())
+            state["pressure_floor"] = 0.0
+            _save_raw(state)
+        return
+
+    # Partial consumption — read current total pressure (volume + old
+    # floor) and carry forward (1 - weight) of it as the new floor.
+    current = await read_pressure()
+    pre_fire_pressure = float(current.get("volume") or 0.0)
+    new_floor = max(0.0, pre_fire_pressure * (1.0 - weight))
     async with _lock:
         state = _load_raw()
         state["last_synthesis_at"] = _iso(_now())
+        state["pressure_floor"] = new_floor
         _save_raw(state)
