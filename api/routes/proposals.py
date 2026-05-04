@@ -330,22 +330,41 @@ async def approve_proposal(delta_id: str, body: dict | None = None):
             raise HTTPException(status_code=400, detail=f"unknown action: {action!r}")
     elif tool == "helper-dispatch":
         if action == "run":
+            import uuid as _uuid
+
             host = (args.get("host") or "").strip()
             task = (args.get("task") or "").strip()
             if not host:
                 raise HTTPException(status_code=400, detail="host required")
             if not task:
                 raise HTTPException(status_code=400, detail="task required")
-            # Approval materializes the dispatch as a route:claude-code:<host>
-            # delta. The claude-code-watcher polls those and runs the task on
-            # the target host. Approval is the authorization handshake — the
-            # operator is consenting that this task should run.
+            # Approval materializes the dispatch as a feed-card delta with
+            # the same tag shape the witness uses for proactive
+            # claude-code dispatches: bare `route:claude-code` (NOT
+            # `route:claude-code:<host>`), plus separate `host:<host>`
+            # and `task-corr:<corr>` tags.
+            #
+            # The host-side kitty plugin polls
+            # `tags_include=route:claude-code,host:<myhost>` (AND
+            # semantics, exact-match on tag strings) and only matches
+            # when both bare tags are present. Without this exact shape,
+            # the dispatch lands in the lake but the host never picks
+            # it up.
+            corr = _uuid.uuid4().hex[:12]
+            # `to:claude-code:<corr>` is the addressing tag the host's
+            # kitty plugin requires (see addons/agent/plugins/kitty.js).
+            # Without it the dispatch is logged "missing to:claude-code:
+            # <corr>" and skipped. The witness's _dispatch_card also
+            # writes this via channels.address_tag().
             dispatch = await delta_client.write(
                 content=task,
                 tags=[
                     "feed-card",
-                    f"route:claude-code:{host}",
+                    "route:claude-code",
                     f"host:{host}",
+                    "channel:claude-code",
+                    f"to:claude-code:{corr}",
+                    f"task-corr:{corr}",
                     "kind:helper-dispatch",
                     f"approved-from-proposal:{delta_id}",
                     "produced-by:harness",
@@ -355,6 +374,7 @@ async def approve_proposal(delta_id: str, body: dict | None = None):
             result = {
                 "dispatched": True,
                 "host": host,
+                "task_corr": corr,
                 "task_chars": len(task),
                 "dispatch_delta_id": (dispatch or {}).get("id"),
             }
