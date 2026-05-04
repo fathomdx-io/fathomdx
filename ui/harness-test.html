@@ -1022,26 +1022,68 @@ function escXml(s) {
     .replace(/"/g,'&quot;').replace(/'/g,'&apos;');
 }
 
+// Provenance → color. Deterministic HSL hash for consistent assignment;
+// L3 eras get a wide hue range, L2 topics get distinct hues, L1
+// episodes inherit their L2 parent's color (when known).
+function _provHueFromId(id) {
+  let h = 0;
+  for (const c of id) h = (h * 31 + c.charCodeAt(0)) >>> 0;
+  return h % 360;
+}
+function _provColorForId(id, lvl) {
+  if (!id) return '#6e5e4a';
+  const hue = _provHueFromId(id);
+  // L3 darker/saturated, L2 mid, L1 lighter — but consistent within
+  // an L2's children so a topic and its episodes read as one family.
+  if (lvl === 3) return `hsl(${hue}, 55%, 32%)`;
+  if (lvl === 2) return `hsl(${hue}, 50%, 38%)`;
+  if (lvl === 1) return `hsl(${hue}, 45%, 45%)`;
+  return `hsl(${hue}, 35%, 50%)`;
+}
+
+// For a surfaced delta, find the most specific provenance that
+// contains it. Walk parents looking for the highest-level ancestor
+// (since L2 topics carry the most useful color signal). If the
+// delta is itself a provenance, return itself.
+function _provenanceForDelta(id) {
+  const node = _provenanceById.get(id);
+  if (node && node.level >= 1) return node;
+  // Search for any L2 ancestor in the surfaced set
+  // by looking up the parent index built from _provenanceNodes.
+  for (const candidate of _provenanceNodes) {
+    if (candidate.fromIds.includes(id) && candidate.level >= 1) {
+      return candidate;
+    }
+  }
+  // Walk further: anything two levels up
+  for (const candidate of _provenanceNodes) {
+    if (candidate.level !== 2) continue;
+    for (const childId of candidate.fromIds) {
+      const childNode = _provenanceById.get(childId);
+      if (childNode && childNode.fromIds.includes(id)) return candidate;
+    }
+  }
+  return null;
+}
+
 function renderLake() {
   const W = $lakeSvg.clientWidth || 1200;
   const H = $lakeSvg.clientHeight || 700;
   $lakeSvg.setAttribute('viewBox', `0 0 ${W} ${H}`);
 
   const inkStroke = '#2a221a', dim = '#6e5e4a', accent = '#b04a18';
-  const eraColor = '#7a5a30', topicColor = '#5e4380', episodeColor = '#2c5d7e';
+  const baseGray = '#888070';
 
   // Empty state — nothing visible until a fire surfaces something.
   if (_recalledMeta.size === 0) {
     $lakeSvg.innerHTML = `
       <text x="${W/2}" y="${H/2 - 12}" text-anchor="middle" font-family="'Caveat','Bradley Hand',cursive" font-weight="700" font-size="22" fill="${dim}">ask a question to see the lake</text>
-      <text x="${W/2}" y="${H/2 + 14}" text-anchor="middle" font-family="Georgia" font-style="italic" font-size="13" fill="${dim}">recalled deltas will appear at their real timestamps · provenance encloses what it covers</text>
+      <text x="${W/2}" y="${H/2 + 14}" text-anchor="middle" font-family="Georgia" font-style="italic" font-size="13" fill="${dim}">recalled deltas appear above the timeline · color = containing provenance</text>
     `;
     return;
   }
 
-  // X scale from recalled delta timestamps. We don't draw the
-  // background lake; only what this question pulled across the
-  // diagonal is visible.
+  // X scale from recalled delta timestamps.
   let xs = [];
   for (const [, meta] of _recalledMeta) {
     if (meta.ts) xs.push(meta.ts);
@@ -1051,18 +1093,33 @@ function renderLake() {
     return;
   }
   const xPad = 70;
+  const legendW = 240;          // reserve space for the legend on the right
+  const xRight = W - xPad - legendW;
   const xMin = Math.min(...xs);
   const xMax = Math.max(...xs);
-  // If everything is at the same instant, give it width
   const range = xMax === xMin ? 1 : xMax - xMin;
-  const tx = ms => xPad + ((ms - xMin) / range) * (W - 2 * xPad);
+  const tx = ms => xPad + ((ms - xMin) / range) * (xRight - xPad);
 
-  // Diagonal at vertical CENTER. Goes from top-left (deep past,
-  // identity-anchored) to bottom-right (now, dense recall).
-  const yMid = H / 2;
-  const diagX1 = xPad - 20, diagY1 = yMid - 180;
-  const diagX2 = W - xPad + 20, diagY2 = yMid + 180;
-  const onDiagY = (x) => diagY1 + (x - diagX1) * (diagY2 - diagY1) / (diagX2 - diagX1);
+  const yLine = H / 2;          // horizontal timeline at vertical center
+
+  // Walk every surfaced delta, classify into:
+  //   isProvenance (kind:provenance — itself a tag/banner, drawn as
+  //   a band on the timeline)
+  //   directly resonant (a primary hit) — above the line
+  //   structural (probably came from upward expansion or as context) —
+  //   below or on the line
+  // Color: derived from the most-specific containing provenance.
+  // For a delta that IS a provenance, color = self.
+  function _classify(id, meta) {
+    const provNode = _provenanceById.get(id);
+    let containingProv = null;
+    if (provNode) {
+      containingProv = provNode;
+    } else {
+      containingProv = _provenanceForDelta(id);
+    }
+    return { provNode, containingProv };
+  }
 
   // Stable jitter per node
   function jitterFor(id, range = 28) {
@@ -1071,158 +1128,162 @@ function renderLake() {
     return ((h % 1000) / 1000 - 0.5) * range;
   }
 
-  // For each recalled delta, compute (x, y) where:
-  //   x = time
-  //   y = jittered around the diagonal at that x; provenance lifts
-  //       upward from the diagonal proportional to its level.
-  const placed = new Map();  // id → {x, y, level, isProvenance, source, ts}
+  // Group surfaced deltas by their containing-provenance color so the
+  // legend lists what's actually involved (not every one of the 155
+  // total provenances).
+  const provInPlay = new Map();  // prov.id → { node, count }
+  const placed = [];   // [{id, ts, x, y, color, isProvenance, provNode, classification}]
   for (const [id, meta] of _recalledMeta) {
     if (!meta.ts) continue;
     const x = tx(meta.ts);
-    const provNode = _provenanceById.get(id);
-    const level = provNode ? provNode.level : -1;
-    // Base moments: jitter below the diagonal (recent / dense side)
-    // Level-1 episodes: slightly above the diagonal
-    // Level-2 topics: higher
-    // Level-3 eras: highest
-    let y;
-    if (level < 0) {
-      y = onDiagY(x) + 30 + jitterFor(id, 60);  // below diagonal
-    } else if (level === 0) {
-      y = onDiagY(x) + 18 + jitterFor(id, 30);
-    } else if (level === 1) {
-      y = onDiagY(x) - 40 + jitterFor(id, 30);
-    } else if (level === 2) {
-      y = onDiagY(x) - 110 + jitterFor(id, 30);
-    } else {
-      y = onDiagY(x) - 180 + jitterFor(id, 30);
+    const { provNode, containingProv } = _classify(id, meta);
+    let color = baseGray;
+    let containingId = null;
+    if (provNode) {
+      color = _provColorForId(provNode.id, provNode.level);
+      containingId = provNode.id;
+    } else if (containingProv) {
+      color = _provColorForId(containingProv.id, containingProv.level);
+      containingId = containingProv.id;
     }
-    // Clamp to canvas
-    y = Math.max(40, Math.min(H - 50, y));
-    placed.set(id, {
-      x, y, level, source: meta.source, ts: meta.ts,
-      isProvenance: provNode != null,
-      title: provNode ? provNode.title : '',
-      fromIds: provNode ? provNode.fromIds : [],
+    if (containingId && !provInPlay.has(containingId)) {
+      const node = _provenanceById.get(containingId);
+      if (node) provInPlay.set(containingId, { node, color });
+    }
+
+    // Base moments + Q/A markers go ABOVE the line (the resonant hits).
+    // Provenance entities themselves (kind:provenance) go BELOW the
+    // line as colored bands — they're the structural context.
+    let y;
+    if (provNode && provNode.level >= 1) {
+      // Provenance node — push down into the band area
+      y = yLine + 30 + (provNode.level * 12) + jitterFor(id, 14);
+    } else {
+      // Resonant moment — push up
+      y = yLine - 30 - jitterFor(id, 90) - 30;
+    }
+    y = Math.max(50, Math.min(H - 80, y));
+    placed.push({
+      id, ts: meta.ts, x, y, color,
+      isProvenance: provNode != null && provNode.level >= 1,
+      provNode, source: meta.source,
     });
   }
 
   const parts = [];
 
-  // BIRTH ←—— TIME ——→ NOW labels
-  parts.push(`<text x="${xPad - 36}" y="${H - 16}" text-anchor="end" font-family="'Caveat','Bradley Hand',cursive" font-weight="700" font-size="13" fill="${dim}">birth · ${new Date(xMin).toISOString().slice(0,10)}</text>`);
-  parts.push(`<text x="${W - xPad + 36}" y="${H - 16}" text-anchor="start" font-family="'Caveat','Bradley Hand',cursive" font-weight="700" font-size="13" fill="${dim}">now · ${new Date(xMax).toISOString().slice(0,10)}</text>`);
+  // ── horizontal timeline at vertical center ──────────────────────
+  parts.push(`<path d="${sketchyLine(xPad - 20, yLine, xRight + 20, yLine, 60)}" stroke="${inkStroke}" stroke-width="1.6" fill="none" stroke-linecap="round"/>`);
+  parts.push(`<polygon points="${xPad-20},${yLine} ${xPad-8},${yLine-4} ${xPad-8},${yLine+4}" fill="${inkStroke}"/>`);
+  parts.push(`<polygon points="${xRight+20},${yLine} ${xRight+8},${yLine-4} ${xRight+8},${yLine+4}" fill="${inkStroke}"/>`);
+  parts.push(`<text x="${xPad - 26}" y="${yLine + 22}" text-anchor="end" font-family="'Caveat','Bradley Hand',cursive" font-weight="700" font-size="13" fill="${dim}">birth · ${new Date(xMin).toISOString().slice(0,10)}</text>`);
+  parts.push(`<text x="${xRight + 26}" y="${yLine + 22}" text-anchor="start" font-family="'Caveat','Bradley Hand',cursive" font-weight="700" font-size="13" fill="${dim}">now · ${new Date(xMax).toISOString().slice(0,10)}</text>`);
 
-  // Diagonal density-of-recall threshold at the center
-  parts.push(`<path d="${sketchyLine(diagX1, diagY1, diagX2, diagY2, 26)}" stroke="${inkStroke}" stroke-width="1.4" fill="none" stroke-linecap="round" stroke-dasharray="8 4 2 4" opacity="0.7"/>`);
-  const dlmX = (diagX1 + diagX2) / 2, dlmY = (diagY1 + diagY2) / 2 - 8;
-  const dlAngle = Math.atan2(diagY2 - diagY1, diagX2 - diagX1) * 180 / Math.PI;
-  parts.push(`<text x="${dlmX}" y="${dlmY}" text-anchor="middle" transform="rotate(${dlAngle.toFixed(2)},${dlmX},${dlmY})" font-family="'Caveat',cursive" font-weight="700" font-size="13" fill="${dim}">density of recall</text>`);
-  parts.push(`<text x="${xPad}" y="60" font-family="'Caveat',cursive" font-weight="700" font-size="13" fill="${dim}">↑ identity-anchored / abstracted</text>`);
-  parts.push(`<text x="${W - xPad}" y="${H - 50}" text-anchor="end" font-family="'Caveat',cursive" font-weight="700" font-size="13" fill="${dim}">↓ recent · raw recall</text>`);
+  // Above-line label
+  parts.push(`<text x="${xPad}" y="${yLine - 200}" font-family="'Caveat',cursive" font-weight="700" font-size="13" fill="${dim}">↑ resonated / matched (this question)</text>`);
+  // Below-line label
+  parts.push(`<text x="${xPad}" y="${yLine + 200}" font-family="'Caveat',cursive" font-weight="700" font-size="13" fill="${dim}">↓ provenance bands (containers)</text>`);
 
-  // Strings between chronologically-adjacent base moments — "stringed
-  // to their neighbors." We connect base moments (level < 0 in our
-  // tagging) ordered by timestamp with thin lines, but only when the
-  // gap is small enough they feel like the same conversation.
-  const baseMoments = [...placed.entries()]
-    .filter(([, p]) => !p.isProvenance)
-    .sort((a, b) => a[1].ts - b[1].ts);
-  const GAP_MS = 30 * 60 * 1000;  // 30 minutes — same gap-bound as time.around
-  for (let i = 1; i < baseMoments.length; i++) {
-    const [, prev] = baseMoments[i-1];
-    const [, cur] = baseMoments[i];
+  // ── provenance bands below the line ─────────────────────────────
+  // For each provenance in play, draw a thin colored bar from its
+  // earliest constituent timestamp to its latest. Stack them so they
+  // don't collide.
+  const bands = [];
+  for (const [, info] of provInPlay) {
+    const node = info.node;
+    if (node.level < 1) continue;
+    // Compute span: prefer surfaced children's timestamps, fall back
+    // to node's barycenter / write timestamp.
+    let lo = Infinity, hi = -Infinity;
+    for (const p of placed) {
+      const cont = (() => {
+        const pn = _provenanceById.get(p.id);
+        if (pn === node) return true;
+        const enclosing = _provenanceForDelta(p.id);
+        return enclosing && enclosing.id === node.id;
+      })();
+      if (cont) {
+        if (p.ts < lo) lo = p.ts;
+        if (p.ts > hi) hi = p.ts;
+      }
+    }
+    if (lo === Infinity) {
+      lo = node.barycenter || node.ts;
+      hi = lo;
+    }
+    bands.push({ node, color: info.color, lo, hi });
+  }
+  // Sort by lo for stable stacking
+  bands.sort((a, b) => a.lo - b.lo);
+  // Greedy row assignment to avoid overlap
+  const rows = [];   // rows[i] = end-time of last band in that row
+  for (const b of bands) {
+    let r = 0;
+    while (r < rows.length && rows[r] >= b.lo - (range * 0.01)) r++;
+    if (r === rows.length) rows.push(b.hi);
+    else rows[r] = b.hi;
+    b.row = r;
+  }
+  const rowHeight = 14;
+  const bandsTopY = yLine + 50;
+  for (const b of bands) {
+    const x1 = tx(b.lo);
+    const x2 = Math.max(tx(b.hi), x1 + 6);
+    const y = bandsTopY + b.row * rowHeight;
+    const lvl = b.node.level;
+    parts.push(`<rect x="${x1}" y="${y - 4}" width="${x2 - x1}" height="${lvl === 3 ? 9 : lvl === 2 ? 7 : 5}" fill="${b.color}" opacity="0.78" rx="2"/>`);
+  }
+
+  // ── strings between chronologically-adjacent surfaced moments ───
+  // Connect resonant moments (above the line) when consecutive in
+  // time and from the same source.
+  const aboveLine = placed.filter(p => !p.isProvenance).sort((a, b) => a.ts - b.ts);
+  const GAP_MS = 30 * 60 * 1000;
+  for (let i = 1; i < aboveLine.length; i++) {
+    const prev = aboveLine[i - 1];
+    const cur = aboveLine[i];
     if (cur.ts - prev.ts > GAP_MS) continue;
     if (prev.source !== cur.source) continue;
-    parts.push(`<line x1="${prev.x}" y1="${prev.y}" x2="${cur.x}" y2="${cur.y}" stroke="${dim}" stroke-width="0.9" stroke-linecap="round" opacity="0.5"/>`);
+    parts.push(`<line x1="${prev.x}" y1="${prev.y}" x2="${cur.x}" y2="${cur.y}" stroke="${prev.color}" stroke-width="0.9" stroke-linecap="round" opacity="0.55"/>`);
   }
 
-  // Provenance encompassing rings — for each surfaced provenance,
-  // compute a bounding region around its surfaced children and draw
-  // a sketchy circle around them. This is the "provenance actually
-  // encompassing the deltas it's associated with" piece.
-  // Drawn before the dots so dots sit on top of the fill.
-  const provSorted = [...placed.entries()]
-    .filter(([, p]) => p.isProvenance && p.level >= 1)
-    .sort((a, b) => b[1].level - a[1].level);  // larger (eras) drawn first
-
-  for (const [pid, prov] of provSorted) {
-    // Find children that surfaced (recursively for L2+)
-    const childIds = new Set();
-    function collect(nodeId, depth) {
-      if (depth > 3) return;
-      const node = _provenanceById.get(nodeId);
-      if (!node) return;
-      for (const cid of node.fromIds) {
-        if (placed.has(cid)) childIds.add(cid);
-        // recurse into provenance children too
-        if (_provenanceById.has(cid)) collect(cid, depth + 1);
-      }
-    }
-    collect(pid, 0);
-
-    if (childIds.size === 0) {
-      // Solo — just draw the provenance ring at its position
-      const cx = prov.x, cy = prov.y;
-      const r = 18 + Math.sqrt(prov.fromIds.length) * 1.5;
-      const color = prov.level === 3 ? eraColor : prov.level === 2 ? topicColor : episodeColor;
-      const sw = prov.level === 3 ? 2 : prov.level === 2 ? 1.6 : 1.3;
-      parts.push(`<path d="${sketchyCircle(cx, cy, r)}" stroke="${color}" stroke-width="${sw}" fill="${color}" fill-opacity="0.04" stroke-linecap="round"/>`);
-      if (prov.title) {
-        parts.push(`<text x="${cx}" y="${cy - r - 6}" text-anchor="middle" font-family="'Caveat',cursive" font-weight="600" font-size="11" fill="${inkStroke}">${escXml(prov.title.slice(0, 36))}</text>`);
-      }
-      continue;
-    }
-
-    // Compute bounding circle of placed children
-    let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
-    for (const cid of childIds) {
-      const c = placed.get(cid);
-      if (!c) continue;
-      minX = Math.min(minX, c.x);
-      maxX = Math.max(maxX, c.x);
-      minY = Math.min(minY, c.y);
-      maxY = Math.max(maxY, c.y);
-    }
-    // Include the provenance node itself
-    minX = Math.min(minX, prov.x);
-    maxX = Math.max(maxX, prov.x);
-    minY = Math.min(minY, prov.y);
-    maxY = Math.max(maxY, prov.y);
-
-    const cx = (minX + maxX) / 2;
-    const cy = (minY + maxY) / 2;
-    const r = Math.max((maxX - minX) / 2, (maxY - minY) / 2) + 28;
-    const color = prov.level === 3 ? eraColor : prov.level === 2 ? topicColor : episodeColor;
-    const sw = prov.level === 3 ? 2 : prov.level === 2 ? 1.6 : 1.3;
-    parts.push(`<path d="${sketchyCircle(cx, cy, r)}" stroke="${color}" stroke-width="${sw}" fill="${color}" fill-opacity="0.04" stroke-linecap="round"/>`);
-    if (prov.title) {
-      parts.push(`<text x="${cx}" y="${cy - r - 6}" text-anchor="middle" font-family="'Caveat',cursive" font-weight="600" font-size="${prov.level === 3 ? 14 : 11}" fill="${color}">${escXml(prov.title.slice(0, 40))}</text>`);
+  // ── dots for each placed delta — colored by containing provenance ─
+  for (const p of placed) {
+    const r = p.isProvenance ? 4.5 : 3;
+    parts.push(`<circle cx="${p.x}" cy="${p.y}" r="${r}" fill="${p.color}" opacity="0.92" stroke="${inkStroke}" stroke-width="0.4"/>`);
+    // Drop a thin "stem" from the dot to the timeline so the eye
+    // can read which timestamp owns each above-line hit.
+    if (!p.isProvenance) {
+      parts.push(`<line x1="${p.x}" y1="${p.y + r}" x2="${p.x}" y2="${yLine - 1}" stroke="${p.color}" stroke-width="0.6" opacity="0.35"/>`);
     }
   }
 
-  // Dots for each placed delta — small filled circle, base moments
-  // smaller and dimmer than provenance.
-  for (const [id, p] of placed) {
-    let r, color, op;
-    if (p.isProvenance) {
-      // Provenance "tag" itself — small accent dot
-      r = 3.5;
-      color = accent;
-      op = 0.95;
-    } else {
-      // Base moment
-      r = 2.5;
-      color = inkStroke;
-      op = 0.75;
+  // ── legend on the right ─────────────────────────────────────────
+  const legendX = xRight + 50;
+  let legendY = 60;
+  parts.push(`<text x="${legendX}" y="${legendY}" font-family="'Caveat',cursive" font-weight="700" font-size="14" fill="${inkStroke}">provenance in play</text>`);
+  legendY += 18;
+  // Sort entries by level (eras first), then title
+  const legendEntries = [...provInPlay.entries()]
+    .map(([, info]) => info)
+    .sort((a, b) => (b.node.level - a.node.level) || (a.node.title || '').localeCompare(b.node.title || ''));
+  if (legendEntries.length === 0) {
+    parts.push(`<text x="${legendX}" y="${legendY}" font-family="Georgia" font-style="italic" font-size="11" fill="${dim}">(none — base moments only)</text>`);
+  } else {
+    for (const info of legendEntries.slice(0, 24)) {
+      const node = info.node;
+      const swatchSize = node.level === 3 ? 10 : node.level === 2 ? 8 : 6;
+      parts.push(`<rect x="${legendX}" y="${legendY - swatchSize}" width="${swatchSize * 2}" height="${swatchSize}" fill="${info.color}" stroke="${inkStroke}" stroke-width="0.5" rx="1"/>`);
+      const title = node.title || node.id.slice(0, 8);
+      parts.push(`<text x="${legendX + swatchSize * 2 + 8}" y="${legendY - 1}" font-family="Georgia" font-size="11" fill="${inkStroke}">L${node.level} · ${escXml(title.slice(0, 28))}</text>`);
+      legendY += 18;
     }
-    parts.push(`<circle cx="${p.x}" cy="${p.y}" r="${r}" fill="${color}" opacity="${op}"/>`);
   }
 
   // Status footer
-  const baseCount = baseMoments.length;
-  const provCount = placed.size - baseCount;
-  parts.push(`<text x="${W - xPad}" y="${H - 28}" text-anchor="end" font-family="Georgia" font-style="italic" font-size="11" fill="${dim}">${baseCount} moment${baseCount===1?'':'s'} · ${provCount} provenance · all resonated for this question</text>`);
+  const aboveCount = aboveLine.length;
+  const provCount = placed.length - aboveCount;
+  parts.push(`<text x="${xRight}" y="${H - 16}" text-anchor="end" font-family="Georgia" font-style="italic" font-size="11" fill="${dim}">${aboveCount} resonant moment${aboveCount===1?'':'s'} · ${provCount} provenance ${provCount===1?'tag':'tags'}</text>`);
 
   $lakeSvg.innerHTML = parts.join('\n');
 }
