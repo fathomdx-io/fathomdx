@@ -1401,6 +1401,16 @@ async def _dispatch_response(
     available_hosts = await witness_mod._available_claude_code_hosts()
     primary_intent = (pending[0].get("content") or "").strip() if pending else ""
 
+    # All pending intent ids in short form — the witness expects shorts.
+    # Used as the address fallback so a card that lands without explicit
+    # `addresses` still claims the queue. Without this, an alert/feed-
+    # card response stays pending and the supervisor re-fires it on
+    # every tick (the storm bug — same alert turned into a wall of
+    # near-duplicate cards every 25s).
+    all_pending_shorts = [
+        (it.get("id") or "")[:24] for it in pending if it.get("id")
+    ]
+
     # Lean chat-reply path: a top-level `body` with no `cards` array.
     # Synthesize a single chat-reply card from it.
     if not cards_raw:
@@ -1435,6 +1445,20 @@ async def _dispatch_response(
     if not cards:
         print("[harness] respond payload had no usable cards — silent fire")
         return []
+
+    # Address-claim fallback. If NO card across the response set has any
+    # addresses populated, claim every pending intent across the cards
+    # collectively. The harness was given `pending` and produced a
+    # response — by contract, that's the resolution. Without this
+    # fallback, a model that forgets to set addresses (lean chat-reply
+    # synthesizes empty; full responses sometimes drop the field) leaves
+    # intents pending, and the supervisor re-fires forever.
+    any_addresses = any(c["addresses"] for c in cards)
+    if not any_addresses and all_pending_shorts:
+        # Stamp the first card with all pending — single response,
+        # single claim. Multi-card fires that DO populate addresses
+        # explicitly aren't affected.
+        cards[0]["addresses"] = list(all_pending_shorts)
 
     full_addressed_union: list[str] = []
     seen_addressed: set[str] = set()
