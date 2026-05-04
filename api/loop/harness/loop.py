@@ -782,17 +782,26 @@ async def run_dialogue(
         # wrapped callback sees the harness's `respond` event.
         captured: dict[str, str] = {"body": ""}
 
-        async def round_cb(event: str, payload: dict) -> None:
+        # Bind round_num + captured via default args so the closure can't
+        # accidentally late-bind if a future refactor defers round_cb past
+        # the next loop iteration.
+        async def round_cb(
+            event: str,
+            payload: dict,
+            *,
+            _captured: dict = captured,
+            _round_num: int = round_num,
+        ) -> None:
             if event == "respond":
                 cards = payload.get("cards") or []
                 if cards and isinstance(cards[0], dict):
-                    captured["body"] = (cards[0].get("body") or "").strip()
+                    _captured["body"] = (cards[0].get("body") or "").strip()
                 elif payload.get("body"):
-                    captured["body"] = (payload.get("body") or "").strip()
+                    _captured["body"] = (payload.get("body") or "").strip()
             # Tag every wrapped event with the round so the UI can
             # scope activity per round if it wants to.
             if cb is not None:
-                await _emit(cb, event, {"round": round_num, **payload})
+                await _emit(cb, event, {"round": _round_num, **payload})
 
         # Seed the intent. The harness needs a pending intent to fire.
         try:
