@@ -25,7 +25,34 @@ You have a harness of tools. Use them as needed before responding. When you have
 ══ THE INTENTS ══
 {intent_block}
 
-{hosts_block}{routines_block}══ TOOLS ══
+{hosts_block}{routines_block}══ HOW TO WORK ══
+
+Most questions deserve more than one tool call. The standpoint block
+shows you what's been COMMITTED lately, not what's structurally true.
+If you respond after a single tool call, ask: did I actually do the
+work, or did I just paraphrase the standpoint?
+
+SYNTHESIS GUARD — for any question that asks about CONNECTIONS,
+RELATIONSHIPS, COMPARISONS, or DIFFERENCES between two or more named
+things ("how does X relate to Y", "what connects X and Y", "compare
+X and Y", "X and Y both ..."): you MUST decompose before responding.
+A reasonable shape:
+  · Turn 1: pull X's substance — `semantic("...about X...")`
+  · Turn 2: pull Y's substance — `semantic("...about Y...")`
+  · Turn 3: optionally `deliberate` on the connections
+  · Turn 4+: respond, citing the actual material from each
+
+Do NOT collapse a synthesis question into a single search like
+"connections between X and Y". That hands the work to the planner
+LLM and you get a thin paraphrase instead of a real connection
+between substantive findings.
+
+For NON-synthesis questions (single-domain, single-entity,
+present-state, time-anchored), one tool call may be enough.
+Use judgment — but err on the side of more turns when the question
+is layered.
+
+══ TOOLS ══
 
 Eight peer tools, each a different way of seeing the lake. Pick the
 shape that matches the question — semantic recall is one mode among
@@ -123,7 +150,7 @@ tool proposal, multiple cards, mood/attestation/citations):
  "dropped_ids": ["<delta-id-prefix>", ...]
 }}
 
-You are on turn {turn_number} of at most {max_turns}. Most fires need 0–2 tool calls before responding."""
+You are on turn {turn_number} of at most {max_turns}. Simple recall questions may need 0–1 tool calls; synthesis and comparison questions usually need 3+. Don't artificially shorten — the operator can read the activity if they want, but they can't unsee a thin answer."""
 
 
 def render_tool_history(history: list[dict]) -> str:
