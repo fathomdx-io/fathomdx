@@ -766,32 +766,45 @@ function _fillAssistantBubble(payload) {
   }
 }
 
+function _setStage(text) {
+  if (_currentAssistantBubble && _currentAssistantBubble.placeholder) {
+    _currentAssistantBubble.placeholder.textContent = text;
+  }
+}
+
 function handleEvent(eventName, payload) {
   switch (eventName) {
     case 'seeded':
       _addUserBubble(payload.question || '');
       _addAssistantBubble();
+      _setStage('seeding intent…');
       _appendActivity('seed', 'seeded', el('pre', { text:
         `session: ${payload.session_tag}\nintent: ${payload.intent_id}` }));
       break;
     case 'standpoint':
+      _setStage('gathering standpoint…');
       _appendActivity('standpoint', 'standpoint', el('pre', { text:
         `posture: ${payload.posture} · affect: ${payload.affect_state}\n` +
         `endorsements: ${payload.endorsements} · understanding: ${payload.understanding}` }));
       break;
     case 'context_built':
+      _setStage('building context…');
       _appendActivity('context', 'context', renderContext(payload));
       break;
     case 'turn_begin':
       _turnCount = payload.turn;
       $turns.textContent = `turn ${_turnCount}`;
+      _setStage(`turn ${payload.turn} · deliberating…`);
       break;
     case 'tool_call': {
       const tool = (payload.tool || '').toLowerCase();
+      const action = (payload.args && payload.args.action) ? `:${payload.args.action}` : '';
+      _setStage(`turn ${payload.turn} · ${tool}${action}…`);
       _appendActivity('turn ' + payload.turn + ' · ' + tool, 'tool_call', renderToolCall(payload));
       break;
     }
     case 'tool_result':
+      _setStage(`turn ${payload.turn} · reading ${payload.tool} result…`);
       _appendActivity('turn ' + payload.turn + ' · result', 'tool_result', renderToolResult(payload));
       break;
     case 'respond':
