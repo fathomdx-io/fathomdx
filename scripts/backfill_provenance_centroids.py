@@ -24,7 +24,6 @@ from __future__ import annotations
 import argparse
 import asyncio
 import sys
-from typing import Iterable
 
 
 async def main(force: bool, dry_run: bool) -> int:

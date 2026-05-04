@@ -25,7 +25,6 @@ from ..intents import CONVO_TAG
 from ..puddle import puddle
 from . import run_dialogue, run_harness, run_introspection
 
-
 router = APIRouter()
 
 
@@ -142,7 +141,7 @@ async def harness_test(
                     return
                 try:
                     event, payload = await asyncio.wait_for(q.get(), timeout=1.0)
-                except asyncio.TimeoutError:
+                except TimeoutError:
                     # Heartbeat — keeps proxies from killing idle connections.
                     yield ": keepalive\n\n"
                     continue
@@ -240,7 +239,7 @@ async def harness_sit(
                     return
                 try:
                     event, payload = await asyncio.wait_for(q.get(), timeout=1.0)
-                except asyncio.TimeoutError:
+                except TimeoutError:
                     yield ": keepalive\n\n"
                     continue
                 if event is DONE:
@@ -346,7 +345,7 @@ async def harness_dialogue(
                     return
                 try:
                     event, payload = await asyncio.wait_for(q.get(), timeout=1.0)
-                except asyncio.TimeoutError:
+                except TimeoutError:
                     yield ": keepalive\n\n"
                     continue
                 if event is DONE:

@@ -50,7 +50,7 @@ async def _seed_intent(text: str) -> dict:
 
 async def _main(question: str) -> int:
     session_tag = f"session:harness-test-{uuid.uuid4().hex[:8]}"
-    print(f"\n=== harness test ===")
+    print("\n=== harness test ===")
     print(f"session: {session_tag}")
     print(f"question: {question!r}\n")
 

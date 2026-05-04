@@ -40,20 +40,18 @@ from __future__ import annotations
 
 import asyncio
 import json
+import uuid
 from collections import Counter
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
-import uuid
-
-from .. import resonance  # noqa: F401  — process imports it transitively
 from ... import delta_client
 from ... import search as search_mod
+from .. import resonance  # noqa: F401  — process imports it transitively
 from ..convener import run_convener
 from ..intents import CONVO_TAG, intent_kind, pending_intents
 from ..process import run_process
 from ..puddle import puddle
-
 
 # Hard caps on per-call result counts — these limit how many items a
 # tool returns, not how much rendered text it produces. The harness
@@ -213,7 +211,7 @@ async def tool_deliberate(
     deliberation_intent = {
         "id": f"deliberate-{uuid.uuid4().hex[:12]}",
         "content": question,
-        "tags": [f"kind:deliberation", "harness:deliberate"],
+        "tags": ["kind:deliberation", "harness:deliberate"],
         "source": "harness",
     }
     convener_pending = [deliberation_intent] + (pending or [])
@@ -664,7 +662,7 @@ async def tool_pattern(*, action: str = "help", **kwargs) -> str:
         old = [
             d for d in items
             if (d.get("timestamp") or "") < cutoff
-            and len((d.get("content") or "")) >= min_chars
+            and len(d.get("content") or "") >= min_chars
         ]
         if not old:
             return (

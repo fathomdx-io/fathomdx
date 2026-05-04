@@ -25,10 +25,10 @@ import inspect
 import json
 import os
 import re
-from datetime import datetime, timezone
-from typing import Any, Awaitable, Callable
+from collections.abc import Callable
+from datetime import UTC, datetime
+from typing import Any
 from zoneinfo import ZoneInfo
-
 
 # Local timezone for the NOW block. UTC reads sterile and confuses the
 # model when humans say "this morning" — anchor to the operator's wall
@@ -53,7 +53,7 @@ def _render_now_block() -> str:
     deltas with their own timestamps, and there's nothing telling the
     model which moment is the present.
     """
-    utc = datetime.now(timezone.utc)
+    utc = datetime.now(UTC)
     local = utc.astimezone(_LOCAL_TZ)
     if 5 <= local.hour < 12:
         part = "morning"
@@ -80,7 +80,6 @@ from .prompts import (
     render_tool_history,
 )
 from .tools import TOOL_HANDLERS, TOOL_MODEL_ARGS
-
 
 MAX_TURNS = 8                # hard cap on tool calls per fire
 MAX_TOKENS_PER_TURN = 4096   # response budget — final card needs room
@@ -383,8 +382,8 @@ async def run_introspection(
     `from:<id>` provenance pointers — same engagement-graph machinery
     as any other delta.
     """
-    from ... import standpoint as standpoint_mod
     from ... import delta_client
+    from ... import standpoint as standpoint_mod
 
     cb = event_callback
     focus = (focus or "").strip()
@@ -982,9 +981,7 @@ async def _dispatch_tool(
         cleaned["session_tag"] = session_tag
         cleaned["pending"] = pending
         cleaned["standpoint"] = standpoint
-    elif tool_name == "propose_provenance":
-        cleaned["session_tag"] = session_tag
-    elif tool_name == "introspect":
+    elif tool_name == "propose_provenance" or tool_name == "introspect":
         cleaned["session_tag"] = session_tag
 
     try:

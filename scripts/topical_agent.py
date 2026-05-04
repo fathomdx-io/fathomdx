@@ -42,10 +42,9 @@ import os
 import re
 import sys
 import uuid
-from collections import Counter, defaultdict
+from collections import defaultdict
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from typing import Any
 
 import httpx
 
@@ -54,7 +53,6 @@ sys.path.insert(0, str(ROOT))
 
 from api import delta_client  # noqa: E402
 from api.loop.llm import loop_generate  # noqa: E402
-
 
 # Sources whose deltas usually carry low signal — heartbeats, rss noise,
 # sysinfo. We aggregate them into counts rather than passing content,
@@ -316,7 +314,7 @@ async def run_level_1(
     end = start + timedelta(hours=hours)
     start_iso = start.isoformat().replace("+00:00", "Z")
     end_iso = end.isoformat().replace("+00:00", "Z")
-    print(f"=== topical agent (level 1) ===")
+    print("=== topical agent (level 1) ===")
     print(f"window: {start_iso} … {end_iso} ({hours}h)\n")
 
     print("[pull] fetching deltas in window…")
@@ -474,7 +472,7 @@ Return JSON:
 
 async def run_level_2(*, auto: bool) -> int:
     """One level-2 pass over all existing level-1 provenance."""
-    print(f"=== topical agent (level 2) ===\n")
+    print("=== topical agent (level 2) ===\n")
 
     print("[pull] loading all level-1 provenance…")
     try:

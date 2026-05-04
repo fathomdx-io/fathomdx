@@ -48,14 +48,15 @@ from typing import Any
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
-from api import delta_client, search as search_mod, standpoint as standpoint_mod  # noqa: E402
+from api import delta_client  # noqa: E402
+from api import search as search_mod
+from api import standpoint as standpoint_mod
 from api.loop.convener import run_convener  # noqa: E402
 from api.loop.harness.tools import tool_ascend, tool_expand  # noqa: E402
 from api.loop.intents import CONVO_TAG  # noqa: E402
 from api.loop.llm import loop_generate  # noqa: E402
 from api.loop.process import run_process  # noqa: E402
 from api.loop.puddle import puddle  # noqa: E402
-
 
 REFLECTIVE_PROMPT = """\
 You are the reflective layer of Fathom's mind — the part that names
@@ -300,7 +301,7 @@ async def run_reflective_parliament(
         return ""
 
     if verdict.depth == "zero" or not verdict.voices:
-        print(f"[parliament] convener picked depth=zero — skipping voices")
+        print("[parliament] convener picked depth=zero — skipping voices")
         return ""
 
     print(
@@ -394,11 +395,11 @@ def render_proposal(p: dict) -> str:
         "─" * 70,
         f"  TITLE:    {p.get('title')}",
         f"  LEVEL:    {p.get('level')}",
-        f"",
+        "",
         f"  SUMMARY:  {p.get('summary')}",
-        f"",
+        "",
         f"  RATIONALE: {p.get('rationale', '')}",
-        f"",
+        "",
         f"  FROM IDS  ({len(p.get('from_ids') or [])}):",
     ]
     for fid in (p.get("from_ids") or [])[:8]:
@@ -426,6 +427,7 @@ async def write_proposal(p: dict, *, seed: str, session_tag: str) -> str:
     buttons reference).
     """
     import os
+
     import httpx
     title = (p.get("title") or "").strip()
     summary = (p.get("summary") or "").strip()
@@ -502,7 +504,7 @@ async def write_proposal(p: dict, *, seed: str, session_tag: str) -> str:
 
 async def _main(args) -> int:
     session_tag = f"session:reflect-{uuid.uuid4().hex[:8]}"
-    print(f"=== reflective agent ===")
+    print("=== reflective agent ===")
     print(f"session: {session_tag}\n")
 
     # Pick a seed.
