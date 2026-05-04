@@ -5,15 +5,59 @@
 
 ## Next
 
-**RALPH COMPLETE** for the broad fathomdx sweep. A scoped follow-up
-landed 2026-04-28 on branch `ralph/grand-loop-sweep` covering only the
-search + Grand Loop surface introduced in `feat/grand-loop` (commits
-ed48527 + 59796f3).
+**Active scoped run: `ralph/agent-harness-sweep`** (off `feat/agent-harness`).
+Scope is the harness surface introduced on the branch — see
+"Active scoped run" section below for the file list and iteration cap.
+
+**Prior runs**
+
+- Broad fathomdx sweep — RALPH COMPLETE 2026-04-23.
+- Grand Loop search-surface follow-up — DONE 2026-04-28 on
+  `ralph/grand-loop-sweep` (5 iterations, 4 substantive commits + 1 chore).
 
 Open follow-up: same `.replace(tzinfo=UTC)` bug pattern fixed in
 plan.py:_parse_ts also exists in `migrate.py:31`, `store.py:26`, and
 inline at `query.py:169 / :589`. Out of this scoped run; worth a
 focused timezone-handling pass when someone has cycles.
+
+## Active scoped run — agent-harness sweep (2026-05-04)
+
+Branch: `ralph/agent-harness-sweep` off `feat/agent-harness`.
+Iteration cap: 5 (matches the grand-loop precedent).
+
+**In-scope files** (everything `feat/agent-harness` added or substantially
+modified vs `main`):
+
+- `api/loop/harness/{__init__,loop,prompts,routes,tools}.py` — 3725 LOC
+  - `loop.py` 1419 and `tools.py` 1534 both exceed the 800-LOC ceiling
+- `api/provenance_centroid.py` — 149 LOC (new)
+- `api/routes/proposals.py` — +271 lines (now 485 total)
+- `api/search.py` — +248 lines (LEAST search, upward expansion)
+- `api/timeline_renderers.py` — +64 lines
+- `delta-store/deltas/{models,plan,store,server}.py` — incremental
+- `scripts/{reflective_agent,topical_agent,backfill_provenance_centroids,harness_test}.py`
+
+**Out of scope** (PRD rules):
+- `ui/harness-test.html`, `ui/lake-*.html`, `ui/index.html` — UI surface
+- `docs/explanation/harness-topology.md`, `docs/specs/harness-prd.md` — prose
+
+**Baseline (2026-05-04)**
+
+- ruff check (in-scope): **48 errors** (29 autofixable)
+- ruff format (in-scope): **8 files would reformat**
+- pytest: **163 passing** (none cover harness surface)
+- Files over 800-LOC ceiling: `loop.py` (1419), `tools.py` (1534)
+
+**Iteration plan**
+
+1. Dead Code & Cleanup — ruff autofix + format pass over harness surface
+2. Test Creation — pin the highest-value harness invariants (auto-approve gate,
+   centroid recursion cap, provenance LEAST search)
+3. Bug Hunt — read loop.py + tools.py line-by-line for race / append-only
+   violations / silent-swallow patterns
+4. Senior Dev Audit — assess whether `loop.py` and `tools.py` need split
+   before migration to production worker.py
+5. Verify + tracking
 
 ## Coverage matrix
 
