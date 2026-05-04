@@ -249,7 +249,17 @@ async def embed_loop():
                             emb = _blend(emb, img_emb)
                         else:
                             emb = img_emb
-                await store.update_embeddings(d["id"], emb, prov_embs[i])
+                # kind:provenance deltas carry a centroid in their
+                # provenance_embedding column (pre-populated at write
+                # time from constituents' embeddings). The default
+                # tag-string embedding the loop would compute is NOT
+                # what we want for these — it would clobber the
+                # centroid. Only update the content embedding.
+                is_provenance = "kind:provenance" in (d.get("tags") or [])
+                if is_provenance:
+                    await store.update_text_embedding_only(d["id"], emb)
+                else:
+                    await store.update_embeddings(d["id"], emb, prov_embs[i])
 
                 candidate = _check_facet_activation(d, emb)
                 if candidate:
@@ -341,6 +351,34 @@ async def write_delta(delta: DeltaIn):
 async def write_batch(batch: BatchIn):
     count = await store.write_batch([d.model_dump() for d in batch.deltas])
     return {"count": count}
+
+
+class UpdateEmbeddingsIn(_BaseModel):
+    id: str
+    embedding: list[float] | None = None
+    provenance_embedding: list[float] | None = None
+
+
+@app.post("/deltas/update-embeddings")
+async def update_embeddings_endpoint(req: UpdateEmbeddingsIn):
+    """Update one or both embedding columns on an existing delta.
+
+    Used by the backfill that retroactively populates provenance
+    centroids on kind:provenance deltas without disturbing other
+    columns. Either field may be omitted; only the provided ones
+    are written.
+    """
+    if req.embedding is None and req.provenance_embedding is None:
+        return JSONResponse(status_code=400,
+                            content={"detail": "must provide at least one embedding"})
+    if req.embedding is not None and req.provenance_embedding is not None:
+        await store.update_embeddings(req.id, req.embedding, req.provenance_embedding)
+    elif req.provenance_embedding is not None:
+        # Update only provenance_embedding without touching embedding
+        await store.update_provenance_embedding_only(req.id, req.provenance_embedding)
+    else:
+        await store.update_text_embedding_only(req.id, req.embedding)
+    return {"id": req.id, "ok": True}
 
 
 # ── Routes: Media ────────────────────────────────────────────────────────────

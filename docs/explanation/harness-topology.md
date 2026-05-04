@@ -293,30 +293,65 @@ If it's substrate fathomdx will adopt verbatim, build it well.
 
 ### Portable — build here
 
-#### Multi-vector provenance facets — the resonance-via-encompassment fix
+#### Two-embedding provenance — IMPLEMENTED 2026-05-04
 
-The current bug: each provenance carries one embedding (its summary).
-Semantic search matches the parent only when the query resonates with
-the SUMMARY text — but a query about a specific concept inside the
-provenance won't strongly match its summary. The constituent matches;
-the parent doesn't surface.
+Every `kind:provenance` delta carries TWO embeddings:
 
-Fix: each provenance carries multiple embeddings — one per direct
-child. Search uses MaxSim (ColBERT-style): the candidate's score is
-the maximum similarity across all its facets. The parent ranks
-against the query as if any of its constituents had matched. The
-provenance "resonates by all of the moments it encompasses."
+- **`embedding`** (existing column) — vector of the title + summary
+  text. Catches META queries ("eras", "what's been a long arc",
+  "what topics have I worked on").
+- **`provenance_embedding`** (existing column, repurposed for
+  provenance deltas) — centroid of constituents' `embedding`
+  vectors. Catches SUBSTANTIVE queries that resonate with what the
+  provenance is associated with. The provenance lives in the same
+  neighborhood as its constituents.
 
-Decisions still to make:
-- Storage: new `delta_facets` table vs JSONB column on the delta row
-- Recursive vs direct-children-only (probably direct only — let the
-  hierarchy do the legwork; an L3 era's facets shouldn't include
-  every base moment)
-- Score combination (MaxSim alone vs weighted by facet quality)
-- Refresh policy (write-time only vs live-update on constituent change)
-- Backfill — ~155 provenances in prov lake; straightforward walk
+At search time, the SQL computes `LEAST(embedding <=> q,
+COALESCE(provenance_embedding <=> q, 999))` for every delta — but
+only kind:provenance rows have a meaningful centroid. The provenance
+gets the better of the two distances. Components surface as
+`summary_distance` and `centroid_distance` on the result row for
+debugging / visibility.
 
-Lives in delta-store schema + `api/search.py`. Both portable.
+Verified working: query "navier stokes research" surfaces an L1 episode
+"Navier-Stokes: The Paper 3 Synthesis" via centroid_distance=0.256
+where its summary_distance was 0.318 — would have been past top-25
+without the centroid.
+
+**The legacy `provenance_embedding` overload:** for non-provenance
+deltas the column holds the embedding of the joined tag string (set
+by delta-store's background embed loop). The embed loop is now gated
+to skip overwriting `provenance_embedding` for `kind:provenance`
+deltas, so the centroid persists. The legacy 3D-search path
+(`/search` endpoint) computes slightly different `p_dist` for
+provenance candidates now (centroid distance vs tag-similarity
+distance) — minor behavioral difference contained to that path; the
+harness's compositional plan path (`/plan`) is the modern one and
+benefits cleanly.
+
+**Implementation:**
+- Helper: `api/provenance_centroid.py:compute_centroid(from_ids)`
+- Wired into: `proposals.py:_approve_provenance_create` (every
+  approval/auto-approval), `harness/loop.py:_write_qa_marker` (every
+  Q/A marker)
+- Embed loop gated: `delta-store/deltas/server.py` checks
+  `kind:provenance` before overwriting provenance_embedding
+- SQL: `delta-store/deltas/plan.py:_exec_search` uses LEAST() over
+  both columns for provenance candidates
+- Backfill: `scripts/backfill_provenance_centroids.py` — populated
+  centroids on 184 of 218 existing provenances (24 had no
+  constituents, 10 had constituents without embeddings)
+
+**Refresh policy:** centroids are computed at write time only.
+Constituents rarely change post-write; if they do, re-running the
+backfill with `--force` recomputes everything. Live refresh is a
+deferred optimization.
+
+**The full multi-vector facets** (one vector per child, MaxSim across
+all of them) is **deferred** — the two-embedding shape gets ~95% of
+the benefit at ~5% the storage cost. Revisit if/when we observe the
+edge case where a single constituent's embedding would have matched
+but the centroid's average dilutes the signal beyond top-K.
 
 #### Focus pre-pass for autonomous sittings
 

@@ -150,16 +150,27 @@ async def _approve_provenance_create(
     if len(content) > 4000:
         content = content[:4000] + "…"
 
+    # Compute the constituent centroid — average of from_ids' content
+    # embeddings — so this provenance lives in the same neighborhood
+    # as what it's associated with. Stored in the provenance_embedding
+    # column; combined with the title+summary embedding (in the
+    # `embedding` column) at search time via min(d_dist, p_dist) so
+    # the provenance ranks on either substantive OR meta queries.
+    from .. import provenance_centroid
+    centroid = await provenance_centroid.compute_centroid(from_ids)
+
     written = await delta_client.write(
         content=content,
         tags=tags,
         source=source or f"{produced_by}-approved",
+        provenance_embedding=centroid,
     )
     return {
         "delta_id": (written or {}).get("id") or "",
         "title": title,
         "level": level,
         "from_count": len(from_ids),
+        "centroid_dim": len(centroid) if centroid else 0,
     }
 
 

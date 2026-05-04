@@ -53,6 +53,12 @@ class DeltaSlim(BaseModel):
     # steps and engagement-cloud members where there is no semantic
     # distance.
     distance: float | None = None
+    # Two-embedding provenance debug fields. For kind:provenance hits,
+    # `distance` = min(summary_distance, centroid_distance) — the
+    # better of the two axes. Both components surface here so callers
+    # can see which axis the provenance matched on.
+    summary_distance: float | None = None
+    centroid_distance: float | None = None
 
 
 class BatchIn(BaseModel):

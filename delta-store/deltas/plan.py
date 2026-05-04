@@ -359,14 +359,37 @@ class PlanExecutor:
         )
         params.append(fetch_limit)
 
+        # Two-embedding provenance: kind:provenance deltas store a
+        # constituent centroid in provenance_embedding (set at write
+        # time, preserved by the embed loop). For these, the effective
+        # distance is min(summary_distance, centroid_distance) — the
+        # provenance ranks on either substantive OR meta queries. Non-
+        # provenance deltas use embedding only; their provenance_embedding
+        # holds the legacy tag-string vector and we ignore it here.
+        #
+        # The CASE expression isn't index-friendly. For the prov-scale
+        # lake (~36k deltas) the full scan is millisecond-class; if the
+        # production lake outgrows that, switch to a UNION over two
+        # index-using subqueries.
+        effective_distance_expr = (
+            "LEAST(d.embedding <=> $1, "
+            "      CASE WHEN 'kind:provenance' = ANY(d.tags) "
+            "           THEN COALESCE(d.provenance_embedding <=> $1, 999.0) "
+            "           ELSE 999.0 END)"
+        )
         sql = f"""
             SELECT d.id, d.timestamp, d.modality, d.content, d.source, d.tags,
                    d.media_hash, d.expires_at, d.embedding,
-                   (d.embedding <=> $1) AS distance
+                   {effective_distance_expr} AS distance,
+                   (d.embedding <=> $1) AS summary_distance,
+                   CASE WHEN 'kind:provenance' = ANY(d.tags)
+                        THEN (d.provenance_embedding <=> $1)
+                        ELSE NULL
+                   END AS centroid_distance
             FROM deltas d
             WHERE {where}
-              AND (d.embedding <=> $1) < ${idx + 1}
-            ORDER BY d.embedding <=> $1
+              AND {effective_distance_expr} < ${idx + 1}
+            ORDER BY {effective_distance_expr}
             LIMIT ${idx}
         """
         params.append(float(sem_radius))
@@ -1112,6 +1135,23 @@ class PlanExecutor:
             d["distance"] = float(r["distance"])
         if "bridge_dist" in r:
             d["distance"] = float(r["bridge_dist"])
+        # Two-embedding provenance debug fields — surface the component
+        # distances when the row carries them so callers / visualizers
+        # can see WHY a candidate ranked where it did. Use try/except
+        # because asyncpg.Record's __contains__ check is unreliable for
+        # column names that resolved to NULL.
+        try:
+            sd = r["summary_distance"]
+            if sd is not None:
+                d["summary_distance"] = float(sd)
+        except (KeyError, IndexError):
+            pass
+        try:
+            cd = r["centroid_distance"]
+            if cd is not None:
+                d["centroid_distance"] = float(cd)
+        except (KeyError, IndexError):
+            pass
         return d
 
     def _to_slim(self, d: dict) -> DeltaSlim:
@@ -1126,6 +1166,8 @@ class PlanExecutor:
             media_hash=d.get("media_hash"),
             expires_at=d.get("expires_at"),
             distance=d.get("distance"),
+            summary_distance=d.get("summary_distance"),
+            centroid_distance=d.get("centroid_distance"),
         )
 
     def _apply_noise_rerank(self, rows: list[dict], target_limit: int) -> list[dict]:

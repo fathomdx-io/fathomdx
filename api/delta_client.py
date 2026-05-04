@@ -138,7 +138,17 @@ async def write(
     source: str = "fathom-engagement",
     expires_at: str | None = None,
     media_hash: str | None = None,
+    provenance_embedding: list[float] | None = None,
 ) -> dict:
+    """Write a delta to the lake.
+
+    `provenance_embedding` (optional) — when provided, the delta lands
+    with this vector pre-populated in its `provenance_embedding`
+    column instead of waiting for the background embed loop to fill
+    it. Used by provenance-write paths to store the constituent
+    centroid as the secondary embedding, bypassing the loop's default
+    tag-string embedding behavior.
+    """
     c = await _get()
     body = {"content": content, "source": source, "tags": tags or []}
     if expires_at:
@@ -148,6 +158,8 @@ async def write(
         # Used by engagement-snapshot to keep an affirmed image viewable
         # after the source delta reaps.
         body["media_hash"] = media_hash
+    if provenance_embedding is not None:
+        body["provenance_embedding"] = provenance_embedding
     r = await c.post("/deltas", json=body)
     r.raise_for_status()
     return r.json()

@@ -1180,10 +1180,18 @@ async def _write_qa_marker(
         if cid:
             tags.append(f"from:{cid}")
 
+    # Centroid of cited deltas — same two-embedding shape as L1+
+    # provenance, just degenerate (one-cite markers have a centroid
+    # equal to the single delta's embedding). Skipped if compute
+    # fails — the marker still lands with summary-only retrieval.
+    from ... import provenance_centroid
+    centroid = await provenance_centroid.compute_centroid(cited_ids)
+
     await delta_client.write(
         content=content,
         tags=tags,
         source="harness-qa-marker",
+        provenance_embedding=centroid,
     )
 
 

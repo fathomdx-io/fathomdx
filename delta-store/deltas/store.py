@@ -469,6 +469,36 @@ class DeltaStore:
         )
         return [_row_to_delta(r) for r in rows]
 
+    async def update_text_embedding_only(
+        self, delta_id: str, embedding: list[float]
+    ) -> None:
+        """Update only the content embedding column, leaving
+        provenance_embedding untouched. Used by the embed loop for
+        kind:provenance deltas whose provenance_embedding is a
+        pre-computed centroid that the loop's tag-string default
+        would otherwise clobber.
+        """
+        emb = np.array(embedding, dtype=np.float32)
+        await self._pool.execute(
+            "UPDATE deltas SET embedding = $1 WHERE id = $2",
+            emb, delta_id,
+        )
+
+    async def update_provenance_embedding_only(
+        self, delta_id: str, provenance_embedding: list[float]
+    ) -> None:
+        """Update only the provenance_embedding column, leaving the
+        content embedding untouched. Used by the centroid backfill
+        that retroactively populates centroids on existing
+        kind:provenance deltas without disturbing the embed loop's
+        content embeddings.
+        """
+        prov = np.array(provenance_embedding, dtype=np.float32)
+        await self._pool.execute(
+            "UPDATE deltas SET provenance_embedding = $1 WHERE id = $2",
+            prov, delta_id,
+        )
+
     async def update_embeddings(
         self, delta_id: str, embedding: list[float], provenance_embedding: list[float]
     ) -> None:
