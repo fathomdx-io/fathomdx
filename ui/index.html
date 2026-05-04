@@ -164,6 +164,29 @@
     }
     .alerts-mark-all:hover { color: var(--ink); background: var(--surface-2); }
     .alerts-mark-all:disabled { opacity: 0.5; cursor: progress; }
+    /* Proposal alerts get inline Approve/Deny buttons. The row stays a
+       <div> (not a button) so the buttons can absorb clicks without
+       a dismissive parent click swallowing them. */
+    .alerts-item-proposal { cursor: default; }
+    .alerts-item-proposal .actions {
+      display: flex; gap: 6px; margin-top: 8px;
+    }
+    .alerts-item-proposal .actions button {
+      flex: 1; padding: 5px 8px;
+      border: 1px solid var(--rule); background: transparent;
+      border-radius: 4px; cursor: pointer;
+      font-family: var(--mono); font-size: 11px;
+      letter-spacing: 0.04em; color: var(--ink-soft);
+      transition: color 120ms, border-color 120ms, background 120ms;
+    }
+    .alerts-item-proposal .actions button:hover {
+      color: var(--ink); border-color: var(--ink-faint);
+      background: var(--surface-2);
+    }
+    .alerts-item-proposal .actions button:disabled {
+      opacity: 0.5; cursor: progress;
+    }
+    .alerts-item-proposal .actions .approve { color: var(--ink); }
 
     /* ── Main scroll area ────────────────────────── */
     main {
@@ -8777,9 +8800,12 @@ GET  /v1/usage               Usage stats`,
         return;
       }
       for (const a of _lastAlerts) {
-        const btn = document.createElement('button');
-        btn.className = 'alerts-item';
-        btn.type = 'button';
+        const isProposal = a.kind === 'proposal' && a.delta_id;
+        const row = document.createElement(isProposal ? 'div' : 'button');
+        row.className = isProposal
+          ? 'alerts-item alerts-item-proposal'
+          : 'alerts-item';
+        if (!isProposal) row.type = 'button';
         const title = document.createElement('div');
         title.className = 'title';
         title.textContent = a.title || a.session_id;
@@ -8789,17 +8815,56 @@ GET  /v1/usage               Usage stats`,
         const stamp = document.createElement('div');
         stamp.className = 'stamp';
         stamp.textContent = _alertsRelative(a.unread_since);
-        btn.append(title, preview, stamp);
-        btn.addEventListener('click', () => {
-          // Chat-pane is gone post-cutover; clicking an alert just
-          // dismisses the panel. The bell still surfaces unread state
-          // from /v1/alerts; opening the threaded reply-target flow
-          // from here is a follow-up.
-          // TODO(reply-target): when alerts carry a delta_id, arm
-          // _replyTarget here so the user can reply inline.
-          alertsPanel.dataset.open = 'false';
-        });
-        alertsPanel.appendChild(btn);
+        row.append(title, preview, stamp);
+        if (isProposal) {
+          // L3+ provenance proposal — inline approve/deny. Approval
+          // writes the real kind:provenance delta; deny records a
+          // proposal-decision delta that suppresses re-surfacing.
+          // Either action removes the row from the list on next poll.
+          const actions = document.createElement('div');
+          actions.className = 'actions';
+          const approveBtn = document.createElement('button');
+          approveBtn.type = 'button';
+          approveBtn.className = 'approve';
+          approveBtn.textContent = 'Approve';
+          const denyBtn = document.createElement('button');
+          denyBtn.type = 'button';
+          denyBtn.className = 'deny';
+          denyBtn.textContent = 'Deny';
+          const decide = async (action) => {
+            approveBtn.disabled = true;
+            denyBtn.disabled = true;
+            (action === 'approve' ? approveBtn : denyBtn).textContent = '…';
+            try {
+              await api(`/v1/proposals/${encodeURIComponent(a.delta_id)}/${action}`, {
+                method: 'POST',
+                body: '{}',
+              });
+            } catch (err) {
+              approveBtn.disabled = false;
+              denyBtn.disabled = false;
+              approveBtn.textContent = 'Approve';
+              denyBtn.textContent = 'Deny — retry';
+              return;
+            }
+            _pollAlerts();
+          };
+          approveBtn.addEventListener('click', () => decide('approve'));
+          denyBtn.addEventListener('click', () => decide('deny'));
+          actions.append(approveBtn, denyBtn);
+          row.append(actions);
+        } else {
+          row.addEventListener('click', () => {
+            // Chat-pane is gone post-cutover; clicking an alert just
+            // dismisses the panel. The bell still surfaces unread state
+            // from /v1/alerts; opening the threaded reply-target flow
+            // from here is a follow-up.
+            // TODO(reply-target): when alerts carry a delta_id, arm
+            // _replyTarget here so the user can reply inline.
+            alertsPanel.dataset.open = 'false';
+          });
+        }
+        alertsPanel.appendChild(row);
       }
       // Mark-all-read header — only when there's at least one alert.
       // Sits at the top of the panel so the action is reachable

@@ -37,6 +37,10 @@ router = APIRouter()
 
 _READ_RECEIPT_TAG = "alert-viewed-at"
 
+# Provenance auto-approve cuts off at L2; L3 (eras) and higher are the
+# items that surface here for operator decision. L0/L1/L2 land silently.
+_PROPOSAL_MIN_LEVEL = 3
+
 
 def _is_alert_card(d: dict) -> bool:
     """True for puddle deltas the bell should surface.
@@ -78,6 +82,108 @@ def _card_preview(d: dict) -> tuple[str, str]:
             body = raw
     preview = body[:140] if body else title
     return title or "Alert", preview
+
+
+def _provenance_level(tags: list[str]) -> int | None:
+    """Read `provenance-level:<n>` off a proposal's tags, or None."""
+    for t in tags or []:
+        if isinstance(t, str) and t.startswith("provenance-level:"):
+            try:
+                return int(t.split(":", 1)[1])
+            except (TypeError, ValueError):
+                continue
+    return None
+
+
+def _proposal_preview(d: dict) -> tuple[str, str]:
+    """(title, preview) for a kind:proposal tool:provenance delta.
+
+    The proposal payload carries a tool_args dict with `title`, `summary`,
+    `from_ids`, and `rationale`. Surface the proposed title and a short
+    rationale so the operator can decide without opening anything.
+    """
+    raw = (d.get("content") or "").strip()
+    title = ""
+    preview = ""
+    constituents = 0
+    if raw:
+        try:
+            payload = json.loads(raw)
+            args = payload.get("tool_args") or {}
+            if isinstance(args, dict):
+                title = (args.get("title") or "").strip()
+                rationale = (args.get("rationale") or "").strip()
+                summary = (args.get("summary") or "").strip()
+                preview = rationale or summary
+                from_ids = args.get("from_ids") or []
+                if isinstance(from_ids, list):
+                    constituents = len(from_ids)
+            if not title:
+                title = (payload.get("title") or payload.get("kicker") or "").strip()
+            if not preview:
+                preview = (payload.get("body") or "").strip()
+        except Exception:
+            preview = raw
+    level = _provenance_level(d.get("tags") or [])
+    title_prefix = f"L{level} proposal" if level is not None else "Proposal"
+    if title:
+        title = f"{title_prefix}: {title}"
+    else:
+        title = title_prefix
+    if constituents:
+        preview = f"({constituents} constituents) {preview}"
+    return title, (preview or "")[:200]
+
+
+async def _pending_proposal_alerts() -> list[dict]:
+    """Query the lake for L3+ provenance proposals that have no decision.
+
+    Auto-approve handles L1 + L2 silently — those land as kind:provenance
+    directly. Only L3 and higher reach the operator. We filter by level
+    here (the lake doesn't have a comparison operator on tags) so the
+    set reaching the bell is small.
+    """
+    try:
+        proposals = await delta_client.query(
+            tags_include=["kind:proposal", "tool:provenance", "proposal-status:pending"],
+            limit=50,
+        )
+    except Exception:
+        return []
+    out: list[dict] = []
+    for p in proposals:
+        level = _provenance_level(p.get("tags") or [])
+        if level is None or level < _PROPOSAL_MIN_LEVEL:
+            continue
+        delta_id = p.get("id") or ""
+        if not delta_id:
+            continue
+        # Filter out anything that already has a decision recorded —
+        # those proposals have a `decides:<id>` delta in the lake.
+        try:
+            decisions = await delta_client.query(
+                tags_include=[f"decides:{delta_id}"],
+                limit=1,
+            )
+        except Exception:
+            decisions = []
+        if decisions:
+            continue
+        title, preview = _proposal_preview(p)
+        ts = p.get("timestamp") or ""
+        out.append(
+            {
+                "session_id": delta_id,
+                "delta_id": delta_id,
+                "title": title,
+                "preview": preview,
+                "unread_since": ts,
+                "updated_at": ts,
+                "kind": "proposal",
+                "level": level,
+            }
+        )
+    return out
 
 
 async def _latest_viewed_at(viewer: str) -> str:
@@ -142,7 +248,14 @@ async def list_alerts(request: Request):
     deltas = puddle.query(tags_include=[CONVO_TAG, "feed-card"], limit=500)
     viewed_at = await _latest_viewed_at(viewer)
     alerts = _unread_alerts(deltas, viewed_at)
-    return {"viewer": viewer, "count": len(alerts), "alerts": alerts}
+    # L3+ provenance proposals are bell-worthy regardless of viewed_at —
+    # they stay until the operator approves or denies. Mark-all-read
+    # only clears the timestamp-driven alerts (those age past viewed_at);
+    # proposals are decision-driven, not read-driven.
+    proposal_alerts = await _pending_proposal_alerts()
+    merged = proposal_alerts + alerts
+    merged.sort(key=lambda a: a.get("unread_since") or "", reverse=True)
+    return {"viewer": viewer, "count": len(merged), "alerts": merged}
 
 
 class MarkReadRequest(BaseModel):
