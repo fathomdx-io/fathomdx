@@ -460,6 +460,102 @@ LAKE_TOOLS = [
         "surfaces": ["chat", "mcp", "cli"],
         "response_kind": "json",
     },
+    {
+        "name": "dispatch_helper",
+        "description": (
+            "Propose a claude-code dispatch to a connected helper host. "
+            "Drafts an operator-gated proposal that surfaces in the "
+            "dashboard's header bell — on approve, claude-code runs the "
+            "task on the named host. Use when the work needs a host "
+            "machine (file edits, shell commands, anything outside the "
+            "lake). The host must be currently dispatch-capable (recent "
+            "heartbeat with the kitty plugin advertising itself)."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "host": {
+                    "type": "string",
+                    "description": (
+                        "Slug of a connected dispatch-capable host. "
+                        "Validates against the live heartbeat list."
+                    ),
+                },
+                "task": {
+                    "type": "string",
+                    "description": "Prompt to hand claude-code on the host.",
+                },
+                "title": {
+                    "type": "string",
+                    "description": (
+                        "Short label for the bell preview. Defaults to "
+                        "the first line of `task` when omitted."
+                    ),
+                },
+            },
+            "required": ["host", "task"],
+        },
+        "endpoint": {"method": "POST", "path": "/v1/dispatch-helper"},
+        "scope": "lake:write",
+        "surfaces": ["chat", "mcp", "cli", "harness"],
+        "response_kind": "json",
+    },
+    {
+        "name": "mint_routine",
+        "description": (
+            "Propose a new scheduled routine. Drafts an operator-gated "
+            "proposal that surfaces in the dashboard's header bell — "
+            "on approve, the routine starts firing on its cron. Use "
+            "when something should happen on a recurring clock "
+            "(periodic checks, daily summaries, conditional alerts). "
+            "Schedule is a cron expression (`0 9 * * *` = daily at 09:00)."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "name": {
+                    "type": "string",
+                    "description": (
+                        "Human-readable routine name. Slug derived from this."
+                    ),
+                },
+                "schedule": {
+                    "type": "string",
+                    "description": (
+                        "Cron expression — five fields. Validated before draft."
+                    ),
+                },
+                "prompt": {
+                    "type": "string",
+                    "description": (
+                        "Prompt the routine fires when its cron trips."
+                    ),
+                },
+                "workspace": {
+                    "type": "string",
+                    "description": "Workspace tag for the routine. Defaults to fathom.",
+                },
+                "route_to": {
+                    "type": "string",
+                    "description": (
+                        "Where the routine's output should land — feed, "
+                        "alert, or a contact slug. Defaults to feed."
+                    ),
+                },
+                "title": {
+                    "type": "string",
+                    "description": (
+                        "Short label for the bell preview. Defaults to `name`."
+                    ),
+                },
+            },
+            "required": ["name", "schedule", "prompt"],
+        },
+        "endpoint": {"method": "POST", "path": "/v1/mint-routine"},
+        "scope": "lake:write",
+        "surfaces": ["chat", "mcp", "cli", "harness"],
+        "response_kind": "json",
+    },
 ]
 
 
@@ -681,3 +777,63 @@ async def proxy_tags():
 @router.get("/v1/stats")
 async def proxy_stats():
     return await delta_client.stats()
+
+
+# ── Harness self-acting tools, exposed to chat / MCP / CLI ───────────
+#
+# These are the only harness tools that benefit from external surfaces.
+# Retrieval tools (semantic, state, pattern, etc.) stay harness-internal
+# because external surfaces already have remember / recall / deep_recall
+# for the same job. Self-acting tools land in LAKE_TOOLS so MCP/CLI
+# users can ask Claude to dispatch helpers or mint routines, and the
+# resulting proposals reach the operator's bell same as the harness's
+# own self-acting fires.
+
+
+@router.post("/v1/dispatch-helper")
+async def dispatch_helper_endpoint(body: dict):
+    """Draft a helper-dispatch proposal. Operator-gated — approval
+    flow lands the actual route:claude-code dispatch on the lake.
+
+    See LAKE_TOOLS["dispatch_helper"] for the schema.
+    """
+    from ..loop.harness.tools import tool_dispatch_helper
+
+    host = (body.get("host") or "").strip()
+    task = (body.get("task") or "").strip()
+    title = (body.get("title") or "").strip()
+    if not host or not task:
+        raise HTTPException(status_code=400, detail="host and task are required")
+    result = await tool_dispatch_helper(host=host, task=task, title=title)
+    return {"result": result}
+
+
+@router.post("/v1/mint-routine")
+async def mint_routine_endpoint(body: dict):
+    """Draft a routine-mint proposal. Operator-gated — approval flow
+    calls routines.create() to materialize.
+
+    See LAKE_TOOLS["mint_routine"] for the schema.
+    """
+    from ..loop.harness.tools import tool_mint_routine
+
+    name = (body.get("name") or "").strip()
+    schedule = (body.get("schedule") or "").strip()
+    prompt = (body.get("prompt") or "").strip()
+    workspace = (body.get("workspace") or "fathom").strip()
+    route_to = (body.get("route_to") or "feed").strip()
+    title = (body.get("title") or "").strip()
+    if not name or not schedule or not prompt:
+        raise HTTPException(
+            status_code=400,
+            detail="name, schedule, and prompt are required",
+        )
+    result = await tool_mint_routine(
+        name=name,
+        schedule=schedule,
+        prompt=prompt,
+        workspace=workspace,
+        route_to=route_to,
+        title=title,
+    )
+    return {"result": result}
