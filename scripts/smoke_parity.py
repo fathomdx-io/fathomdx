@@ -147,14 +147,12 @@ def _import_harness():
     from api.loop.harness import run_harness
     from api.loop.intents import CONVO_TAG
     from api.loop.puddle import puddle
-    from api.loop.recall import run_intent_searcher_tick
 
     return {
         "standpoint_mod": standpoint_mod,
         "run_harness": run_harness,
         "CONVO_TAG": CONVO_TAG,
         "puddle": puddle,
-        "run_intent_searcher_tick": run_intent_searcher_tick,
     }
 
 
@@ -188,18 +186,9 @@ async def fire_one(pair: dict, h: dict) -> dict:
         record["error"] = f"seed_intent: {type(e).__name__}: {e}"
         return record
 
-    # Mirror worker.py — run an intent-searcher tick before firing the
-    # harness so the puddle has recall-result substrate to lean on.
-    try:
-        await h["run_intent_searcher_tick"](
-            session_tag=session_tag,
-            event_id=f"{session_tag.split(':', 1)[1]}-intent-seed",
-            intents=[intent],
-        )
-    except Exception as e:
-        # Non-fatal; we still want to fire the harness and see what it
-        # produces with a cold puddle.
-        record["intent_searcher_error"] = f"{type(e).__name__}: {e}"
+    # Phase 9: production worker.py no longer pre-seeds recall — the
+    # harness elects search via its `semantic` tool when needed.
+    # Smoke-parity mirrors that shape.
 
     try:
         standpoint = await h["standpoint_mod"].current(session_tag=session_tag)

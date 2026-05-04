@@ -33,7 +33,6 @@ from api import standpoint as standpoint_mod  # noqa: E402
 from api.loop.harness import run_harness  # noqa: E402
 from api.loop.intents import CONVO_TAG  # noqa: E402
 from api.loop.puddle import puddle  # noqa: E402
-from api.loop.recall import run_intent_searcher_tick  # noqa: E402
 
 
 async def _seed_intent(text: str) -> dict:
@@ -69,19 +68,9 @@ async def _main(question: str) -> int:
         print(f"standpoint gather crashed: {type(e).__name__}: {e}\n")
         standpoint = None
 
-    # Mirror worker.py — seed the puddle with intent-anchored recall before
-    # firing the harness. Without this, the harness starts cold with only
-    # identity anchors; production fires always have a recall-result block
-    # already in the puddle for the harness's _render_anchors path.
-    try:
-        await run_intent_searcher_tick(
-            session_tag=session_tag,
-            event_id=f"{session_tag.split(':', 1)[1]}-intent-seed",
-            intents=[intent],
-        )
-        print("seeded recall via intent-searcher\n")
-    except Exception as e:
-        print(f"intent-searcher seed crashed: {type(e).__name__}: {e}\n")
+    # Phase 9: production worker.py no longer pre-seeds recall — the
+    # harness elects search via its `semantic` tool when needed. Mirror
+    # that behavior here so test runs reflect real fire shape.
 
     addressed = await run_harness(
         session_tag=session_tag,

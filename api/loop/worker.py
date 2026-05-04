@@ -1,13 +1,16 @@
 """Grand Loop supervisor.
 
-Polls the puddle for pending intents. When any are present, runs an
-intent-searcher pre-pass to seed substrate, then hands the fire to the
-agentic harness — the model elects its own deliberation via tool
-calls, produces a response, and dispatches the card.
+Polls the puddle for pending intents. When any are present, hands the
+fire to the agentic harness — the model elects its own deliberation
+via tool calls (semantic / state / pattern / time / relate / etc.),
+produces a response, and dispatches the card.
 
 The convener+parliament+witness path was retired in the harness
 migration; the harness's `deliberate` tool covers the antagonism case
-when needed.
+when needed. The intent-searcher pre-pass was retired in Phase 9 — it
+was a parliament-era artifact that forced a search the harness's
+voices needed but the harness itself doesn't (the harness can call
+`semantic` if it wants substrate).
 """
 
 from __future__ import annotations
@@ -22,7 +25,6 @@ from .harness import run_harness
 from .intents import next_intent_group, pending_intents
 from .pressure import pressure_watcher
 from .puddle import puddle
-from .recall import run_intent_searcher_tick
 from .telepathy import telepathy_loop
 
 
@@ -102,19 +104,6 @@ async def _run_one_fire() -> bool:
     except Exception as e:
         print(f"[loop fire] standpoint gather crashed: {type(e).__name__}: {e}")
         standpoint = None
-
-    # Intent-seed pre-pass — seeds the puddle with one shallow recall-
-    # result anchored on the user's literal intent. Gives the harness's
-    # first turn substrate to lean on without needing a `semantic` call
-    # for casual drop-ins. Soft-fails — first turn just sees less.
-    try:
-        await run_intent_searcher_tick(
-            session_tag=session_tag,
-            event_id=f"{session_tag.split(':', 1)[1]}-intent-seed",
-            intents=pending,
-        )
-    except Exception as e:
-        print(f"[loop fire] intent-searcher seed crashed: {type(e).__name__}: {e}")
 
     try:
         await run_harness(
