@@ -14,12 +14,14 @@ commits without changing this loop's shape.
 from __future__ import annotations
 
 import asyncio
+import os
 import uuid
 
 from .. import standpoint as standpoint_mod
 from . import feed_orient
 from .claude_code_watcher import claude_code_watcher_loop
 from .convener import run_convener
+from .harness import run_harness
 from .intents import next_intent_group, pending_intents
 from .metric import (
     emit_metric,
@@ -34,6 +36,13 @@ from .recall import run_intent_searcher_tick, run_voice_followup_tick
 from .telepathy import telepathy_loop
 from .voice_stances import stance_regen_watcher
 from .witness import run_witness
+
+# Behind a flag so the witness path stays the default until we've soaked
+# the harness on real traffic. Flip via env: `FATHOM_USE_HARNESS=1`.
+# When set, _run_one_fire skips convener + parliament entirely and hands
+# the fire to the harness's tool-calling loop. Set back to "0" (or unset)
+# to roll back without redeploy.
+USE_HARNESS = os.environ.get("FATHOM_USE_HARNESS", "0") == "1"
 
 # Maximum parliament rounds per fire. With settle detection in place
 # the loop usually exits earlier — voices converge in 2-4 rounds when
@@ -147,6 +156,22 @@ async def _run_one_fire() -> bool:
         )
     except Exception as e:
         print(f"[loop fire] intent-searcher seed crashed: {type(e).__name__}: {e}")
+
+    # Harness path: skip convener + parliament entirely. The harness
+    # elects its own deliberation via the `deliberate` tool, so the
+    # standalone parliament is dead weight under this flag. The intent-
+    # searcher pre-pass above still ran — that gives the puddle a
+    # starting recall-result before the harness's first turn.
+    if USE_HARNESS:
+        try:
+            await run_harness(
+                session_tag=session_tag,
+                pending=pending,
+                standpoint=standpoint,
+            )
+        except Exception as e:
+            print(f"[loop fire] harness crashed: {type(e).__name__}: {e}")
+        return True
 
     # Convener — picks the parliament's shape for this fire. Reads the
     # intent + the recall just seeded above + the standpoint; returns
