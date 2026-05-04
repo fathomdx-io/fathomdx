@@ -317,7 +317,10 @@ def get_feed(
         # ── Auxiliary types (filter-toggleable) ───────────
         # Harness turn trace — one entry per tool call + respond per fire.
         # The replacement for parliament's voice-thought stream now that
-        # the loop fires through the agentic harness instead.
+        # the loop fires through the agentic harness instead. Body is a
+        # JSON envelope (turn, tool, thinking, args_json, result, error)
+        # so the dashboard can render the full per-turn shape — same
+        # info harness-test.html shows live via SSE.
         if "kind:harness-turn" in tags:
             tool = next(
                 (t.split(":", 1)[1] for t in tags if t.startswith("tool:")),
@@ -331,12 +334,59 @@ def get_feed(
                 (t.split(":", 1)[1] for t in tags if t.startswith("plan-step:")),
                 "",
             )
+            session = next(
+                (t for t in tags if isinstance(t, str) and t.startswith("session:")),
+                "",
+            )
+            raw = d.get("content") or ""
+            envelope = {}
+            try:
+                parsed_env = json.loads(raw) if raw else {}
+                if isinstance(parsed_env, dict):
+                    envelope = parsed_env
+            except Exception:
+                envelope = {"thinking": raw[:200]}
             items.append({
                 "kind": "harness-turn",
                 "tool": tool,
                 "turn": turn_n,
                 "plan_step": plan_step,
-                "content": d.get("content") or "",
+                "session": session,
+                "thinking": envelope.get("thinking") or "",
+                "args_json": envelope.get("args_json") or "",
+                "result": envelope.get("result") or "",
+                "error": envelope.get("error") or "",
+                "content": raw,  # legacy for any client expecting it
+                **common,
+            })
+            continue
+        # Harness review pass — what the post-response review decided.
+        # Same per-fire grouping as turns; rendered inside the same
+        # accordion block.
+        if "kind:harness-review" in tags:
+            review_kind = next(
+                (t.split(":", 1)[1] for t in tags if t.startswith("review-kind:")),
+                "",
+            )
+            session = next(
+                (t for t in tags if isinstance(t, str) and t.startswith("session:")),
+                "",
+            )
+            raw = d.get("content") or ""
+            envelope = {}
+            try:
+                parsed_env = json.loads(raw) if raw else {}
+                if isinstance(parsed_env, dict):
+                    envelope = parsed_env
+            except Exception:
+                envelope = {"detail": raw[:200]}
+            items.append({
+                "kind": "harness-review",
+                "review_kind": review_kind,
+                "session": session,
+                "detail": envelope.get("detail") or "",
+                "args_json": envelope.get("args_json") or "",
+                "content": raw,
                 **common,
             })
             continue

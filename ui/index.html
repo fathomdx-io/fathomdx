@@ -650,6 +650,70 @@
     .feed .delta.thought.voice-preserver .d-kind { color: #06b6d4; }
     .feed .delta.thought.voice-destroyer { border-left-color: #dc2626; }
     .feed .delta.thought.voice-destroyer .d-kind { color: #dc2626; }
+    /* Harness turn — agentic loop trace, mirrors harness-test's
+       activity-event shape. Tool-specific border accents help scan
+       quickly. */
+    .feed .delta.thought.harness-turn {
+      border-left-color: #6ee7b7;
+    }
+    .feed .delta.thought.harness-turn .d-kind { color: #6ee7b7; }
+    .feed .delta.thought.harness-turn.has-error { border-left-color: #ef4444; }
+    .feed .delta.thought.harness-turn.has-error .d-kind { color: #ef4444; }
+    .feed .delta.thought.harness-turn.tool-respond { border-left-color: #fbbf24; }
+    .feed .delta.thought.harness-turn.tool-respond .d-kind { color: #fbbf24; }
+    .feed .delta.thought.harness-turn.tool-plan { border-left-color: #c4b5fd; }
+    .feed .delta.thought.harness-turn.tool-plan .d-kind { color: #c4b5fd; }
+    .feed .delta.thought.harness-turn.tool-deliberate { border-left-color: #f97316; }
+    .feed .delta.thought.harness-turn.tool-deliberate .d-kind { color: #f97316; }
+    .feed .delta.thought.harness-turn.tool-introspect { border-left-color: #06b6d4; }
+    .feed .delta.thought.harness-turn.tool-introspect .d-kind { color: #06b6d4; }
+    /* The model's "thinking" line — italicized one-sentence rationale. */
+    .harness-thinking {
+      font-style: italic; font-size: 12.5px; color: var(--ink-soft);
+      line-height: 1.45; margin-top: 4px;
+    }
+    /* Args / result blocks — collapsed by default; expand to mono pre. */
+    details.harness-detail {
+      margin-top: 4px;
+      font-family: var(--mono); font-size: 11px;
+    }
+    details.harness-detail > summary {
+      cursor: pointer;
+      color: var(--ink-faint);
+      letter-spacing: 0.04em; text-transform: uppercase;
+      font-size: 10.5px;
+      padding: 1px 0;
+    }
+    details.harness-detail > summary::marker { content: ''; }
+    details.harness-detail > summary::before {
+      content: '▸'; display: inline-block;
+      width: 10px; transition: transform 120ms;
+      color: var(--ink-faint);
+    }
+    details.harness-detail[open] > summary::before { transform: rotate(90deg); }
+    details.harness-detail > pre {
+      margin: 4px 0 0 12px;
+      padding: 6px 8px;
+      background: var(--surface-2);
+      border-radius: 4px;
+      max-height: 240px; overflow: auto;
+      white-space: pre-wrap; word-break: break-word;
+      color: var(--ink);
+    }
+    .harness-error {
+      margin-top: 4px;
+      font-size: 12px;
+      color: #ef4444;
+      font-family: var(--mono);
+    }
+    /* Harness review pass — green-tinted, sits visually after the turn
+       block from the same fire. */
+    .feed .delta.thought.harness-review {
+      border-left-color: #34d399;
+    }
+    .feed .delta.thought.harness-review .d-kind { color: #34d399; }
+    .feed .delta.thought.harness-review.review-error { border-left-color: #ef4444; }
+    .feed .delta.thought.harness-review.review-error .d-kind { color: #ef4444; }
     /* Pass intents (reflection / drift / bridging / alert) — italic purple. */
     .feed .delta.intent {
       border-left-color: #a78bfa;
@@ -9330,6 +9394,7 @@ GET  /v1/usage               Usage stats`,
       'pass-intent':           'prompts',
       'voice-thought':         'thinking',
       'harness-turn':          'thinking',
+      'harness-review':        'thinking',
       'recall':                'thinking',
       'lake-delta':            'thinking',
       'crystal':               'identity',
@@ -10143,13 +10208,14 @@ GET  /v1/usage               Usage stats`,
       }
 
       // ── Auxiliary types — compact .delta rows ───────────────
-      // Harness turn — one row per tool call + one for the final RESPOND.
-      // The new live-trace shape replacing voice-thought's parliament rows.
-      // Header chip is the tool name; body is the model's "thinking" line
-      // for that turn (typically a single sentence on why this tool).
+      // Harness turn — one row per tool call. Matches harness-test's
+      // activity-event shape: turn header, model's thinking line, args
+      // (collapsed), tool result (collapsed). Both args + result expand
+      // on click — the puddle copy is truncated at write time so even
+      // the full expansion stays bounded.
       if (it.kind === 'harness-turn') {
         const el = document.createElement('article');
-        el.className = `delta thought harness-turn tool-${it.tool || 'unknown'}`;
+        el.className = `delta thought harness-turn tool-${it.tool || 'unknown'}${it.error ? ' has-error' : ''}`;
         el.dataset.kind = 'harness-turn';
         el.dataset.fromPuddle = '1';
         el.dataset.puddleId = it.id || '';
@@ -10160,7 +10226,63 @@ GET  /v1/usage               Usage stats`,
         const turnN = it.turn ? `t${it.turn}` : '';
         const planStep = it.plan_step ? ` · step ${it.plan_step}` : '';
         const head = `${turnN ? turnN + ' · ' : ''}${tool}${planStep}`;
-        el.innerHTML = `<header class="d-head"><span class="d-kind">${_esc(head)}</span><span class="d-ts">${timeStr}</span></header><div class="d-body">${renderMd(it.content || '')}</div>`;
+        const thinking = (it.thinking || '').trim();
+        const args = (it.args_json || '').trim();
+        const result = (it.result || '').trim();
+        const errorBlock = (it.error || '').trim();
+        const sessionShort = it.session ? it.session.replace('session:', '').slice(0, 8) : '';
+
+        const parts = [
+          `<header class="d-head">`,
+          `<span class="d-kind">${_esc(head)}</span>`,
+          sessionShort ? `<span class="source-chip">${_esc(sessionShort)}</span>` : '',
+          `<span class="d-ts">${timeStr}</span>`,
+          `</header>`,
+        ];
+        if (thinking) {
+          parts.push(`<div class="harness-thinking">${_esc(thinking)}</div>`);
+        }
+        if (args) {
+          parts.push(`<details class="harness-detail"><summary>args</summary><pre>${_esc(args)}</pre></details>`);
+        }
+        if (result) {
+          parts.push(`<details class="harness-detail"><summary>result</summary><pre>${_esc(result)}</pre></details>`);
+        }
+        if (errorBlock) {
+          parts.push(`<div class="harness-error"><strong>error:</strong> ${_esc(errorBlock)}</div>`);
+        }
+        el.innerHTML = parts.join('');
+        return el;
+      }
+      // Harness review pass — what the post-response review decided.
+      // Renders inline beside the turns from the same fire so the user
+      // sees: "fire turns ... review fired propose_provenance / skipped
+      // because X / errored Y."
+      if (it.kind === 'harness-review') {
+        const el = document.createElement('article');
+        el.className = `delta thought harness-review review-${it.review_kind || 'unknown'}`;
+        el.dataset.kind = 'harness-review';
+        el.dataset.fromPuddle = '1';
+        el.dataset.puddleId = it.id || '';
+        if (it.id) el.dataset.deltaId = it.id;
+        const reviewKind = it.review_kind || 'review';
+        const sessionShort = it.session ? it.session.replace('session:', '').slice(0, 8) : '';
+        const detail = (it.detail || '').trim();
+        const args = (it.args_json || '').trim();
+        const parts = [
+          `<header class="d-head">`,
+          `<span class="d-kind">review · ${_esc(reviewKind)}</span>`,
+          sessionShort ? `<span class="source-chip">${_esc(sessionShort)}</span>` : '',
+          `<span class="d-ts">${timeStr}</span>`,
+          `</header>`,
+        ];
+        if (detail) {
+          parts.push(`<div class="harness-thinking">${_esc(detail)}</div>`);
+        }
+        if (args) {
+          parts.push(`<details class="harness-detail"><summary>proposal args</summary><pre>${_esc(args)}</pre></details>`);
+        }
+        el.innerHTML = parts.join('');
         return el;
       }
       // Voice thought (legacy parliament shape — retained for old puddle

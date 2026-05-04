@@ -92,6 +92,18 @@ MAX_TOKENS_PER_TURN = 4096  # response budget — final card needs room
 EventCallback = Callable[[str, dict], Any]
 
 
+_TRACE_RESULT_CAP = 1500
+_TRACE_ARGS_CAP = 800
+
+
+def _truncate(s: str, cap: int) -> str:
+    if not s:
+        return s
+    if len(s) > cap:
+        return s[:cap] + f"…[+{len(s) - cap} chars]"
+    return s
+
+
 async def _write_turn_trace(
     *,
     session_tag: str,
@@ -99,20 +111,40 @@ async def _write_turn_trace(
     tool: str,
     thinking: str = "",
     plan_step: int | None = None,
+    args: dict | None = None,
+    result: str = "",
+    error: str = "",
 ) -> None:
     """Drop a `kind:harness-turn` delta into the puddle so the dashboard
     feed can surface what the harness is doing per fire.
 
-    Replaces the parliament-shaped `voice-thought` deltas. One write per
-    tool call + one for the final respond. TTL'd to 6h — these are
-    per-fire trace, not durable substrate.
+    Body is a JSON envelope (turn, tool, thinking, args, result, error)
+    so the dashboard can render the full per-turn shape — same
+    information harness-test.html shows live via SSE. TTL'd to 6h.
+
+    `args` and `result` are truncated at write time so a tool returning
+    100KB of recall output doesn't bloat the puddle. The dashboard can
+    still mark the truncation visually.
     """
-    body_parts = [f"turn {turn} · {tool}"]
-    if plan_step is not None:
-        body_parts.append(f"plan-step:{plan_step}")
-    if thinking:
-        body_parts.append(thinking[:200])
-    body = " — ".join(body_parts)
+    args_blob = ""
+    if args is not None:
+        try:
+            args_blob = _truncate(
+                json.dumps(args, ensure_ascii=False, default=str),
+                _TRACE_ARGS_CAP,
+            )
+        except Exception:
+            args_blob = "<unserializable args>"
+    payload = {
+        "turn": turn,
+        "tool": tool,
+        "thinking": (thinking or "")[:600],
+        "args_json": args_blob,
+        "result": _truncate(result or "", _TRACE_RESULT_CAP),
+        "error": error or "",
+        "plan_step": plan_step,
+    }
+    body = json.dumps(payload, ensure_ascii=False, default=str)
     tags = [
         CONVO_TAG,
         session_tag,
@@ -122,6 +154,8 @@ async def _write_turn_trace(
     ]
     if plan_step is not None:
         tags.append(f"plan-step:{plan_step}")
+    if error:
+        tags.append("turn-error")
     try:
         await puddle.write(
             content=body,
@@ -132,6 +166,51 @@ async def _write_turn_trace(
     except Exception as e:
         # Soft-fail — trace visibility is decoration, never load-bearing.
         print(f"[harness-trace] puddle write failed: {type(e).__name__}: {e}")
+
+
+async def _write_review_trace(
+    *,
+    session_tag: str,
+    kind: str,
+    detail: str = "",
+    args: dict | None = None,
+) -> None:
+    """Drop a `kind:harness-review` delta when the post-response review
+    pass produces something — proposal drafted, skipped, or errored.
+    Same JSON-envelope shape as turns; dashboard renders inline.
+
+    `kind` is one of: `proposing`, `skipped`, `error`, `result`.
+    """
+    args_blob = ""
+    if args is not None:
+        try:
+            args_blob = _truncate(
+                json.dumps(args, ensure_ascii=False, default=str),
+                _TRACE_ARGS_CAP,
+            )
+        except Exception:
+            args_blob = "<unserializable args>"
+    payload = {
+        "review_kind": kind,
+        "detail": (detail or "")[:600],
+        "args_json": args_blob,
+    }
+    body = json.dumps(payload, ensure_ascii=False, default=str)
+    tags = [
+        CONVO_TAG,
+        session_tag,
+        "kind:harness-review",
+        f"review-kind:{kind}",
+    ]
+    try:
+        await puddle.write(
+            content=body,
+            tags=tags,
+            source="harness-trace",
+            ttl_seconds=6 * 60 * 60,
+        )
+    except Exception as e:
+        print(f"[harness-trace] review write failed: {type(e).__name__}: {e}")
 
 
 async def _emit(cb: EventCallback | None, event: str, payload: dict) -> None:
@@ -337,13 +416,6 @@ async def run_harness(
                 print(f"[harness] turn {turn}: {tool_name} — {thinking[:120]}")
             else:
                 print(f"[harness] turn {turn}: {tool_name}")
-            await _write_turn_trace(
-                session_tag=session_tag,
-                turn=turn,
-                tool=tool_name,
-                thinking=thinking,
-                plan_step=plan_step,
-            )
             await _emit(
                 cb,
                 "tool_call",
@@ -375,6 +447,20 @@ async def run_harness(
                 disabled_tools=main_loop_disabled,
             )
             tool_history.append(entry)
+            # Persist the turn trace AFTER dispatch so the puddle entry
+            # carries args, thinking, and result together. Single write
+            # per turn rather than two — keeps the per-fire grouping
+            # cleaner client-side.
+            await _write_turn_trace(
+                session_tag=session_tag,
+                turn=turn,
+                tool=tool_name,
+                thinking=thinking,
+                plan_step=plan_step,
+                args=args_raw if isinstance(args_raw, dict) else None,
+                result=str(entry.get("result") or ""),
+                error=str(entry.get("error") or ""),
+            )
             # Plan tool special handling — parse the steps payload and
             # update current_plan. Replaces any existing plan (revisions
             # are deliberate moves; the prior plan's progress is reset).
@@ -1134,15 +1220,26 @@ async def _run_post_response_review(
     if kind == "skip":
         reason = (parsed.get("reason") or "").strip() or "(no reason given)"
         print(f"[harness] review: skip — {reason[:200]}")
+        await _write_review_trace(session_tag=session_tag, kind="skipped", detail=reason)
         await _emit(cb, "review_skipped", {"reason": reason})
         return
 
     if kind != "tool_call":
+        await _write_review_trace(
+            session_tag=session_tag,
+            kind="skipped",
+            detail=f"unknown review kind: {kind!r}",
+        )
         await _emit(cb, "review_skipped", {"reason": f"unknown review kind: {kind!r}"})
         return
 
     tool_name = (parsed.get("tool") or "").strip()
     if tool_name != "propose_provenance":
+        await _write_review_trace(
+            session_tag=session_tag,
+            kind="skipped",
+            detail=f"review may only call propose_provenance, got {tool_name!r}",
+        )
         await _emit(
             cb,
             "review_skipped",
@@ -1153,6 +1250,12 @@ async def _run_post_response_review(
     args_raw = parsed.get("args") or {}
     thinking = (parsed.get("thinking") or "").strip()
     print(f"[harness] review: propose_provenance — {thinking[:120]}")
+    await _write_review_trace(
+        session_tag=session_tag,
+        kind="proposing",
+        detail=thinking,
+        args=args_raw if isinstance(args_raw, dict) else None,
+    )
     await _emit(cb, "review_proposing", {"tool": tool_name, "args": args_raw, "thinking": thinking})
 
     entry = await _dispatch_tool(
@@ -1163,6 +1266,11 @@ async def _run_post_response_review(
         pending=pending,
         standpoint=None,
         disabled_tools=set(),  # review pass: propose_provenance allowed
+    )
+    await _write_review_trace(
+        session_tag=session_tag,
+        kind="error" if entry.get("error") else "result",
+        detail=str(entry.get("result") or entry.get("error") or ""),
     )
     await _emit(
         cb,
