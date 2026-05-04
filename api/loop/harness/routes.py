@@ -12,6 +12,7 @@ production paths here.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import json
 import time
 import uuid
@@ -77,11 +78,9 @@ async def harness_test(
         DONE = object()  # sentinel to tell the gen to stop draining
 
         async def callback(event: str, payload: dict) -> None:
-            try:
+            # Drop on overflow rather than blocking the harness.
+            with contextlib.suppress(asyncio.QueueFull):
                 q.put_nowait((event, payload))
-            except asyncio.QueueFull:
-                # Drop on overflow rather than blocking the harness.
-                pass
 
         # Seed the synthetic intent in the puddle.
         try:
@@ -164,10 +163,8 @@ async def harness_test(
         finally:
             if not task.done():
                 task.cancel()
-                try:
+                with contextlib.suppress(asyncio.CancelledError, Exception):
                     await task
-                except (asyncio.CancelledError, Exception):
-                    pass
 
     return StreamingResponse(
         event_gen(),
@@ -215,10 +212,8 @@ async def harness_sit(
         DONE = object()
 
         async def callback(event: str, payload: dict) -> None:
-            try:
+            with contextlib.suppress(asyncio.QueueFull):
                 q.put_nowait((event, payload))
-            except asyncio.QueueFull:
-                pass
 
         # No `seeded` event — the page-side already created its own
         # introspection bubble before opening the SSE stream. Sending
@@ -260,10 +255,8 @@ async def harness_sit(
         finally:
             if not task.done():
                 task.cancel()
-                try:
+                with contextlib.suppress(asyncio.CancelledError, Exception):
                     await task
-                except (asyncio.CancelledError, Exception):
-                    pass
 
     return StreamingResponse(
         event_gen(),
@@ -316,10 +309,8 @@ async def harness_dialogue(
         DONE = object()
 
         async def callback(event: str, payload: dict) -> None:
-            try:
+            with contextlib.suppress(asyncio.QueueFull):
                 q.put_nowait((event, payload))
-            except asyncio.QueueFull:
-                pass
 
         # No `seeded` event — page-side already created the dialogue
         # bubble before opening the SSE stream.
@@ -370,10 +361,8 @@ async def harness_dialogue(
         finally:
             if not task.done():
                 task.cancel()
-                try:
+                with contextlib.suppress(asyncio.CancelledError, Exception):
                     await task
-                except (asyncio.CancelledError, Exception):
-                    pass
 
     return StreamingResponse(
         event_gen(),

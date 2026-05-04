@@ -39,6 +39,7 @@ question calls for antagonism, instead of being a mandatory pre-step.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import json
 import uuid
 from collections import Counter
@@ -606,10 +607,8 @@ async def tool_pattern(*, action: str = "help", **kwargs) -> str:
             for t in ad.get("tags") or []:
                 if isinstance(t, str) and t.startswith("for-card:"):
                     cid = t.split(":", 1)[1]
-                    try:
+                    with contextlib.suppress(Exception):
                         axes_by_card[cid] = json.loads(ad.get("content") or "{}")
-                    except Exception:
-                        pass
                     break
 
         scored: list[tuple[float, dict, dict]] = []
