@@ -698,8 +698,15 @@ Actions:
   time(action="bucket_by", period="day"|"hour"|"week",
        since="<iso>", group_by="source"|"kind")
        — counts grouped by time bucket (e.g. activity per day).
+  time(action="around", delta_id="<id>", gap_minutes=30)
+       — given a hit, return the chronologically-surrounding moments
+         from the same source, gap-bounded. Use this AFTER any lens
+         tool (state / pattern / relate / time.between) returns
+         interesting deltas — the lens gives you the matches, this
+         gives you the context they sat in. Mirrors the timeline-strip
+         shape semantic search returns by default.
 
-Returned items include delta ids — feed them into expand/ascend/search."""
+Returned items include delta ids — feed them into expand/ascend/semantic."""
 
 
 async def tool_time(*, action: str = "help", **kwargs) -> str:
@@ -805,6 +812,111 @@ async def tool_time(*, action: str = "help", **kwargs) -> str:
         blocks = [f"Counts by {period} since {since[:19]}:", ""]
         for b in sorted(counts.keys()):
             blocks.append(f"  {b}  {counts[b]}")
+        return "\n".join(blocks)
+
+    if action == "around":
+        anchor_id = (kwargs.get("delta_id") or "").strip()
+        if not anchor_id:
+            return "ERROR: time.around requires `delta_id`"
+        try:
+            gap_minutes = float(kwargs.get("gap_minutes") or 30)
+        except (TypeError, ValueError):
+            gap_minutes = 30
+        try:
+            anchor = await delta_client.get_delta(anchor_id)
+        except Exception as e:
+            return f"ERROR: could not fetch anchor — {type(e).__name__}: {e}"
+        if not isinstance(anchor, dict) or not anchor.get("id"):
+            return f"ERROR: anchor {anchor_id[:12]} not found"
+        anchor_ts_str = anchor.get("timestamp") or anchor.get("created_at") or ""
+        anchor_dt = _parse_iso_or_none(anchor_ts_str)
+        if anchor_dt is None:
+            return f"ERROR: anchor {anchor_id[:12]} has no parseable timestamp"
+        anchor_source = anchor.get("source") or ""
+
+        # Pull a generous window centered on the anchor in the same
+        # source. delta_client.query takes time_start; we filter end
+        # client-side.
+        window_minutes = max(gap_minutes * 4, 240)  # generous; we'll trim
+        win_start = (anchor_dt - timedelta(minutes=window_minutes)).isoformat()
+        win_end_dt = anchor_dt + timedelta(minutes=window_minutes)
+        try:
+            items = await delta_client.query(
+                tags_include=[],
+                time_start=win_start,
+                source=anchor_source if anchor_source else None,
+                limit=400,
+            )
+        except Exception as e:
+            return f"ERROR: window query failed — {type(e).__name__}: {e}"
+        items = [
+            d for d in (items or [])
+            if (d.get("timestamp") or "") <= win_end_dt.isoformat()
+            and (not anchor_source or (d.get("source") or "") == anchor_source)
+        ]
+        if not items:
+            return (
+                f"(no surrounding moments for {anchor_id[:12]} in source "
+                f"{anchor_source!r} within ±{int(window_minutes)}min)"
+            )
+
+        # Sort chronologically, then walk outward from anchor pulling in
+        # neighbors until a gap of `gap_minutes` breaks the strip.
+        for d in items:
+            d["_dt"] = _parse_iso_or_none(d.get("timestamp") or "")
+        items = [d for d in items if d.get("_dt") is not None]
+        items.sort(key=lambda d: d["_dt"])
+        # Find anchor's index (or insert position).
+        anchor_idx = None
+        for i, d in enumerate(items):
+            if d.get("id") == anchor.get("id"):
+                anchor_idx = i
+                break
+        if anchor_idx is None:
+            # Anchor not in same source's window — fall back to closest.
+            for i, d in enumerate(items):
+                if d["_dt"] >= anchor_dt:
+                    anchor_idx = i
+                    break
+            if anchor_idx is None:
+                anchor_idx = len(items) - 1
+
+        # Walk back as long as gap < gap_minutes.
+        gap = timedelta(minutes=gap_minutes)
+        lo = anchor_idx
+        while lo > 0:
+            prev = items[lo - 1]
+            cur = items[lo]
+            if (cur["_dt"] - prev["_dt"]) > gap:
+                break
+            lo -= 1
+        # Walk forward.
+        hi = anchor_idx
+        while hi < len(items) - 1:
+            cur = items[hi]
+            nxt = items[hi + 1]
+            if (nxt["_dt"] - cur["_dt"]) > gap:
+                break
+            hi += 1
+        strip = items[lo : hi + 1]
+        # Mark the anchor visually
+        anchor_id_full = anchor.get("id") or ""
+
+        blocks: list[str] = [
+            f"Surrounding moments for {anchor_id[:12]} in {anchor_source!r} "
+            f"(strip: {len(strip)}, gap-bound={gap_minutes}m):",
+            "",
+        ]
+        for d in strip:
+            marker = "▸" if d.get("id") == anchor_id_full else " "
+            ts = (d.get("timestamp") or "")[:19]
+            did = (d.get("id") or "")[:12]
+            content = (d.get("content") or "").strip()
+            tags = d.get("tags") or []
+            kind_tags = [t for t in tags if isinstance(t, str) and t.startswith("kind:")]
+            tag_part = f" [{', '.join(kind_tags)}]" if kind_tags else ""
+            blocks.append(f"  {marker} {did} {ts}{tag_part}")
+            blocks.append(f"      {content}")
         return "\n".join(blocks)
 
     return f"ERROR: unknown time action {action!r} — try time(action='help')"
@@ -1160,7 +1272,8 @@ TOOL_MODEL_ARGS = {
     "pattern":            {"action", "tag", "since", "limit", "group_by",
                            "hours", "silent_for_days", "min_chars"},
     "time":               {"action", "start", "end", "source", "tag",
-                           "limit", "period", "since", "group_by"},
+                           "limit", "period", "since", "group_by",
+                           "delta_id", "gap_minutes"},
     "relate":             {"action", "slug", "limit", "direction", "hours",
                            "delta_id"},
     "propose_provenance": {"level", "title", "summary", "from_ids",

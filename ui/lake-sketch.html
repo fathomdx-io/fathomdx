@@ -277,6 +277,7 @@ const $showFibers = document.getElementById('show-fibers');
 
 let _allNodes = [];
 let _byId = new Map();
+let _baseMoments = [];   // real base-moment timestamps for the fiber carpet
 let _selected = null;
 
 // ─── auth + fetch ──────────────────────────────────────────────────
@@ -293,6 +294,38 @@ async function fetchProvenance() {
   if (!r.ok) throw new Error('HTTP ' + r.status);
   const data = await r.json();
   return Array.isArray(data) ? data : (data.results || data.deltas || []);
+}
+
+// Pull a sample of base moments — deltas that are NOT provenance,
+// proposals, judge axes, engagement attestations, mood/standpoint
+// writes, or other system bookkeeping. These are the actual
+// experiential content of the lake; we plot them as fibers along
+// the timeline so density tracks real activity.
+const _SYSTEM_KINDS = [
+  'kind:provenance', 'kind:proposal', 'kind:sediment',
+  'kind:judge-axes', 'kind:engagement-attest', 'kind:standpoint-attestation',
+  'kind:mood-shift', 'kind:voice-affirmation', 'kind:reflection',
+  'convener-verdict', 'recall-result', 'recall-summary', 'feed-card',
+];
+async function fetchBaseMoments() {
+  // Wide pull. We filter client-side so we don't have to chain N
+  // negative-tag queries — the lake supports tag inclusion only.
+  const r = await fetch('/v1/deltas?limit=3000', { headers: authHeaders() });
+  if (!r.ok) return [];
+  const data = await r.json();
+  const items = Array.isArray(data) ? data : (data.results || data.deltas || []);
+  return items.filter(d => {
+    const tags = d.tags || [];
+    for (const sk of _SYSTEM_KINDS) {
+      if (tags.includes(sk)) return false;
+    }
+    // Drop heartbeat/health noise — content but not "moments" in any
+    // experientially meaningful sense.
+    const src = (d.source || '').toLowerCase();
+    if (src === 'laptop-health' || src === 'agent-heartbeat') return false;
+    if (src === 'feed-pressure' || src === 'judge') return false;
+    return true;
+  });
 }
 
 // ─── normalize ────────────────────────────────────────────────────
@@ -484,27 +517,41 @@ function render() {
   parts.push(`<text class="small-label" x="${(riverX1 + riverX2) / 2}" y="${riverY - 8}" text-anchor="middle">the river</text>`);
 
   // ── moment fibers (zigzags) along the timeline ──
-  if (showFibers) {
-    // Sample ~80 points across the time range and draw small zigzag
-    // strokes there. We don't have base-moment positions individually
-    // (only provenance), so this is decorative — a "carpet" of moments
-    // beneath the provenance circles.
-    for (let i = 0; i < 80; i++) {
-      const x = xPad + (i / 79) * (W - 2 * xPad) + jitter(4);
-      // density falls off toward BIRTH (left) per the diagonal
-      const densityT = i / 79;  // 0 at birth, 1 at now
-      if (Math.random() > (0.25 + densityT * 0.7)) continue;  // skip more deep-past
-      const fy = axisY - 6 - Math.random() * 10;
-      const w = 8 + Math.random() * 12;
-      const h = 4 + Math.random() * 4;
-      const segs = 4;
-      let d = `M ${x} ${fy}`;
+  // Each fiber represents a REAL base moment, plotted at its real
+  // timestamp. Density emerges naturally from when activity actually
+  // happened — quiet periods produce sparse fibers, busy ones produce
+  // dense clusters. The carpet stays beneath the provenance rings as
+  // a reminder that they sit ON TOP of all that raw experience.
+  if (showFibers && _baseMoments.length) {
+    const fiberY = axisY - 8;
+    for (const m of _baseMoments) {
+      const ts = parseTs(m.timestamp);
+      if (!ts || ts < xMin || ts > xMax) continue;
+      const x = tx(ts);
+      // Per-moment deterministic seed so re-renders don't dance.
+      let h = 0;
+      const id = m.id || '';
+      for (const c of id) h = (h * 31 + c.charCodeAt(0)) >>> 0;
+      const r1 = ((h * 9301 + 49297) % 233280) / 233280;
+      const r2 = ((h * 12345 + 67890) % 233280) / 233280;
+      const r3 = ((h * 22229 + 11111) % 233280) / 233280;
+      const yOff = (r1 - 0.5) * 14;
+      const w = 6 + r2 * 8;
+      const hMag = 3 + r3 * 3;
+      const segs = 3;
+      let d = `M ${x} ${fiberY + yOff}`;
       for (let j = 1; j <= segs; j++) {
         const dx = (j / segs) * w;
         const sign = (j % 2 === 0) ? 1 : -1;
-        d += ` L ${x + dx} ${fy + sign * h * (Math.random() * 0.6 + 0.4)}`;
+        d += ` L ${x + dx} ${fiberY + yOff + sign * hMag}`;
       }
-      parts.push(`<path class="moment-fiber" d="${d}" />`);
+      // Color hint by source family for subtle texture
+      const src = (m.source || '').toLowerCase();
+      let opacity = 0.5;
+      if (src === 'vault' || src.startsWith('vault/')) opacity = 0.6;
+      else if (src === 'claude-code' || src === 'fathom-chat') opacity = 0.7;
+      else if (src === 'rss' || src.startsWith('rss/')) opacity = 0.30;
+      parts.push(`<path class="moment-fiber" d="${d}" opacity="${opacity}" />`);
     }
   }
 
@@ -608,17 +655,22 @@ $close.addEventListener('click', () => {
 async function load() {
   $count.textContent = 'loading…';
   try {
-    const items = await fetchProvenance();
+    const [items, base] = await Promise.all([
+      fetchProvenance(),
+      fetchBaseMoments(),
+    ]);
     const { nodes, byId } = normalize(items);
     _allNodes = nodes;
     _byId = byId;
+    _baseMoments = base;
     const counts = nodes.reduce((acc, n) => { acc[n.level] = (acc[n.level] || 0) + 1; return acc; }, {});
     $count.innerHTML =
       `<strong>${nodes.length}</strong> provenance · ` +
       `<strong>${counts[3] || 0}</strong> eras · ` +
       `<strong>${counts[2] || 0}</strong> topics · ` +
       `<strong>${counts[1] || 0}</strong> episodes` +
-      (counts[0] ? ` · <strong>${counts[0]}</strong> q&amp;a` : '');
+      (counts[0] ? ` · <strong>${counts[0]}</strong> q&amp;a` : '') +
+      ` · <strong>${base.length}</strong> moment fibers`;
     render();
   } catch (e) {
     $count.textContent = 'error: ' + (e.message || e);

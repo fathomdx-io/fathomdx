@@ -64,9 +64,13 @@ pattern(action="help" | "tagged" | "count_by" | "salient_recent" |
   question is about the SHAPE of the lake: "how many of X", "what
   have I been most engaged with", "what have I forgotten."
 
-time(action="help" | "between" | "bucket_by", **kwargs)
+time(action="help" | "between" | "bucket_by" | "around", **kwargs)
   Temporal-window queries. Reach for this when the question is
   TIME-anchored: "what happened on April 6", "show me activity per day."
+  time(action="around", delta_id) gives anchor+ambient-context for any
+  hit — the same shape `semantic` returns by default. Use this AFTER
+  state/pattern/relate hits when you need the conversation around a
+  match, not just the match itself.
 
 relate(action="help" | "with_contact" | "engagement" | "dropped_around" |
               "cited_by", **kwargs)
