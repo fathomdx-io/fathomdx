@@ -164,6 +164,158 @@ def preview_fires(schedule: str, count: int = 5) -> list[str]:
     return fires
 
 
+# ── Cron-to-natural-language ─────────────────────────────────────────
+
+
+_DOW_FULL = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"]
+_DOW_SHORT = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"]
+_MONTH_NAMES = [
+    "", "January", "February", "March", "April", "May", "June",
+    "July", "August", "September", "October", "November", "December",
+]
+
+
+def _describe_field(value: str, names: list[str] | None = None) -> str:
+    """Render a single cron field as natural language. Examples:
+        '*'           → 'every'
+        '0'           → '0' (or names[0] if names supplied)
+        '0,15,30,45'  → '0, 15, 30, 45'
+        '17-22'       → '17–22'
+        '*/2'         → 'every 2'
+        '1,3-5'       → '1, 3–5'
+    """
+    if value == "*":
+        return ""
+    parts = []
+    for chunk in value.split(","):
+        chunk = chunk.strip()
+        if "/" in chunk:
+            base, step = chunk.split("/", 1)
+            parts.append(f"every {step}" + (f" starting at {base}" if base not in ("*", "0") else ""))
+        elif "-" in chunk:
+            lo, hi = chunk.split("-", 1)
+            if names:
+                parts.append(f"{names[int(lo) % len(names)]}–{names[int(hi) % len(names)]}")
+            else:
+                parts.append(f"{lo}–{hi}")
+        else:
+            try:
+                n = int(chunk)
+                parts.append(names[n % len(names)] if names else str(n))
+            except ValueError:
+                parts.append(chunk)
+    return ", ".join(parts)
+
+
+def describe_schedule(cron_expr: str) -> str:
+    """Convert a cron expression to a natural-language description.
+
+    Covers the common patterns explicitly; falls back to a structured
+    "<minute> <hour> on <day> of <month>, <weekday>" form for shapes
+    that don't match a pretty pattern. Always returns a non-empty
+    string so callers can render without a None-guard.
+
+    Examples:
+        '0 9 * * *'           → 'daily at 09:00'
+        '*/15 * * * *'        → 'every 15 minutes'
+        '0 */2 * * *'         → 'every 2 hours, on the hour'
+        '0 9 * * 1'           → 'every Monday at 09:00'
+        '0 9 * * 1-5'         → 'weekdays at 09:00'
+        '0 17-22 * * 3,4,5'   → 'Wed–Fri, 17:00–22:00 hourly'
+        '0 7,19 * * *'        → 'twice daily at 07:00 and 19:00'
+        '0 0 1 * *'           → 'monthly on the 1st at 00:00'
+    """
+    if not cron_expr or not isinstance(cron_expr, str):
+        return ""
+    parts = cron_expr.split()
+    if len(parts) != 5:
+        return cron_expr  # not standard cron — return as-is
+    minute, hour, dom, month, dow = parts
+
+    # Fully-wildcarded → every minute
+    if minute == "*" and hour == "*" and dom == "*" and month == "*" and dow == "*":
+        return "every minute"
+
+    # Stepped minutes only — "every N minutes"
+    if minute.startswith("*/") and hour == "*" and dom == "*" and month == "*" and dow == "*":
+        return f"every {minute[2:]} minutes"
+
+    # Stepped hours, minute=0 — "every N hours, on the hour"
+    if minute == "0" and hour.startswith("*/") and dom == "*" and month == "*" and dow == "*":
+        return f"every {hour[2:]} hours, on the hour"
+
+    # Specific minute every hour — "at :MM past every hour"
+    if minute.isdigit() and hour == "*" and dom == "*" and month == "*" and dow == "*":
+        return f"at :{int(minute):02d} past every hour"
+
+    # Helper to render hour:minute, supporting comma lists
+    def _time_str(h: str, m: str) -> str:
+        if h.isdigit() and m.isdigit():
+            return f"{int(h):02d}:{int(m):02d}"
+        if "," in h and m.isdigit():
+            hours = sorted({int(x) for x in h.split(",") if x.isdigit()})
+            mm = int(m)
+            if len(hours) <= 4:
+                return " and ".join(f"{x:02d}:{mm:02d}" for x in hours)
+        return f"{h}:{m}"
+
+    time_part = _time_str(hour, minute)
+    is_simple_time = minute.isdigit() and hour.isdigit()
+    is_multi_hour_time = "," in hour and minute.isdigit()
+
+    # Daily / weekday / weekday-list
+    if dom == "*" and month == "*":
+        if dow == "*":
+            if is_simple_time:
+                return f"daily at {time_part}"
+            if is_multi_hour_time:
+                hours = sorted({int(x) for x in hour.split(",") if x.isdigit()})
+                if len(hours) == 2:
+                    return f"twice daily at {hours[0]:02d}:{int(minute):02d} and {hours[1]:02d}:{int(minute):02d}"
+                return f"daily at {time_part}"
+            if hour.startswith("*/"):
+                return f"every {hour[2:]} hours daily"
+        elif dow == "1-5":
+            return f"weekdays at {time_part}"
+        elif dow in {"0,6", "6,0"}:
+            return f"weekends at {time_part}"
+        elif dow.isdigit():
+            return f"every {_DOW_FULL[int(dow) % 7]} at {time_part}"
+        else:
+            # comma list or range of weekdays
+            dow_text = _describe_field(dow, _DOW_SHORT)
+            if minute == "0" and "-" in hour and ("-" in dow or "," in dow):
+                # "Wed–Fri, 17:00–22:00 hourly" or "Wed, Thu, Fri, 17:00–22:00 hourly"
+                lo_h, hi_h = hour.split("-", 1)
+                return f"{dow_text}, {int(lo_h):02d}:00–{int(hi_h):02d}:00 hourly"
+            return f"on {dow_text} at {time_part}"
+
+    # Monthly on a day-of-month
+    if dow == "*" and month == "*" and dom.isdigit():
+        n = int(dom)
+        suffix = "th" if 11 <= n <= 13 else {1: "st", 2: "nd", 3: "rd"}.get(n % 10, "th")
+        return f"monthly on the {n}{suffix} at {time_part}"
+
+    # Yearly — specific month + day
+    if dow == "*" and month.isdigit() and dom.isdigit():
+        m = int(month)
+        n = int(dom)
+        suffix = "th" if 11 <= n <= 13 else {1: "st", 2: "nd", 3: "rd"}.get(n % 10, "th")
+        return f"yearly on {_MONTH_NAMES[m]} {n}{suffix} at {time_part}"
+
+    # Fallback — structural description
+    bits = []
+    if minute != "*" or hour != "*":
+        bits.append(time_part)
+    if dom != "*":
+        bits.append(f"day-of-month {dom}")
+    if month != "*":
+        bits.append(f"month {_describe_field(month, [''] + _MONTH_NAMES[1:])}")
+    if dow != "*":
+        bits.append(f"weekday {_describe_field(dow, _DOW_SHORT)}")
+    return ", ".join(bits) if bits else cron_expr
+
+
 # ── Lake CRUD ────────────────────────────────────────────────────────────
 
 

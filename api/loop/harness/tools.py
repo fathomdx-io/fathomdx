@@ -1594,11 +1594,19 @@ async def tool_mint_routine(
     if not title:
         title = name[:80]
 
+    schedule_human = routines_mod.describe_schedule(schedule)
+
     payload = {
         "kicker": f"routine · {workspace}",
         "title": f"Mint routine: {name}",
-        "body": f"Schedule: `{schedule}`\nWorkspace: {workspace}\nRoute: {route_to}\n\n{prompt}",
-        "tail": f"Will fire on cron `{schedule}` — operator approves before scheduling.",
+        "body": (
+            f"Schedule: {schedule_human} (`{schedule}`)\n"
+            f"Workspace: {workspace}\nRoute: {route_to}\n\n{prompt}"
+        ),
+        "tail": (
+            f"Will fire {schedule_human} (`{schedule}`) — operator "
+            f"approves before scheduling."
+        ),
         "route": "tool:routines",
         "tool": "routines",
         "tool_args": {
