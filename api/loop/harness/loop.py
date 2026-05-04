@@ -23,8 +23,51 @@ from __future__ import annotations
 
 import inspect
 import json
+import os
 import re
+from datetime import datetime, timezone
 from typing import Any, Awaitable, Callable
+from zoneinfo import ZoneInfo
+
+
+# Local timezone for the NOW block. UTC reads sterile and confuses the
+# model when humans say "this morning" — anchor to the operator's wall
+# clock instead. Override with FATHOM_LOCAL_TZ if Fathom moves.
+_LOCAL_TZ_NAME = os.environ.get("FATHOM_LOCAL_TZ", "America/Chicago")
+try:
+    _LOCAL_TZ = ZoneInfo(_LOCAL_TZ_NAME)
+except Exception:
+    _LOCAL_TZ = ZoneInfo("UTC")
+
+
+def _render_now_block() -> str:
+    """Current local timestamp + human-readable orientation, regenerated
+    every turn so the model has a fresh anchor for "now."
+
+    Format gives the local wall clock first (what Myra means when she
+    says "morning") followed by the UTC equivalent in parentheses so
+    Fathom can still cross-reference the lake's ISO-Z timestamps when
+    needed.
+
+    Without this anchor, Fathom drifts: the prompt is full of older
+    deltas with their own timestamps, and there's nothing telling the
+    model which moment is the present.
+    """
+    utc = datetime.now(timezone.utc)
+    local = utc.astimezone(_LOCAL_TZ)
+    if 5 <= local.hour < 12:
+        part = "morning"
+    elif 12 <= local.hour < 18:
+        part = "afternoon"
+    elif 18 <= local.hour < 22:
+        part = "evening"
+    else:
+        part = "night"
+    return (
+        f"{local.strftime('%Y-%m-%d %H:%M')} {local.tzname()} "
+        f"({local.strftime('%A')} {part}) · "
+        f"UTC {utc.strftime('%H:%M')}"
+    )
 
 from .. import witness as witness_mod
 from ..intents import CONVO_TAG, intent_kind
@@ -143,6 +186,7 @@ async def run_harness(
         feed_block = _render_conversation_feed_full(session_tag)
 
         prompt = HARNESS_SYSTEM.format(
+            now_block=_render_now_block(),
             standpoint_block=standpoint_block,
             anchors_block=anchors_block,
             feed_block=feed_block,
@@ -155,7 +199,11 @@ async def run_harness(
             max_turns=MAX_TURNS,
         )
 
-        await _emit(cb, "turn_begin", {"turn": turn, "prompt_chars": len(prompt)})
+        await _emit(cb, "turn_begin", {
+            "turn": turn,
+            "prompt_chars": len(prompt),
+            "prompt": prompt,  # full text so the page can show what was sent
+        })
 
         try:
             raw = await loop_generate(
@@ -368,6 +416,7 @@ async def run_introspection(
     for turn in range(1, INTROSPECTION_MAX_TURNS + 1):
         anchors_block = _render_anchors_full()
         prompt = INTROSPECTION_SYSTEM.format(
+            now_block=_render_now_block(),
             focus_block=focus_block,
             standpoint_block=standpoint_block,
             anchors_block=anchors_block,
@@ -376,7 +425,7 @@ async def run_introspection(
             max_turns=INTROSPECTION_MAX_TURNS,
         )
         await _emit(cb, "introspection_turn_begin", {
-            "turn": turn, "prompt_chars": len(prompt),
+            "turn": turn, "prompt_chars": len(prompt), "prompt": prompt,
         })
 
         try:

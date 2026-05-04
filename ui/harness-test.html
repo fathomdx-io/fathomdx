@@ -208,6 +208,60 @@
   .msg-bubble details.activity[open] {
     margin-bottom: 12px;
   }
+  /* Prompt-sent-to-Fathom panel — sibling of activity, shows the
+     actual text the LLM received per turn. */
+  .msg-bubble details.prompts {
+    margin-bottom: 8px;
+    border-bottom: 1px dashed var(--border);
+    padding-bottom: 8px;
+  }
+  .msg-bubble details.prompts > summary {
+    cursor: pointer;
+    color: var(--text-dim);
+    font: 11px/1.4 var(--mono);
+    list-style: none;
+  }
+  .msg-bubble details.prompts > summary::before {
+    content: '▶ ';
+    transition: transform 0.1s;
+    display: inline-block;
+  }
+  .msg-bubble details.prompts[open] > summary::before { content: '▼ '; }
+  .msg-bubble details.prompts > summary:hover { color: var(--accent); }
+  .prompt-turn {
+    margin: 8px 0;
+    border-left: 2px solid var(--border);
+    padding: 2px 8px;
+  }
+  .prompt-turn .label {
+    font: 600 10px/1 var(--mono);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--text-dim);
+    margin-bottom: 4px;
+  }
+  .prompt-turn pre {
+    margin: 4px 0 0;
+    font: 11px/1.45 var(--mono);
+    color: var(--text);
+    background: var(--bg);
+    padding: 8px 10px;
+    border-radius: 3px;
+    max-height: 360px;
+    overflow-y: auto;
+    white-space: pre-wrap;
+    word-break: break-word;
+  }
+  .activity-help {
+    font: 10px/1.4 var(--mono);
+    color: var(--text-dim);
+    background: var(--surface-2);
+    border: 1px dashed var(--border);
+    border-radius: 3px;
+    padding: 6px 8px;
+    margin: 6px 0;
+  }
+  .activity-help b { color: var(--accent); font-weight: 600; }
   .plan-board {
     background: var(--surface-2);
     border: 1px solid var(--border);
@@ -782,12 +836,29 @@ function _addUserBubble(question) {
 function _addAssistantBubble() {
   const wrap = el('div', { class: 'msg assistant' });
   const bubble = el('div', { class: 'msg-bubble' });
-  // Activity disclosure FIRST — events accumulate here as they arrive.
-  // Layout stays consistent: activity on top, status (then response)
-  // below.
+  // Prompts disclosure — what was actually sent to the LLM each turn.
+  // Sits ABOVE activity so you can see what Fathom saw before
+  // following what it did with it.
+  const promptsDet = el('details', { class: 'prompts' });
+  promptsDet.appendChild(el('summary', { text: 'show prompt sent to Fathom' }));
+  const promptsList = el('div');
+  promptsDet.appendChild(promptsList);
+  bubble.appendChild(promptsDet);
+  // Activity disclosure — events accumulate here as they arrive.
   const det = el('details', { class: 'activity' });
   det.appendChild(el('summary', { text: 'show activity' }));
   const list = el('div', { class: 'activity-list' });
+  // One-time help block explaining what the event labels mean.
+  const help = el('div', { class: 'activity-help' });
+  help.innerHTML =
+    '<b>seed</b>: your question is written into the puddle as a kind:question delta. ' +
+    '<b>standpoint</b>: posture/affect/identity/recently-committed pulled from prior fires. ' +
+    '<b>context</b>: full prompt blocks built (intent / standpoint / hosts / routines). ' +
+    '<b>turn N · &lt;tool&gt;</b>: the model called a tool on turn N. ' +
+    '<b>turn N · result</b>: the tool returned. ' +
+    '<b>review · …</b>: post-response consolidation pass. ' +
+    'Click the prompts disclosure above for the actual text sent to the model each turn.';
+  list.appendChild(help);
   det.appendChild(list);
   bubble.appendChild(det);
   // Plan board sits between activity and response — visible by default
@@ -804,10 +875,26 @@ function _addAssistantBubble() {
   $trace.scrollTop = $trace.scrollHeight;
   _currentAssistantBubble = {
     wrap, bubble, placeholder, det, list,
+    promptsDet, promptsList, promptCount: 0,
     planBoard, planSteps: [],
     eventCount: 0,
   };
   return _currentAssistantBubble;
+}
+
+function _appendPromptTurn(turn, prompt, label) {
+  if (!_currentAssistantBubble) return;
+  const { promptsList, promptsDet } = _currentAssistantBubble;
+  const block = el('div', { class: 'prompt-turn' });
+  block.appendChild(el('div', { class: 'label',
+    text: label || ('turn ' + turn + ' prompt') }));
+  block.appendChild(el('pre', { text: prompt || '(empty prompt)' }));
+  promptsList.appendChild(block);
+  _currentAssistantBubble.promptCount++;
+  // Update the summary count
+  const summary = promptsDet.querySelector('summary');
+  if (summary) summary.textContent =
+    `show prompt sent to Fathom (${_currentAssistantBubble.promptCount} turn${_currentAssistantBubble.promptCount === 1 ? '' : 's'})`;
 }
 
 function _renderPlanBoard() {
@@ -939,6 +1026,9 @@ function handleEvent(eventName, payload) {
       _turnCount = payload.turn;
       $turns.textContent = `turn ${_turnCount}`;
       _setStage(`turn ${payload.turn} · deliberating…`);
+      if (payload.prompt) {
+        _appendPromptTurn(payload.turn, payload.prompt);
+      }
       break;
     case 'tool_call': {
       const tool = (payload.tool || '').toLowerCase();
@@ -1189,6 +1279,9 @@ handleEvent = function(eventName, payload) {
       return;
     case 'introspection_turn_begin':
       _setIntrospectionStage(`turn ${payload.turn} · looking…`);
+      if (payload.prompt && typeof _appendPromptTurn === 'function') {
+        _appendPromptTurn(payload.turn, payload.prompt);
+      }
       return;
     case 'introspection_reflect':
       _fillReflectionBubble(payload);
