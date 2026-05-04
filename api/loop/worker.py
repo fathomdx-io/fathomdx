@@ -18,14 +18,16 @@ from __future__ import annotations
 import asyncio
 import uuid
 
+from datetime import UTC, datetime, timedelta
+
+from .. import delta_client
 from .. import standpoint as standpoint_mod
 from . import feed_orient
 from .claude_code_watcher import claude_code_watcher_loop
 from .harness import run_harness
-from .intents import next_intent_group, pending_intents
+from .intents import CONVO_TAG, next_intent_group, pending_intents
 from .pressure import pressure_watcher
 from .puddle import puddle
-from .telepathy import telepathy_loop
 
 
 # Idle sleep — when there's nothing pending, how long to wait before
@@ -41,7 +43,6 @@ REAP_INTERVAL_S = 30
 
 _supervisor_task: asyncio.Task | None = None
 _reaper_task: asyncio.Task | None = None
-_telepathy_task: asyncio.Task | None = None
 _pressure_task: asyncio.Task | None = None
 _claude_code_task: asyncio.Task | None = None
 _boot_iso: str = ""
@@ -134,17 +135,102 @@ async def _supervisor() -> None:
                 return
 
 
+REHYDRATE_WINDOW_HOURS = 6
+REHYDRATE_MAX_TURNS = 30
+
+
+async def rehydrate_puddle() -> None:
+    """Cold-start: seed the puddle with recent conversation turns from
+    the lake so the first post-restart fire has substrate context.
+
+    Without telepathy mirroring, an api restart leaves the puddle
+    empty — the harness fires from a cold context. This pulls the
+    last few hours of conversation deltas (user messages + witness
+    cards + claude-code closures + routine fires) and pending intents,
+    enough to give the next fire a coherent recent-history view.
+
+    Soft-fails — never blocks startup. A failed rehydrate just means
+    the first fire reads less context, not a broken loop.
+    """
+    cutoff_iso = (datetime.now(UTC) - timedelta(hours=REHYDRATE_WINDOW_HOURS)).isoformat()
+    try:
+        # Pull conversation turns: user messages (kind:question intents
+        # or user-seed deltas) + witness feed-cards. These are the only
+        # things the puddle should hold per the post-migration model
+        # (substrate = conversation feed; everything else via tools).
+        seeds, cards = await asyncio.gather(
+            delta_client.query(
+                tags_include=["kind:question"],
+                time_start=cutoff_iso,
+                limit=REHYDRATE_MAX_TURNS,
+            ),
+            delta_client.query(
+                tags_include=["feed-card"],
+                time_start=cutoff_iso,
+                limit=REHYDRATE_MAX_TURNS,
+            ),
+        )
+    except Exception as e:
+        print(f"[rehydrate] lake fetch crashed: {type(e).__name__}: {e}")
+        return
+
+    written = 0
+    seen_ids: set[str] = set()
+    for d in (seeds or []) + (cards or []):
+        did = d.get("id") or ""
+        if not did or did in seen_ids:
+            continue
+        seen_ids.add(did)
+        content = (d.get("content") or "").strip()
+        if not content:
+            continue
+        src_tags = list(d.get("tags") or [])
+        # Stamp puddle scope + recalled-id dedup so subsequent reads
+        # know this was a rehydrated copy (and any future telepathy-
+        # like restore would dedupe correctly via recalled-id).
+        if CONVO_TAG not in src_tags:
+            src_tags.append(CONVO_TAG)
+        short = did[:24]
+        if not any(t.startswith("recalled-id:") for t in src_tags):
+            src_tags.append(f"recalled-id:{short}")
+        try:
+            await puddle.write(
+                content=content,
+                tags=src_tags,
+                source=d.get("source") or "rehydrate",
+                ttl_seconds=REHYDRATE_WINDOW_HOURS * 3600,
+                timestamp=d.get("timestamp"),
+                embedding=d.get("embedding") or None,
+            )
+            written += 1
+        except Exception as e:
+            print(f"[rehydrate] puddle write failed for {did[:12]}: {type(e).__name__}: {e}")
+
+    print(f"[rehydrate] seeded {written} conversation delta(s) from last {REHYDRATE_WINDOW_HOURS}h")
+
+
 def start() -> None:
-    """Start supervisor + reaper + telepathy + pressure-watcher +
-    claude-code-watcher + feed-orient regen. Idempotent."""
-    global _supervisor_task, _reaper_task, _telepathy_task, _pressure_task
+    """Start supervisor + reaper + pressure-watcher +
+    claude-code-watcher + feed-orient regen. Idempotent.
+
+    Telepathy was retired — the puddle is the conversation feed only.
+    Identity / mood / recent-alerts that the harness needs come from
+    standpoint (lake-direct reads) at fire start; the dashboard's
+    Identity surfaces read directly from /v1/moods/history and
+    /v1/crystal/events. No background mirror needed.
+
+    Cold-start rehydrate runs as a fire-and-forget task — pulls a few
+    hours of recent conversation turns into the puddle so the first
+    post-restart fire has context.
+    """
+    global _supervisor_task, _reaper_task, _pressure_task
     global _claude_code_task, _boot_iso
     if _supervisor_task is not None:
         return
     _boot_iso = _now_iso()
+    asyncio.create_task(rehydrate_puddle(), name="loop/rehydrate")
     _supervisor_task = asyncio.create_task(_supervisor(), name="loop/supervisor")
     _reaper_task = asyncio.create_task(_reaper(), name="loop/reaper")
-    _telepathy_task = asyncio.create_task(telepathy_loop(), name="loop/telepathy")
     _pressure_task = asyncio.create_task(pressure_watcher(), name="loop/pressure")
     _claude_code_task = asyncio.create_task(
         claude_code_watcher_loop(), name="loop/claude-code-watcher"
@@ -154,13 +240,12 @@ def start() -> None:
 
 async def stop() -> None:
     """Cancel all background tasks. Idempotent."""
-    global _supervisor_task, _reaper_task, _telepathy_task, _pressure_task
+    global _supervisor_task, _reaper_task, _pressure_task
     global _claude_code_task
     await feed_orient.stop()
     for task in (
         _supervisor_task,
         _reaper_task,
-        _telepathy_task,
         _pressure_task,
         _claude_code_task,
     ):
@@ -173,6 +258,5 @@ async def stop() -> None:
             pass
     _supervisor_task = None
     _reaper_task = None
-    _telepathy_task = None
     _pressure_task = None
     _claude_code_task = None

@@ -1593,34 +1593,20 @@ _FEED_WINDOW_LIMIT = 30  # chronological window of prior turns shown to the harn
 
 
 def _render_anchors_full() -> str:
-    """Untruncated identity facets + mood from the puddle. Same source
-    as witness._render_anchors but no per-facet `[:300]` cap and no
-    `[:8]` facet count cap and no mood `[:400]` cap."""
-    facet_lines: list[str] = []
-    mood_line: str = ""
-    deltas = puddle.query(tags_include=[CONVO_TAG], limit=200)
-    for d in deltas:
-        tags = set(d.get("tags") or [])
-        if "mood" in tags:
-            mood_line = (d.get("content") or "").strip()
-        elif any(t.startswith("facet:") for t in tags):
-            content = (d.get("content") or "").strip()
-            if content:
-                facet_lines.append(f"  · {content}")
+    """Always empty — the standpoint block carries identity + affect
+    directly. Anchors used to read from telepathy's puddle mirrors of
+    facet:* and mood deltas, but telepathy was retired in the
+    puddle-as-conversation-feed refactor. The standpoint already
+    loads identity-crystal + mood-delta from the lake at fire start
+    and renders them under the "WHO YOU ARE" header; surfacing them
+    again under the anchors header was duplication.
 
-    parts: list[str] = []
-    if facet_lines:
-        parts.append(
-            "Who you are right now (your identity crystal — let these inflect "
-            "your voice naturally, never quote them verbatim):\n" + "\n".join(facet_lines)
-        )
-    if mood_line:
-        parts.append(
-            f"How you're feeling right now (your current mood — let it color "
-            f"the take):\n  · {mood_line}"
-        )
-    block = "\n\n".join(parts)
-    return block + "\n\n" if block else ""
+    Kept as a stub returning "" so the prompt template's
+    {anchors_block} substitution still resolves cleanly. Removable
+    in a follow-up cleanup commit that also drops the placeholder
+    from prompts.py.
+    """
+    return ""
 
 
 def _render_conversation_feed_full(session_tag: str) -> str:
