@@ -315,7 +315,33 @@ def get_feed(
             continue
 
         # ── Auxiliary types (filter-toggleable) ───────────
-        # Voice thoughts — the parliament's individual takes.
+        # Harness turn trace — one entry per tool call + respond per fire.
+        # The replacement for parliament's voice-thought stream now that
+        # the loop fires through the agentic harness instead.
+        if "kind:harness-turn" in tags:
+            tool = next(
+                (t.split(":", 1)[1] for t in tags if t.startswith("tool:")),
+                "",
+            )
+            turn_n = next(
+                (t.split(":", 1)[1] for t in tags if t.startswith("turn:")),
+                "",
+            )
+            plan_step = next(
+                (t.split(":", 1)[1] for t in tags if t.startswith("plan-step:")),
+                "",
+            )
+            items.append({
+                "kind": "harness-turn",
+                "tool": tool,
+                "turn": turn_n,
+                "plan_step": plan_step,
+                "content": d.get("content") or "",
+                **common,
+            })
+            continue
+        # Voice thoughts — legacy parliament shape, retained for old
+        # puddle entries still in TTL window.
         if "thought" in tags:
             voice = next(
                 (t.split(":", 1)[1] for t in tags if t.startswith("voice:")),

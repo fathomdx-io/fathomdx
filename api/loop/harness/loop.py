@@ -92,6 +92,48 @@ MAX_TOKENS_PER_TURN = 4096  # response budget — final card needs room
 EventCallback = Callable[[str, dict], Any]
 
 
+async def _write_turn_trace(
+    *,
+    session_tag: str,
+    turn: int,
+    tool: str,
+    thinking: str = "",
+    plan_step: int | None = None,
+) -> None:
+    """Drop a `kind:harness-turn` delta into the puddle so the dashboard
+    feed can surface what the harness is doing per fire.
+
+    Replaces the parliament-shaped `voice-thought` deltas. One write per
+    tool call + one for the final respond. TTL'd to 6h — these are
+    per-fire trace, not durable substrate.
+    """
+    body_parts = [f"turn {turn} · {tool}"]
+    if plan_step is not None:
+        body_parts.append(f"plan-step:{plan_step}")
+    if thinking:
+        body_parts.append(thinking[:200])
+    body = " — ".join(body_parts)
+    tags = [
+        CONVO_TAG,
+        session_tag,
+        "kind:harness-turn",
+        f"tool:{tool}",
+        f"turn:{turn}",
+    ]
+    if plan_step is not None:
+        tags.append(f"plan-step:{plan_step}")
+    try:
+        await puddle.write(
+            content=body,
+            tags=tags,
+            source="harness-trace",
+            ttl_seconds=6 * 60 * 60,
+        )
+    except Exception as e:
+        # Soft-fail — trace visibility is decoration, never load-bearing.
+        print(f"[harness-trace] puddle write failed: {type(e).__name__}: {e}")
+
+
 async def _emit(cb: EventCallback | None, event: str, payload: dict) -> None:
     """Fire an event callback if one was provided. Soft-fails on
     callback exceptions so a buggy visualizer can't break the loop."""
@@ -258,6 +300,12 @@ async def run_harness(
         if kind == "respond":
             final_response = parsed
             print(f"[harness] turn {turn}: RESPOND ({len(parsed.get('cards') or [])} cards)")
+            await _write_turn_trace(
+                session_tag=session_tag,
+                turn=turn,
+                tool="respond",
+                thinking=f"{len(parsed.get('cards') or [])} cards",
+            )
             await _emit(
                 cb,
                 "respond",
@@ -289,6 +337,13 @@ async def run_harness(
                 print(f"[harness] turn {turn}: {tool_name} — {thinking[:120]}")
             else:
                 print(f"[harness] turn {turn}: {tool_name}")
+            await _write_turn_trace(
+                session_tag=session_tag,
+                turn=turn,
+                tool=tool_name,
+                thinking=thinking,
+                plan_step=plan_step,
+            )
             await _emit(
                 cb,
                 "tool_call",
