@@ -202,11 +202,21 @@ Propose 1-N level-1 provenances that cover the meaningful activity in
 this window. Aim for 3-12 clusters typical of a 4-6h window. Skip
 clusters where the substrate is too thin or too noisy to mean anything.
 
+SIZE DISCIPLINE — 5-30 base moments per L1 episode. Tight clusters,
+not bulk containers. If you'd be naming an episode with 50+ deltas,
+that's two or more episodes that need decomposing — propose them
+separately. Better to have 8 tight episodes than one 80-delta sprawl.
+
+APPEND-ONLY — never propose to "fix" or replace existing provenance.
+If the same area has older fuzzy provenance, propose a NEW tighter
+one over a different (or overlapping) constituent set; the old one
+stays as historical strata.
+
 For each cluster, return:
   · title: short, evocative, the name a human would search for
   · summary: 2-4 sentences, in third or first person — what happened,
     what was being worked on, what the takeaway was
-  · from_ids: list of base-moment ids that belong to this cluster
+  · from_ids: 5-30 base-moment ids that belong to this cluster
   · rationale: one sentence — why these moments are one episode
   · test_questions: 1-3 questions whose right answer should surface
     this cluster
@@ -427,12 +437,22 @@ project / sustained thread. Episodes that don't fit any meaningful
 topic should be left unclustered — coverage is not the goal, accurate
 thematic grouping is.
 
-Each level-2 provenance MUST contain at least 2 level-1 episodes.
+SIZE DISCIPLINE — 3-10 L1 episodes per L2 topic, plus optionally a
+few base-moment stragglers if some belong to the topic but didn't
+fit any episode. Bounded fan-out keeps the centroid sharp. If you'd
+be naming a topic with 20+ episodes, that's two topics that need
+splitting — propose them separately.
+
+APPEND-ONLY — never propose to merge or replace existing L2 topics.
+If you see better grouping in current episodes, propose a NEW L2
+that overlaps the old one's coverage; the old one stays as
+historical strata.
 
 For each, return:
   · title: short, evocative, the name a human would search for
   · summary: 2-4 sentences naming the topic and its arc
-  · from_ids: list of level-1 provenance ids in this topic
+  · from_ids: 3-10 level-1 provenance ids in this topic (plus a few
+    base-moment stragglers if relevant)
   · rationale: one sentence — why these episodes form one topic
   · test_questions: 2-4 questions whose answer should surface this topic
 

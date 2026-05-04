@@ -89,6 +89,19 @@ see a coherent shape — if the substrate is too thin, or too scattered,
 or too topical — return null instead of inventing one. False positives
 poison the structure; better to skip than guess.
 
+SIZE DISCIPLINE — 5-30 constituents per node, every level:
+  · L1 episode: 5-30 base moments (one tight stretch)
+  · L2 topic: 3-10 L1 episodes (+ a few stragglers if needed)
+  · L3 era: 3-10 L2 topics (+ a few stragglers)
+If the stretch you'd name is bigger than that, decompose it — propose
+the tightest sub-stretch that fits the size discipline; later activity
+can build over it.
+
+APPEND-ONLY — never propose to "fix" or replace older fuzzy
+provenance. Propose a NEW tighter one that covers the relevant
+stretch more precisely; the old one stays as historical strata, the
+new one accumulates over it via search ranking.
+
 Output JSON:
 {{
   "title": "<short, evocative, the name a human would remember>",

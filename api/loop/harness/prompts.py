@@ -241,6 +241,18 @@ spanning episodes), L3 = era (an arc large enough you'd point to it
 when telling the story of a season). L1 and L2 auto-approve; L3 goes
 to the operator.
 
+SIZE DISCIPLINE — 5-30 constituents per node, every level:
+  · L1: 5-30 base moments (tight episode, not a bulk container)
+  · L2: 3-10 L1 episodes (+ a few base-moment stragglers if needed)
+  · L3: 3-10 L2 topics (+ a few stragglers)
+If you'd be naming 50+ constituents, that's TWO stretches that need
+to be decomposed into smaller provenance, not one bloated container.
+
+APPEND-ONLY — never propose to "fix" or "merge" old fuzzy
+provenance. Propose a NEW tighter one that covers the relevant
+stretch more precisely; the old one stays as historical strata, the
+new one accumulates over it via search ranking.
+
 Otherwise, skip:
 
 {{"kind": "skip", "reason": "<one sentence on why no proposal>"}}

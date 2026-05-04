@@ -1075,16 +1075,37 @@ async def tool_propose_provenance(
     sees Edit/Deny/Approve. On approve, the existing proposals.py
     handler writes the real `kind:provenance` delta with the same args.
 
+    SIZE DISCIPLINE — keep provenance focused, never bulk:
+      · L1 episode: 5-30 base moments. Tightly related — a single
+        episode that happened. If you're past 30 you're naming a
+        topic, not an episode.
+      · L2 topic: 3-10 L1 episodes (plus optionally a few base-moment
+        stragglers that didn't fit any episode). A recurring concern
+        that spans episodes.
+      · L3 era: 3-10 L2 topics (plus optionally a few stragglers).
+        An arc large enough you'd point to it when telling the story
+        of a season.
+      · Total fan-out 5-30 per node REGARDLESS of level. Don't make
+        giant containers. If you'd be naming a stretch with 50+
+        constituents, that's two stretches that need decomposing.
+
     DOES NOT write provenance directly — only a proposal. This keeps
     the model from polluting the hierarchy with low-confidence
     inferences. If you're confident enough to write directly, you're
     confident enough to wait for the operator to approve.
 
+    APPEND-ONLY — older, fuzzier provenance is not corrected by
+    rewriting. Newer, tighter provenance accumulates over the same
+    material via natural activity; search ranking surfaces the
+    sharper one. Don't propose to "fix" or "merge" an existing
+    provenance — propose a NEW one that covers the relevant
+    stretch more precisely.
+
     Args:
       level: 1 (episode) | 2 (topic) | 3 (era). Default 1.
       title: short, evocative, the name a human would search for
       summary: 2-4 sentences; first or third person fine
-      from_ids: list of constituent delta ids (must be 1+)
+      from_ids: list of constituent delta ids (5-30 typical)
       rationale: one sentence — why these are one stretch
       test_questions: 1-3 questions whose right answer should surface
         this provenance
