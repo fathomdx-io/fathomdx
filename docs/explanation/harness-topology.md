@@ -285,40 +285,130 @@ Things we landed on, sometimes accidentally, sometimes by argument:
 
 ## What's left
 
-### 1. Production wiring
+The work splits into PORTABLE (build well here, moves into fathomdx
+as-is) and PROV-EXPERIMENTAL UX (don't polish — fathomdx will rebuild
+its own surfaces on top of the same backend). The line in the sand:
+if a piece would need to be rebuilt during migration, do it lightly.
+If it's substrate fathomdx will adopt verbatim, build it well.
 
-- **Wire harness into `worker.py:_run_one_fire()`** — replace the convener+parliament+witness pipeline with a single `run_harness()` call.
-- **Delete the old pipeline** — once the harness has been live for a stretch.
+### Portable — build here
 
-### 2. Phase 2 — triggering self-direction
+#### Multi-vector provenance facets — the resonance-via-encompassment fix
 
-The Sit button is operator-invoked. Self-dialogue should fire automatically when conditions warrant.
+The current bug: each provenance carries one embedding (its summary).
+Semantic search matches the parent only when the query resonates with
+the SUMMARY text — but a query about a specific concept inside the
+provenance won't strongly match its summary. The constituent matches;
+the parent doesn't surface.
 
-- **Idle detection** — no conversation activity for N hours, mood drift settling, no pressure crossing → trigger sit.
-- **Schedule** — daily cadence, similar to existing routine fires.
-- **Pressure-driven** — when un-sat-with material accumulates, the system itself raises the urge to reflect.
-- **Switch** — operator can disable autonomous sittings.
-- **Focus pre-pass** — when Fathom triggers its own sit, a small LLM call picks what to sit with from substrate signals (recent activity, salient threads, mood deltas) instead of using a generic seed.
+Fix: each provenance carries multiple embeddings — one per direct
+child. Search uses MaxSim (ColBERT-style): the candidate's score is
+the maximum similarity across all its facets. The parent ranks
+against the query as if any of its constituents had matched. The
+provenance "resonates by all of the moments it encompasses."
 
-### 3. Phase 3 — `wonder()` tool
+Decisions still to make:
+- Storage: new `delta_facets` table vs JSONB column on the delta row
+- Recursive vs direct-children-only (probably direct only — let the
+  hierarchy do the legwork; an L3 era's facets shouldn't include
+  every base moment)
+- Score combination (MaxSim alone vs weighted by facet quality)
+- Refresh policy (write-time only vs live-update on constituent change)
+- Backfill — ~155 provenances in prov lake; straightforward walk
 
-A new tool in the regular harness that spawns a child introspection or dialogue mid-fire. The parent fire can cite the resulting reflection delta. This is the "self-acting" mode in miniature: a reactive fire decides it wants to sit with something, sits, and integrates the result.
+Lives in delta-store schema + `api/search.py`. Both portable.
 
-### 4. Pressure-based provenance triggering
+#### Focus pre-pass for autonomous sittings
 
-The reflective and topical agents currently run only when invoked. Should fire automatically when un-provenanced material accumulates.
+When Fathom triggers its own sit (Phase 2 below), the seed shouldn't
+be a generic "look at recent activity." A small LLM call picks the
+focus from substrate signals: recent activity, salient threads, mood
+deltas, dormant patterns. The pre-pass output IS the seed. Cheap,
+substrate-anchored, makes the autonomous sitting actually about
+something specific.
 
-### 5. Phase 2b — multi-vector provenance facets
+#### Helper / claude-code as a harness tool
 
-Each provenance node carries the embeddings of its direct children as facets, so semantic search finds the parent via constituent content, not just summary content. Schema sketch only.
+The harness's tool registry is the right home for ALL of Fathom's
+existing capabilities, not just the lens/recall tools we have now.
+Helper / claude-code in particular fits the **self-acting** slot of
+the three-mode taxonomy: when an introspect or self-dialogue produces
+a directive, the way Fathom acts on it is by spawning a claude-code
+fire from inside a harness tool call. That's the move that closes
+the third mode.
 
-### Smaller items on the queue
+What this needs:
+- A harness tool (e.g. `dispatch_helper(task, host)`) that wraps the
+  existing claude-code dispatch path
+- Probably gated to `route:claude-code:<host>` so the operator
+  approves before execution (since claude-code can do anything on the
+  host machine)
+- Tool metadata describing what helper hosts are available — feed
+  hosts_block into the tool's args validation
 
-- **Q/A marker dedup** — fold N markers on the same question into a level-1 provenance.
-- **`view_full(delta_id)`** escape-hatch tool.
-- **Standpoint trim for synthesis** — when the question is multi-domain, trim the standpoint block.
-- **Pressure model UI** — surface the pressure level in the dashboard.
-- **Deviation logger for plan tool** — when the model picks a tool that doesn't match its declared `plan_step`, surface that as a "drift" event.
+#### Plan tool refinements
+
+- Deviation logger — when the model picks a tool that doesn't match
+  its declared `plan_step`, surface that as a "drift" event so the
+  operator can see when the plan is being ignored.
+- Plan revision tracking — when plan() is called again mid-fire,
+  log what changed and why.
+
+#### Smaller substrate items
+
+- **Q/A marker dedup** — fold N markers on the same question into a
+  level-1 provenance. Slow-clock supervisor.
+- **`view_full(delta_id)`** escape-hatch tool — fetch a single delta's
+  complete content when a lens result truncated it.
+- **Standpoint trim for synthesis** — when the question is
+  multi-domain, trim the standpoint block so the model can't
+  paraphrase the recently-committed list.
+
+### Production wiring (do once everything else is tight)
+
+- **Wire harness into `worker.py:_run_one_fire()`** — replace the
+  convener+parliament+witness pipeline with a single `run_harness()`
+  call. This is the "make it real" move; everything we've built
+  starts firing on actual conversation.
+- **Phase 2 triggers** wire after that — idle detection, schedule,
+  pressure-driven, with an operator switch. Once production is
+  running on the harness, autonomous sittings become a worker
+  scheduling concern, not a separate experiment.
+- **Pressure-based provenance triggering** — reflective and topical
+  agents fire automatically when un-provenanced material accumulates.
+- **Delete the old pipeline** — convener / process / metric paths
+  once they're confirmed unused.
+
+### Prov-experimental UX (don't invest)
+
+The harness-test page is a developer scratchpad. Don't build
+production-shaped UX here. The real fathomdx surfaces (chat,
+dashboard, mission-control) will represent the harness in their own
+shapes, designed against actual user needs, not derived from the
+test page's compromises.
+
+What's worth keeping minimally workable on the test page:
+- See a fire run end-to-end
+- See the prompt that was sent
+- See proposals queue with approve/deny
+
+Anything beyond that is decoration.
+
+### UX work that IS portable (worth doing in fathomdx, not here)
+
+When migration happens:
+- Self-direction inbox — surface where Fathom's reflections, dialogue
+  transcripts, and emergent directives land for the operator to see
+  asynchronously
+- "Why this surfaced" trail — when a fathomdx surface shows a card,
+  expose the harness fire that produced it (turns, tool calls,
+  citations) — basically a productized version of the activity panel
+- Pressure model UI — surface the autonomous-trigger pressure level
+  so the operator can sense when Fathom is "tired" enough to want to
+  sit
+- Crystal-of-directives — accumulated self-directives over time become
+  a Fathom-facing surface ("things I've named for myself"), parallel
+  to the existing identity crystal
 
 ## Notable commits (chronological, recent on top)
 
