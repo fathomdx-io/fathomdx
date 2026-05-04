@@ -587,6 +587,63 @@
       padding-bottom: 0.45rem;
       border-bottom: 1px solid color-mix(in srgb, var(--signal) 22%, transparent);
     }
+    /* Helper-dispatch proposals reuse the claude-code-dispatch shape but
+       carry the proposal action footer + a "pending review" chip. */
+    .feed .delta.claude-code-dispatch.helper-dispatch-proposal .proposal-pending-chip {
+      font-family: var(--mono); font-size: 10.5px;
+      letter-spacing: 0.05em; text-transform: uppercase;
+      color: #fbbf24;
+      padding: 1px 6px;
+      border: 1px solid rgba(251, 191, 36, 0.35);
+      border-radius: 3px;
+      margin-left: 6px;
+    }
+    .feed .delta.claude-code-dispatch.helper-dispatch-proposal .proposal-actions-cc {
+      display: flex; gap: 6px; justify-content: flex-end;
+      margin-top: 12px;
+      padding-top: 8px;
+      border-top: 1px dashed rgba(255, 255, 255, 0.08);
+    }
+    .feed .delta.claude-code-dispatch.helper-dispatch-proposal .proposal-actions-cc .proposal-btn {
+      padding: 4px 10px;
+      font-family: var(--mono); font-size: 11px;
+      letter-spacing: 0.04em;
+      border: 1px solid rgba(255, 255, 255, 0.12);
+      border-radius: 4px;
+      background: transparent;
+      color: var(--ink-soft);
+      cursor: pointer;
+      transition: color 120ms, border-color 120ms, background 120ms;
+    }
+    .feed .delta.claude-code-dispatch.helper-dispatch-proposal .proposal-actions-cc .proposal-btn:hover {
+      color: var(--ink);
+      border-color: rgba(255, 255, 255, 0.25);
+      background: rgba(255, 255, 255, 0.04);
+    }
+    .feed .delta.claude-code-dispatch.helper-dispatch-proposal .proposal-actions-cc .proposal-approve {
+      color: #6ee7b7;
+      border-color: rgba(110, 231, 183, 0.45);
+    }
+    .feed .delta.claude-code-dispatch.helper-dispatch-proposal .proposal-actions-cc .proposal-approve:hover {
+      background: rgba(110, 231, 183, 0.08);
+    }
+    .feed .delta.claude-code-dispatch.helper-dispatch-proposal .proposal-actions-cc .proposal-btn:disabled {
+      opacity: 0.5; cursor: progress;
+    }
+    .feed .delta.claude-code-dispatch.helper-dispatch-proposal .proposal-status-cc {
+      margin-top: 12px; padding-top: 8px;
+      border-top: 1px dashed rgba(255, 255, 255, 0.08);
+      font-family: var(--mono); font-size: 11px;
+      letter-spacing: 0.05em;
+      color: var(--ink-soft);
+      text-align: right;
+    }
+    .feed .delta.claude-code-dispatch.helper-dispatch-proposal .proposal-status-approved {
+      color: #6ee7b7;
+    }
+    .feed .delta.claude-code-dispatch.helper-dispatch-proposal .proposal-status-denied {
+      color: #f87171;
+    }
     .feed .delta.claude-code-dispatch .cc-icon,
     .feed .delta.claude-code-reply .cc-icon {
       width: 14px;
@@ -10030,6 +10087,17 @@ GET  /v1/usage               Usage stats`,
     // `decides:<id>`; on next render we swap the buttons for a status banner.
 
     function _renderProposalCard(it, delay) {
+      const tool = it.tool || '';
+      const args = (it.tool_args && typeof it.tool_args === 'object') ? it.tool_args : {};
+      const proposalId = it.lake_id || it.id || '';
+      // Helper-dispatch proposals get the existing claude-code-dispatch
+      // visual treatment — boat icon, fathom→host header, terminal-style
+      // body — with inline approve/deny actions attached at the bottom.
+      // This keeps "what fathom is asking to send to a host" looking
+      // like a kindred shape to "what fathom already sent."
+      if (tool === 'helper-dispatch') {
+        return _renderHelperDispatchProposal(it, args, proposalId, delay);
+      }
       const card = document.createElement('article');
       card.className = 'card surfacing card-proposal';
       if (delay) card.style.animationDelay = delay + 's';
@@ -10041,11 +10109,8 @@ GET  /v1/usage               Usage stats`,
       // durable delta from the dashboard. Fall back to the puddle id if
       // for some reason the cross-pointer didn't land — better to try
       // and 404 than to silently render dead buttons.
-      const proposalId = it.lake_id || it.id || '';
       card.dataset.proposalId = proposalId;
       if (it.id) card.dataset.deltaId = it.id;
-      const tool = it.tool || '';
-      const args = (it.tool_args && typeof it.tool_args === 'object') ? it.tool_args : {};
       card.dataset.tool = tool;
       card.dataset.toolArgs = JSON.stringify(args);
       _proposalRender(card, it, args, 'pending');
@@ -10062,6 +10127,125 @@ GET  /v1/usage               Usage stats`,
         }).catch(() => { /* offline / 404 — keep pending UI */ });
       }
       return card;
+    }
+
+    function _renderHelperDispatchProposal(it, args, proposalId, delay) {
+      // <details> shape mirrors the existing kind:claude-code-dispatch
+      // card: boat icon, fathom→host header, terminal body with the
+      // dispatch task. Adds a `helper-dispatch-proposal` class so we
+      // can style the action footer separately.
+      const el = document.createElement('details');
+      el.className = 'delta claude-code-dispatch helper-dispatch-proposal';
+      if (delay) el.style.animationDelay = delay + 's';
+      el.dataset.kind = 'proposal';
+      el.dataset.tool = 'helper-dispatch';
+      el.dataset.fromPuddle = '1';
+      el.dataset.puddleId = it.id || '';
+      el.dataset.proposalId = proposalId;
+      el.dataset.toolArgs = JSON.stringify(args);
+      if (it.id) el.dataset.deltaId = it.id;
+      const ts = it.timestamp ? new Date(it.timestamp) : new Date();
+      const timeStr = ts.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+      const host = (args.host || '').toString();
+      const task = (args.task || it.body || it.content || '').toString();
+      const hostEsc = host.replace(/[<>&]/g, c => ({'<':'&lt;','>':'&gt;','&':'&amp;'}[c]));
+      const icon = (typeof PROVIDER_ICONS === 'object' && PROVIDER_ICONS['claude-code'])
+        ? PROVIDER_ICONS['claude-code']
+        : '';
+      const peer = hostEsc || 'claude';
+      const headLabel = `fathom <span class="cc-arrow">→</span> ${peer}`;
+      el.innerHTML = `
+        <summary class="d-head">
+          <span class="cc-icon">${icon}</span>
+          <span class="d-kind">${headLabel}</span>
+          <span class="proposal-pending-chip">pending review</span>
+          <span class="d-ts">${timeStr}</span>
+        </summary>
+        <div class="d-body">${_esc(task)}<span class="cc-cursor" aria-hidden="true"></span>
+          <div class="proposal-actions proposal-actions-cc">
+            <button class="proposal-btn proposal-edit" type="button">Edit</button>
+            <button class="proposal-btn proposal-deny" type="button">Deny</button>
+            <button class="proposal-btn proposal-approve" type="button">Approve</button>
+          </div>
+        </div>
+      `;
+      // Default open so the operator can see the task without clicking.
+      el.open = true;
+      // Stop click-bubbling on the buttons — clicking shouldn't toggle
+      // the <details> open/closed.
+      const editBtn = el.querySelector('.proposal-edit');
+      const denyBtn = el.querySelector('.proposal-deny');
+      const approveBtn = el.querySelector('.proposal-approve');
+      editBtn?.addEventListener('click', (e) => {
+        e.stopPropagation(); e.preventDefault();
+        // Helper-dispatch has no wizard yet — fall back to inline edit
+        // by re-rendering as the generic proposal card. (Future: dedicated
+        // helper-dispatch editor with task textarea + host dropdown.)
+        const fallback = document.createElement('article');
+        fallback.className = 'card surfacing card-proposal';
+        fallback.dataset.kind = 'proposal';
+        fallback.dataset.proposalId = proposalId;
+        fallback.dataset.tool = 'helper-dispatch';
+        fallback.dataset.toolArgs = JSON.stringify(args);
+        if (it.id) fallback.dataset.deltaId = it.id;
+        _proposalRender(fallback, it, args, 'pending');
+        _proposalEnterEdit(fallback, it, args);
+        el.replaceWith(fallback);
+      });
+      denyBtn?.addEventListener('click', (e) => {
+        e.stopPropagation(); e.preventDefault();
+        _helperDispatchDecide(el, it, args, 'deny');
+      });
+      approveBtn?.addEventListener('click', (e) => {
+        e.stopPropagation(); e.preventDefault();
+        _helperDispatchDecide(el, it, args, 'approve');
+      });
+      // Async decision check — picks up state if the proposal was
+      // already approved/denied elsewhere.
+      if (proposalId) {
+        api(`/v1/proposals/${encodeURIComponent(proposalId)}`).then(data => {
+          if (!data || !data.decision) return;
+          const dec = data.decision;
+          const status = (dec.tags || []).find(t => t.startsWith('proposal-status:'));
+          const code = status ? status.split(':', 2)[1] : 'unknown';
+          if (code === 'approved' || code === 'denied') {
+            _helperDispatchSettleUI(el, code, dec);
+          }
+        }).catch(() => { /* keep pending */ });
+      }
+      return el;
+    }
+
+    async function _helperDispatchDecide(el, it, args, action) {
+      const buttons = Array.from(el.querySelectorAll('.proposal-actions button'));
+      buttons.forEach(b => { b.disabled = true; });
+      const target = el.querySelector(action === 'approve' ? '.proposal-approve' : '.proposal-deny');
+      if (target) target.textContent = '…';
+      const proposalId = el.dataset.proposalId;
+      try {
+        await api(`/v1/proposals/${encodeURIComponent(proposalId)}/${action}`, {
+          method: 'POST',
+          body: action === 'approve'
+            ? JSON.stringify({ tool: 'helper-dispatch', tool_args: { ...args, action: 'run' } })
+            : '{}',
+        });
+      } catch (err) {
+        buttons.forEach(b => { b.disabled = false; });
+        if (target) target.textContent = action === 'approve' ? 'Approve — retry' : 'Deny — retry';
+        return;
+      }
+      _helperDispatchSettleUI(el, action === 'approve' ? 'approved' : 'denied', { timestamp: new Date().toISOString() });
+    }
+
+    function _helperDispatchSettleUI(el, code, decision) {
+      const actions = el.querySelector('.proposal-actions');
+      if (!actions) return;
+      const stamp = decision && decision.timestamp ? ` · ${_relTime(decision.timestamp)}` : ' · just now';
+      const cls = code === 'approved' ? 'proposal-status-approved' : 'proposal-status-denied';
+      const verb = code === 'approved' ? 'Approved' : 'Denied';
+      actions.outerHTML = `<div class="proposal-status ${cls} proposal-status-cc">${verb}${stamp}</div>`;
+      const chip = el.querySelector('.proposal-pending-chip');
+      if (chip) chip.remove();
     }
 
     function _proposalRender(card, it, args, status, decision) {
@@ -11532,16 +11716,67 @@ GET  /v1/usage               Usage stats`,
         const data = await r.json();
         const items = _projectEngagement(data.items || []);
         const fresh = items.filter(it => it && it.id && !_renderedFeedIds.has(it.id));
-        if (!fresh.length) return;
-        if (feed.querySelector('.feed-empty')) feed.innerHTML = '';
-        // Cluster the fresh batch and prepend at the top. Same-kind
-        // runs of 2+ pack into accordions; singletons stay inline.
-        _renderItemsClustered(fresh, 'prepend');
-        refreshLightbox();
-        applyVerbosityFilter();
+        if (fresh.length) {
+          if (feed.querySelector('.feed-empty')) feed.innerHTML = '';
+          // Cluster the fresh batch and prepend at the top. Same-kind
+          // runs of 2+ pack into accordions; singletons stay inline.
+          _renderItemsClustered(fresh, 'prepend');
+          refreshLightbox();
+          applyVerbosityFilter();
+        }
+        // Re-check decision state on already-rendered proposal cards
+        // that haven't been settled yet. Without this, approving in
+        // another tab / via the bell / programmatically leaves the feed
+        // card showing stale Approve/Deny buttons until reload.
+        _refreshPendingProposalDecisions();
       } catch (e) {
         console.warn('[feed] live poll threw', e);
       }
+    }
+
+    function _refreshPendingProposalDecisions() {
+      // Find every proposal card that still has its action buttons
+      // (i.e. hasn't been settled into approved/denied) and re-fetch
+      // the decision. Fast: GET /v1/proposals/<id> is a single query.
+      const pendingCards = document.querySelectorAll(
+        '[data-kind="proposal"] .proposal-actions, .helper-dispatch-proposal .proposal-actions-cc'
+      );
+      const seen = new Set();
+      pendingCards.forEach(actionsEl => {
+        // Walk up to the card element to grab proposalId.
+        let card = actionsEl.closest('[data-proposal-id]');
+        if (!card) return;
+        const pid = card.dataset.proposalId;
+        if (!pid || seen.has(pid)) return;
+        seen.add(pid);
+        api(`/v1/proposals/${encodeURIComponent(pid)}`).then(data => {
+          if (!data || !data.decision) return;
+          const dec = data.decision;
+          const status = (dec.tags || []).find(t => t.startsWith('proposal-status:'));
+          const code = status ? status.split(':', 2)[1] : 'unknown';
+          if (code !== 'approved' && code !== 'denied') return;
+          // Settle the card. Helper-dispatch uses a different DOM shape
+          // than the generic proposal card; pick the matching settler.
+          if (card.classList.contains('helper-dispatch-proposal')) {
+            _helperDispatchSettleUI(card, code, dec);
+          } else {
+            // Generic proposal card — re-render via _proposalRender.
+            const tool = card.dataset.tool || '';
+            let args = {};
+            try { args = JSON.parse(card.dataset.toolArgs || '{}'); } catch (e) { args = {}; }
+            const stub = {
+              tool,
+              kicker: card.querySelector('.kicker')?.textContent || '',
+              title: card.querySelector('h3')?.textContent || '',
+              body: card.querySelector('.card-body p')?.textContent || '',
+              tool_args: args,
+              lake_id: pid,
+              id: card.dataset.deltaId,
+            };
+            _proposalRender(card, stub, args, code, dec);
+          }
+        }).catch(() => { /* keep buttons; next poll retries */ });
+      });
     }
     function _startFeedLivePoll() {
       if (_feedLiveTimer || document.hidden) return;
