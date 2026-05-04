@@ -931,6 +931,40 @@ async function fetchDeltaMeta(id) {
 // build up the recalled set for the Lake view. We do this without
 // modifying the original handleEvent by wrapping it.
 const _origHandleEvent = handleEvent;
+
+function _harvestIdsFromPayload(payload) {
+  // Pull delta ids out of every text-shaped value on the payload.
+  // Tool results carry them, but so does the standpoint block in
+  // context_built (recently-committed / from / affirms references) —
+  // and lean fires that go straight from CONTEXT to RESPOND never
+  // emit tool_result, so without harvesting context_built the Lake
+  // tab stays empty.
+  const fields = ['result', 'standpoint_block', 'intent_block', 'hosts_block', 'routines_block'];
+  let added = 0;
+  for (const key of fields) {
+    const v = payload && payload[key];
+    if (typeof v !== 'string' || !v) continue;
+    for (const id of extractDeltaIds(v)) {
+      if (!_recalledIds.has(id)) {
+        _recalledIds.add(id);
+        fetchDeltaMeta(id);
+        added++;
+      }
+    }
+  }
+  // Respond payload may include cited_ids / dropped_ids
+  if (payload && Array.isArray(payload.cited_ids)) {
+    for (const id of payload.cited_ids) {
+      if (typeof id === 'string' && /^[0-9a-f]{12}$/.test(id) && !_recalledIds.has(id)) {
+        _recalledIds.add(id);
+        fetchDeltaMeta(id);
+        added++;
+      }
+    }
+  }
+  return added;
+}
+
 window.handleEvent = function(eventName, payload) {
   // Reset on a fresh fire
   if (eventName === 'seeded') {
@@ -938,17 +972,8 @@ window.handleEvent = function(eventName, payload) {
     _recalledMeta.clear();
     $lakeStatus.textContent = `firing — ${payload.question || ''}`;
   }
-  if (eventName === 'tool_result' && payload.result) {
-    const ids = extractDeltaIds(payload.result);
-    let added = 0;
-    for (const id of ids) {
-      if (!_recalledIds.has(id)) {
-        _recalledIds.add(id);
-        added++;
-        // Lazy-fetch metadata so we get a real timestamp + source.
-        fetchDeltaMeta(id);
-      }
-    }
+  if (eventName === 'context_built' || eventName === 'tool_result' || eventName === 'respond') {
+    const added = _harvestIdsFromPayload(payload);
     if (added) {
       $lakeStatus.textContent = `${_recalledIds.size} deltas resonated so far`;
     }
