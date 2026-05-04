@@ -145,30 +145,53 @@ async def rehydrate_puddle() -> None:
 
     Without telepathy mirroring, an api restart leaves the puddle
     empty — the harness fires from a cold context. This pulls the
-    last few hours of conversation deltas (user messages + witness
-    cards + claude-code closures + routine fires) and pending intents,
-    enough to give the next fire a coherent recent-history view.
+    last few hours of:
+      · Q — user messages (kind:question intents, openai-compat
+            participant:user, fathom-chat user turns)
+      · A — chat-replies and feed-cards (witness output) which
+            includes alerts, claude-code dispatches, tool proposals
+      · openai-compat assistant turns (when OpenAI surface is in use)
+      · claude-code assistant replies (Stop-hook captures)
+      · routine fires + summaries (so the harness sees what cron tripped)
 
-    Soft-fails — never blocks startup. A failed rehydrate just means
-    the first fire reads less context, not a broken loop.
+    All in one go, deduped by id. Soft-fails — never blocks startup.
+    A failed rehydrate just means the first fire reads less context,
+    not a broken loop.
     """
     cutoff_iso = (datetime.now(UTC) - timedelta(hours=REHYDRATE_WINDOW_HOURS)).isoformat()
+
+    # Each tag-filter pulls a slice of conversation substrate. Run in
+    # parallel; merge by id below. Some overlap (a witness chat-reply
+    # is feed-card AND assistant) but the dedup handles it.
+    queries = [
+        # Q — composer seeds + any other puddle-shaped question intent
+        ["kind:question"],
+        # A and the rest of the witness's output surface — feed-card
+        # covers chat-reply, route:alert:*, route:feed-card,
+        # route:claude-code dispatches, route:tool:* proposals, etc.
+        ["feed-card"],
+        # OpenAI surface user turns
+        ["participant:user"],
+        # OpenAI / claude-code assistant turns
+        ["assistant"],
+        # Claude-code Stop-hook closures the watcher mints intents for
+        ["claude-code-reply"],
+        # Routine machinery — when a cron tripped, what it produced
+        ["routine-fire"],
+        ["routine-summary"],
+        ["routine-due"],
+    ]
     try:
-        # Pull conversation turns: user messages (kind:question intents
-        # or user-seed deltas) + witness feed-cards. These are the only
-        # things the puddle should hold per the post-migration model
-        # (substrate = conversation feed; everything else via tools).
-        seeds, cards = await asyncio.gather(
-            delta_client.query(
-                tags_include=["kind:question"],
-                time_start=cutoff_iso,
-                limit=REHYDRATE_MAX_TURNS,
-            ),
-            delta_client.query(
-                tags_include=["feed-card"],
-                time_start=cutoff_iso,
-                limit=REHYDRATE_MAX_TURNS,
-            ),
+        slices = await asyncio.gather(
+            *[
+                delta_client.query(
+                    tags_include=tags,
+                    time_start=cutoff_iso,
+                    limit=REHYDRATE_MAX_TURNS,
+                )
+                for tags in queries
+            ],
+            return_exceptions=True,
         )
     except Exception as e:
         print(f"[rehydrate] lake fetch crashed: {type(e).__name__}: {e}")
@@ -176,7 +199,17 @@ async def rehydrate_puddle() -> None:
 
     written = 0
     seen_ids: set[str] = set()
-    for d in (seeds or []) + (cards or []):
+    all_deltas: list[dict] = []
+    for slice_result in slices:
+        if isinstance(slice_result, Exception):
+            print(f"[rehydrate] one slice failed: {type(slice_result).__name__}: {slice_result}")
+            continue
+        all_deltas.extend(slice_result or [])
+    # Sort newest-last so the most recent turns get the latest puddle
+    # write timestamps (preserves chronological feed order).
+    all_deltas.sort(key=lambda d: d.get("timestamp") or "")
+
+    for d in all_deltas:
         did = d.get("id") or ""
         if not did or did in seen_ids:
             continue
