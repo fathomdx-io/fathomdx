@@ -242,8 +242,13 @@ fabricate ids from timestamp+source patterns.
 
 ══ HOW TO RESPOND ══
 
-If a coherent stretch is worth naming, emit a propose_provenance
-tool call:
+If a coherent stretch is worth naming AND you have at least 3
+constituent ids that genuinely belong together, emit a
+propose_provenance tool call. If the working set is thin (0-2 cited
+ids, or the constituents don't actually cluster), call `skip` —
+better no proposal than a dead-weight one the operator has to deny.
+
+Tool call:
 
 {{"kind": "tool_call", "tool": "propose_provenance", "args": {{
     "level": 1 | 2 | 3,

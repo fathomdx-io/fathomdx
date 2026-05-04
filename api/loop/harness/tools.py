@@ -1056,8 +1056,20 @@ async def tool_propose_provenance(
             s = x.strip()
             if s and s not in cleaned_ids:
                 cleaned_ids.append(s)
-    if not cleaned_ids:
-        return "ERROR: from_ids must contain at least one constituent id"
+    # Floor at 3 constituents. The level-1 size discipline is "5-30 base
+    # moments per episode" — fewer than 3 isn't an episode, it's a
+    # one-off observation that doesn't merit naming. The review pass
+    # occasionally drafts proposals with 0-2 cited ids on thin fires;
+    # those produce dead-weight provenance the operator has to clean
+    # up. Better to skip than to draft a too-small one.
+    if len(cleaned_ids) < 3:
+        return (
+            f"ERROR: provenance needs at least 3 constituent ids "
+            f"(got {len(cleaned_ids)}). The review pass should call "
+            f"`skip` when there isn't enough working set to consolidate. "
+            f"Coherent stretches share 5-30 deltas; below that floor the "
+            f"proposal is dead weight."
+        )
 
     if not title:
         return "ERROR: title is required"
