@@ -299,6 +299,38 @@ elif [[ -e "${FATHOM_DIR}" ]]; then
   die "${FATHOM_DIR} exists but isn't a Fathom checkout." \
       "Move/remove it, or set FATHOM_DIR to a different path and re-run."
 else
+  # ── orphan volume check ──────────────────────────────────────────
+  # Even on a truly fresh machine, a leftover postgres volume from a
+  # prior install will silently re-attach and skip onboarding.
+  # Check before cloning so users aren't surprised after setup.
+  orphan_volume="fathom-pg"   # the default; custom project names are rare here
+  if volume_exists "${orphan_volume}"; then
+    printf "\n  %sFound a leftover lake volume (%s) from a prior install.%s\n" \
+      "${C_YLW}" "${orphan_volume}" "${C_RST}"
+    printf "  If you continue without wiping it, you'll be logged in as the\n"
+    printf "  previous user instead of going through setup.\n\n"
+    if confirm "Wipe it and start clean? (recommended)" "y"; then
+      orphan_lake="${HOME}/.fathom/mind"
+      if volume_exists "${orphan_volume}"; then
+        # Spin up a temporary postgres just long enough to dump it.
+        if confirm "Back up the lake first?" "y"; then
+          do_lake_backup "${FATHOM_DIR}" "${orphan_lake}" "${orphan_volume}" "fathom" 2>/dev/null \
+            || warn "Backup failed — continuing with wipe anyway."
+        fi
+        if command -v docker >/dev/null 2>&1 && docker compose version >/dev/null 2>&1; then
+          docker volume rm "${orphan_volume}" >/dev/null 2>&1 && ok "Removed volume ${orphan_volume}" \
+            || warn "Could not remove ${orphan_volume} — it may still be attached to a running container. Run 'docker compose down' first."
+        else
+          podman volume rm "${orphan_volume}" >/dev/null 2>&1 && ok "Removed volume ${orphan_volume}" \
+            || warn "Could not remove ${orphan_volume} — it may still be attached to a running container. Run 'podman compose down' first."
+        fi
+        do_wipe_lake "${orphan_lake}"
+      fi
+    else
+      info "Keeping existing volume — you may be auto-logged in as a prior user."
+    fi
+  fi
+
   step "Cloning repository"
   info "${FATHOM_REPO} → ${FATHOM_DIR}"
   # `git clone --branch` only accepts branch/tag names, not commit SHAs.
