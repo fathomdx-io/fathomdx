@@ -11008,8 +11008,68 @@ GET  /v1/usage               Usage stats`,
       }
       _renderAccordionSummary(summary, cat, items);
       det.appendChild(summary);
+      // Pre-body: addressed-messages panel for thinking accordions
+      // with one or more mark_addressed turns. Shows operator which
+      // user messages this fire claimed, with content previews and
+      // the latest one starred. Read-only — actual addressing already
+      // happened via the tool call.
+      if (cat === 'thinking') {
+        const addressedPanel = _renderAddressedPanel(items);
+        if (addressedPanel) det.appendChild(addressedPanel);
+      }
       det.appendChild(body);
       return det;
+    }
+
+    function _renderAddressedPanel(items) {
+      // Pull user_message_id from each mark_addressed turn's args_json,
+      // oldest-first. Look up the user message's body from the feed
+      // DOM (rendered messages carry data-delta-id). Render a compact
+      // list with checkmarks; the most-recent gets a ★ marker.
+      const turns = items.filter(it => it.kind === 'harness-turn' && it.tool === 'mark_addressed');
+      if (!turns.length) return null;
+      const ordered = [...turns].sort((a, b) => (a.timestamp || '').localeCompare(b.timestamp || ''));
+      const rows = [];
+      for (const t of ordered) {
+        let userId = '';
+        try {
+          const args = JSON.parse(t.args_json || '{}');
+          userId = (args.user_message_id || '').trim();
+        } catch (e) { /* skip */ }
+        if (!userId) continue;
+        const userEl = document.querySelector(`[data-delta-id="${CSS.escape(userId)}"]`);
+        let body = '';
+        if (userEl) {
+          // The user-message bubble's text body lives in the .body element.
+          const bodyEl = userEl.querySelector('.body, .msg-body, [class*="body"]');
+          body = (bodyEl ? bodyEl.innerText : userEl.innerText || '').trim();
+        }
+        rows.push({ userId, body });
+      }
+      if (!rows.length) return null;
+      const wrap = document.createElement('div');
+      wrap.className = 'accordion-addressed';
+      wrap.style.cssText = 'padding:6px 12px;margin:4px 8px 0;border-left:2px solid var(--bord-soft, rgba(120,180,240,0.35));background:rgba(120,180,240,0.04);border-radius:3px;font-size:11px;line-height:1.5;';
+      const heading = document.createElement('div');
+      heading.style.cssText = 'opacity:0.55;text-transform:uppercase;letter-spacing:0.06em;font-size:10px;margin-bottom:3px;';
+      heading.textContent = `addressed (${rows.length})`;
+      wrap.appendChild(heading);
+      rows.forEach((r, i) => {
+        const isLatest = i === rows.length - 1;
+        const row = document.createElement('div');
+        row.style.cssText = isLatest
+          ? 'color:#88dd88;display:flex;gap:6px;align-items:baseline;'
+          : 'opacity:0.7;display:flex;gap:6px;align-items:baseline;';
+        const mark = document.createElement('span');
+        mark.style.cssText = 'flex:0 0 auto;';
+        mark.textContent = isLatest ? '★' : '✓';
+        const text = document.createElement('span');
+        text.style.cssText = 'flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;';
+        text.textContent = r.body || `(${r.userId.slice(0, 12)} — content not in current view)`;
+        row.append(mark, text);
+        wrap.appendChild(row);
+      });
+      return wrap;
     }
 
     // Find an existing same-(category, session) accordion or flat .delta
