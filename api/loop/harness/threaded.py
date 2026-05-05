@@ -400,6 +400,20 @@ async def run_threaded_fire(
         import uuid as _uuid
         session_tag = f"session:threaded-{_uuid.uuid4().hex[:12]}"
 
+    # Fire-start trace — gives the dashboard an immediate session →
+    # user-msg link so live status badges can render BEFORE the model
+    # gets around to mark_addressed (which only fires near the end of
+    # the fire, leaving no visibility window).
+    pending_ids = [p.get("id") for p in pending if p.get("id")]
+    if pending_ids:
+        await _write_threaded_turn_trace(
+            session_tag=session_tag,
+            turn=0,
+            tool="(fire-start)",
+            args={"user_message_ids": pending_ids},
+            result=f"firing on {len(pending_ids)} pending message(s)",
+        )
+
     for turn in range(1, max_tool_turns + 1):
         turns_used = turn
         # First turn forces a tool_call. Without this, providers

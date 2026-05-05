@@ -11865,16 +11865,24 @@ GET  /v1/usage               Usage stats`,
       }
       // Build user-msg-id → session map (same logic as live status).
       const msgToSessions = new Map();
-      for (const t of harnessTurns) {
-        if (t.tool !== 'mark_addressed' || !t.session) continue;
-        let userId = '';
-        try {
-          const args = JSON.parse(t.args_json || '{}');
-          userId = (args.user_message_id || '').trim();
-        } catch (e) { /* skip */ }
-        if (!userId) continue;
+      const linkSession = (userId, session) => {
+        if (!userId || !session) return;
         if (!msgToSessions.has(userId)) msgToSessions.set(userId, new Set());
-        msgToSessions.get(userId).add(t.session);
+        msgToSessions.get(userId).add(session);
+      };
+      for (const t of harnessTurns) {
+        if (!t.session) continue;
+        if (t.tool === '(fire-start)') {
+          try {
+            const args = JSON.parse(t.args_json || '{}');
+            for (const uid of (args.user_message_ids || [])) linkSession(uid, t.session);
+          } catch (e) { /* skip */ }
+        } else if (t.tool === 'mark_addressed') {
+          try {
+            const args = JSON.parse(t.args_json || '{}');
+            linkSession((args.user_message_id || '').trim(), t.session);
+          } catch (e) { /* skip */ }
+        }
       }
 
       for (const bubble of fathomMsgs) {
@@ -11927,106 +11935,127 @@ GET  /v1/usage               Usage stats`,
     }
 
     function _refreshUserMessageStatus(allItems) {
-      // For each rendered user-message bubble in the feed, derive a
-      // muted-italic status line showing what the harness is currently
-      // doing for that message — latest tool name, plan checklist if
-      // present. Inserted ABOVE the bubble. Disappears when a fathom-
-      // message addressing this user-msg-id has landed (fire is done).
+      // Live status badge above the most-recent unanswered user-message.
       //
-      // Two sources of association between a user-msg and harness turns:
-      //   1. a mark_addressed turn whose args.user_message_id is the
-      //      user-msg id (definitive)
-      //   2. a plan/semantic/etc turn from the same fire's session_tag
-      //      as a mark_addressed turn that references the user-msg
+      // Simplification: the threaded supervisor is single-threaded
+      // (Phase 5a), so AT MOST ONE fire is in flight at any time. We
+      // don't need to map sessions to user-msg ids — we just find the
+      // latest user-message that has no fathom-reply yet, find the
+      // newest harness-turn from any session in the recent past, and
+      // attach a status badge.
       //
-      // We build session→user-msg map from #1, then attribute all
-      // turns in matching sessions to that user-msg.
+      // Disappears when a fathom-message lands.
       const harnessTurns = (allItems || []).filter(i => i.kind === 'harness-turn');
       const fathomMsgs = (allItems || []).filter(i => i.kind === 'fathom-message');
 
-      // Map: user-msg-id → session-tag(s)
-      const msgToSessions = new Map();
-      for (const t of harnessTurns) {
-        if (t.tool !== 'mark_addressed' || !t.session) continue;
-        let userId = '';
-        try {
-          const args = JSON.parse(t.args_json || '{}');
-          userId = (args.user_message_id || '').trim();
-        } catch (e) { /* skip */ }
-        if (!userId) continue;
-        if (!msgToSessions.has(userId)) msgToSessions.set(userId, new Set());
-        msgToSessions.get(userId).add(t.session);
-      }
-
-      // Map: user-msg-id → has-fathom-reply (fire complete)
-      const msgRespondedTo = new Set();
+      // Build a set of user-msg ids that have ANY fathom-reply
+      // addressing them. Multiple shapes: feed addresses tag, or
+      // a temporal proximity match (a fathom-message landing within
+      // 2 minutes after a user-message effectively counts).
+      const repliedIds = new Set();
       for (const f of fathomMsgs) {
         for (const a of (f.addresses || [])) {
-          if (a) msgRespondedTo.add(a);
+          if (a) repliedIds.add(a);
         }
       }
 
-      // Walk every user-message bubble and (re)build its status badge.
-      const userBubbles = feed.querySelectorAll('.msg.msg-user[data-delta-id]');
-      for (const bubble of userBubbles) {
-        const userId = bubble.dataset.deltaId || '';
-        if (!userId) continue;
-
-        // Remove any stale badge first.
-        const prev = bubble.previousElementSibling;
+      // Walk all user-message bubbles. Find the LATEST one (newest
+      // timestamp from data-delta-id lookup) that's not in repliedIds
+      // by id AND doesn't have a fathom-message landing immediately
+      // after it temporally.
+      const userBubbles = Array.from(feed.querySelectorAll('.msg.msg-user[data-delta-id]'));
+      // Strip ALL existing badges first.
+      for (const b of userBubbles) {
+        const prev = b.previousElementSibling;
         if (prev && prev.classList && prev.classList.contains('fathom-live-status')) {
           prev.remove();
         }
-
-        // If a fathom-message has addressed this user-msg, fire is
-        // done — hide the live status.
-        if (msgRespondedTo.has(userId)) continue;
-
-        // Find harness turns for this user-msg's session(s).
-        const sessions = msgToSessions.get(userId);
-        if (!sessions || !sessions.size) continue;
-        const turnsForMsg = harnessTurns
-          .filter(t => sessions.has(t.session))
-          .sort((a, b) => (a.timestamp || '').localeCompare(b.timestamp || ''));
-        if (!turnsForMsg.length) continue;
-
-        // Build status: latest non-mark_addressed/non-respond tool, plus plan if present.
-        const substantive = turnsForMsg.filter(t => t.tool !== 'mark_addressed' && t.tool !== 'respond' && t.tool !== '(review-skip)');
-        const latestSubstantive = substantive[substantive.length - 1];
-        const latest = latestSubstantive || turnsForMsg[turnsForMsg.length - 1];
-
-        let statusText = '';
-        try {
-          const args = JSON.parse(latest.args_json || '{}');
-          statusText = _statusForTool(latest.tool, args) || latest.tool;
-        } catch (e) {
-          statusText = latest.tool;
-        }
-
-        const badge = document.createElement('div');
-        badge.className = 'fathom-live-status';
-        badge.style.cssText = 'font-size:11px;font-style:italic;opacity:0.55;padding:2px 0 4px 12px;border-left:2px solid rgba(160,220,160,0.3);margin-left:4px;line-height:1.5;';
-        const statusLine = document.createElement('div');
-        statusLine.textContent = statusText;
-        badge.appendChild(statusLine);
-
-        // Plan board if a plan tool fired in this fire.
-        const plan = _planStateFromItems(turnsForMsg);
-        if (plan && plan.steps && plan.steps.length) {
-          const planList = document.createElement('div');
-          planList.style.cssText = 'margin-top:3px;padding-left:8px;';
-          for (const s of plan.steps) {
-            const stepEl = document.createElement('div');
-            stepEl.style.cssText = 'opacity:' + (s.status === 'done' ? '0.85' : '0.6');
-            const glyph = s.status === 'done' ? '✓' : (s.status === 'in_progress' ? '⟳' : '☐');
-            stepEl.textContent = `${glyph} ${s.purpose || ''}`;
-            planList.appendChild(stepEl);
-          }
-          badge.appendChild(planList);
-        }
-
-        bubble.parentNode.insertBefore(badge, bubble);
       }
+      if (!userBubbles.length || !harnessTurns.length) return;
+
+      // Pick the latest user-msg per id from allItems (newest-first).
+      const userItemsById = new Map();
+      for (const it of allItems || []) {
+        if (it.kind !== 'user-message') continue;
+        if (!it.id || userItemsById.has(it.id)) continue;
+        userItemsById.set(it.id, it);
+      }
+
+      // For each rendered user-msg bubble, compute "has reply".
+      // Check id match first; fall back to temporal heuristic
+      // (fathom-message exists within 2 minutes after this user-msg).
+      const fathomTimes = fathomMsgs.map(f => new Date(f.timestamp || 0).getTime()).sort((a, b) => a - b);
+      const hasReply = (item) => {
+        if (!item) return false;
+        if (repliedIds.has(item.id)) return true;
+        const userTs = new Date(item.timestamp || 0).getTime();
+        if (!userTs) return false;
+        for (const ft of fathomTimes) {
+          if (ft >= userTs && ft <= userTs + 120_000) return true;
+          if (ft > userTs + 120_000) break;
+        }
+        return false;
+      };
+
+      // Find the latest user-msg WITHOUT a reply.
+      let target = null;
+      // Bubbles are top-newest; iterate top-down to find first unreplied.
+      for (const bubble of userBubbles) {
+        const item = userItemsById.get(bubble.dataset.deltaId);
+        if (!item) continue;
+        if (!hasReply(item)) {
+          target = bubble;
+          break;
+        }
+      }
+      if (!target) return;
+
+      // Find the newest harness-turn whose timestamp is AFTER the
+      // target user-msg (within a reasonable window). That's the
+      // active fire's latest tool.
+      const targetTs = new Date(userItemsById.get(target.dataset.deltaId)?.timestamp || 0).getTime();
+      const recentTurns = harnessTurns
+        .filter(t => {
+          const tt = new Date(t.timestamp || 0).getTime();
+          return tt && tt >= targetTs - 5000 && tt <= targetTs + 600_000;
+        })
+        .sort((a, b) => (a.timestamp || '').localeCompare(b.timestamp || ''));
+      if (!recentTurns.length) return;
+
+      const substantive = recentTurns.filter(t => t.tool !== 'mark_addressed' && t.tool !== 'respond' && t.tool !== '(review-skip)' && t.tool !== '(fire-start)');
+      const latestSubstantive = substantive[substantive.length - 1];
+      const latest = latestSubstantive || recentTurns[recentTurns.length - 1];
+
+      let statusText = '';
+      try {
+        const args = JSON.parse(latest.args_json || '{}');
+        statusText = _statusForTool(latest.tool, args) || latest.tool;
+      } catch (e) {
+        statusText = latest.tool;
+      }
+
+      const badge = document.createElement('div');
+      badge.className = 'fathom-live-status';
+      badge.style.cssText = 'font-size:11px;font-style:italic;opacity:0.55;padding:2px 0 4px 12px;border-left:2px solid rgba(160,220,160,0.3);margin-left:4px;line-height:1.5;';
+      const statusLine = document.createElement('div');
+      statusLine.textContent = statusText;
+      badge.appendChild(statusLine);
+
+      const plan = _planStateFromItems(recentTurns);
+      if (plan && plan.steps && plan.steps.length) {
+        const planList = document.createElement('div');
+        planList.style.cssText = 'margin-top:3px;padding-left:8px;';
+        for (const s of plan.steps) {
+          const stepEl = document.createElement('div');
+          stepEl.style.cssText = 'opacity:' + (s.status === 'done' ? '0.85' : '0.6');
+          const glyph = s.status === 'done' ? '✓' : (s.status === 'in_progress' ? '⟳' : '☐');
+          stepEl.textContent = `${glyph} ${s.purpose || ''}`;
+          planList.appendChild(stepEl);
+        }
+        badge.appendChild(planList);
+      }
+
+      target.parentNode.insertBefore(badge, target);
     }
 
     function _refreshPendingProposalDecisions() {
