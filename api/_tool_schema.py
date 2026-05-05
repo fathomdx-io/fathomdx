@@ -65,16 +65,23 @@ CHAT_ONLY_TOOLS: list[dict] = [
                 "app to set one up. "
                 "For action='create': the default flow is PROPOSE, NOT COMMIT. "
                 "Call create with whatever fields you've composed (name, "
-                "schedule, prompt at minimum — id/workspace/host may be blank) "
-                "and the tool returns {status:'needs_confirmation'} while "
-                "simultaneously painting a review form in the user's chat. "
+                "schedule, plus the four scaffold sections at minimum — "
+                "id/workspace/host may be blank) and the tool returns "
+                "{status:'needs_confirmation'} while simultaneously painting "
+                "a review form in the user's chat. "
                 "The user edits and saves that form — you do NOT re-prompt the "
                 "user for the fields in prose; just say something short like "
                 "'Here's the routine — review and save.' Pass confirm=true "
                 "only when the user has explicitly told you to skip the review "
                 "step (e.g. 'just make it', 'don't ask, create it'). "
                 "Outside a chat session (session_id absent), the tool commits "
-                "directly and returns the result."
+                "directly and returns the result. "
+                "ROUTINE BODY SHAPE: prefer the four-section scaffold "
+                "(`purpose`, `needs`, `steps`, `ending`) over the freeform "
+                "`prompt` field. Each section maps to a `# Section` header "
+                "in the saved body. The `prompt` field is a back-compat "
+                "fallback — only use it when migrating an existing freeform "
+                "body verbatim."
             ),
             "parameters": {
                 "type": "object",
@@ -118,9 +125,52 @@ CHAT_ONLY_TOOLS: list[dict] = [
                         "type": "string",
                         "description": "5-field cron (e.g. '0 * * * *' for hourly, '*/5 * * * *' every 5 min)",
                     },
+                    "purpose": {
+                        "type": "string",
+                        "description": (
+                            "One sentence — what should Fathom accomplish on "
+                            "this routine? Goes under `# Purpose` in the saved body."
+                        ),
+                    },
+                    "needs": {
+                        "type": "string",
+                        "description": (
+                            "What this routine needs to actually run — "
+                            "claude-code on a host (e.g. 'claude-code on "
+                            "myras-fedora-laptop'), a specific tool, or "
+                            "'substrate only' if the lake already has the data. "
+                            "Goes under `# Needs`."
+                        ),
+                    },
+                    "steps": {
+                        "type": "string",
+                        "description": (
+                            "The instructions — what to look for, filter, "
+                            "compare. Numbered list or short prose. Written "
+                            "as a request to Fathom, not as instructions for "
+                            "claude-code. Goes under `# Steps`."
+                        ),
+                    },
+                    "ending": {
+                        "type": "string",
+                        "description": (
+                            "How the user wants to be notified. Plain language. "
+                            "The witness reads this as a route directive: "
+                            "'send me a card' → feed-card, 'DM me' → chat-reply, "
+                            "'stay silent unless X' → silent then alert when X. "
+                            "Goes under `# Ending`."
+                        ),
+                    },
                     "prompt": {
                         "type": "string",
-                        "description": "what claude should do when this routine fires",
+                        "description": (
+                            "Back-compat freeform body. Prefer the four scaffold "
+                            "fields (purpose/needs/steps/ending). Use this only "
+                            "when migrating an existing freeform body verbatim "
+                            "(it's the literal markdown that will be saved as the "
+                            "routine's prompt). When scaffold fields are passed, "
+                            "this field is ignored."
+                        ),
                     },
                     "permission_mode": {
                         "type": "string",
