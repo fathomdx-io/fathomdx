@@ -10623,6 +10623,10 @@ GET  /v1/usage               Usage stats`,
           el.dataset.puddleId = it.id || '';
           if (it.id) el.dataset.deltaId = it.id;
           el.dataset.kind = 'chat';
+          // Stash addresses so the provenance-created badge can match
+          // this fathom-message back to its originating session.
+          const addressesArr = (it.addresses || []).filter(Boolean);
+          if (addressesArr.length) el.dataset.addresses = addressesArr.join(',');
           if (it.engagement) el.dataset.engaged = it.engagement;
           const body = el.querySelector('.msg-body');
           if (body) {
@@ -11817,6 +11821,10 @@ GET  /v1/usage               Usage stats`,
         // bubble — shows what tool the harness is currently running
         // for that message, plus a plan checklist if a plan tool fired.
         _refreshUserMessageStatus(items);
+        // Refresh the "provenance created" footer below each fathom-
+        // message — shows when the review pass produced a successful
+        // proposal, with level + title + constituent count.
+        _refreshProvenanceCreatedBadges(items);
         // Re-check decision state on already-rendered proposal cards
         // that haven't been settled yet. Without this, approving in
         // another tab / via the bell / programmatically leaves the feed
@@ -11824,6 +11832,97 @@ GET  /v1/usage               Usage stats`,
         _refreshPendingProposalDecisions();
       } catch (e) {
         console.warn('[feed] live poll threw', e);
+      }
+    }
+
+    function _refreshProvenanceCreatedBadges(allItems) {
+      // For every fathom-message in the feed, look for a sibling
+      // harness-turn(propose_provenance) from the same fire whose
+      // result string contains a successful drafting marker. If
+      // present, attach a small "PROVENANCE CREATED" footer below
+      // the assistant bubble showing level + title + constituents.
+      //
+      // Only mark when the result is the success shape (lake id
+      // returned, optionally auto-approved). Errors and skips are
+      // ignored — those don't represent provenance landing.
+      const harnessTurns = (allItems || []).filter(i => i.kind === 'harness-turn');
+      const fathomMsgs = feed.querySelectorAll('.msg.msg-fathom');
+
+      // Build session→propose_provenance turn map (use the
+      // most-recent successful one per session).
+      const sessionProvenance = new Map();
+      for (const t of harnessTurns) {
+        if (t.tool !== 'propose_provenance' || !t.session) continue;
+        const result = t.result || '';
+        // Success shape from tools.tool_propose_provenance:
+        // "Proposal <id> drafted ..." (success) — anything starting
+        // with ERROR is failure, skip those.
+        if (result.startsWith('ERROR') || !result) continue;
+        const prev = sessionProvenance.get(t.session);
+        if (!prev || (t.timestamp || '').localeCompare(prev.timestamp || '') > 0) {
+          sessionProvenance.set(t.session, t);
+        }
+      }
+      // Build user-msg-id → session map (same logic as live status).
+      const msgToSessions = new Map();
+      for (const t of harnessTurns) {
+        if (t.tool !== 'mark_addressed' || !t.session) continue;
+        let userId = '';
+        try {
+          const args = JSON.parse(t.args_json || '{}');
+          userId = (args.user_message_id || '').trim();
+        } catch (e) { /* skip */ }
+        if (!userId) continue;
+        if (!msgToSessions.has(userId)) msgToSessions.set(userId, new Set());
+        msgToSessions.get(userId).add(t.session);
+      }
+
+      for (const bubble of fathomMsgs) {
+        // Remove any prior badge.
+        const next = bubble.nextElementSibling;
+        if (next && next.classList && next.classList.contains('fathom-provenance-created')) {
+          next.remove();
+        }
+        // Find this fathom-message's addresses (set as
+        // data-addresses by the renderer).
+        const addressesAttr = bubble.dataset.addresses || '';
+        const addresses = addressesAttr ? addressesAttr.split(',').filter(Boolean) : [];
+        // Find a session that produced provenance for any addressed user-msg.
+        let provTurn = null;
+        for (const userId of addresses) {
+          const sessions = msgToSessions.get(userId);
+          if (!sessions) continue;
+          for (const sess of sessions) {
+            if (sessionProvenance.has(sess)) {
+              provTurn = sessionProvenance.get(sess);
+              break;
+            }
+          }
+          if (provTurn) break;
+        }
+        if (!provTurn) continue;
+
+        // Parse args for level + title + constituents.
+        let args = {};
+        try { args = JSON.parse(provTurn.args_json || '{}'); } catch (e) {}
+        const level = args.level || '?';
+        const title = (args.title || '(untitled)').slice(0, 80);
+        const constituents = (args.from_ids || []).length;
+        const result = provTurn.result || '';
+        const autoApproved = result.toLowerCase().includes('auto-approve');
+
+        const badge = document.createElement('div');
+        badge.className = 'fathom-provenance-created';
+        badge.style.cssText = 'font-size:11px;font-style:italic;opacity:0.7;padding:4px 0 2px 12px;border-left:2px solid rgba(200,160,240,0.4);margin:0 4px;line-height:1.5;color:#c8a0f0;';
+        const head = document.createElement('div');
+        head.style.cssText = 'opacity:0.65;text-transform:uppercase;letter-spacing:0.06em;font-size:10px;margin-bottom:2px;';
+        head.textContent = `provenance ${autoApproved ? 'created' : 'proposed'} · L${level} · ${constituents} constituents`;
+        badge.appendChild(head);
+        const titleEl = document.createElement('div');
+        titleEl.style.cssText = 'font-style:normal;opacity:0.9;';
+        titleEl.textContent = title;
+        badge.appendChild(titleEl);
+        bubble.parentNode.insertBefore(badge, bubble.nextSibling);
       }
     }
 
