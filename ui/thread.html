@@ -1,0 +1,354 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Fathom — Thread</title>
+<link rel="stylesheet" href="https://design.fathomdx.io/v1/tokens.css" />
+<style>
+  /* Phase 4 thread inspection view. Standalone dev surface that
+     proves /v1/thread/{window,unaddressed} end to end. Main
+     dashboard cutover lands separately. */
+  :root {
+    --user-tint: rgba(120, 180, 240, 0.10);
+    --user-bord: rgba(120, 180, 240, 0.40);
+    --asst-tint: rgba(160, 220, 160, 0.10);
+    --asst-bord: rgba(160, 220, 160, 0.40);
+    --tool-tint: rgba(220, 200, 140, 0.08);
+    --tool-bord: rgba(220, 200, 140, 0.35);
+    --sys-tint:  rgba(180, 180, 180, 0.06);
+    --sys-bord:  rgba(180, 180, 180, 0.30);
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0;
+    padding: 0;
+    background: var(--bg, #0c0e10);
+    color: var(--fg, #e8e8e8);
+    font-family: var(--font-mono, ui-monospace, "SF Mono", Menlo, monospace);
+    font-size: 13px;
+    line-height: 1.5;
+  }
+  header {
+    position: sticky;
+    top: 0;
+    background: rgba(12, 14, 16, 0.95);
+    backdrop-filter: blur(6px);
+    padding: 12px 20px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 16px;
+    z-index: 10;
+  }
+  h1 {
+    margin: 0;
+    font-size: 14px;
+    font-weight: 500;
+    letter-spacing: 0.02em;
+    opacity: 0.8;
+  }
+  .header-meta {
+    font-size: 11px;
+    opacity: 0.6;
+    display: flex;
+    gap: 14px;
+  }
+  .header-meta span {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+  }
+  .header-meta .pulse {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: #66cc88;
+    box-shadow: 0 0 6px #66cc88;
+    animation: pulse 1.6s ease-in-out infinite;
+  }
+  @keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.3; }
+  }
+  main {
+    max-width: 920px;
+    margin: 0 auto;
+    padding: 20px;
+  }
+  .msg {
+    border: 1px solid;
+    border-radius: 4px;
+    margin: 8px 0;
+    padding: 10px 14px;
+    background: var(--tint);
+    border-color: var(--bord);
+  }
+  .msg.role-user { --tint: var(--user-tint); --bord: var(--user-bord); }
+  .msg.role-assistant { --tint: var(--asst-tint); --bord: var(--asst-bord); }
+  .msg.role-tool { --tint: var(--tool-tint); --bord: var(--tool-bord); }
+  .msg.role-system { --tint: var(--sys-tint); --bord: var(--sys-bord); }
+  .msg-head {
+    display: flex;
+    gap: 12px;
+    align-items: baseline;
+    font-size: 11px;
+    opacity: 0.65;
+    margin-bottom: 6px;
+  }
+  .msg-head .role {
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    font-weight: 600;
+  }
+  .role-user .msg-head .role { color: #88bbee; }
+  .role-assistant .msg-head .role { color: #88dd88; }
+  .role-tool .msg-head .role { color: #ddcc88; }
+  .role-system .msg-head .role { color: #aaaaaa; }
+  .msg-head .id {
+    font-family: monospace;
+    opacity: 0.5;
+  }
+  .msg-head .channel {
+    background: rgba(255, 255, 255, 0.06);
+    padding: 1px 6px;
+    border-radius: 2px;
+  }
+  .msg-body {
+    white-space: pre-wrap;
+    word-wrap: break-word;
+  }
+  .msg-addresses {
+    font-size: 10px;
+    opacity: 0.5;
+    margin-top: 6px;
+    font-family: monospace;
+  }
+  .empty {
+    text-align: center;
+    padding: 60px 20px;
+    opacity: 0.5;
+  }
+  .error {
+    background: rgba(220, 100, 100, 0.1);
+    border: 1px solid rgba(220, 100, 100, 0.3);
+    padding: 10px 14px;
+    border-radius: 4px;
+    margin: 20px;
+    color: #ddaaaa;
+  }
+  /* Tally overlay — Phase 4 design: shows when count >= 1, hides otherwise. */
+  #tally {
+    position: fixed;
+    bottom: 20px;
+    right: 20px;
+    max-width: 360px;
+    background: rgba(20, 22, 26, 0.95);
+    backdrop-filter: blur(8px);
+    border: 1px solid rgba(255, 200, 100, 0.4);
+    border-radius: 4px;
+    padding: 12px 14px;
+    font-size: 11px;
+    box-shadow: 0 4px 24px rgba(0, 0, 0, 0.4);
+    display: none;
+  }
+  #tally.visible { display: block; }
+  #tally h2 {
+    margin: 0 0 8px;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: #ffcc66;
+    font-weight: 600;
+  }
+  #tally ul {
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+  #tally li {
+    padding: 4px 0;
+    border-top: 1px dashed rgba(255, 255, 255, 0.06);
+  }
+  #tally li:first-child { border-top: 0; }
+  #tally .tally-id {
+    font-family: monospace;
+    opacity: 0.55;
+  }
+  #tally .tally-channel {
+    background: rgba(255, 255, 255, 0.08);
+    padding: 0 4px;
+    border-radius: 2px;
+    margin-left: 4px;
+  }
+  #tally .tally-preview {
+    margin-top: 2px;
+    opacity: 0.85;
+  }
+</style>
+</head>
+<body>
+<header>
+  <h1>thread (last <span id="window-limit">15</span>)</h1>
+  <div class="header-meta">
+    <span><span class="pulse"></span><span id="status">connecting…</span></span>
+    <span>messages: <span id="msg-count">0</span></span>
+    <span>updated: <span id="updated-at">—</span></span>
+  </div>
+</header>
+<main id="messages">
+  <div class="empty" id="empty">loading…</div>
+</main>
+<aside id="tally" aria-label="user messages awaiting response">
+  <h2>unaddressed (<span id="tally-count">0</span>)</h2>
+  <ul id="tally-list"></ul>
+</aside>
+<script>
+const POLL_MS = 2000;
+const WINDOW_LIMIT = 15;
+const TOKEN = localStorage.getItem("fathom_token") || "";
+
+function authedFetch(url) {
+  const headers = { "Accept": "application/json" };
+  if (TOKEN) headers["Authorization"] = `Bearer ${TOKEN}`;
+  return fetch(url, { headers });
+}
+
+function fmtTs(iso) {
+  if (!iso) return "?";
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return iso.slice(11, 19);
+  return d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+}
+
+function shortId(id) {
+  return (id || "").slice(0, 12);
+}
+
+function renderMessage(m) {
+  const div = document.createElement("article");
+  div.className = `msg role-${m.role || "unknown"}`;
+  const head = document.createElement("div");
+  head.className = "msg-head";
+  const role = document.createElement("span");
+  role.className = "role";
+  role.textContent = m.role || "?";
+  head.appendChild(role);
+  if (m.msg_kind) {
+    const kind = document.createElement("span");
+    kind.className = "channel";
+    kind.textContent = m.msg_kind;
+    head.appendChild(kind);
+  }
+  if (m.channel && m.channel !== m.msg_kind) {
+    const ch = document.createElement("span");
+    ch.className = "channel";
+    ch.textContent = m.channel + (m.correlation ? ` · ${m.correlation.slice(0, 12)}` : "");
+    head.appendChild(ch);
+  }
+  if (m.contact) {
+    const c = document.createElement("span");
+    c.textContent = `← ${m.contact}`;
+    head.appendChild(c);
+  }
+  const ts = document.createElement("span");
+  ts.style.marginLeft = "auto";
+  ts.textContent = fmtTs(m.timestamp);
+  head.appendChild(ts);
+  const id = document.createElement("span");
+  id.className = "id";
+  id.textContent = shortId(m.id);
+  head.appendChild(id);
+  div.appendChild(head);
+
+  const body = document.createElement("div");
+  body.className = "msg-body";
+  body.textContent = m.content || "(empty)";
+  div.appendChild(body);
+
+  if ((m.addresses || []).length) {
+    const addr = document.createElement("div");
+    addr.className = "msg-addresses";
+    addr.textContent = "addresses: " + m.addresses.map(shortId).join(", ");
+    div.appendChild(addr);
+  }
+  return div;
+}
+
+async function refresh() {
+  const status = document.getElementById("status");
+  try {
+    const [winR, tallyR] = await Promise.all([
+      authedFetch(`/v1/thread/window?limit=${WINDOW_LIMIT}`),
+      authedFetch(`/v1/thread/unaddressed?limit=${WINDOW_LIMIT}`),
+    ]);
+    if (winR.status === 401 || tallyR.status === 401) {
+      status.textContent = "no token — set localStorage.fathom_token";
+      document.getElementById("messages").innerHTML =
+        '<div class="error">No auth. Open devtools and run <code>localStorage.fathom_token = "fth_..."</code> with a token that has lake:read scope.</div>';
+      return;
+    }
+    if (!winR.ok) throw new Error(`window: ${winR.status}`);
+    if (!tallyR.ok) throw new Error(`tally: ${tallyR.status}`);
+    const win = await winR.json();
+    const tally = await tallyR.json();
+
+    const main = document.getElementById("messages");
+    main.innerHTML = "";
+    if (!win.messages.length) {
+      main.innerHTML = '<div class="empty">thread is empty — nothing in the rolling window</div>';
+    } else {
+      for (const m of win.messages) {
+        main.appendChild(renderMessage(m));
+      }
+      // Auto-scroll to newest unless the user has scrolled up.
+      if (window.scrollY + window.innerHeight > document.body.scrollHeight - 100) {
+        window.scrollTo(0, document.body.scrollHeight);
+      }
+    }
+    document.getElementById("msg-count").textContent = win.count;
+    document.getElementById("updated-at").textContent = fmtTs(new Date().toISOString());
+    status.textContent = "live";
+
+    // Tally
+    const tallyEl = document.getElementById("tally");
+    const tallyList = document.getElementById("tally-list");
+    document.getElementById("tally-count").textContent = tally.count;
+    if (tally.count > 0) {
+      tallyEl.classList.add("visible");
+      tallyList.innerHTML = "";
+      for (const u of tally.unaddressed) {
+        const li = document.createElement("li");
+        const head = document.createElement("div");
+        const idSpan = document.createElement("span");
+        idSpan.className = "tally-id";
+        idSpan.textContent = shortId(u.id);
+        head.appendChild(idSpan);
+        if (u.channel || u.msg_kind) {
+          const chSpan = document.createElement("span");
+          chSpan.className = "tally-channel";
+          chSpan.textContent = u.channel || u.msg_kind;
+          head.appendChild(chSpan);
+        }
+        li.appendChild(head);
+        const prev = document.createElement("div");
+        prev.className = "tally-preview";
+        prev.textContent = u.preview || "";
+        li.appendChild(prev);
+        tallyList.appendChild(li);
+      }
+    } else {
+      tallyEl.classList.remove("visible");
+    }
+  } catch (e) {
+    status.textContent = "error: " + e.message;
+    console.error(e);
+  }
+}
+
+refresh();
+setInterval(refresh, POLL_MS);
+</script>
+</body>
+</html>
