@@ -679,6 +679,107 @@ def get_intents() -> dict:
     return {"intents": out}
 
 
+# ── Thread endpoints ──────────────────────────────────────────────
+#
+# Phase 4 surface for the dashboard / external clients to read what's
+# in Fathom's working-memory thread. Counterpart to the legacy
+# /v1/puddle/feed which renders the puddle. Both can coexist during
+# the migration; Phase 5 deletes the puddle ones.
+
+
+def _project_thread_msg(d: dict) -> dict:
+    """Project a kind:thread-msg lake delta into a UI-friendly dict.
+
+    Pulls the role / msg-kind / channel / correlation / contact /
+    addresses tags out as first-class fields so the dashboard renders
+    on structured shape rather than scanning tag strings client-side.
+    """
+    tags = d.get("tags") or []
+
+    def tag_value(prefix: str) -> str:
+        for t in tags:
+            if isinstance(t, str) and t.startswith(prefix):
+                return t.split(":", 1)[1]
+        return ""
+
+    addresses: list[str] = []
+    for t in tags:
+        if isinstance(t, str) and t.startswith("addresses:"):
+            v = t.split(":", 1)[1]
+            if v and v not in addresses:
+                addresses.append(v)
+
+    return {
+        "id": d.get("id"),
+        "timestamp": d.get("timestamp"),
+        "role": tag_value("role:"),
+        "msg_kind": tag_value("msg-kind:"),
+        "channel": tag_value("channel:"),
+        "correlation": tag_value("correlation:"),
+        "contact": tag_value("contact:"),
+        "addresses": addresses,
+        "content": d.get("content") or "",
+        "source": d.get("source") or "",
+    }
+
+
+@router.get("/v1/thread/window")
+async def get_thread_window(
+    limit: int = 15,
+    max_tokens: int | None = 12_000,
+) -> dict:
+    """Return Fathom's rolling-window thread tail.
+
+    Same view the harness sees on each fire — last `limit` messages,
+    further trimmed if the estimated token total exceeds `max_tokens`.
+    Oldest-first (chronological), so a renderer can append top-down.
+
+    Each message carries role + msg_kind + channel + correlation +
+    contact + addresses as structured fields. The dashboard's river
+    view renders bubbles by role; surfaces (composer, openai client,
+    routine page) can filter by channel/correlation to show their own
+    slice.
+    """
+    from .. import thread as thread_mod
+
+    rows = await thread_mod.tail(limit=limit, max_tokens=max_tokens)
+    messages = [_project_thread_msg(d) for d in rows]
+    return {
+        "messages": messages,
+        "count": len(messages),
+        "window_limit": limit,
+        "max_tokens": max_tokens,
+    }
+
+
+@router.get("/v1/thread/unaddressed")
+async def get_thread_unaddressed(
+    limit: int = 15,
+    max_tokens: int | None = 12_000,
+) -> dict:
+    """Return user-role messages in the window with no covering tally
+    mark — Fathom's active "what's pending" queue.
+
+    The dashboard's tally overlay renders this when count >= 1.
+    Each entry includes a 200-char preview alongside the full body
+    so a small panel can show meaningful text without re-fetching.
+    """
+    from .. import thread as thread_mod
+
+    window = await thread_mod.build_window(
+        max_messages=limit,
+        max_tokens=max_tokens,
+    )
+    pending = window["unaddressed"]
+    out = []
+    for d in pending:
+        proj = _project_thread_msg(d)
+        body = proj["content"] or ""
+        proj["preview"] = body[:200]
+        out.append(proj)
+    return {"unaddressed": out, "count": len(out)}
+
+
 @router.get("/v1/loop/relief-tiers")
 async def relief_tiers() -> dict:
     """Tier table + thresholds for the dashboard pressure chart.
