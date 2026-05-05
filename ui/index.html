@@ -9635,18 +9635,47 @@ GET  /v1/usage               Usage stats`,
     }
 
     function _harnessStatusForItems(items) {
-      // The latest (= first in newest-first array) harness-turn drives
-      // the current status. Skip respond turns (the fire is done; revert
-      // to a "Done" / category label).
+      // Build a status label that reflects the full trajectory of the
+      // fire, not just the latest tool. Without this, "MARK_ADDRESSED"
+      // dominates every collapsed accordion and the search/expand/etc.
+      // work that came before is invisible until expanded — operator
+      // can't tell at a glance whether Fathom searched the lake or just
+      // ack'd.
+      //
+      // Shape: "Searching 'X' → Addressed" (oldest substantive tool →
+      // bookkeeping). Tools de-duped, in chronological order. If the
+      // fire is mid-flight (no respond/mark_addressed yet), the label
+      // is just the substantive tool currently running.
       const turns = items.filter(it => it.kind === 'harness-turn');
       if (!turns.length) return null;
-      const latest = turns[0];
-      const status = _harnessTurnStatusFromItem(latest);
+      const latest = turns[0]; // newest-first
+      // Walk oldest-first so the trajectory reads left-to-right.
+      const ordered = [...turns].reverse();
+      const seen = new Set();
+      const segments = [];
+      let lastSubstantiveStatus = null;
+      for (const t of ordered) {
+        const tool = t.tool || '';
+        if (!tool || seen.has(tool)) continue;
+        seen.add(tool);
+        const s = _harnessTurnStatusFromItem(t);
+        if (!s) continue;
+        const seg = _statusForTool(s.tool, s.args) || s.tool;
+        segments.push(seg);
+        if (tool !== 'mark_addressed' && tool !== 'respond') {
+          lastSubstantiveStatus = s;
+        }
+      }
+      const status = lastSubstantiveStatus
+        || _harnessTurnStatusFromItem(latest);
       if (!status) return null;
       const plan = _planStateFromItems(items);
       const isDone = latest.tool === 'respond';
+      const label = segments.length > 1
+        ? segments.join(' → ')
+        : (isDone ? 'Done' : (segments[0] || status.tool));
       return {
-        label: isDone ? 'Done' : (_statusForTool(status.tool, status.args) || status.tool),
+        label,
         thinking: status.thinking,
         plan,
         latestTurn: latest.turn,
