@@ -107,6 +107,23 @@ async def post_seed(req: SeedRequest, request: Request) -> dict:
         extra_tags=puddle_extra,
         source="composer",
     )
+
+    # Phase 1 shadow write: also append to the global thread.
+    # Soft-fails — the puddle write above is still authoritative
+    # while Phase 2 brings the harness onto the thread.
+    try:
+        from .. import thread as thread_mod
+        await thread_mod.append(
+            role="user",
+            msg_kind=f"composer-{kind}" if kind != "question" else "composer",
+            content=body,
+            channel="composer",
+            contact=contact_slug or "",
+            source="composer",
+        )
+    except Exception as e:
+        print(f"[seed] thread shadow write failed: {type(e).__name__}: {e}")
+
     return {"ok": True, "intent": delta, "lake_id": lake_id}
 
 

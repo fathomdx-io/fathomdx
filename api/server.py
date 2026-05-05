@@ -1128,6 +1128,25 @@ async def chat_completions(req: ChatRequest, request: Request):
     if not intent_id:
         raise HTTPException(status_code=503, detail="puddle write failed")
 
+    # Phase 1 shadow write: also append to the global thread.
+    # The thread carries channel + correlation so an assistant card's
+    # `addresses:` tag can route the reply back to THIS openai session
+    # (Phase 3). Multi-session safety is automatic — each session's
+    # correlation is its own.
+    try:
+        from . import thread as thread_mod
+        await thread_mod.append(
+            role="user",
+            msg_kind="openai-chat",
+            content=body_text,
+            channel="openai",
+            correlation=session_id,
+            contact=contact_slug or "",
+            source="openai-compat",
+        )
+    except Exception as e:
+        log.warning("openai-compat: thread shadow write failed (%s)", e)
+
     if req.stream:
         return StreamingResponse(
             _openai_stream(

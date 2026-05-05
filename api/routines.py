@@ -628,6 +628,25 @@ async def fire(routine_id: str, prompt_override: str | None = None) -> dict:
         # re-fire it, which is acceptable.
         pass
 
+    # Phase 1 shadow write: also append to the global thread.
+    # Routines fire as user-role messages — they're prompts to Fathom
+    # the same way the operator's typed messages are. The correlation
+    # is the routine_id so a follow-up reply can land back as a
+    # routine-summary on this routine's page.
+    try:
+        from . import thread as thread_mod
+        await thread_mod.append(
+            role="user",
+            msg_kind="routine-fire",
+            content=summary,
+            channel="routine",
+            correlation=routine_id,
+            source="routine-scheduler",
+            extra_tags=[f"host:{host}"] if host else None,
+        )
+    except Exception as e:
+        print(f"[routine] thread shadow write failed: {type(e).__name__}: {e}")
+
     return {
         "fired": True,
         "routine_id": routine_id,

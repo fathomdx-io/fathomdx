@@ -1061,6 +1061,38 @@ async def _dispatch_card(
         source="witness",
         ttl_seconds=Q_A_TTL_S,
     )
+
+    # Phase 1 shadow write: also append to the global thread.
+    # The thread carries the assistant's prose body (not the JSON
+    # envelope) so future fires read it as native chat content.
+    # The route_value maps to msg_kind so the renderer can classify
+    # what kind of assistant turn this was.
+    try:
+        from .. import thread as thread_mod
+        thread_msg_kind = (
+            "chat-reply" if route_value == "chat-reply"
+            else f"alert-{route_value.split(':', 1)[1]}" if route_value.startswith("alert:")
+            else "helper-dispatch" if is_tool_proposal and proposal_tool == "helper-dispatch"
+            else "mint-routine" if is_tool_proposal and proposal_tool == "routines"
+            else "provenance" if is_tool_proposal and proposal_tool == "provenance"
+            else f"tool-proposal-{proposal_tool}" if is_tool_proposal
+            else f"claude-code-dispatch" if route_value == "claude-code"
+            else f"feed-card-{route_value}" if route_value
+            else "feed-card"
+        )
+        await thread_mod.append(
+            role="assistant",
+            msg_kind=thread_msg_kind,
+            content=card.get("body") or "",
+            channel=channel or "",
+            correlation=correlation or "",
+            contact=addressee or "",
+            addresses=list(full_addressed),
+            source="witness",
+        )
+    except Exception as e:
+        print(f"[witness] thread shadow write failed: {type(e).__name__}: {e}")
+
     print(
         f"[witness] addressed={len(full_addressed)} route={route_value!r} "
         f"body[{len(payload['body'])}c] lake-id={lake_id[:24] or 'none'}"
