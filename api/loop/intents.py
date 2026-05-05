@@ -89,7 +89,20 @@ def pending_intents(since_iso: str | None = None) -> list[dict]:
     this timestamp. The supervisor passes its boot time so a restart
     starts with an empty queue rather than churning through stale
     legacy seeds.
+
+    Phase 5: when FATHOM_THREADED_HARNESS=1, the threaded supervisor
+    is the active queue manager and the legacy supervisor is dormant.
+    Puddle intents still get written by surfaces during the cutover
+    window (Phase 5a-d preserve the dual-write so the legacy fallback
+    stays usable), but no one consumes them. Returning [] here keeps
+    the dashboard's pending widget honest — there's nothing actually
+    pending; the work has been picked up by the thread side. Flip the
+    flag off and pending intents reappear instantly with the original
+    accumulated set.
     """
+    import os
+    if os.environ.get("FATHOM_THREADED_HARNESS", "0") == "1":
+        return []
     intents = puddle.query(tags_include=[CONVO_TAG, "intent"], limit=100)
     seeds = puddle.query(tags_include=[CONVO_TAG, "seed"], limit=50)
     outputs = puddle.query(tags_include=[CONVO_TAG, "addressing-output"], limit=200)
