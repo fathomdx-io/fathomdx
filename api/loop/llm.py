@@ -109,3 +109,72 @@ async def loop_generate(
     if last_exc:
         raise last_exc
     raise RuntimeError("loop_generate exhausted retries without exception")
+
+
+async def loop_generate_chat(
+    *,
+    messages: list[dict],
+    tools: list[dict] | None = None,
+    tool_choice: str | dict | None = None,
+    tier: str = "hard",
+    max_tokens: int = 2048,
+    temperature: float = 0.7,
+    max_retries: int = 4,
+) -> dict:
+    """Run one chat-completions call with native role/tool-call shape.
+
+    Counterpart to `loop_generate` for the threaded harness — that one
+    stuffs the whole world into a single user-role string and asks for
+    JSON-mode output; this one passes a real `messages` array and lets
+    the model emit `tool_calls` natively.
+
+    Returns the raw assistant message dict from the SDK
+    (with `content` and possibly `tool_calls`), as a plain dict so the
+    caller can append it directly into a future messages list.
+    Provider-specific tool_call_id format is preserved unchanged so it
+    round-trips when fed back as `role:tool` follow-up.
+    """
+    if not messages:
+        raise ValueError("messages must be non-empty")
+
+    client, model = _resolve_client_and_model(tier)
+    request: dict = {
+        "model": model,
+        "messages": messages,
+        "max_tokens": max_tokens,
+        "temperature": temperature,
+    }
+    if tools:
+        request["tools"] = tools
+        if tool_choice is not None:
+            request["tool_choice"] = tool_choice
+
+    delay = 1.0
+    last_exc: BaseException | None = None
+    for attempt in range(max_retries + 1):
+        async with _LLM_SEM:
+            try:
+                resp = await client.chat.completions.create(**request)
+                if not resp.choices:
+                    return {"role": "assistant", "content": ""}
+                msg = resp.choices[0].message
+                # Project to dict — pydantic model_dump preserves
+                # tool_calls structure when present.
+                out = msg.model_dump(exclude_none=True)
+                # Some providers omit `role`; ensure it's stamped.
+                out.setdefault("role", "assistant")
+                # Some providers set content=None when only tool_calls
+                # are present; normalize to empty string for downstream
+                # safety.
+                if out.get("content") is None:
+                    out["content"] = ""
+                return out
+            except Exception as e:
+                last_exc = e
+                if not _is_rate_limit(e) or attempt >= max_retries:
+                    raise
+        await asyncio.sleep(delay)
+        delay = min(delay * 2, 16.0)
+    if last_exc:
+        raise last_exc
+    raise RuntimeError("loop_generate_chat exhausted retries without exception")
