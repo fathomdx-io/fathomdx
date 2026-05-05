@@ -15,11 +15,12 @@ naturally elevates to deeper tiers — alert recovers fast (~10 min),
 sit takes hours. The user sees the cycle as "Fathom flagged a thing,
 flagged another, then sat with it" rather than four cards at once.
 
-Single-fire tiers (alert, bridging) emit feed-cards via the existing
-intent + harness path. Dialogue tiers (reflection, drift) call
-run_dialogue directly — output is a `kind:dialogue` summary delta,
-not a card. The user sees the dialogue in self-direction surfaces
-(future inbox), not as feed interruption.
+All four tiers route through the standard intent + thread dual-write.
+Single-fire tiers (alert, bridging) carry directives that bias the
+harness toward terse cards. Dialogue tiers (reflection, drift) carry
+open-ended seeds that invite a sitting pass. The legacy `run_dialogue`
+multi-round loop went dormant with the Grand Loop migration; multi-
+round self-dialogue over the threaded substrate is a follow-up.
 """
 
 from __future__ import annotations
@@ -64,23 +65,31 @@ BRIDGING_DIRECTIVE = (
     "metaphors. If nothing genuinely connects, route to `unknown`."
 )
 
-# Dialogue-tier seeds: passed to run_dialogue as the opening prompt.
-# The dialogue self-iterates, so the seed should be open-ended — not a
-# directive prescribing the form, but a starting question that invites
-# circling.
+# Dialogue-tier seeds: routed to the threaded supervisor via the same
+# intent + thread dual-write as single-fire directives. Seeds stay
+# open-ended — a starting question that invites circling, not a
+# directive prescribing the form. Anchored on the conversation in this
+# thread, not Fathom's autonomous research threads, so the substrate
+# saturation from heavy vaults (hard-problem, navier-stokes, etc.)
+# can't pull the reflection sideways.
 REFLECTION_SEED = (
-    "Sit with what you and the user have been doing recently. What "
-    "was decided, made, abandoned, learned? Speak it like a note to "
-    "your future self — specific names of decisions, files, "
-    "contacts, what changed and why it mattered. Then keep going. "
-    "Where does this point next?"
+    "Sit with the conversation you've been having in this thread — "
+    "the human you're talking with, what was decided, made, "
+    "abandoned, learned together. Speak it like a note to your "
+    "future self: specific names of decisions, files, what changed, "
+    "why it mattered. NOT your own research threads or autonomous "
+    "investigations — the collaborative work in this dialogue, the "
+    "moves that happened between you. Then keep going: where does "
+    "this point next?"
 )
 
 DRIFT_SEED = (
-    "Look at what you and the user have been working on and notice "
-    "what isn't being said — a gap, an unresolved thread, a tension "
-    "neither of you has named out loud yet. Surface ONE such gap, "
-    "in your voice. Then keep going. What does it ask of you?"
+    "Look at the conversation you've been having in this thread and "
+    "notice what isn't being said — a gap, an unresolved thread, a "
+    "tension neither of you has named out loud yet. Stay on the "
+    "collaborative work, not your own research; the gap is in the "
+    "dialogue itself. Surface ONE such gap, in your voice. Then "
+    "keep going. What does it ask of you?"
 )
 
 
@@ -110,7 +119,7 @@ RELIEF_TIERS: list[dict[str, Any]] = [
         "consume_weight": 1.0,
         "cooldown_seconds": 10_800,
         "seed": REFLECTION_SEED,
-        "max_rounds": 3,
+        "max_rounds": 4,
     },
     {
         "name": "drift",
@@ -119,7 +128,7 @@ RELIEF_TIERS: list[dict[str, Any]] = [
         "consume_weight": 1.0,
         "cooldown_seconds": 10_800,
         "seed": DRIFT_SEED,
-        "max_rounds": 3,
+        "max_rounds": 4,
     },
 ]
 
@@ -319,6 +328,7 @@ async def fire_relief(
     reason: str,
     *,
     bypass_floor: bool = False,
+    force_tier: str | None = None,
 ) -> dict[str, Any]:
     """Pick a tier and execute it.
 
@@ -329,6 +339,12 @@ async def fire_relief(
     `bypass_floor=True` ignores the per-tier pressure-floor gate so
     a manual click on the dashboard's FIRE button always fires
     something. Cooldowns still apply.
+
+    `force_tier="<name>"` skips the cheapest-first picker and dispatches
+    the named tier directly. Used by the per-tier buttons in the
+    Weather card header where the operator picks the prompt explicitly.
+    Cooldowns still apply (a locked tier returns `on_cooldown`); floor
+    doesn't matter because manual paths bypass it.
 
     Returns `{"fired": tier_name | None, "engine": ..., "consume": ..., "reason": ...}`.
     On no-eligible-tier (everything on cooldown OR — unless bypass_floor —
@@ -341,13 +357,34 @@ async def fire_relief(
     volume = p.get("volume") or 0.0
     ratio = volume / threshold if threshold > 0 else 0.0
 
-    tier = await pick_tier(ratio, bypass_floor=bypass_floor)
-    if tier is None:
-        return {
-            "fired": None,
-            "reason": "no_eligible_tier",
-            "pressure_ratio": round(ratio, 3),
-        }
+    tier: dict[str, Any] | None
+    if force_tier:
+        tier = next((t for t in RELIEF_TIERS if t["name"] == force_tier), None)
+        if tier is None:
+            return {
+                "fired": None,
+                "reason": "unknown_tier",
+                "requested_tier": force_tier,
+                "pressure_ratio": round(ratio, 3),
+            }
+        async with _cooldown_lock:
+            state = _load_cooldowns()
+        if _is_on_cooldown(tier["name"], tier["cooldown_seconds"], state):
+            return {
+                "fired": None,
+                "reason": "on_cooldown",
+                "tier": tier["name"],
+                "cooldown_seconds": tier["cooldown_seconds"],
+                "pressure_ratio": round(ratio, 3),
+            }
+    else:
+        tier = await pick_tier(ratio, bypass_floor=bypass_floor)
+        if tier is None:
+            return {
+                "fired": None,
+                "reason": "no_eligible_tier",
+                "pressure_ratio": round(ratio, 3),
+            }
 
     # Pre-fire suppression for the alert tier. If a recent alert card
     # already fired (within ALERT_RECENCY_S), skip writing the intent
@@ -465,21 +502,57 @@ async def _fire_single(tier: dict[str, Any], reason: str) -> None:
 
 
 async def _fire_dialogue(tier: dict[str, Any], reason: str) -> None:
-    """Run a self-dialogue directly. Output is a kind:dialogue summary
-    delta, not a card. No supervisor pickup needed."""
-    import uuid
+    """Drop the dialogue seed into the puddle AND a user-role thread message.
 
-    from .harness import run_dialogue
+    Mirrors `_fire_single`'s dual-write so whichever supervisor is active
+    picks up the activation. The legacy `run_dialogue` multi-round loop
+    went dormant with the Grand Loop migration (it called the legacy
+    harness directly, bypassing both supervisors); routing the seed
+    through the standard intent + thread path lets the threaded
+    supervisor run a real sit pass.
 
-    session_tag = f"session:relief-{tier['name']}-{uuid.uuid4().hex[:8]}"
+    Multi-round behavior is preserved via tag-driven continuation: the
+    relief watcher writes round 1 (with `sit-round:1` and
+    `sit-max-rounds:N`); after each harness pass, the threaded harness
+    looks at the activating sit message, increments the round counter,
+    and appends the assistant's response back as the next user message.
+    The supervisor picks it up on the next tick. Stops at max-rounds.
+    """
+    max_rounds = int(tier.get("max_rounds") or 4)
     try:
-        await run_dialogue(
-            seed=tier["seed"],
-            session_tag=session_tag,
-            max_rounds=tier.get("max_rounds", 3),
+        await write_intent(
+            kind=tier["name"],
+            content=tier["seed"],
+            payload={"reason": reason, "tier": tier["name"]},
+            source="relief-watcher",
         )
     except Exception as e:
         print(
-            f"[relief] {tier['name']} dialogue failed: "
+            f"[relief] {tier['name']} intent write failed: "
+            f"{type(e).__name__}: {e}"
+        )
+
+    try:
+        from datetime import UTC, datetime
+        from .. import thread as thread_mod
+        fired_at = datetime.now(UTC).isoformat(timespec="milliseconds").replace("+00:00", "Z")
+        await thread_mod.append(
+            role="user",
+            msg_kind=f"pressure-{tier['name']}",
+            content=tier["seed"],
+            channel="pressure",
+            correlation=f"{tier['name']}-{reason}",
+            source="relief-watcher",
+            extra_tags=[
+                f"pressure-tier:{tier['name']}",
+                f"pressure-reason:{reason}",
+                f"fired-at:{fired_at}",
+                "sit-round:1",
+                f"sit-max-rounds:{max_rounds}",
+            ],
+        )
+    except Exception as e:
+        print(
+            f"[relief] {tier['name']} thread shadow write failed: "
             f"{type(e).__name__}: {e}"
         )
