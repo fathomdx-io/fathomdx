@@ -149,10 +149,137 @@ ok "Target: ${FATHOM_DIR}"
 FATHOM_REPO="${FATHOM_REPO:-https://github.com/fathomdx-io/fathomdx.git}"
 FATHOM_REF="${FATHOM_REF:-main}"
 
+compose_cmd() {
+  if command -v docker >/dev/null 2>&1 && docker compose version >/dev/null 2>&1; then
+    docker compose "$@"
+  else
+    podman compose "$@"
+  fi
+}
+
+volume_exists() {
+  local vol="$1"
+  if command -v docker >/dev/null 2>&1 && docker compose version >/dev/null 2>&1; then
+    docker volume ls --format '{{.Name}}' 2>/dev/null | grep -qx "${vol}"
+  else
+    podman volume ls --format '{{.Name}}' 2>/dev/null | grep -qx "${vol}"
+  fi
+}
+
+get_env_from_dir() {
+  local dir="$1" key="$2"
+  [[ -f "${dir}/.env" ]] || { printf ""; return; }
+  grep -E "^${key}=" "${dir}/.env" | head -1 \
+    | sed -E "s/^${key}=//" \
+    | sed -E 's/^"(.*)"$/\1/' \
+    | sed -E "s/^'(.*)'\$/\1/"
+}
+
+do_lake_backup() {
+  local dir="$1"   # repo dir (compose context)
+  local lake="$2"
+  local volume="$3"
+  local project="$4"
+
+  local backup_dir="${HOME}/fathom-backups"
+  mkdir -p "${backup_dir}"
+  local ts
+  ts="$(date -u +%Y%m%dT%H%M%SZ)"
+  local backup_file="${backup_dir}/${ts}-${project}-pre-reset.sql.gz"
+
+  info "Starting postgres for backup (if not already running)..."
+  (cd "${dir}" && compose_cmd up -d postgres >/dev/null 2>&1) || true
+
+  local waited=0
+  while [[ ${waited} -lt 30 ]]; do
+    if (cd "${dir}" && compose_cmd exec -T postgres pg_isready -U fathom -d deltas >/dev/null 2>&1); then
+      break
+    fi
+    sleep 1; waited=$((waited + 1))
+  done
+
+  info "Dumping to ${backup_file} ..."
+  (cd "${dir}" && compose_cmd exec -T postgres \
+    pg_dump -U fathom -d deltas --no-password) \
+    | gzip > "${backup_file}"
+  ok "Backup saved: ${backup_file}"
+
+  local media_dir="${lake}/deltas/media"
+  if [[ -d "${media_dir}" ]] && [[ -n "$(ls -A "${media_dir}" 2>/dev/null)" ]]; then
+    local media_archive="${backup_dir}/${ts}-${project}-media.tar.gz"
+    tar -czf "${media_archive}" -C "${lake}/deltas" media
+    ok "Media archived: ${media_archive}"
+  fi
+}
+
+do_wipe_lake() {
+  local lake="$1"
+  if [[ ! -d "${lake}" ]]; then
+    info "Lake dir ${lake} does not exist — nothing to wipe"
+    return
+  fi
+  for sub in api deltas backups source-runner; do
+    local target="${lake}/${sub}"
+    if [[ -d "${target}" ]]; then
+      rm -rf "${target}"; mkdir -p "${target}"
+      ok "Cleared ${target}"
+    fi
+  done
+}
+
 EXISTING_INSTALL=0
 if [[ -d "${FATHOM_DIR}/.git" ]]; then
   EXISTING_INSTALL=1
-  step "Updating existing install"
+
+  # Resolve lake + project from the existing install's .env
+  ex_project="$(get_env_from_dir "${FATHOM_DIR}" COMPOSE_PROJECT_NAME)"
+  ex_project="${ex_project:-fathom}"
+  ex_lake="$(get_env_from_dir "${FATHOM_DIR}" LAKE_DIR)"
+  ex_lake="${ex_lake:-${HOME}/.fathom/mind}"
+  ex_lake="${ex_lake/#\~/${HOME}}"
+  ex_volume="${ex_project}-pg"
+
+  step "Existing install found at ${FATHOM_DIR}"
+  info "Lake: ${ex_lake}   Volume: ${ex_volume}"
+
+  install_choice="update"
+  if [[ ${INTERACTIVE} -eq 1 ]]; then
+    printf "\n    What do you want to do?\n"
+    printf "      u  Update in place             — git pull + rebuild\n"
+    printf "      r  Backup mind, wipe, start clean\n"
+    printf "      q  Quit\n"
+    printf "\n    Choice [u/r/q]: " >/dev/tty
+    read -r install_choice </dev/tty || install_choice="u"
+    install_choice="${install_choice:-u}"
+  fi
+
+  case "${install_choice}" in
+    r|R|reinstall|fresh)
+      step "Reinstalling fresh"
+
+      # Offer backup if the pg volume has data.
+      if volume_exists "${ex_volume}"; then
+        printf "\n  %sYour lake has data (volume: %s).%s\n" "${C_YLW}" "${ex_volume}" "${C_RST}"
+        if confirm "Back it up before wiping?" "y"; then
+          do_lake_backup "${FATHOM_DIR}" "${ex_lake}" "${ex_volume}" "${ex_project}"
+        fi
+      fi
+
+      step "Wiping existing lake"
+      (cd "${FATHOM_DIR}" && compose_cmd down -v 2>/dev/null) \
+        || warn "compose down -v returned non-zero — continuing"
+      ok "Stack stopped, volume removed"
+      do_wipe_lake "${ex_lake}"
+      ;;
+    q|Q|quit)
+      printf "\n  Aborted.\n\n"
+      exit 0
+      ;;
+    *)
+      # update — fall through to git pull below
+      ;;
+  esac
+
   cd "${FATHOM_DIR}"
   if ! confirm "Pull latest from ${FATHOM_REF}?" "y"; then
     info "Skipped git pull (using whatever's currently checked out)."
@@ -227,7 +354,7 @@ step "Starting the stack"
 should_start=0
 if [[ ${EXISTING_INSTALL} -eq 1 ]]; then
   should_start=1
-  info "Existing install — rebuilding and restarting automatically."
+  info "Rebuilding and restarting."
 elif [[ ${INTERACTIVE} -eq 1 ]]; then
   confirm "Build and start the stack now ('docker compose up -d --build')?" "y" && should_start=1
 elif [[ "${FATHOM_AUTOSTART:-0}" == "1" ]]; then
