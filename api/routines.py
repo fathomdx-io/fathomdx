@@ -633,8 +633,19 @@ async def fire(routine_id: str, prompt_override: str | None = None) -> dict:
     # the same way the operator's typed messages are. The correlation
     # is the routine_id so a follow-up reply can land back as a
     # routine-summary on this routine's page.
+    #
+    # `fired-at:<ts>` is load-bearing for repeat fires: lake's
+    # sequential-dedup (delta-store/deltas/store.py:106) skips writes
+    # whose most-recent same-source-same-tags row has identical
+    # content — without a per-fire varying tag, every fire after the
+    # first silently no-ops, and the threaded supervisor never sees
+    # the activation. The routine-tick row above already does this
+    # exact thing for the same reason.
     try:
         from . import thread as thread_mod
+        thread_extras: list[str] = [f"fired-at:{fired_at}"]
+        if host:
+            thread_extras.append(f"host:{host}")
         await thread_mod.append(
             role="user",
             msg_kind="routine-fire",
@@ -642,7 +653,7 @@ async def fire(routine_id: str, prompt_override: str | None = None) -> dict:
             channel="routine",
             correlation=routine_id,
             source="routine-scheduler",
-            extra_tags=[f"host:{host}"] if host else None,
+            extra_tags=thread_extras,
         )
     except Exception as e:
         print(f"[routine] thread shadow write failed: {type(e).__name__}: {e}")

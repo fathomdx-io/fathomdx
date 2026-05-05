@@ -434,8 +434,16 @@ async def _fire_single(tier: dict[str, Any], reason: str) -> None:
 
     # Phase 5c shadow write: thread activation for the threaded
     # supervisor. Soft-fails like other shadow writers.
+    #
+    # `fired-at:<ts>` distinguishes consecutive writes — pressure-tier
+    # directives are FIXED strings per tier (defined in RELIEF_TIERS
+    # above), so without a varying tag the lake's sequential-dedup
+    # silently skips every write after the first one and the threaded
+    # supervisor never sees the activation.
     try:
+        from datetime import UTC, datetime
         from .. import thread as thread_mod
+        fired_at = datetime.now(UTC).isoformat(timespec="milliseconds").replace("+00:00", "Z")
         await thread_mod.append(
             role="user",
             msg_kind=f"pressure-{tier['name']}",
@@ -443,7 +451,11 @@ async def _fire_single(tier: dict[str, Any], reason: str) -> None:
             channel="pressure",
             correlation=f"{tier['name']}-{reason}",
             source="relief-watcher",
-            extra_tags=[f"pressure-tier:{tier['name']}", f"pressure-reason:{reason}"],
+            extra_tags=[
+                f"pressure-tier:{tier['name']}",
+                f"pressure-reason:{reason}",
+                f"fired-at:{fired_at}",
+            ],
         )
     except Exception as e:
         print(
