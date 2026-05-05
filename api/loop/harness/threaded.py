@@ -456,12 +456,153 @@ async def run_threaded_fire(
             lake_id=lake_id,
         )
 
+    # Phase 5 review pass — separate focused turn whose only job is
+    # to consider whether the working set deserves provenance. Splits
+    # the answer concern from the consolidation concern; the model
+    # gets a stripped prompt with one job. Soft-fails — review failure
+    # never breaks the main response.
+    if final_response and final_response.get("body"):
+        try:
+            await _run_review_pass(
+                session_tag=session_tag,
+                pending=pending,
+                final_body=final_response["body"],
+                tool_history=_tool_history_summary(chat_msgs),
+            )
+        except Exception as e:
+            print(f"[threaded-fire] review pass crashed: {type(e).__name__}: {e}")
+
     return {
         "final_response": final_response,
         "turns": turns_used,
         "addressed": addressed,
         "lake_id": lake_id,
     }
+
+
+def _tool_history_summary(chat_msgs: list[dict]) -> str:
+    """Render the fire's tool calls + results as a flat text block
+    for the review prompt. Includes recall hits inline so the model
+    sees the actual delta ids it pulled and can cite them in
+    propose_provenance.from_ids."""
+    lines: list[str] = []
+    pending_calls: dict[str, dict] = {}
+    for m in chat_msgs:
+        role = m.get("role")
+        if role == "assistant":
+            for tc in m.get("tool_calls") or []:
+                tcid = tc.get("id") or ""
+                fn = tc.get("function") or {}
+                name = fn.get("name") or ""
+                args = fn.get("arguments") or "{}"
+                pending_calls[tcid] = {"name": name, "args": args}
+        elif role == "tool":
+            tcid = m.get("tool_call_id") or ""
+            call = pending_calls.pop(tcid, None) or {"name": "?", "args": "{}"}
+            content = (m.get("content") or "")
+            lines.append(f"  · {call['name']}({call['args']})")
+            # Truncate result so a 50KB recall doesn't bloat the prompt.
+            result = content if len(content) <= 1500 else content[:1500] + f"\n…[truncated {len(content) - 1500} chars]"
+            lines.append(f"    → {result}")
+    return "\n".join(lines) if lines else "  (no tool calls)"
+
+
+async def _run_review_pass(
+    *,
+    session_tag: str,
+    pending: list[dict],
+    final_body: str,
+    tool_history: str,
+) -> None:
+    """Fire one focused turn whose only job is to decide whether the
+    fire's working set deserves a provenance proposal.
+
+    Mirrors the legacy `_run_post_response_review` but on the threaded
+    chat protocol — system message contains REVIEW_SYSTEM, the only
+    tool available is propose_provenance. The model either emits
+    that tool_call (we dispatch it) or returns plain content (we skip).
+    """
+    from .prompts import REVIEW_SYSTEM
+
+    # Pure-standpoint fires (no tool calls) have nothing to consolidate.
+    if not tool_history.strip() or tool_history.strip() == "(no tool calls)":
+        return
+
+    # Use the most recent unaddressed question as the seed text. If we
+    # already addressed everything, take the first pending entry as a
+    # representative.
+    if not pending:
+        return
+    question = (pending[0].get("content") or "").strip()
+    if not question:
+        return
+
+    system_text = REVIEW_SYSTEM.format(
+        question=question,
+        answer=final_body,
+        tool_history=tool_history,
+    )
+
+    # Only propose_provenance is exposed — the review pass can't
+    # search, dispatch, or address anything. One job.
+    review_tools = [
+        s for s in tool_schemas.chat_tools()
+        if s.get("function", {}).get("name") == "propose_provenance"
+    ]
+
+    messages = [
+        {"role": "system", "content": system_text},
+        {
+            "role": "user",
+            "content": "Review this fire. Call propose_provenance if a stretch deserves naming, otherwise reply with a one-sentence skip reason and no tool call.",
+        },
+    ]
+
+    try:
+        asst = await loop_generate_chat(
+            messages=messages,
+            tools=review_tools,
+            tool_choice="auto",
+            max_tokens=1500,
+        )
+    except Exception as e:
+        print(f"[threaded-review] LLM call crashed: {type(e).__name__}: {e}")
+        return
+
+    tool_calls = asst.get("tool_calls") or []
+    if not tool_calls:
+        skip_reason = (asst.get("content") or "").strip()
+        await _write_threaded_turn_trace(
+            session_tag=session_tag,
+            turn=0,
+            tool="(review-skip)",
+            thinking=skip_reason[:300],
+            result=skip_reason[:300] or "no tool call emitted",
+        )
+        return
+
+    for tc in tool_calls:
+        fn = tc.get("function") or {}
+        name = fn.get("name") or ""
+        if name != "propose_provenance":
+            continue
+        args = _parse_tool_args(tc)
+        try:
+            result = await tool_schemas.dispatch(
+                name="propose_provenance",
+                args=args,
+                session_tag=session_tag,
+            )
+        except Exception as e:
+            result = f"ERROR: {type(e).__name__}: {e}"
+        await _write_threaded_turn_trace(
+            session_tag=session_tag,
+            turn=0,
+            tool="propose_provenance",
+            thinking=(asst.get("content") or "")[:300],
+            args=args,
+            result=result,
+        )
 
 
 async def _bridge_to_puddle_feed(
