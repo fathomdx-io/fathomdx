@@ -118,9 +118,27 @@ async def _run_one_fire() -> bool:
 
 
 async def _supervisor() -> None:
-    """Main loop — fire when pending, idle otherwise."""
+    """Main loop — fire when pending, idle otherwise.
+
+    Stays dormant when FATHOM_THREADED_HARNESS=1: the threaded
+    supervisor handles activation off the global thread, and surfaces
+    are shadow-writing both the puddle (intent) AND the thread
+    (kind:thread-msg) per Phase 1. If both supervisors fired, we'd
+    pay double LLM cost on every operator turn — legacy producing a
+    witness card, threaded producing a thread assistant message.
+    The flag picks one path; the legacy supervisor reads it on each
+    tick (no restart needed to flip).
+    """
+    from . import threaded_supervisor
+
     print(f"[loop] supervisor started boot_iso={_boot_iso}")
     while True:
+        if threaded_supervisor.is_enabled():
+            try:
+                await asyncio.sleep(IDLE_SLEEP_S * 4)
+            except asyncio.CancelledError:
+                return
+            continue
         try:
             ran = await _run_one_fire()
         except asyncio.CancelledError:
