@@ -277,12 +277,21 @@ def start() -> None:
     )
     feed_orient.start()
 
+    # Threaded supervisor — Phase 3 cutover candidate. No-op when
+    # FATHOM_THREADED_HARNESS is unset; runs alongside the legacy
+    # supervisor when set so the cutover can be flipped per-deployment
+    # without code changes.
+    from . import threaded_supervisor
+    threaded_supervisor.start()
+
 
 async def stop() -> None:
     """Cancel all background tasks. Idempotent."""
     global _supervisor_task, _reaper_task, _pressure_task
     global _claude_code_task
     await feed_orient.stop()
+    from . import threaded_supervisor
+    await threaded_supervisor.stop()
     for task in (
         _supervisor_task,
         _reaper_task,
