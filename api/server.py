@@ -781,6 +781,53 @@ async def _openai_turn_pending(intent_id: str) -> bool:
     return False
 
 
+async def _poll_thread_assistant(
+    *,
+    user_msg_id: str,
+    after_iso: str,
+    seen_ids: set[str],
+) -> list[tuple[str, str]]:
+    """Poll the thread for assistant messages addressing this user msg.
+
+    Returns a list of (timestamp, content) tuples for any newly-seen
+    assistant thread-msg deltas. The threaded harness writes its
+    reply as `kind:thread-msg, role:assistant, addresses:<user_msg_id>`,
+    so this is the symmetric counterpart to the legacy witness poll.
+
+    Mutates `seen_ids` to track what we've already returned across
+    poll iterations.
+    """
+    if not user_msg_id:
+        return []
+    try:
+        rows = await delta_client.query(
+            tags_include=[
+                "kind:thread-msg",
+                "role:assistant",
+                f"addresses:{user_msg_id}",
+            ],
+            time_start=after_iso,
+            limit=20,
+        )
+    except Exception as e:
+        log.warning("openai-compat: thread poll failed: %s", e)
+        return []
+    out: list[tuple[str, str]] = []
+    for d in rows:
+        did = d.get("id") or ""
+        if not did or did in seen_ids:
+            continue
+        ts = d.get("timestamp") or ""
+        if ts <= after_iso:
+            continue
+        body = (d.get("content") or "").strip()
+        if not body:
+            continue
+        seen_ids.add(did)
+        out.append((ts, body))
+    return out
+
+
 async def _await_witness_reply(
     session_id: str,
     intent_id: str,
@@ -788,44 +835,54 @@ async def _await_witness_reply(
     timeout_s: float = _OPENAI_REPLY_TIMEOUT_S,
     *,
     request: Request | None = None,
+    thread_user_msg_id: str = "",
 ) -> tuple[str, str]:
-    """Poll the lake for witness card(s) addressing this request's intent.
+    """Poll the lake for witness card(s) AND threaded-harness assistant
+    messages addressing this request.
 
     Returns (finish_reason, content). Reasons:
-      "stop"    — at least one card was rendered. Content concatenates
-                  every chat-reply card addressed to this turn, in
-                  timestamp order, separated by blank lines. May be
-                  empty if every card was silence (route:unknown).
-      "timeout" — no witness output within timeout_s.
+      "stop"    — at least one card / thread reply was rendered.
+                  Content concatenates everything addressed to this
+                  turn, in timestamp order, separated by blank lines.
+                  May be empty if every reply was silence.
+      "timeout" — no output within timeout_s.
 
-    Why concatenate: the witness can speak in stages — an
-    acknowledgment now, a closure-followup later when a dispatched
-    task wraps. The OpenAI contract is one completion per user turn,
-    so we wait until no claude-code dispatch addressing this turn is
-    still in flight, then return everything Fathom said in one body.
-    Streaming clients see the same sequence as separate chunks; this
-    is the non-stream rendezvous.
+    Two reply sources, polled in parallel:
 
-    The polling key is (to:openai:<sid>, addresses:<intent_id>) — the
-    address tag scopes to this conversation, the addresses tag scopes
-    to THIS specific request so a later request in the same session
-    won't accidentally pick up an earlier reply.
+      Legacy: witness feed-card with `to:openai:<sid>` and
+        `addresses:<intent_id>`. The puddle-driven supervisor produces
+        these.
+
+      Threaded: thread-msg with `role:assistant` and
+        `addresses:<thread_user_msg_id>`. The threaded supervisor
+        produces these. `thread_user_msg_id` is captured at
+        request-write time so the OpenAI session knows which
+        thread message to wait on.
+
+    Whichever lands first wins per (id, ts) — both supervisors may
+    fire on the same operator turn during validation; this collects
+    both replies in chronological order. When only one supervisor is
+    enabled (FATHOM_THREADED_HARNESS gates the threaded one), the
+    other source naturally returns nothing.
     """
     address = channels_mod.address_tag("openai", session_id)
     deadline = time.monotonic() + timeout_s
-    seen_ids: set[str] = set()
-    parts: list[str] = []
+    seen_legacy_ids: set[str] = set()
+    seen_thread_ids: set[str] = set()
+    parts: list[tuple[str, str]] = []  # (timestamp, content)
     while time.monotonic() < deadline:
         # Bail if the client closed the connection — no point polling
-        # for a card to deliver into a dead pipe. The supervisor still
-        # processes the intent in the background, so the answer lands
-        # in the lake regardless.
+        # for a card to deliver into a dead pipe. The supervisors
+        # still process in the background; the answer lands in the
+        # lake regardless.
         if request is not None and await request.is_disconnected():
             log.info(
                 "openai-compat: client disconnected during wait "
                 "(session=%s intent=%s)", session_id, intent_id,
             )
-            return "stop" if parts else "timeout", "\n\n".join(parts)
+            return ("stop" if parts else "timeout"), _join_chronological(parts)
+
+        # Legacy witness poll.
         try:
             fresh = await delta_client.query(
                 tags_include=[address, f"addresses:{intent_id}"],
@@ -833,25 +890,48 @@ async def _await_witness_reply(
                 limit=20,
             )
         except Exception as e:
-            log.warning("openai-compat: poll failed: %s", e)
+            log.warning("openai-compat: legacy poll failed: %s", e)
             fresh = []
         for d in sorted(fresh, key=lambda x: x.get("timestamp") or ""):
             did = d.get("id") or ""
-            if not did or did in seen_ids:
+            if not did or did in seen_legacy_ids:
                 continue
             ts = d.get("timestamp") or ""
             if ts <= after_iso:
                 continue
-            seen_ids.add(did)
+            seen_legacy_ids.add(did)
             text = _render_witness_payload(d.get("content") or "")
             if text:
-                parts.append(text)
-        if parts and not await _openai_turn_pending(intent_id):
-            return "stop", "\n\n".join(parts)
+                parts.append((ts, text))
+
+        # Threaded harness poll.
+        for ts, body in await _poll_thread_assistant(
+            user_msg_id=thread_user_msg_id,
+            after_iso=after_iso,
+            seen_ids=seen_thread_ids,
+        ):
+            parts.append((ts, body))
+
+        # Done when at least one part landed AND no claude-code
+        # dispatch is still working on the legacy intent. Threaded
+        # replies are point-in-time (the fire either responded or
+        # didn't), so any thread reply alone is sufficient to return.
+        if parts:
+            if seen_thread_ids and not seen_legacy_ids:
+                # Pure-threaded path — no legacy-side work to wait on.
+                return "stop", _join_chronological(parts)
+            if not await _openai_turn_pending(intent_id):
+                return "stop", _join_chronological(parts)
         await asyncio.sleep(_OPENAI_REPLY_POLL_S)
     if parts:
-        return "stop", "\n\n".join(parts)
+        return "stop", _join_chronological(parts)
     return "timeout", ""
+
+
+def _join_chronological(parts: list[tuple[str, str]]) -> str:
+    """Join timestamped reply parts oldest-first, blank-line separated."""
+    parts_sorted = sorted(parts, key=lambda p: p[0])
+    return "\n\n".join(p[1] for p in parts_sorted if p[1])
 
 
 def _openai_completion_response(
@@ -883,6 +963,8 @@ async def _openai_stream(
     after_iso: str,
     model: str,
     request: Request | None = None,
+    *,
+    thread_user_msg_id: str = "",
 ):
     """SSE generator for `stream: true`.
 
@@ -924,19 +1006,21 @@ async def _openai_stream(
     address = channels_mod.address_tag("openai", session_id)
     deadline = time.monotonic() + _OPENAI_REPLY_TIMEOUT_S
     last_heartbeat = time.monotonic()
-    seen_ids: set[str] = set()
+    seen_legacy_ids: set[str] = set()
+    seen_thread_ids: set[str] = set()
     sent_any = False
     finish_reason = "timeout"
     while time.monotonic() < deadline:
         # Client gave up — stop polling for cards to push into a dead
-        # pipe. The supervisor still processes the intent; the answer
-        # lands in the lake regardless.
+        # pipe. The supervisors still process; the answers land in the
+        # lake regardless.
         if request is not None and await request.is_disconnected():
             log.info(
                 "openai-compat stream: client disconnected "
                 "(session=%s intent=%s)", session_id, intent_id,
             )
             return
+        # Legacy witness poll.
         try:
             fresh = await delta_client.query(
                 tags_include=[address, f"addresses:{intent_id}"],
@@ -944,29 +1028,43 @@ async def _openai_stream(
                 limit=20,
             )
         except Exception as e:
-            log.warning("openai-compat stream: poll failed: %s", e)
+            log.warning("openai-compat stream: legacy poll failed: %s", e)
             fresh = []
         for d in sorted(fresh, key=lambda x: x.get("timestamp") or ""):
             did = d.get("id") or ""
-            if not did or did in seen_ids:
+            if not did or did in seen_legacy_ids:
                 continue
             ts = d.get("timestamp") or ""
             if ts <= after_iso:
                 continue
-            seen_ids.add(did)
+            seen_legacy_ids.add(did)
             text = _render_witness_payload(d.get("content") or "")
             if not text:
                 continue
             if sent_any:
-                # Cards are separate paragraphs in one response — keep
-                # the original blank-line separator the non-stream path
-                # uses so the rendering matches across surfaces.
                 yield _chunk({"content": "\n\n"})
             yield _chunk({"content": text})
             sent_any = True
-        if sent_any and not await _openai_turn_pending(intent_id):
-            finish_reason = "stop"
-            break
+        # Threaded harness poll.
+        for ts, body in await _poll_thread_assistant(
+            user_msg_id=thread_user_msg_id,
+            after_iso=after_iso,
+            seen_ids=seen_thread_ids,
+        ):
+            if sent_any:
+                yield _chunk({"content": "\n\n"})
+            yield _chunk({"content": body})
+            sent_any = True
+        if sent_any:
+            # Threaded path is point-in-time; if any thread reply arrived,
+            # there's no further dispatch to wait on (no claude-code
+            # closure-followup pattern in the threaded flow yet).
+            if seen_thread_ids and not seen_legacy_ids:
+                finish_reason = "stop"
+                break
+            if not await _openai_turn_pending(intent_id):
+                finish_reason = "stop"
+                break
         now = time.monotonic()
         if now - last_heartbeat >= 15.0:
             # SSE comment frame — clients ignore, proxies stay open.
@@ -1130,12 +1228,13 @@ async def chat_completions(req: ChatRequest, request: Request):
 
     # Phase 1 shadow write: also append to the global thread.
     # The thread carries channel + correlation so an assistant card's
-    # `addresses:` tag can route the reply back to THIS openai session
-    # (Phase 3). Multi-session safety is automatic — each session's
-    # correlation is its own.
+    # `addresses:` tag can route the reply back to THIS openai session.
+    # Multi-session safety is automatic — each session's correlation
+    # is its own.
+    thread_user_msg_id = ""
     try:
         from . import thread as thread_mod
-        await thread_mod.append(
+        thread_msg = await thread_mod.append(
             role="user",
             msg_kind="openai-chat",
             content=body_text,
@@ -1144,19 +1243,23 @@ async def chat_completions(req: ChatRequest, request: Request):
             contact=contact_slug or "",
             source="openai-compat",
         )
+        thread_user_msg_id = (thread_msg or {}).get("id") or ""
     except Exception as e:
         log.warning("openai-compat: thread shadow write failed (%s)", e)
 
     if req.stream:
         return StreamingResponse(
             _openai_stream(
-                session_id, intent_id, request_start_iso, model_label, request
+                session_id, intent_id, request_start_iso, model_label, request,
+                thread_user_msg_id=thread_user_msg_id,
             ),
             media_type="text/event-stream",
         )
 
     finish_reason, reply_text = await _await_witness_reply(
-        session_id, intent_id, request_start_iso, request=request
+        session_id, intent_id, request_start_iso,
+        request=request,
+        thread_user_msg_id=thread_user_msg_id,
     )
     return _openai_completion_response(reply_text, session_id, model_label, finish_reason)
 
