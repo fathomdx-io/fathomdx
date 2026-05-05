@@ -9942,6 +9942,7 @@ GET  /v1/usage               Usage stats`,
 
       const engagementHtml = cardId
         ? `<span class="engagement-spacer"></span>
+           <button class="engagement-btn" data-kind="reply" type="button" title="Reply to this" aria-label="Reply to this">↩</button>
            <button class="engagement-btn" data-kind="less" type="button" title="Less like this" aria-label="Less like this">−</button>
            <button class="engagement-btn" data-kind="more" type="button" title="More like this" aria-label="More like this">+</button>`
         : '';
@@ -10634,6 +10635,7 @@ GET  /v1/usage               Usage stats`,
             rail.className = 'tail';
             rail.style.cssText = 'display:flex;gap:14px;margin-top:10px;font-family:var(--mono);font-size:11px;color:var(--ink-faint);letter-spacing:0.04em;';
             rail.innerHTML = `<span style="flex:1"></span>
+              <button class="engagement-btn" data-kind="reply" type="button" title="Reply to this">↩</button>
               <button class="engagement-btn" data-kind="less" type="button" title="Less like this">−</button>
               <button class="engagement-btn" data-kind="more" type="button" title="Save to lake">+</button>`;
             body.appendChild(rail);
@@ -11425,6 +11427,14 @@ GET  /v1/usage               Usage stats`,
       // both carry data-puddle-id when they came from the loop.
       const item = btn.closest('.card, .msg');
       if (!item) return;
+      // Reply button — arm reply-target instead of sending engagement.
+      if (btn.dataset.kind === 'reply') {
+        const id = item.dataset.deltaId || item.dataset.puddleId || item.dataset.cardId || '';
+        if (!id) return;
+        setReplyTarget({ id, preview: _previewFromEl(item) });
+        if (composerTa) setTimeout(() => composerTa.focus(), 0);
+        return;
+      }
       const puddleId = item.dataset.puddleId || item.dataset.cardId || '';
       if (!puddleId) return;
       const kind = btn.dataset.kind === 'less' ? 'less' : 'more';
@@ -11509,15 +11519,14 @@ GET  /v1/usage               Usage stats`,
 
     replyContextClear.addEventListener('click', clearReplyTarget);
 
-    // Delegated click handler — fires for any feed item that carries
-    // data-delta-id (cards, witness replies, recall blocks, voice-thoughts,
-    // crystals, moods, lake-deltas — see _renderPuddleItem). Skips the
-    // same in-card affordances the engagement handler skips, so + / − /
-    // image lightbox / external links don't accidentally arm reply.
+    // Delegated click handler — handles reply-mark scroll-to-target
+    // (clicking the "↩ in reply to..." chip on a user message scrolls
+    // to and flashes the original). The reply-arm path used to live
+    // here too as a click-anywhere-on-feed-item handler, but it
+    // surprised users who tapped a card to read it and got their
+    // composer hijacked. Reply now lives behind the explicit ↩ button
+    // on the engagement rail.
     feed.addEventListener('click', (e) => {
-      if (e.target.closest('.glightbox, .card-media, a[target], .engagement-btn, .engagement-spacer')) return;
-      // Reply-mark click — scroll to and highlight the original target
-      // instead of arming a new reply-target on the user message itself.
       const replyMark = e.target.closest('.reply-mark');
       if (replyMark && replyMark.dataset.replyTo) {
         e.stopPropagation();
@@ -11528,19 +11537,6 @@ GET  /v1/usage               Usage stats`,
           setTimeout(() => target.classList.remove('reply-target-flash'), 1500);
         }
         return;
-      }
-      const el = e.target.closest('[data-delta-id]');
-      if (!el) return;
-      const id = el.dataset.deltaId;
-      if (!id) return;
-      // Tap counts as explicit engagement — exclude from passive
-      // scroll-past / dwell-low signaling for cards.
-      if (el.classList && el.classList.contains('card') && el.dataset.cardId) {
-        _markEngaged(el.dataset.cardId);
-      }
-      setReplyTarget({ id, preview: _previewFromEl(el) });
-      if (composerTa) {
-        setTimeout(() => composerTa.focus(), 0);
       }
     });
 
