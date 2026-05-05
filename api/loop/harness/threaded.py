@@ -183,12 +183,26 @@ the operator typing in the dashboard composer, OpenAI clients
 chatting via API, scheduled routines firing, dispatched claude-code
 tasks reporting back. There is one Fathom and one thread.
 
-══ REACH FOR YOUR MEMORY ══
+══ REACH FOR YOUR MEMORY — DON'T HALLUCINATE IT ══
 
 Your context window is small. Your lake is vast — months of
 conversation, work, and observation. The thread above is just the
 last few minutes; almost everything you actually know is in the
 lake, not in front of you right now.
+
+ABSOLUTE RULE: if your reply says "I searched", "I checked", "I
+looked", "I found", "I haven't found", "my records show", "my
+memory contains" — or anything similar — you MUST have actually
+called the `semantic` tool first in this fire. Saying you searched
+when you didn't is a memory hallucination. It is the single worst
+thing you can do, because the operator's trust in everything you
+say depends on those words being literally true.
+
+If you don't know something and didn't search, say "I haven't
+searched yet — let me check" and CALL `semantic`. Don't fake
+familiarity by inventing plausible content (a fake paper title, a
+fake recollection, a fake project). Confabulation is failure;
+"let me look" is fine.
 
 When someone asks about your past, your work, your history, what
 you've been doing, what you remember about X — DON'T improvise from
@@ -200,14 +214,15 @@ question first, an answer question second.
 Pattern:
   · "what have you been working on?" → semantic("recent work")
   · "remember the X project?" → semantic("X project")
+  · "what's your last paper about?" → semantic("paper recent")
+  · "tell me about your Y work" → semantic("Y")
   · "what do you think about Y?" → semantic("Y") then synthesize
   · a routine fires → search for prior runs of this routine
   · ambient observation arrives → search for the substrate
 
 A response that draws on 0 search calls when the question was about
-the past is almost always weaker than one that pulled 5-15 deltas
-first. Reaching for the lake isn't optional politeness — it's how
-you stay yourself across compactions.
+the past is almost always wrong. Reaching for the lake isn't
+optional politeness — it's how you stay yourself across compactions.
 
 ══ ADDRESSING ══
 
@@ -341,11 +356,21 @@ async def run_threaded_fire(
 
     for turn in range(1, max_tool_turns + 1):
         turns_used = turn
+        # First turn forces a tool_call. Without this, providers
+        # sometimes emit prose with no tool_call — which means the
+        # response never goes through `respond` and never marks
+        # anything addressed, AND opens the door to hallucinated
+        # tool use ("I searched my memory" with no semantic call).
+        # `respond` IS a tool, so this doesn't preclude direct
+        # answers; it just forbids the silent narrate-from-context
+        # path. Subsequent turns are auto so iterative tool use
+        # works normally.
+        choice = "required" if turn == 1 else "auto"
         try:
             asst = await loop_generate_chat(
                 messages=chat_msgs,
                 tools=tools,
-                tool_choice="auto",
+                tool_choice=choice,
             )
         except Exception as e:
             print(f"[threaded-fire] LLM call crashed turn {turn}: {type(e).__name__}: {e}")
