@@ -40,6 +40,16 @@ fi
 
 set -euo pipefail
 
+# Anchor CWD to a real directory before doing anything filesystem-y.
+# When `curl … | bash` inherits a working directory that no longer
+# resolves (deleted dir, broken automount, stale tmux pane), git
+# refuses to clone with `fatal: Unable to read current working
+# directory`. Re-anchor to $HOME (or /tmp, or /) so downstream ops
+# always have a stable parent.
+if ! cd "${HOME}" 2>/dev/null; then
+  cd /tmp 2>/dev/null || cd /
+fi
+
 # ── output helpers ───────────────────────────────────────────────────
 if [[ -t 1 ]]; then
   C_RED=$'\033[31m'; C_GRN=$'\033[32m'; C_YLW=$'\033[33m'
