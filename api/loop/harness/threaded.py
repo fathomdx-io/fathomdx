@@ -429,11 +429,26 @@ async def run_threaded_fire(
     # Persist final assistant message to the thread.
     lake_id = ""
     if final_response and final_response.get("body"):
-        # If the model didn't address anyone explicitly via mark_addressed
-        # OR via the respond.addresses field, default to claiming nothing
-        # — the fire chose to speak without claiming any specific intent.
-        # The operator sees the message in the river either way.
+        # Address-claim fallback: if the model responded but didn't
+        # claim any user message (no mark_addressed calls AND no
+        # explicit respond.addresses), default to claiming every
+        # currently-unaddressed user message in the window. Without
+        # this, the supervisor sees the same message still pending on
+        # the next tick and fires AGAIN — operator gets a duplicate
+        # reply for one prompt.
         addr_set = list(final_response.get("addresses") or addressed)
+        if not addr_set and pending:
+            addr_set = [p.get("id") for p in pending if p.get("id")]
+            # Stamp tally-marks so future fires also see them addressed.
+            for uid in addr_set:
+                try:
+                    await thread_mod.mark_addressed(
+                        user_message_id=uid,
+                        note="auto-claimed by harness response",
+                        by="harness-auto-claim",
+                    )
+                except Exception as e:
+                    print(f"[threaded-fire] auto-claim mark failed for {uid[:12]}: {type(e).__name__}: {e}")
         try:
             d = await thread_mod.append(
                 role="assistant",
