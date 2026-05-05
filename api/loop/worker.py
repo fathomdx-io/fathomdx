@@ -143,16 +143,27 @@ async def rehydrate_puddle() -> None:
     """Cold-start: seed the puddle with recent conversation turns from
     the lake so the first post-restart fire has substrate context.
 
-    Without telepathy mirroring, an api restart leaves the puddle
-    empty — the harness fires from a cold context. This pulls the
-    last few hours of:
-      · Q — user messages (kind:question intents, openai-compat
-            participant:user, fathom-chat user turns)
-      · A — chat-replies and feed-cards (witness output) which
-            includes alerts, claude-code dispatches, tool proposals
-      · openai-compat assistant turns (when OpenAI surface is in use)
-      · claude-code assistant replies (Stop-hook captures)
-      · routine fires + summaries (so the harness sees what cron tripped)
+    The puddle is the attention space — whatever lands here, the loop
+    pays attention to. So this pulls only the surfaces where Fathom is
+    a participant in the conversation, not a bystander observing other
+    chatter:
+      · Q — composer seeds and openai-compat user turns (both shapes
+            land as `kind:question`; that single slice covers them)
+      · A — witness output (`feed-card`) covers chat-reply, alerts,
+            claude-code dispatches, tool proposals — all of Fathom's
+            authored turns regardless of route
+      · claude-code task closures the watcher minted as intents
+      · routine machinery (cron fires + summaries + due markers)
+
+    Deliberately NOT included:
+      · `assistant`-tagged deltas — in practice this catches free-
+        floating claude-code chat (operator talking with their coding
+        assistant on a session NOT dispatched by Fathom). The puddle
+        isn't a lake mirror; if Fathom hasn't been addressed, those
+        turns don't belong in its working memory.
+      · `participant:user` — guess that didn't match how openai-compat
+        actually tags (user turns there are `user-seed | kind:question`,
+        already covered above).
 
     All in one go, deduped by id. Soft-fails — never blocks startup.
     A failed rehydrate just means the first fire reads less context,
@@ -161,20 +172,16 @@ async def rehydrate_puddle() -> None:
     cutoff_iso = (datetime.now(UTC) - timedelta(hours=REHYDRATE_WINDOW_HOURS)).isoformat()
 
     # Each tag-filter pulls a slice of conversation substrate. Run in
-    # parallel; merge by id below. Some overlap (a witness chat-reply
-    # is feed-card AND assistant) but the dedup handles it.
+    # parallel; merge by id below.
     queries = [
-        # Q — composer seeds + any other puddle-shaped question intent
+        # Q — composer seeds + openai-compat user turns + any other
+        # puddle-shaped question intent
         ["kind:question"],
-        # A and the rest of the witness's output surface — feed-card
-        # covers chat-reply, route:alert:*, route:feed-card,
-        # route:claude-code dispatches, route:tool:* proposals, etc.
+        # A — witness output: feed-card covers chat-reply, route:alert:*,
+        # route:feed-card, route:claude-code dispatches, route:tool:*
+        # proposals — every shape of Fathom-authored turn
         ["feed-card"],
-        # OpenAI surface user turns
-        ["participant:user"],
-        # OpenAI / claude-code assistant turns
-        ["assistant"],
-        # Claude-code Stop-hook closures the watcher mints intents for
+        # Claude-code dispatched-task closures the watcher minted intents for
         ["claude-code-reply"],
         # Routine machinery — when a cron tripped, what it produced
         ["routine-fire"],
