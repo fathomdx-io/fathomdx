@@ -139,7 +139,9 @@ ok "Target: ${FATHOM_DIR}"
 FATHOM_REPO="${FATHOM_REPO:-https://github.com/fathomdx-io/fathomdx.git}"
 FATHOM_REF="${FATHOM_REF:-main}"
 
+EXISTING_INSTALL=0
 if [[ -d "${FATHOM_DIR}/.git" ]]; then
+  EXISTING_INSTALL=1
   step "Updating existing install"
   cd "${FATHOM_DIR}"
   if ! confirm "Pull latest from ${FATHOM_REF}?" "y"; then
@@ -199,30 +201,41 @@ if [[ ${preflight_ec} -ne 0 ]]; then
   echo
   warn "Preflight reported issues above (most commonly: LLM_API_KEY needs to be set)."
   info "Fix what it flagged, then run:"
-  printf "\n      cd %s\n      ./addons/scripts/preflight.sh\n      docker compose up -d\n\n" "${FATHOM_DIR}"
+  printf "\n      cd %s\n      ./addons/scripts/preflight.sh\n      docker compose up -d --build\n\n" "${FATHOM_DIR}"
   exit ${preflight_ec}
 fi
 
 # ── start the stack ──────────────────────────────────────────────────
 step "Starting the stack"
 
-# Interactive: ask, defaulting yes. Non-interactive: only start if explicitly
-# opted in via FATHOM_AUTOSTART=1 (so CI/scripted runs prepare without launching).
+# Decision: should we launch (build + up -d) right now?
+#  · Re-running on an existing install: yes, automatically — the user
+#    asked for the installer to "pull and rebuild" without re-prompting.
+#  · First install, interactive: ask (default yes).
+#  · First install, non-interactive: only when FATHOM_AUTOSTART=1 — CI
+#    and scripted runs should prepare without launching.
 should_start=0
-if [[ ${INTERACTIVE} -eq 1 ]]; then
-  confirm "Run 'docker compose up -d' now?" "y" && should_start=1
+if [[ ${EXISTING_INSTALL} -eq 1 ]]; then
+  should_start=1
+  info "Existing install — rebuilding and restarting automatically."
+elif [[ ${INTERACTIVE} -eq 1 ]]; then
+  confirm "Build and start the stack now ('docker compose up -d --build')?" "y" && should_start=1
 elif [[ "${FATHOM_AUTOSTART:-0}" == "1" ]]; then
   should_start=1
-  info "FATHOM_AUTOSTART=1 — starting the stack."
+  info "FATHOM_AUTOSTART=1 — building and starting the stack."
 fi
 
 if [[ ${should_start} -eq 1 ]]; then
+  # --build picks up local source / Dockerfile changes; --force-recreate
+  # ensures containers swap out even when compose decides the image
+  # hash hasn't changed (a known podman compose quirk where a freshly
+  # built image still runs the cached one).
   if command -v docker >/dev/null 2>&1 && docker compose version >/dev/null 2>&1; then
-    docker compose up -d
+    docker compose up -d --build --force-recreate
   else
-    podman compose up -d
+    podman compose up -d --build --force-recreate
   fi
-  ok "Stack started"
+  ok "Stack built + started"
   echo
   printf "%sFathom is up.%s Open: %shttp://localhost:8201%s\n\n" \
     "${C_GRN}" "${C_RST}" "${C_BLD}" "${C_RST}"
@@ -231,6 +244,6 @@ if [[ ${should_start} -eq 1 ]]; then
   info "Stop: docker compose down"
 else
   echo
-  printf "%sReady when you are.%s Next:\n\n      cd %s\n      docker compose up -d\n      open http://localhost:8201\n\n" \
+  printf "%sReady when you are.%s Next:\n\n      cd %s\n      docker compose up -d --build\n      open http://localhost:8201\n\n" \
     "${C_GRN}" "${C_RST}" "${FATHOM_DIR}"
 fi
