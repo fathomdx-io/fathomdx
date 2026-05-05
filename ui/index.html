@@ -1588,6 +1588,31 @@
       color: var(--ink);
       margin: 0; padding: 14px 18px 0;
     }
+    /* Stat tabs — fold the chart cards behind a single nav so the
+       page stops scrolling forever. The Weather card keeps its
+       embedded fire buttons; tabs are just visibility toggles. */
+    .stat-tabs {
+      display: flex; flex-wrap: wrap; gap: 2px;
+      margin-top: 18px;
+      margin-bottom: 14px;
+    }
+    .stat-tab {
+      appearance: none; background: transparent; border: 0;
+      padding: 8px 14px;
+      font-family: var(--mono); font-size: 12px;
+      letter-spacing: 0.04em;
+      color: var(--ink-faint);
+      border-bottom: 2px solid transparent;
+      cursor: pointer;
+      transition: color 0.15s ease, border-color 0.15s ease;
+    }
+    .stat-tab:hover { color: var(--ink); }
+    .stat-tab.active {
+      color: var(--ink);
+      border-bottom-color: var(--accent-bright, #5ce1c6);
+    }
+    .stat-card[data-tab] { display: none; margin-top: 0; border-top: 0; }
+    .stat-card[data-tab].active { display: block; }
     .ecg-cta-row {
       margin-top: 32px;
       display: flex; flex-wrap: wrap; align-items: center;
@@ -2047,6 +2072,16 @@
       font-size: 12.5px;
       line-height: 1.55;
       color: var(--ink-soft);
+    }
+    .sidebar-body .section-desc a {
+      color: var(--accent);
+      text-decoration: none;
+      border-bottom: 1px solid color-mix(in srgb, var(--accent) 40%, transparent);
+      transition: border-color 0.15s ease, color 0.15s ease;
+    }
+    .sidebar-body .section-desc a:hover {
+      color: var(--accent-bright, var(--accent));
+      border-bottom-color: var(--accent);
     }
     /* ECG legend in sidebar — single column, smaller text */
     .sidebar-body .ecg-legend { font-size: 12px; }
@@ -3703,6 +3738,7 @@
           <span class="meta"></span>
         </div>
         <p class="section-desc">Streams I poll on a schedule — email, calendar, RSS, GitHub, anything I can reach.</p>
+        <p class="section-desc">Your <a href="#agentSection">Helper agents</a> can carry their own sources too — anything machine-local (file watchers, system metrics, kitty captures) lives down there next to the agent. <a href="https://fathomdx.io/docs/explanation/agents-routines-helpers-hooks" target="_blank" rel="noopener noreferrer">How sources, helpers, and routines fit together →</a></p>
         <div class="sources" id="sourcesList">
           <button class="chip add" id="addSourceBtn" type="button">+ Add source</button>
         </div>
@@ -3726,7 +3762,7 @@
       </section>
 
       <!-- ── Helpers (agent plugins on local machines) ─── -->
-      <section class="section" id="agentSection">
+      <section class="section scroll-target" id="agentSection">
         <div class="section-head">
           <h2>Helpers</h2>
           <span class="meta" id="agentMeta">loading…</span>
@@ -3747,13 +3783,20 @@
             <option value="6mo">6 Months</option>
             <option value="30d">30 days</option>
             <option value="10d">10 days</option>
-            <option value="1w" selected>1 week</option>
+            <option value="1w">1 week</option>
             <option value="3d">3 days</option>
-            <option value="1d">1 day</option>
+            <option value="1d" selected>1 day</option>
             <option value="6h">6 hours</option>
           </select>
         </div>
-        <div class="stat-card">
+        <nav class="stat-tabs" role="tablist" id="statTabs">
+          <button class="stat-tab" data-tab="usage" role="tab" type="button">Usage</button>
+          <button class="stat-tab" data-tab="weather" role="tab" type="button">Weather</button>
+          <button class="stat-tab active" data-tab="mood" role="tab" type="button" aria-selected="true">Mood</button>
+          <button class="stat-tab" data-tab="identity" role="tab" type="button">Identity</button>
+          <button class="stat-tab" data-tab="feed" role="tab" type="button">Feed</button>
+        </nav>
+        <div class="stat-card" data-tab="usage">
           <h3 class="stat-card-title">Usage</h3>
           <div class="ecg-chart">
             <svg id="svgActivity" width="100%" height="170" preserveAspectRatio="none"></svg>
@@ -3770,7 +3813,7 @@
           </ul>
         </div>
 
-        <div class="stat-card">
+        <div class="stat-card" data-tab="weather">
           <div class="stat-card-head">
             <h3 class="stat-card-title">Weather</h3>
             <div class="weather-fire-row" id="weatherFireRow">
@@ -3840,7 +3883,7 @@
           </ul>
         </div>
 
-        <div class="stat-card">
+        <div class="stat-card active" data-tab="mood">
           <h3 class="stat-card-title">Mood</h3>
           <div class="mood-star-anchor" id="moodStarAnchor">
             <div class="mood-star-state" id="moodStarState">—</div>
@@ -3862,7 +3905,7 @@
           </ul>
         </div>
 
-        <div class="stat-card">
+        <div class="stat-card" data-tab="identity">
           <h3 class="stat-card-title">Identity</h3>
           <div class="ecg-chart">
             <svg id="svgDrift" width="100%" height="160" preserveAspectRatio="none"></svg>
@@ -3878,7 +3921,7 @@
             </li>
           </ul>
         </div>
-        <div class="stat-card">
+        <div class="stat-card" data-tab="feed">
           <h3 class="stat-card-title">Feed</h3>
           <div class="ecg-chart">
             <svg id="svgFeedOrient" width="100%" height="160" preserveAspectRatio="none"></svg>
@@ -12595,7 +12638,7 @@ GET  /v1/usage               Usage stats`,
       "1d":  { label: "1 day",    days: 1 },
       "6h":  { label: "6 hours",  days: 0.25 },
     };
-    let ECG_WINDOW_DAYS = ECG_WINDOWS["1w"].days;
+    let ECG_WINDOW_DAYS = ECG_WINDOWS["1d"].days;
     // Drift normalization — a drift of `threshold` reaches the zone's edge.
     // Auto-regen fires at ~0.9 of threshold so a fresh crystal pinches it
     // back to the centerline. Same value as crystal_drift_threshold.
@@ -13668,6 +13711,35 @@ GET  /v1/usage               Usage stats`,
       loadECG();
     });
 
+    // Tab switching for the stat cards. Each .stat-card has a
+    // data-tab matching one button's data-tab; clicking flips
+    // visibility. Persists across reloads via localStorage so the
+    // user lands on the tab they were last looking at.
+    {
+      const tabButtons = document.querySelectorAll('.stat-tab');
+      const tabPanels = document.querySelectorAll('.stat-card[data-tab]');
+      const TAB_KEY = 'statTab';
+      const setTab = (target) => {
+        if (![...tabPanels].some(p => p.dataset.tab === target)) return;
+        tabButtons.forEach(b => {
+          const on = b.dataset.tab === target;
+          b.classList.toggle('active', on);
+          if (on) b.setAttribute('aria-selected', 'true');
+          else b.removeAttribute('aria-selected');
+        });
+        tabPanels.forEach(p => p.classList.toggle('active', p.dataset.tab === target));
+      };
+      const stored = localStorage.getItem(TAB_KEY);
+      if (stored) setTab(stored);
+      tabButtons.forEach(btn => {
+        btn.addEventListener('click', () => {
+          const target = btn.dataset.tab;
+          setTab(target);
+          try { localStorage.setItem(TAB_KEY, target); } catch (e) { /* noop */ }
+        });
+      });
+    }
+
     // Touch / click: tap a card to reveal its sub-bar; tap elsewhere to hide.
     document.addEventListener('click', (e) => {
       const card = e.target.closest('.feed .msg-user, .feed .msg-fathom, .feed .card');
@@ -13677,6 +13749,23 @@ GET  /v1/usage               Usage stats`,
         if (el !== card) el.classList.remove('tail-active');
       });
       if (card && !onBtn) card.classList.toggle('tail-active');
+    });
+
+    // Smooth-scroll for any in-page anchor link. Uses scrollIntoView
+    // (the codebase's existing primitive) so the topbar's
+    // `.scroll-target` margin-offset still applies. External links
+    // (target="_blank" / non-# hrefs) pass through untouched.
+    document.addEventListener('click', (e) => {
+      const link = e.target.closest('a[href^="#"]');
+      if (!link) return;
+      const href = link.getAttribute('href');
+      if (!href || href === '#' || href.length < 2) return;
+      let target = null;
+      try { target = document.querySelector(href); } catch (err) { return; }
+      if (!target) return;
+      e.preventDefault();
+      target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      try { history.replaceState(null, '', href); } catch (err) { /* noop */ }
     });
 
   </script>
