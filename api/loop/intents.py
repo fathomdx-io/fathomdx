@@ -92,13 +92,11 @@ def pending_intents(since_iso: str | None = None) -> list[dict]:
 
     Phase 5: when FATHOM_THREADED_HARNESS=1, the threaded supervisor
     is the active queue manager and the legacy supervisor is dormant.
-    Puddle intents still get written by surfaces during the cutover
-    window (Phase 5a-d preserve the dual-write so the legacy fallback
-    stays usable), but no one consumes them. Returning [] here keeps
-    the dashboard's pending widget honest — there's nothing actually
-    pending; the work has been picked up by the thread side. Flip the
-    flag off and pending intents reappear instantly with the original
-    accumulated set.
+    The puddle still accumulates dual-written intents nobody reads
+    here. The dashboard's pending widget reads via the route handler
+    (api/loop/routes.py:get_intents) which projects thread.unaddressed
+    when the flag is on — this sync function returns [] so legacy
+    callers (dormant supervisor, _run_one_fire) see an empty queue.
     """
     import os
     if os.environ.get("FATHOM_THREADED_HARNESS", "0") == "1":

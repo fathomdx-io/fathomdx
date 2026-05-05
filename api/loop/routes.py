@@ -663,9 +663,35 @@ def get_cards(limit: int = 50) -> dict:
 
 
 @router.get("/v1/puddle/intents")
-def get_intents() -> dict:
-    """Pending intent queue. The 'what's next' indicator the user
-    asked for prominent UI on."""
+async def get_intents() -> dict:
+    """Pending intent queue. The 'what's next' indicator the dashboard
+    polls for the throbber.
+
+    With FATHOM_THREADED_HARNESS=1, the queue source is the thread —
+    project thread.unaddressed into the same shape so the dashboard
+    keeps working without changes. With the flag off, read the puddle
+    as before.
+    """
+    import os
+    if os.environ.get("FATHOM_THREADED_HARNESS", "0") == "1":
+        from .. import thread as thread_mod
+        window = await thread_mod.build_window()
+        out = []
+        for d in window["unaddressed"]:
+            msg_kind = "question"
+            for t in d.get("tags") or []:
+                if isinstance(t, str) and t.startswith("msg-kind:"):
+                    msg_kind = t.split(":", 1)[1]
+                    break
+            out.append({
+                "id": d.get("id"),
+                "kind": msg_kind,
+                "content": d.get("content") or "",
+                "timestamp": d.get("timestamp"),
+                "expires_at": None,
+            })
+        return {"intents": out}
+
     pending = pending_intents()
     out = []
     for d in pending:

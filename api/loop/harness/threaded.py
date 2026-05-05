@@ -34,8 +34,77 @@ from typing import Any
 
 from ... import standpoint as standpoint_mod
 from ... import thread as thread_mod
+from ..intents import CONVO_TAG
 from ..llm import loop_generate_chat
+from ..puddle import puddle as _puddle
 from . import tool_schemas
+
+
+_TRACE_ARGS_CAP = 1500
+_TRACE_RESULT_CAP = 1500
+
+
+def _truncate(s: str, cap: int) -> str:
+    if not s or len(s) <= cap:
+        return s
+    return s[:cap] + f"\n…[truncated {len(s) - cap} chars]"
+
+
+async def _write_threaded_turn_trace(
+    *,
+    session_tag: str,
+    turn: int,
+    tool: str,
+    thinking: str = "",
+    args: dict | None = None,
+    result: str = "",
+    error: str = "",
+) -> None:
+    """Mirror legacy `_write_turn_trace` so the dashboard's thinking
+    accordion lights up for threaded fires too. Same shape, same
+    `kind:harness-turn` tag, same JSON envelope — the existing feed
+    renderer (api/loop/routes.py) handles both paths uniformly.
+
+    Soft-fails: trace visibility is decoration, never load-bearing.
+    """
+    args_blob = ""
+    if args is not None:
+        try:
+            args_blob = _truncate(
+                json.dumps(args, ensure_ascii=False, default=str),
+                _TRACE_ARGS_CAP,
+            )
+        except Exception:
+            args_blob = "<unserializable args>"
+    payload = {
+        "turn": turn,
+        "tool": tool,
+        "thinking": (thinking or "")[:600],
+        "args_json": args_blob,
+        "result": _truncate(result or "", _TRACE_RESULT_CAP),
+        "error": error or "",
+        "plan_step": None,
+    }
+    body = json.dumps(payload, ensure_ascii=False, default=str)
+    tags = [
+        CONVO_TAG,
+        session_tag,
+        "kind:harness-turn",
+        f"tool:{tool}",
+        f"turn:{turn}",
+        "harness-source:threaded",
+    ]
+    if error:
+        tags.append("turn-error")
+    try:
+        await _puddle.write(
+            content=body,
+            tags=tags,
+            source="harness-trace",
+            ttl_seconds=6 * 60 * 60,
+        )
+    except Exception as e:
+        print(f"[threaded-trace] puddle write failed: {type(e).__name__}: {e}")
 
 
 # How many tool-call rounds to allow inside one fire before giving
@@ -236,6 +305,12 @@ async def run_threaded_fire(
     final_response: dict[str, Any] | None = None
     turns_used = 0
 
+    # Per-fire session tag so harness-turn traces cluster together in
+    # the dashboard's thinking accordion.
+    if not session_tag:
+        import uuid as _uuid
+        session_tag = f"session:threaded-{_uuid.uuid4().hex[:12]}"
+
     for turn in range(1, max_tool_turns + 1):
         turns_used = turn
         try:
@@ -246,6 +321,12 @@ async def run_threaded_fire(
             )
         except Exception as e:
             print(f"[threaded-fire] LLM call crashed turn {turn}: {type(e).__name__}: {e}")
+            await _write_threaded_turn_trace(
+                session_tag=session_tag,
+                turn=turn,
+                tool="(llm-error)",
+                error=f"{type(e).__name__}: {e}",
+            )
             return {
                 "final_response": None,
                 "turns": turns_used,
@@ -276,6 +357,7 @@ async def run_threaded_fire(
         # Run every tool_call in this turn (including a `respond` if
         # present — we synthesize a tool result for it so the messages
         # array stays valid for the SDK).
+        thinking_text = (asst.get("content") or "").strip()
         for tc in tool_calls:
             tcid = tc.get("id") or ""
             fn = tc.get("function") or {}
@@ -314,6 +396,32 @@ async def run_threaded_fire(
                 "tool_call_id": tcid,
                 "content": tool_result,
             })
+
+            # Trace this tool call so the dashboard's thinking
+            # accordion lights up. Same shape as legacy harness.
+            await _write_threaded_turn_trace(
+                session_tag=session_tag,
+                turn=turn,
+                tool=tool_name,
+                thinking=thinking_text,
+                args=args,
+                result=tool_result,
+            )
+            # Only attribute the model's pre-tool-call thinking text
+            # to the FIRST tool call this turn — subsequent calls in
+            # the same turn don't have separate thinking.
+            thinking_text = ""
+
+        # If the model emitted plain content (no tool_calls), trace it
+        # too so the operator can see the implicit-respond path.
+        if not tool_calls and thinking_text:
+            await _write_threaded_turn_trace(
+                session_tag=session_tag,
+                turn=turn,
+                tool="(implicit-respond)",
+                thinking=thinking_text,
+                result=thinking_text,
+            )
 
         if terminal_call is not None:
             break

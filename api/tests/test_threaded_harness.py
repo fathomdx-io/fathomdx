@@ -335,8 +335,10 @@ async def test_fire_bridges_assistant_reply_to_puddle():
          patch("api.loop.puddle.puddle.write", side_effect=fake_puddle_write):
         await threaded.run_threaded_fire(standpoint_text_override="")
 
-    assert len(puddle_calls) == 1
-    bridge = puddle_calls[0]
+    # Two writes expected: one harness-turn trace + one bridge card.
+    bridges = [c for c in puddle_calls if "feed-card" in (c.get("tags") or [])]
+    assert len(bridges) == 1
+    bridge = bridges[0]
     # JSON content with the body field
     import json as _json
     payload = _json.loads(bridge["content"])
@@ -349,6 +351,10 @@ async def test_fire_bridges_assistant_reply_to_puddle():
     assert "lake-id:asst-thread-id" in tags
     # Source distinguishes from witness cards
     assert bridge["source"] == "harness-threaded"
+
+    # Trace also lands per Phase 5 thinking-accordion support.
+    traces = [c for c in puddle_calls if "kind:harness-turn" in (c.get("tags") or [])]
+    assert len(traces) >= 1
 
 
 @pytest.mark.asyncio
