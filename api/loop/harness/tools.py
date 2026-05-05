@@ -1056,19 +1056,26 @@ async def tool_propose_provenance(
             s = x.strip()
             if s and s not in cleaned_ids:
                 cleaned_ids.append(s)
-    # Floor at 3 constituents. The level-1 size discipline is "5-30 base
-    # moments per episode" — fewer than 3 isn't an episode, it's a
-    # one-off observation that doesn't merit naming. The review pass
-    # occasionally drafts proposals with 0-2 cited ids on thin fires;
-    # those produce dead-weight provenance the operator has to clean
-    # up. Better to skip than to draft a too-small one.
-    if len(cleaned_ids) < 3:
+    # Per-level constituent floor.
+    #   L1 (episode):  2 — a tight pair of resonant deltas IS already
+    #                  a stretch worth naming. Practice showed the
+    #                  former 3-floor was rejecting good L1 proposals
+    #                  where only a couple deltas tightly resonated.
+    #   L2+ (topic / era): 3 — these group already-named children;
+    #                      below 3 it's not a "stretch", it's a
+    #                      pair, and pair-level is L1's job.
+    # Level may be None at this point (model didn't specify); we
+    # validate min_constituents conservatively as L1 here, then the
+    # later level-vs-children check enforces structural correctness.
+    candidate_level = level if isinstance(level, int) else 1
+    min_constituents = 3 if candidate_level >= 2 else 2
+    if len(cleaned_ids) < min_constituents:
         return (
-            f"ERROR: provenance needs at least 3 constituent ids "
-            f"(got {len(cleaned_ids)}). The review pass should call "
-            f"`skip` when there isn't enough working set to consolidate. "
-            f"Coherent stretches share 5-30 deltas; below that floor the "
-            f"proposal is dead weight."
+            f"ERROR: L{candidate_level} provenance needs at least "
+            f"{min_constituents} constituent ids (got {len(cleaned_ids)}). "
+            f"L1 (episode) accepts 2+ tightly-related deltas; L2+ "
+            f"(topic/era) needs 3+ child stretches. The review pass "
+            f"should call `skip` when below the floor."
         )
 
     if not title:

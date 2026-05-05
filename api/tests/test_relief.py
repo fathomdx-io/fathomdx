@@ -409,3 +409,213 @@ async def test_fire_single_intent_failure_does_not_block_thread_write():
         await relief._fire_single(tier, reason="pressure")
 
     assert len(thread_calls) == 1
+
+
+# ── _fire_dialogue dual-write ─────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_fire_dialogue_writes_both_puddle_and_thread():
+    """Dialogue tiers (reflection, drift) dual-write the seed through
+    the same intent + thread path as single-fire tiers, so the threaded
+    supervisor can pick them up. The legacy `run_dialogue` path went
+    dormant with the Grand Loop migration."""
+    tier = next(t for t in relief.RELIEF_TIERS if t["engine"] == "dialogue")
+
+    intent_calls: list[dict] = []
+    thread_calls: list[dict] = []
+
+    async def fake_write_intent(**kwargs):
+        intent_calls.append(kwargs)
+        return {"id": "intent-x"}
+
+    async def fake_thread_append(**kwargs):
+        thread_calls.append(kwargs)
+        return {"id": "thread-x"}
+
+    with patch("api.loop.relief.write_intent", side_effect=fake_write_intent), \
+         patch("api.thread.append", side_effect=fake_thread_append):
+        await relief._fire_dialogue(tier, reason="pressure")
+
+    assert len(intent_calls) == 1
+    assert intent_calls[0]["kind"] == tier["name"]
+    assert intent_calls[0]["content"] == tier["seed"]
+
+    assert len(thread_calls) == 1
+    assert thread_calls[0]["role"] == "user"
+    assert thread_calls[0]["msg_kind"] == f"pressure-{tier['name']}"
+    assert thread_calls[0]["channel"] == "pressure"
+    assert thread_calls[0]["content"] == tier["seed"]
+    assert "pressure-tier:" + tier["name"] in (thread_calls[0]["extra_tags"] or [])
+
+
+@pytest.mark.asyncio
+async def test_fire_dialogue_thread_failure_does_not_block_intent_write():
+    tier = next(t for t in relief.RELIEF_TIERS if t["engine"] == "dialogue")
+    intent_calls: list[dict] = []
+
+    async def fake_write_intent(**kwargs):
+        intent_calls.append(kwargs)
+        return {"id": "intent-x"}
+
+    async def boom(**kwargs):
+        raise RuntimeError("lake down")
+
+    with patch("api.loop.relief.write_intent", side_effect=fake_write_intent), \
+         patch("api.thread.append", side_effect=boom):
+        await relief._fire_dialogue(tier, reason="pressure")
+
+    assert len(intent_calls) == 1
+
+
+@pytest.mark.asyncio
+async def test_fire_dialogue_intent_failure_does_not_block_thread_write():
+    tier = next(t for t in relief.RELIEF_TIERS if t["engine"] == "dialogue")
+    thread_calls: list[dict] = []
+
+    async def fake_thread_append(**kwargs):
+        thread_calls.append(kwargs)
+        return {"id": "thread-x"}
+
+    async def boom(**kwargs):
+        raise RuntimeError("puddle down")
+
+    with patch("api.loop.relief.write_intent", side_effect=boom), \
+         patch("api.thread.append", side_effect=fake_thread_append):
+        await relief._fire_dialogue(tier, reason="pressure")
+
+    assert len(thread_calls) == 1
+
+
+# ── force_tier (per-tier manual fire) ─────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_fire_relief_force_tier_skips_picker_and_dispatches_directly(relief_state_dir, monkeypatch):
+    """`force_tier="reflection"` should bypass the cheapest-first picker
+    and fire reflection directly even when alert/bridging would normally
+    win on a cheapest-first walk."""
+    monkeypatch.setattr(
+        relief, "_cooldown_path", lambda: relief_state_dir / "relief-cooldowns.json"
+    )
+
+    fired_calls: list[dict] = []
+
+    async def fake_fire_dialogue(tier, reason):
+        fired_calls.append({"name": tier["name"], "engine": tier["engine"], "reason": reason})
+
+    async def fake_fire_single(tier, reason):
+        fired_calls.append({"name": tier["name"], "engine": tier["engine"], "reason": reason})
+
+    async def fake_pressure():
+        return {"volume": 0.0, "threshold": 100.0}
+
+    async def fake_mark_synthesis(weight=1.0):
+        return None
+
+    with patch.object(relief, "_fire_dialogue", side_effect=fake_fire_dialogue), \
+         patch.object(relief, "_fire_single", side_effect=fake_fire_single), \
+         patch.object(relief.feed_pressure, "read_pressure", side_effect=fake_pressure), \
+         patch.object(relief.feed_pressure, "mark_synthesis", side_effect=fake_mark_synthesis):
+        result = await relief.fire_relief(
+            "manual", bypass_floor=True, force_tier="reflection"
+        )
+
+    assert result["fired"] == "reflection"
+    assert len(fired_calls) == 1
+    assert fired_calls[0]["name"] == "reflection"
+    assert fired_calls[0]["engine"] == "dialogue"
+
+
+@pytest.mark.asyncio
+async def test_fire_relief_force_tier_returns_on_cooldown_when_locked(relief_state_dir, monkeypatch):
+    """A locked tier returns `on_cooldown` rather than picking another
+    tier. Manual buttons should reflect their own state, not redirect."""
+    from datetime import UTC, datetime
+
+    monkeypatch.setattr(
+        relief, "_cooldown_path", lambda: relief_state_dir / "relief-cooldowns.json"
+    )
+    state = {"reflection": datetime.now(UTC).isoformat()}
+    relief._save_cooldowns(state)
+
+    fired_calls: list[dict] = []
+
+    async def fake_fire(_tier, _reason):
+        fired_calls.append({})
+
+    async def fake_pressure():
+        return {"volume": 0.0, "threshold": 100.0}
+
+    with patch.object(relief, "_fire_dialogue", side_effect=fake_fire), \
+         patch.object(relief, "_fire_single", side_effect=fake_fire), \
+         patch.object(relief.feed_pressure, "read_pressure", side_effect=fake_pressure):
+        result = await relief.fire_relief(
+            "manual", bypass_floor=True, force_tier="reflection"
+        )
+
+    assert result["fired"] is None
+    assert result["reason"] == "on_cooldown"
+    assert result["tier"] == "reflection"
+    assert fired_calls == []  # No fire ran.
+
+
+@pytest.mark.asyncio
+async def test_fire_relief_force_tier_unknown_returns_unknown_tier(relief_state_dir):
+    """Unknown tier name returns `unknown_tier` — defensive against
+    typos or stale UI state."""
+    fired_calls: list[dict] = []
+
+    async def fake_fire(_tier, _reason):
+        fired_calls.append({})
+
+    async def fake_pressure():
+        return {"volume": 0.0, "threshold": 100.0}
+
+    with patch.object(relief, "_fire_dialogue", side_effect=fake_fire), \
+         patch.object(relief, "_fire_single", side_effect=fake_fire), \
+         patch.object(relief.feed_pressure, "read_pressure", side_effect=fake_pressure):
+        result = await relief.fire_relief(
+            "manual", force_tier="meditation"
+        )
+
+    assert result["fired"] is None
+    assert result["reason"] == "unknown_tier"
+    assert result["requested_tier"] == "meditation"
+    assert fired_calls == []
+
+
+@pytest.mark.asyncio
+async def test_fire_relief_force_tier_bypasses_alert_recency_suppression(relief_state_dir, monkeypatch):
+    """Force-firing alert manually should still go through pick_tier's
+    recency check — that's a structural protection, not a floor concern."""
+    # Existing recency check only fires inside fire_relief when
+    # tier=alert. We confirm force_tier="alert" still triggers it.
+    monkeypatch.setattr(
+        relief, "_cooldown_path", lambda: relief_state_dir / "relief-cooldowns.json"
+    )
+
+    fired_calls: list[dict] = []
+
+    async def fake_fire_single(tier, reason):
+        fired_calls.append({"name": tier["name"]})
+
+    async def fake_pressure():
+        return {"volume": 0.0, "threshold": 100.0}
+
+    async def fake_mark_synthesis(weight=1.0):
+        return None
+
+    async def fake_recent_alert_id():
+        return ""  # No recent alert → not suppressed → fires.
+
+    with patch.object(relief, "_fire_single", side_effect=fake_fire_single), \
+         patch.object(relief, "_recent_alert_id", side_effect=fake_recent_alert_id), \
+         patch.object(relief.feed_pressure, "read_pressure", side_effect=fake_pressure), \
+         patch.object(relief.feed_pressure, "mark_synthesis", side_effect=fake_mark_synthesis):
+        result = await relief.fire_relief(
+            "manual", bypass_floor=True, force_tier="alert"
+        )
+
+    assert result["fired"] == "alert"
+    assert fired_calls[0]["name"] == "alert"

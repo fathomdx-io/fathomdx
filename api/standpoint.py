@@ -88,14 +88,17 @@ class Affect:
 
     `state` is the canonical short label ("settled", "wired", "tired",
     etc). `headline` is one line — the front-page descriptor.
-    `carrier_wave` is the longer-form mood prose. All fields default
-    to the unset shape so a missing mood doesn't break consumers."""
+    `carrier_wave` is the longer-form mood prose. `levels` is the
+    per-axis star map — open vocabulary intensities in [0, 1] that
+    the synthesizer named for itself. All fields default to the
+    unset shape so a missing mood doesn't break consumers."""
 
     state: str = "unset"
     headline: str = ""
     subtext: str = ""
     carrier_wave: str = ""
     threads: list[str] = field(default_factory=list)
+    levels: dict[str, float] = field(default_factory=dict)
     delta_id: str | None = None
     timestamp: str | None = None
 
@@ -300,6 +303,7 @@ async def _load_affect() -> Affect:
         subtext=m.get("subtext") or "",
         carrier_wave=m.get("carrier_wave") or "",
         threads=list(m.get("threads") or []),
+        levels=dict(m.get("levels") or {}),
         delta_id=m.get("delta_id"),
         timestamp=m.get("timestamp"),
     )
@@ -550,6 +554,15 @@ def render_for_prompt(sp: Standpoint, *, char_budget: int = 1200) -> str:
         if sp.affect.headline:
             affect_line += f" — {sp.affect.headline}"
         _add(affect_line)
+        # Per-axis levels — the star map. Render the strongest axes so
+        # the model has finer-grained self-knowledge than a single
+        # state label. Cap at 6 to keep the prompt budget honest;
+        # downstream voice/witness layers can read all of them via
+        # sp.affect.levels if they need more.
+        if sp.affect.levels:
+            top = sorted(sp.affect.levels.items(), key=lambda kv: -kv[1])[:6]
+            level_str = ", ".join(f"{axis} {level:.2f}" for axis, level in top)
+            _add(f"  star: {level_str}")
 
     if sp.identity.text:
         _add("")

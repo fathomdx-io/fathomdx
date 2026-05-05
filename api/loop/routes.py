@@ -835,7 +835,7 @@ async def relief_tiers() -> dict:
 
 
 @router.post("/v1/puddle/pulse")
-async def fire_pulse(reason: str = "manual") -> dict:
+async def fire_pulse(reason: str = "manual", tier: str | None = None) -> dict:
     """Trigger one tier of pressure relief.
 
     Manual entry — the pressure-watcher's automatic path has its own
@@ -844,11 +844,20 @@ async def fire_pulse(reason: str = "manual") -> dict:
     SOMETHING when nothing's on cooldown. Per-tier cooldowns still
     apply, so spamming the button can't loop-pin one tier.
 
+    `tier=<name>` (optional) — fire a specific tier (`alert`,
+    `bridging`, `reflection`, `drift`) instead of letting the picker
+    walk cheapest-first. Powers the per-tier buttons in the Weather
+    card header. Cooldown still gates; on-cooldown returns
+    `fired: None, reason: on_cooldown`.
+
     Returns the relief outcome — which tier fired, on what engine,
-    or `fired: None` if every tier is on cooldown.
+    or `fired: None` if every tier is on cooldown (or the requested
+    tier is on cooldown when `tier=` is set).
     """
     from . import relief
-    result = await relief.fire_relief(reason, bypass_floor=True)
+    result = await relief.fire_relief(
+        reason, bypass_floor=True, force_tier=tier
+    )
     return {"ok": True, **result}
 
 

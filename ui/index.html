@@ -278,10 +278,14 @@
       margin: 0;
     }
     .card .tail {
-      margin-top: 12px; display: flex; gap: 14px; flex-wrap: wrap;
+      margin-top: 10px; display: flex; gap: 14px; flex-wrap: wrap;
       font-family: var(--mono); font-size: 11px; color: var(--ink-faint);
       letter-spacing: 0.04em;
+      opacity: 0; pointer-events: none;
+      transition: opacity 0.15s ease;
     }
+    .feed .card:hover .tail,
+    .feed .card.tail-active .tail { opacity: 1; pointer-events: auto; }
     .card .tail .action { color: var(--signal); }
     /* Source link in the tail row — small, monospace, opens in new tab.
        Sits between the tail text and the "Explore →" action. */
@@ -315,12 +319,15 @@
     .msg .tail .engagement-spacer { flex: 1; }
     .card .tail .engagement-btn,
     .msg .tail .engagement-btn {
-      font-family: var(--mono); font-size: 13px; line-height: 1;
-      padding: 2px 8px; border-radius: 12px;
+      display: inline-flex; align-items: center; justify-content: center;
+      padding: 3px 8px; border-radius: 12px;
       border: 1px solid var(--rule); background: transparent;
       color: var(--ink-faint); cursor: pointer;
+      line-height: 1;
       transition: color 120ms ease, border-color 120ms ease, background 120ms ease;
     }
+    .card .tail .engagement-btn svg,
+    .msg .tail .engagement-btn svg { display: block; }
     .card .tail .engagement-btn:hover,
     .msg .tail .engagement-btn:hover { color: var(--ink); border-color: var(--ink-faint); }
     .card[data-engaged="more"] .engagement-btn[data-kind="more"],
@@ -343,6 +350,80 @@
     }
     .card-proposal .proposal-row-key { color: var(--ink-faint); }
     .card-proposal .proposal-row-val { color: var(--ink); word-break: break-word; white-space: pre-wrap; }
+    /* Markdown-rendered prompt: stack key above content, drop the
+       monospace-pre treatment so headers/lists/bold render as
+       prose. */
+    .card-proposal .proposal-row-block {
+      display: block; padding: 6px 0;
+    }
+    .card-proposal .proposal-row-block .proposal-row-key {
+      display: block; margin-bottom: 4px;
+      font-size: 10px; letter-spacing: 0.06em; text-transform: uppercase;
+    }
+    .card-proposal .proposal-row-block .proposal-row-val {
+      white-space: normal;
+    }
+    .card-proposal .proposal-row-md {
+      font-family: var(--sans, system-ui, sans-serif);
+      font-size: 13px; line-height: 1.55;
+    }
+    .card-proposal .proposal-row-md h1,
+    .card-proposal .proposal-row-md h2,
+    .card-proposal .proposal-row-md h3 {
+      font-family: var(--serif, Georgia, serif);
+      font-size: 14px; margin: 10px 0 4px; color: var(--accent-bright, var(--accent));
+      font-weight: 500;
+    }
+    .card-proposal .proposal-row-md p { margin: 6px 0; }
+    .card-proposal .proposal-row-md ul,
+    .card-proposal .proposal-row-md ol { margin: 4px 0; padding-left: 22px; }
+    .card-proposal .proposal-row-md li { margin: 2px 0; }
+    .card-proposal .proposal-row-md strong { color: var(--ink); font-weight: 600; }
+    .card-proposal .proposal-row-md code {
+      font-family: var(--mono); font-size: 12px;
+      background: rgba(127,127,127,0.12); padding: 1px 4px; border-radius: 3px;
+    }
+    .card-proposal .proposal-row-md pre {
+      background: rgba(127,127,127,0.08); padding: 8px 10px; border-radius: 4px;
+      overflow-x: auto; font-size: 12px;
+    }
+    .card-proposal .proposal-row-md blockquote {
+      border-left: 2px solid var(--rule); padding-left: 10px; margin: 6px 0;
+      color: var(--ink-soft, var(--ink-faint));
+    }
+    /* Same markdown treatment for the proposal body (witness-emitted
+       prose including routine prompts). Slightly larger than the inline
+       summary block since this is the primary readable content. */
+    .card-proposal .proposal-body-md {
+      font-family: var(--sans, system-ui, sans-serif);
+      font-size: 14px; line-height: 1.6;
+      margin: 8px 0;
+    }
+    .card-proposal .proposal-body-md h1,
+    .card-proposal .proposal-body-md h2,
+    .card-proposal .proposal-body-md h3 {
+      font-family: var(--serif, Georgia, serif);
+      font-size: 15px; margin: 12px 0 4px;
+      color: var(--accent-bright, var(--accent));
+      font-weight: 500;
+    }
+    .card-proposal .proposal-body-md p { margin: 6px 0; }
+    .card-proposal .proposal-body-md ul,
+    .card-proposal .proposal-body-md ol { margin: 4px 0; padding-left: 22px; }
+    .card-proposal .proposal-body-md li { margin: 3px 0; }
+    .card-proposal .proposal-body-md strong { color: var(--ink); font-weight: 600; }
+    .card-proposal .proposal-body-md code {
+      font-family: var(--mono); font-size: 12.5px;
+      background: rgba(127,127,127,0.12); padding: 1px 4px; border-radius: 3px;
+    }
+    .card-proposal .proposal-body-md pre {
+      background: rgba(127,127,127,0.08); padding: 8px 10px; border-radius: 4px;
+      overflow-x: auto; font-size: 12.5px;
+    }
+    .card-proposal .proposal-body-md blockquote {
+      border-left: 2px solid var(--rule); padding-left: 10px; margin: 6px 0;
+      color: var(--ink-soft, var(--ink-faint));
+    }
     .card-proposal .proposal-actions {
       display: flex; gap: 8px; justify-content: flex-end; margin-top: 12px;
     }
@@ -498,44 +579,6 @@
       font-family: var(--serif); font-size: 14px; line-height: 1.5;
       color: var(--ink); white-space: pre-wrap;
     }
-    /* Active claude-code task strip — bars below the filter, above
-       the feed. Hidden when the Claude Code filter category is off
-       OR when no tasks are active. Each row is clickable. */
-    .claude-code-status { display: flex; flex-direction: column; gap: 0.4rem; margin: 0.5rem 0 0.85rem; }
-    .claude-code-status[hidden] { display: none; }
-    .claude-code-task {
-      display: flex; align-items: center; gap: 0.55rem;
-      background: color-mix(in srgb, var(--surface) 88%, var(--signal) 12%);
-      border-radius: var(--radius);
-      padding: 0.55rem 0.85rem;
-      font-size: 13px;
-      cursor: pointer;
-      transition: background 0.12s;
-    }
-    .claude-code-task:hover { background: color-mix(in srgb, var(--surface) 78%, var(--signal) 22%); }
-    .claude-code-task .cc-icon { width: 14px; height: 14px; flex-shrink: 0; opacity: 0.85; }
-    .claude-code-task .cc-icon svg { width: 100%; height: 100%; }
-    .claude-code-task .cc-title {
-      flex: 1; min-width: 0;
-      overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-      font-family: var(--serif); color: var(--ink);
-    }
-    .claude-code-task .cc-meta {
-      flex-shrink: 0;
-      font-family: var(--mono); font-size: 10.5px;
-      color: var(--ink-soft);
-    }
-    .claude-code-task .cc-resume {
-      flex-shrink: 0;
-      font-family: var(--mono); font-size: 10.5px;
-      color: var(--ink-faint);
-      background: transparent;
-      border: 1px solid var(--rule);
-      border-radius: 4px;
-      padding: 0.15rem 0.4rem;
-      cursor: pointer;
-    }
-    .claude-code-task .cc-resume:hover { color: var(--ink); border-color: var(--ink-faint); }
     /* Claude-code dispatches and replies — terminal-window styling.
        Surface is `--bg-deep` (the DS's "trench" — deepest layer in
        both themes; trench-black in dark, wet-sand grey in light), so
@@ -961,7 +1004,8 @@
     /* Filter-hidden items collapse the same way as the legacy cards. */
     .feed .delta[data-hidden="true"],
     .feed .msg[data-hidden="true"],
-    .feed .accordion[data-hidden="true"] { display: none; }
+    .feed .accordion[data-hidden="true"],
+    .feed .thinking-row[data-hidden="true"] { display: none; }
 
     /* ── Accordions ─────────────────────────────
        Adjacent same-kind clusterable items (voice thoughts, deltas,
@@ -1073,6 +1117,57 @@
       animation: none;
     }
     .feed .accordion .delta .d-body { font-size: 13px; }
+
+    /* ── Thinking-row: per-item expandable one-liners ───────────── */
+    .feed .thinking-row {
+      border: none;
+      background: transparent;
+      margin: 0.05rem 0;
+    }
+    .feed .thinking-row > summary {
+      list-style: none;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      gap: 0.4rem;
+      padding: 0.18rem 0.4rem 0.18rem 0.3rem;
+      font-style: italic;
+      font-size: 12px;
+      color: var(--ink-faint);
+      line-height: 1.35;
+      user-select: none;
+      border-radius: 4px;
+      transition: color 0.1s, background 0.1s;
+    }
+    .feed .thinking-row > summary::-webkit-details-marker { display: none; }
+    .feed .thinking-row > summary::marker { content: ''; }
+    .feed .thinking-row > summary:hover {
+      color: var(--ink-soft);
+      background: color-mix(in srgb, var(--surface) 88%, var(--accent) 12%);
+    }
+    .feed .thinking-row .th-icon {
+      flex-shrink: 0;
+      width: 12px; height: 12px;
+      opacity: 0.5;
+      color: var(--ink-faint);
+      display: flex; align-items: center;
+    }
+    .feed .thinking-row .th-icon svg { width: 100%; height: 100%; display: block; }
+    .feed .thinking-row .th-label {
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      flex: 1;
+    }
+    .feed .thinking-row > .thinking-body {
+      padding: 0.3rem 0.4rem 0.4rem 1.6rem;
+    }
+    .feed .thinking-row .delta {
+      animation: none;
+      margin: 0;
+    }
+
     /* ALERT band — piercing tier. Always renders regardless of the
        verbosity dropdown setting. Distinct kicker color so it's
        immediately legible as deviation rather than default content. */
@@ -1111,6 +1206,62 @@
     }
     .mood-threads li { padding: 3px 0; opacity: 0.85; }
     .mood-threads li::before { content: "·  "; color: var(--accent); }
+
+    /* Mood star — radar visualization of the mood-shift topology */
+    .mood-star-anchor {
+      text-align: center; padding: 4px 0 8px;
+    }
+    .mood-star-state {
+      font-family: var(--serif); font-size: 18px;
+      color: var(--accent-bright); letter-spacing: 0.04em;
+      text-transform: lowercase;
+    }
+    .mood-star-headline {
+      font-family: var(--mono); font-size: 11px;
+      color: var(--ink-soft, var(--ink-faint));
+      margin-top: 2px; min-height: 14px;
+    }
+    .mood-star-chart {
+      width: 100%; max-width: 320px; margin: 0 auto;
+    }
+    .mood-star-chart svg { display: block; }
+    .mood-star-meta {
+      text-align: center; font-family: var(--mono); font-size: 10.5px;
+      color: var(--ink-faint); margin-top: 6px; min-height: 14px;
+      letter-spacing: 0.02em;
+    }
+    .mood-star-spoke {
+      stroke: var(--ink-soft, #9fb0b5); stroke-width: 1.6; fill: none;
+      opacity: 0.85;
+    }
+    .mood-star-spoke.rising { stroke: var(--signal, #5ce1c6); }
+    .mood-star-tip {
+      r: 3.2; fill: var(--ink-soft, #9fb0b5);
+    }
+    .mood-star-tip.rising { fill: var(--signal, #5ce1c6); }
+    .mood-star-polygon {
+      fill: var(--accent-bright, #5ce1c6); fill-opacity: 0.10;
+      stroke: var(--accent-bright, #5ce1c6); stroke-width: 0.8;
+      stroke-opacity: 0.55;
+    }
+    .mood-star-arrow {
+      fill: var(--signal, #5ce1c6); opacity: 0.85;
+    }
+    .mood-star-grid {
+      stroke: var(--rule, #1e3a47); stroke-width: 0.6; fill: none; opacity: 0.5;
+    }
+    .mood-star-label {
+      font-family: var(--mono); font-size: 9px;
+      fill: var(--ink-soft, var(--ink-faint));
+      text-anchor: middle; dominant-baseline: central;
+      pointer-events: none;
+    }
+    .mood-star-empty {
+      font-family: var(--mono); font-size: 11px;
+      fill: var(--ink-faint);
+      text-anchor: middle; dominant-baseline: central;
+    }
+
     .hello-lang {
       font-family: var(--mono); font-style: normal;
       font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase;
@@ -1437,6 +1588,31 @@
       color: var(--ink);
       margin: 0; padding: 14px 18px 0;
     }
+    /* Stat tabs — fold the chart cards behind a single nav so the
+       page stops scrolling forever. The Weather card keeps its
+       embedded fire buttons; tabs are just visibility toggles. */
+    .stat-tabs {
+      display: flex; flex-wrap: wrap; gap: 2px;
+      margin-top: 18px;
+      margin-bottom: 14px;
+    }
+    .stat-tab {
+      appearance: none; background: transparent; border: 0;
+      padding: 8px 14px;
+      font-family: var(--mono); font-size: 12px;
+      letter-spacing: 0.04em;
+      color: var(--ink-faint);
+      border-bottom: 2px solid transparent;
+      cursor: pointer;
+      transition: color 0.15s ease, border-color 0.15s ease;
+    }
+    .stat-tab:hover { color: var(--ink); }
+    .stat-tab.active {
+      color: var(--ink);
+      border-bottom-color: var(--accent-bright, #5ce1c6);
+    }
+    .stat-card[data-tab] { display: none; margin-top: 0; border-top: 0; }
+    .stat-card[data-tab].active { display: block; }
     .ecg-cta-row {
       margin-top: 32px;
       display: flex; flex-wrap: wrap; align-items: center;
@@ -1572,32 +1748,59 @@
 
     /* Fire-pulse button — small mono pill in the feed status strip,
        sits next to the convergence dots. Hand-trigger for a feed
-       synthesis (POST /v1/puddle/pulse). Mirrors the experiment's
-       viz "fire" button placement; size + tone are quiet so it
-       doesn't compete with the rest of the strip. */
-    .fire-pulse-btn {
+       synthesis (POST /v1/puddle/pulse?tier=<name>). Lives in the
+       Weather card header — one button per tier so the operator picks
+       the prompt explicitly rather than letting the picker walk
+       cheapest-first. Cooldown countdown shown inline; locked
+       buttons stay visible but disabled. */
+    .stat-card-head {
+      display: flex; align-items: center; justify-content: space-between;
+      gap: 12px; padding-right: 18px; margin-bottom: 8px;
+    }
+    .weather-fire-row {
+      display: flex; gap: 6px; flex-wrap: wrap;
+    }
+    .weather-fire-btn {
+      display: inline-flex; align-items: center; gap: 5px;
       font-family: var(--mono); font-size: 10px;
-      letter-spacing: 0.08em; text-transform: uppercase;
-      padding: 2px 9px; margin-left: 6px;
+      letter-spacing: 0.06em; text-transform: lowercase;
+      padding: 3px 9px;
       border-radius: 999px;
       border: 1px solid var(--rule);
       background: transparent; color: var(--ink-faint);
       cursor: pointer;
       transition: color 120ms, border-color 120ms, background 120ms;
-      vertical-align: middle;
+      white-space: nowrap;
     }
-    .fire-pulse-btn:hover {
+    .weather-fire-btn .multi-turn-icon {
+      width: 11px; height: 11px;
+      stroke: currentColor;
+      opacity: 0.85;
+      flex-shrink: 0;
+    }
+    .weather-fire-btn .feed-regen-glyph {
+      font-size: 11px; line-height: 1;
+      opacity: 0.85;
+      flex-shrink: 0;
+    }
+    .weather-fire-btn:hover:not(:disabled) {
       color: var(--accent);
       border-color: color-mix(in srgb, var(--accent) 50%, var(--rule));
       background: color-mix(in srgb, var(--accent) 8%, transparent);
     }
-    .fire-pulse-btn:disabled {
-      opacity: 0.4; cursor: wait;
+    .weather-fire-btn:disabled {
+      opacity: 0.4; cursor: not-allowed;
     }
-    .fire-pulse-btn[data-state="firing"] {
+    .weather-fire-btn[data-state="firing"] {
       color: var(--accent);
       border-color: var(--accent);
       background: color-mix(in srgb, var(--accent) 14%, transparent);
+    }
+    .weather-fire-btn[data-state="locked"] {
+      cursor: not-allowed;
+    }
+    .weather-fire-btn .cooldown {
+      font-size: 9px; opacity: 0.7; margin-left: 4px;
     }
     .ecg-event-line { stroke: var(--ink-faint); stroke-width: 0.5; opacity: 0.45; stroke-dasharray: 2 3; }
     .ecg-event-icon { fill: var(--accent); font-size: 11px; }
@@ -1869,6 +2072,16 @@
       font-size: 12.5px;
       line-height: 1.55;
       color: var(--ink-soft);
+    }
+    .sidebar-body .section-desc a {
+      color: var(--accent);
+      text-decoration: none;
+      border-bottom: 1px solid color-mix(in srgb, var(--accent) 40%, transparent);
+      transition: border-color 0.15s ease, color 0.15s ease;
+    }
+    .sidebar-body .section-desc a:hover {
+      color: var(--accent-bright, var(--accent));
+      border-bottom-color: var(--accent);
     }
     /* ECG legend in sidebar — single column, smaller text */
     .sidebar-body .ecg-legend { font-size: 12px; }
@@ -2622,6 +2835,7 @@
       font-family: var(--mono); font-size: 10.5px;
       letter-spacing: 0.09em; text-transform: uppercase;
       color: var(--ink-faint);
+      margin-top: 10px;
       margin-bottom: 7px;
     }
     .msg-recalled {
@@ -2708,6 +2922,19 @@
     .msg-body img { max-width: 100%; border-radius: 8px; margin: 8px 0; }
 
     /* User message: soft surface card */
+    .msg-user { margin-bottom: 1.75rem; }
+    .msg-fathom { margin-bottom: 1.75rem; }
+    .feed .card { margin-bottom: 1.75rem; }
+    /* Sub-bar (time/engagement) hidden until hover or tap */
+    .feed .msg-user .msg-meta,
+    .feed .msg-fathom .tail {
+      opacity: 0; pointer-events: none;
+      transition: opacity 0.15s ease;
+    }
+    .feed .msg-user:hover .msg-meta,
+    .feed .msg-user.tail-active .msg-meta,
+    .feed .msg-fathom:hover .tail,
+    .feed .msg-fathom.tail-active .tail { opacity: 1; pointer-events: auto; }
     .msg-user .msg-body {
       background: var(--surface);
       border: 1px solid var(--rule);
@@ -2946,10 +3173,6 @@
     .scaffold-grid {
       display: flex; flex-direction: column; gap: 14px;
     }
-    /* `display: flex` clobbers the browser's implicit hidden→display:none,
-       so the scaffold inputs stay visible when the regular tab is active.
-       Restore the hidden behavior explicitly. */
-    .scaffold-grid[hidden] { display: none; }
     .scaffold-field { display: flex; flex-direction: column; }
     .scaffold-field label {
       font-family: var(--mono); font-size: 11px;
@@ -3448,6 +3671,7 @@
       font-size: 11px; margin-left: 6px; font-weight: 400;
       letter-spacing: 0.04em; text-transform: uppercase;
     }
+
   </style>
 </head>
 <body>
@@ -3464,9 +3688,9 @@
         </div>
         <button class="icon-btn theme-toggle" id="themeToggle" aria-label="Toggle theme" title="Toggle theme">
           <!-- moon (shown in dark mode — click to go light) -->
-          <svg class="ic-moon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
+          <svg class="ic-moon" viewBox="0 0 256 256" fill="currentColor" width="16" height="16"><path d="M233.54,142.23a8,8,0,0,0-8-2,88.08,88.08,0,0,1-109.8-109.8,8,8,0,0,0-10-10,104.84,104.84,0,0,0-52.91,37A104,104,0,0,0,136,224a103.09,103.09,0,0,0,62.52-20.88,104.84,104.84,0,0,0,37-52.91A8,8,0,0,0,233.54,142.23ZM188.9,190.34A88,88,0,0,1,65.66,67.11a89,89,0,0,1,31.4-26A106,106,0,0,0,96,56,104.11,104.11,0,0,0,200,160a106,106,0,0,0,14.92-1.06A89,89,0,0,1,188.9,190.34Z"/></svg>
           <!-- sun (shown in light mode — click to go dark) -->
-          <svg class="ic-sun" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"/></svg>
+          <svg class="ic-sun" viewBox="0 0 256 256" fill="currentColor" width="16" height="16"><path d="M120,40V16a8,8,0,0,1,16,0V40a8,8,0,0,1-16,0Zm72,88a64,64,0,1,1-64-64A64.07,64.07,0,0,1,192,128Zm-16,0a48,48,0,1,0-48,48A48.05,48.05,0,0,0,176,128ZM58.34,69.66A8,8,0,0,0,69.66,58.34l-16-16A8,8,0,0,0,42.34,53.66Zm0,116.68-16,16a8,8,0,0,0,11.32,11.32l16-16a8,8,0,0,0-11.32-11.32ZM192,72a8,8,0,0,0,5.66-2.34l16-16a8,8,0,0,0-11.32-11.32l-16,16A8,8,0,0,0,192,72Zm5.66,114.34a8,8,0,0,0-11.32,11.32l16,16a8,8,0,0,0,11.32-11.32ZM48,128a8,8,0,0,0-8-8H16a8,8,0,0,0,0,16H40A8,8,0,0,0,48,128Zm80,80a8,8,0,0,0-8,8v24a8,8,0,0,0,16,0V216A8,8,0,0,0,128,208Zm112-88H216a8,8,0,0,0,0,16h24a8,8,0,0,0,0-16Z"/></svg>
         </button>
       </div>
     </div>
@@ -3514,6 +3738,7 @@
           <span class="meta"></span>
         </div>
         <p class="section-desc">Streams I poll on a schedule — email, calendar, RSS, GitHub, anything I can reach.</p>
+        <p class="section-desc">Your <a href="#agentSection">Helper agents</a> can carry their own sources too — anything machine-local (file watchers, system metrics, kitty captures) lives down there next to the agent. <a href="https://fathomdx.io/docs/explanation/agents-routines-helpers-hooks" target="_blank" rel="noopener noreferrer">How sources, helpers, and routines fit together →</a></p>
         <div class="sources" id="sourcesList">
           <button class="chip add" id="addSourceBtn" type="button">+ Add source</button>
         </div>
@@ -3537,7 +3762,7 @@
       </section>
 
       <!-- ── Helpers (agent plugins on local machines) ─── -->
-      <section class="section" id="agentSection">
+      <section class="section scroll-target" id="agentSection">
         <div class="section-head">
           <h2>Helpers</h2>
           <span class="meta" id="agentMeta">loading…</span>
@@ -3558,13 +3783,20 @@
             <option value="6mo">6 Months</option>
             <option value="30d">30 days</option>
             <option value="10d">10 days</option>
-            <option value="1w" selected>1 week</option>
+            <option value="1w">1 week</option>
             <option value="3d">3 days</option>
-            <option value="1d">1 day</option>
+            <option value="1d" selected>1 day</option>
             <option value="6h">6 hours</option>
           </select>
         </div>
-        <div class="stat-card">
+        <nav class="stat-tabs" role="tablist" id="statTabs">
+          <button class="stat-tab" data-tab="usage" role="tab" type="button">Usage</button>
+          <button class="stat-tab" data-tab="weather" role="tab" type="button">Weather</button>
+          <button class="stat-tab active" data-tab="mood" role="tab" type="button" aria-selected="true">Mood</button>
+          <button class="stat-tab" data-tab="identity" role="tab" type="button">Identity</button>
+          <button class="stat-tab" data-tab="feed" role="tab" type="button">Feed</button>
+        </nav>
+        <div class="stat-card" data-tab="usage">
           <h3 class="stat-card-title">Usage</h3>
           <div class="ecg-chart">
             <svg id="svgActivity" width="100%" height="170" preserveAspectRatio="none"></svg>
@@ -3581,8 +3813,37 @@
           </ul>
         </div>
 
-        <div class="stat-card">
-          <h3 class="stat-card-title">Weather</h3>
+        <div class="stat-card" data-tab="weather">
+          <div class="stat-card-head">
+            <h3 class="stat-card-title">Weather</h3>
+            <div class="weather-fire-row" id="weatherFireRow">
+              <button class="weather-fire-btn" data-tier="alert" data-engine="single" type="button"
+                title="Alert · single fire — bias hard against firing; surface anything piercing the user needs to know NOW. ~10m cooldown.">alert</button>
+              <button class="weather-fire-btn" data-tier="bridging" data-engine="single" type="button"
+                title="Bridging · single fire — find an unexpected connection between two disparate threads. ~30m cooldown.">bridging</button>
+              <button class="weather-fire-btn" data-tier="reflection" data-engine="dialogue" type="button"
+                title="Reflection · 4-round Sit — sit with what you've been doing recently. What was decided, made, learned? Arrows mark a multi-turn dialogue. ~3h cooldown.">
+                <svg class="multi-turn-icon" viewBox="0 0 16 16" fill="none" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                  <path d="M2 5h10l-2.5-2.5"/>
+                  <path d="M14 11H4l2.5 2.5"/>
+                </svg>
+                reflection
+              </button>
+              <button class="weather-fire-btn" data-tier="drift" data-engine="dialogue" type="button"
+                title="Drift · 4-round Sit — surface what isn't being said. A gap, an unresolved thread, a tension neither of you has named. Arrows mark a multi-turn dialogue. ~3h cooldown.">
+                <svg class="multi-turn-icon" viewBox="0 0 16 16" fill="none" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                  <path d="M2 5h10l-2.5-2.5"/>
+                  <path d="M14 11H4l2.5 2.5"/>
+                </svg>
+                drift
+              </button>
+              <button class="weather-fire-btn" data-tier="feed-regen" data-engine="single" type="button"
+                title="Feed regen · synthesizes a fresh feed-orient crystal from recent engagement. Re-anchors what the feed should be surfacing. ~30m cooldown.">
+                <span class="feed-regen-glyph">✺</span>
+                feed-regen
+              </button>
+            </div>
+          </div>
           <div class="ecg-chart">
             <svg id="svgPressureMood" width="100%" height="200" preserveAspectRatio="none"></svg>
           </div>
@@ -3599,10 +3860,52 @@
               <span class="legend-key"><span class="ev" style="color:#b08cff;">✺</span>Feed regen</span>
               <span class="legend-desc">A moment where the feed sat with everything that had built up and rewrote itself. Like the mood check-in, but for what's worth surfacing as cards.</span>
             </li>
+            <li class="legend-item">
+              <span class="legend-key"><span class="dot" style="background:#b08cff;"></span>Mood synth ◉</span>
+              <span class="legend-desc">Lavender dot above the threshold line — Fathom regenerated its carrier-wave (named state + prose). Hover for the state.</span>
+            </li>
+            <li class="legend-item">
+              <span class="legend-key"><span class="dot" style="background:#e56a6a;"></span>Alert ▲</span>
+              <span class="legend-desc">Red dot on the alert floor — single-fire pass to surface anything piercing. Often routes to "unknown" (nothing piercing happened).</span>
+            </li>
+            <li class="legend-item">
+              <span class="legend-key"><span class="dot" style="background:#e8a24e;"></span>Bridging ⌒</span>
+              <span class="legend-desc">Amber dot on the bridging floor — single-fire pass looking for an unexpected connection between two threads.</span>
+            </li>
+            <li class="legend-item">
+              <span class="legend-key"><span class="dot" style="background:#5ce1c6;"></span>Reflection ↔</span>
+              <span class="legend-desc">Teal dot on the sit floor — 4-round dialogue about what's been done, decided, learned. The arrow marks a multi-turn Sit.</span>
+            </li>
+            <li class="legend-item">
+              <span class="legend-key"><span class="dot" style="background:#9d8de8;"></span>Drift ⇋</span>
+              <span class="legend-desc">Purple dot on the sit floor — 4-round dialogue about what's not being said, the unresolved tension. The arrow marks a multi-turn Sit.</span>
+            </li>
           </ul>
         </div>
 
-        <div class="stat-card">
+        <div class="stat-card active" data-tab="mood">
+          <h3 class="stat-card-title">Mood</h3>
+          <div class="mood-star-anchor" id="moodStarAnchor">
+            <div class="mood-star-state" id="moodStarState">—</div>
+            <div class="mood-star-headline" id="moodStarHeadline"></div>
+          </div>
+          <div class="mood-star-chart">
+            <svg id="svgMoodStar" viewBox="-150 -150 300 300" width="100%" preserveAspectRatio="xMidYMid meet"></svg>
+          </div>
+          <div class="mood-star-meta" id="moodStarMeta"></div>
+          <ul class="ecg-legend">
+            <li class="legend-item">
+              <span class="legend-key"><span class="dot" style="background:#5ce1c6;"></span>Spoke length</span>
+              <span class="legend-desc">Current intensity Fathom is feeling on each axis (0–1), as named by the latest carrier-wave. Open vocabulary — the labels move between syntheses as Fathom names whatever's actually present.</span>
+            </li>
+            <li class="legend-item">
+              <span class="legend-key"><span class="dot" style="background:#5ce1c6;"></span>Drift arrow</span>
+              <span class="legend-desc">An outward chevron on a spoke marks rising drift since the carrier-wave. Mood-shifts emitted per fire accumulate here until the next carrier integrates them into new levels.</span>
+            </li>
+          </ul>
+        </div>
+
+        <div class="stat-card" data-tab="identity">
           <h3 class="stat-card-title">Identity</h3>
           <div class="ecg-chart">
             <svg id="svgDrift" width="100%" height="160" preserveAspectRatio="none"></svg>
@@ -3618,19 +3921,19 @@
             </li>
           </ul>
         </div>
-        <div class="stat-card">
-          <h3 class="stat-card-title">Feed orientation</h3>
+        <div class="stat-card" data-tab="feed">
+          <h3 class="stat-card-title">Feed</h3>
           <div class="ecg-chart">
             <svg id="svgFeedOrient" width="100%" height="160" preserveAspectRatio="none"></svg>
           </div>
           <ul class="ecg-legend">
             <li class="legend-item">
               <span class="legend-key"><span class="dot" style="background:#b08cff;"></span>Engagement drift</span>
-              <span class="legend-desc">How far your signals (more, less, chats from cards) have moved since the last feed-orient crystal. Anchored at acceptance — drift reads zero immediately after a fresh crystal.</span>
+              <span class="legend-desc">How far your signals (more, less, chats from cards) have moved since the last feed-orient crystal, normalized to the same 0–1 scale as confidence. Anchored at acceptance — drift reads zero immediately after a fresh crystal. Dashed line marks the regen threshold.</span>
             </li>
             <li class="legend-item">
               <span class="legend-key"><span class="dot" style="background:#d8b14a;"></span>Confidence</span>
-              <span class="legend-desc">How well the previous crystal predicted your reactions to the cards it generated. Each new crystal is tagged with the score it earned over its lifetime.</span>
+              <span class="legend-desc">How well the previous crystal predicted your reactions to the cards it generated. Each new crystal is tagged with the score it earned over its lifetime. Dashed line marks the regen-fire floor.</span>
             </li>
             <li class="legend-item">
               <span class="legend-key"><span class="ev crystal">◆</span>Feed-orient crystal regeneration</span>
@@ -3663,7 +3966,7 @@
   <header class="topbar">
     <div class="topbar-left">
       <button class="icon-btn" id="sidebarToggleBtn" aria-label="Menu">
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
+        <svg viewBox="0 0 256 256" fill="currentColor" width="16" height="16"><path d="M224,128a8,8,0,0,1-8,8H40a8,8,0,0,1,0-16H216A8,8,0,0,1,224,128ZM40,72H216a8,8,0,0,0,0-16H40a8,8,0,0,0,0,16ZM216,184H40a8,8,0,0,0,0,16H216a8,8,0,0,0,0-16Z"/></svg>
       </button>
       <div class="brand">fathom<span class="brand-mark"><svg class="ph-triangle" viewBox="0 0 340 256" fill="currentColor"><g transform="rotate(20.4 128 150)" opacity="0.28"><path d="M236.8,188.09,149.35,36.22a24.76,24.76,0,0,0-42.7,0L19.2,188.09a23.51,23.51,0,0,0,0,23.72A24.35,24.35,0,0,0,40.55,224h174.9a24.35,24.35,0,0,0,21.33-12.19A23.51,23.51,0,0,0,236.8,188.09ZM222.93,203.8a8.5,8.5,0,0,1-7.48,4.2H40.55a8.5,8.5,0,0,1-7.48-4.2,7.59,7.59,0,0,1,0-7.72L120.52,44.21a8.75,8.75,0,0,1,15,0l87.45,151.87A7.59,7.59,0,0,1,222.93,203.8Z"/></g><g transform="translate(41 0) rotate(-17.2 128 150)" opacity="0.58"><path d="M236.8,188.09,149.35,36.22a24.76,24.76,0,0,0-42.7,0L19.2,188.09a23.51,23.51,0,0,0,0,23.72A24.35,24.35,0,0,0,40.55,224h174.9a24.35,24.35,0,0,0,21.33-12.19A23.51,23.51,0,0,0,236.8,188.09ZM222.93,203.8a8.5,8.5,0,0,1-7.48,4.2H40.55a8.5,8.5,0,0,1-7.48-4.2,7.59,7.59,0,0,1,0-7.72L120.52,44.21a8.75,8.75,0,0,1,15,0l87.45,151.87A7.59,7.59,0,0,1,222.93,203.8Z"/></g><g transform="translate(82 0) rotate(0.4 128 150)"><path d="M149.35,36.22a24.76,24.76,0,0,0-42.7,0L19.2,188.09a23.51,23.51,0,0,0,0,23.72A24.35,24.35,0,0,0,40.55,224h174.9a24.35,24.35,0,0,0,21.33-12.19,23.51,23.51,0,0,0,0-23.72Z"/></g></svg></span></div>
     </div>
@@ -3674,7 +3977,7 @@
       </button>
       <div class="alerts-wrap">
         <button class="icon-btn alerts-btn" id="alertsBtn" aria-label="Alerts" title="Alerts">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8a6 6 0 1 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
+          <svg viewBox="0 0 256 256" fill="currentColor" width="16" height="16"><path d="M221.8,175.94C216.25,166.38,208,139.33,208,104a80,80,0,1,0-160,0c0,35.34-8.26,62.38-13.81,71.94A16,16,0,0,0,48,200H88.81a40,40,0,0,0,78.38,0H208a16,16,0,0,0,13.8-24.06ZM128,216a24,24,0,0,1-22.62-16h45.24A24,24,0,0,1,128,216ZM48,184c7.7-13.24,16-43.92,16-80a64,64,0,1,1,128,0c0,36.05,8.28,66.73,16,80Z"/></svg>
           <span class="alerts-dot" aria-hidden="true"></span>
         </button>
         <div class="alerts-panel" id="alertsPanel" role="menu">
@@ -3739,18 +4042,9 @@
               <label><input type="checkbox" data-category="routine"> Routine Activity</label>
             </div>
           </span>
-          <button class="fire-pulse-btn" id="firePulseBtn" type="button" title="Trigger one tier of pressure relief — picks the lowest non-cooled-down tier (alert → bridging → sit) and fires it. Bypasses the pressure-floor gate so a click always does something; cooldowns still apply (alert ~10m, bridging ~30m, sit ~3h).">fire</button>
           <span class="feed-meta-sep" id="feedMetaSep" hidden> · </span>
           <span id="feedMeta"></span>
         </span>
-      </div>
-      <!-- Active claude-code task status bars. One row per live task,
-           populated by loadClaudeCodeTasks(). Hidden when the
-           Claude Code filter category is off. Bars sit beneath the
-           filter so a click on a row scrolls to the latest related
-           message in the feed below. -->
-      <div class="claude-code-status" id="claudeCodeStatus" hidden>
-        <!-- Populated by loadClaudeCodeTasks() -->
       </div>
       <div class="feed">
         <!-- Populated by loadFeedStories() -->
@@ -4097,11 +4391,6 @@
           <div class="section-head">
             <h2>Manage</h2>
           </div>
-          <p style="font-size: 13px; color: var(--ink-soft); line-height: 1.55; margin: 0 0 10px;">
-            Have Fathom rewrite this routine into the four-section schema (Purpose / Needs / Steps / Ending). Lands as a proposal card — review and approve.
-          </p>
-          <button class="btn ghost compact" id="routineRewriteSchema" style="margin-bottom: 18px;">Rewrite to schema</button>
-
           <div class="section-head" style="margin-top: 12px;">
             <h3 style="font-size: 14px; margin: 0;">Delete</h3>
           </div>
@@ -4436,7 +4725,7 @@
            text-only; image flow comes back when the loop knows how to
            render media in witness output. -->
       <button class="attach" id="attachBtn" aria-label="Attach" hidden>
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg>
+        <svg viewBox="0 0 256 256" fill="currentColor" width="18" height="18"><path d="M209.66,122.34a8,8,0,0,1,0,11.32l-82.05,82a56,56,0,0,1-79.2-79.21L147.67,35.73a40,40,0,1,1,56.61,56.55L105,193A24,24,0,1,1,71,159L154.3,74.38A8,8,0,1,1,165.7,85.6L82.39,170.31a8,8,0,1,0,11.27,11.36L192.93,81A24,24,0,1,0,159,47L59.76,147.68a40,40,0,1,0,56.53,56.62l82.06-82A8,8,0,0,1,209.66,122.34Z"/></svg>
       </button>
       <div class="attach-preview" id="attachPreview">
         <img id="attachThumb" />
@@ -4445,7 +4734,7 @@
       <textarea rows="1" placeholder="Ask Fathom…"></textarea>
       <div class="tools">
         <button class="send" aria-label="Send">
-          <svg class="icon-send" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><line x1="12" y1="19" x2="12" y2="5"/><polyline points="5 12 12 5 19 12"/></svg>
+          <svg class="icon-send" viewBox="0 0 256 256" fill="currentColor" width="16" height="16"><path d="M227.32,28.68a16,16,0,0,0-15.66-4.08l-.15,0L19.57,82.84a16,16,0,0,0-2.49,29.8L102,154l41.3,84.87A15.86,15.86,0,0,0,157.74,248q.69,0,1.38-.06a15.88,15.88,0,0,0,14-11.51l58.2-191.94c0-.05,0-.1,0-.15A16,16,0,0,0,227.32,28.68ZM157.83,231.85l-.05.14,0-.07-40.06-82.3,48-48a8,8,0,0,0-11.31-11.31l-48,48L24.08,98.25l-.07,0,.14,0L216,40Z"/></svg>
           <svg class="icon-copy" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg>
           <svg class="icon-check" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
         </button>
@@ -5577,26 +5866,6 @@
       ].join('\n\n') + '\n';
     }
 
-    // Replace (or insert) the `# Ending` section of a regular-mode prompt
-    // body. Used by the radio-cluster shortcut so quick-picks land in the
-    // right place whether the body already has a section or is freeform.
-    function _setEndingInPrompt(prompt, ending) {
-      const text = prompt || '';
-      const headerRe = /^#\s*Ending\b[^\n]*$/im;
-      const m = headerRe.exec(text);
-      if (m) {
-        const headerEnd = m.index + m[0].length;
-        const nextRe = /^#\s+\w+/gim;
-        nextRe.lastIndex = headerEnd;
-        const next = nextRe.exec(text);
-        const sliceEnd = next ? next.index : text.length;
-        return text.slice(0, headerEnd) + `\n${ending}\n` + (next ? '\n' : '') + text.slice(sliceEnd);
-      }
-      const trimmed = text.replace(/\s+$/, '');
-      const sep = trimmed ? '\n\n' : '';
-      return trimmed + sep + `# Ending\n${ending}\n`;
-    }
-
     // Extract date+time pieces from a `once` cron (`MM HH DD MM *`).
     function extractOnceDate(cron) {
       const m = (cron || '').match(/^(\d+)\s+(\d+)\s+(\d+)\s+(\d+)\s+\*$/);
@@ -6071,11 +6340,19 @@
         permission_mode: 'auto', enabled: true, single_fire: false,
       };
       const preset = inferPreset(r.schedule, r.single_fire);
-      const sections = _parseScaffoldSections(r.prompt) || {
-        purpose: '', needs: '', steps: '', ending: '',
+      // Always render the four-section scaffold. If the existing
+      // prompt parses cleanly, populate Purpose/Needs/Steps/Ending
+      // from its sections. If it doesn't (older freeform routine),
+      // drop the entire body into Steps so nothing is lost — saving
+      // re-shapes it as scaffold organically (the migration path is
+      // "edit and save," not a batch rewrite).
+      const _parsedSections = _parseScaffoldSections(r.prompt);
+      const sections = _parsedSections || {
+        purpose: '',
+        needs: '',
+        steps: (r.prompt || '').trim(),
+        ending: '',
       };
-      const scaffoldByDefault = _parseScaffoldSections(r.prompt) !== null;
-      const promptMode = scaffoldByDefault ? 'scaffold' : 'regular';
       const onceDate = preset === 'once' ? extractOnceDate(r.schedule) : { date: '', time: '09:00' };
       // Schedule visibility: time/date pickers shown only for the
       // preset that needs them. Cron preview is hidden unless preset
@@ -6087,7 +6364,7 @@
       const showDate = preset === 'once';
       const showCustom = preset === 'custom';
       return `
-        <div class="routine-editor" data-editing="${_esc(isEdit ? r.id : '__new__')}" data-prompt-mode="${promptMode}">
+        <div class="routine-editor" data-editing="${_esc(isEdit ? r.id : '__new__')}">
           <div class="field-row">
             <div class="form-group">
               <label>routine-id</label>
@@ -6116,17 +6393,8 @@
             </div>
           </div>
           <div>
-            <div style="display: flex; align-items: baseline; justify-content: space-between; gap: 8px;">
-              <label>prompt</label>
-              <div class="segmented" data-prompt-mode-toggle>
-                <button type="button" data-mode="scaffold" data-active="${promptMode === 'scaffold'}">scaffold</button>
-                <button type="button" data-mode="regular" data-active="${promptMode === 'regular'}">regular</button>
-              </div>
-            </div>
-            <div data-prompt-regular ${promptMode === 'regular' ? '' : 'hidden'}>
-              <textarea class="form-textarea" data-f="prompt" placeholder="What you want Fathom to do. Switch to scaffold for a guided four-section template.">${_esc(r.prompt || '')}</textarea>
-            </div>
-            <div data-prompt-scaffold class="scaffold-grid" ${promptMode === 'scaffold' ? '' : 'hidden'}>
+            <label>prompt</label>
+            <div data-prompt-scaffold class="scaffold-grid">
               <div class="scaffold-field">
                 <label>Purpose</label>
                 <textarea class="form-textarea scaffold-input" data-scaffold="purpose" rows="2" placeholder="One sentence — what should Fathom accomplish on this routine?">${_esc(sections.purpose)}</textarea>
@@ -6265,21 +6533,18 @@
         ? (_routineCache.find(x => x.id === editingId) || {})
         : {};
 
-      // Prompt: scaffold mode joins the four sections into the
-      // documented schema; regular mode passes the textarea through.
-      const promptMode = editor.dataset.promptMode || 'regular';
-      let prompt;
-      if (promptMode === 'scaffold') {
-        const sections = {
-          purpose: (editor.querySelector('[data-scaffold="purpose"]') || {}).value || '',
-          needs:   (editor.querySelector('[data-scaffold="needs"]')   || {}).value || '',
-          steps:   (editor.querySelector('[data-scaffold="steps"]')   || {}).value || '',
-          ending:  (editor.querySelector('[data-scaffold="ending"]')  || {}).value || '',
-        };
-        prompt = _joinScaffoldSections(sections);
-      } else {
-        prompt = get('prompt');
-      }
+      // Prompt: always compose from the four scaffold sections. The
+      // saved body is `# Purpose / # Needs / # Steps / # Ending` with
+      // the textarea contents under each header, even when sections
+      // are empty (the headers are how we detect scaffold shape on
+      // the next open).
+      const sections = {
+        purpose: (editor.querySelector('[data-scaffold="purpose"]') || {}).value || '',
+        needs:   (editor.querySelector('[data-scaffold="needs"]')   || {}).value || '',
+        steps:   (editor.querySelector('[data-scaffold="steps"]')   || {}).value || '',
+        ending:  (editor.querySelector('[data-scaffold="ending"]')  || {}).value || '',
+      };
+      const prompt = _joinScaffoldSections(sections);
 
       // Schedule: 'once' preset auto-flips single_fire on so the
       // scheduler tombstones the spec right after the one cron-match.
@@ -6346,59 +6611,18 @@
         });
       });
 
-      // Prompt mode toggle (scaffold ↔ regular). Switching modes
-      // syncs the underlying content so nothing is lost: scaffold→regular
-      // composes the four sections into the regular textarea; regular→
-      // scaffold parses sections out, falling through to empty inputs +
-      // a heads-up if the body doesn't parse cleanly.
-      const regularPanel = editor.querySelector('[data-prompt-regular]');
-      const scaffoldPanel = editor.querySelector('[data-prompt-scaffold]');
-      const regularEl = editor.querySelector('[data-f="prompt"]');
+      // Scaffold-only editor: four named textareas are the single
+      // source of truth. The toggle between "scaffold" and "regular"
+      // modes was retired — older freeform routines slot their prompt
+      // into Steps when opened, and saving rewrites them in scaffold
+      // shape. _parseScaffoldSections + _joinScaffoldSections still
+      // do the heavy lifting on load and save respectively.
       const scaffoldEls = {
         purpose: editor.querySelector('[data-scaffold="purpose"]'),
         needs:   editor.querySelector('[data-scaffold="needs"]'),
         steps:   editor.querySelector('[data-scaffold="steps"]'),
         ending:  editor.querySelector('[data-scaffold="ending"]'),
       };
-      const setMode = (newMode) => {
-        const cur = editor.dataset.promptMode || 'regular';
-        if (cur === newMode) return;
-        if (cur === 'scaffold' && newMode === 'regular') {
-          // Compose scaffold inputs into the regular textarea.
-          const composed = _joinScaffoldSections({
-            purpose: scaffoldEls.purpose.value,
-            needs:   scaffoldEls.needs.value,
-            steps:   scaffoldEls.steps.value,
-            ending:  scaffoldEls.ending.value,
-          });
-          regularEl.value = composed;
-        } else if (cur === 'regular' && newMode === 'scaffold') {
-          // Try to parse the textarea into sections; populate when possible.
-          const parsed = _parseScaffoldSections(regularEl.value || '');
-          if (parsed) {
-            scaffoldEls.purpose.value = parsed.purpose;
-            scaffoldEls.needs.value   = parsed.needs;
-            scaffoldEls.steps.value   = parsed.steps;
-            scaffoldEls.ending.value  = parsed.ending;
-          } else {
-            // Couldn't parse — drop the existing prose into Steps as
-            // the most plausible bucket so nothing is lost; user can
-            // re-distribute manually.
-            if (!Object.values(scaffoldEls).some(el => (el.value || '').trim())) {
-              scaffoldEls.steps.value = (regularEl.value || '').trim();
-            }
-          }
-        }
-        editor.dataset.promptMode = newMode;
-        regularPanel.hidden = newMode !== 'regular';
-        scaffoldPanel.hidden = newMode !== 'scaffold';
-        editor.querySelectorAll('[data-prompt-mode-toggle] button').forEach(b => {
-          b.setAttribute('data-active', String(b.dataset.mode === newMode));
-        });
-      };
-      editor.querySelectorAll('[data-prompt-mode-toggle] button').forEach(btn => {
-        btn.addEventListener('click', () => setMode(btn.dataset.mode));
-      });
 
       // Notification radio cluster — quick-pick that fills the `# Ending`
       // section. In scaffold mode it overwrites the Ending textarea; in
@@ -6413,12 +6637,7 @@
       };
       const otherInput = editor.querySelector('[data-ending-other]');
       const applyEnding = (phrase) => {
-        const mode = editor.dataset.promptMode || 'regular';
-        if (mode === 'scaffold') {
-          if (scaffoldEls.ending) scaffoldEls.ending.value = phrase;
-        } else {
-          if (regularEl) regularEl.value = _setEndingInPrompt(regularEl.value, phrase);
-        }
+        if (scaffoldEls.ending) scaffoldEls.ending.value = phrase;
       };
       const currentEndingPhrase = () => {
         const checked = editor.querySelector('[data-ending]:checked');
@@ -6946,28 +7165,6 @@
         closeRoutineDetail();
       } catch (e) {
         alert('fire failed: ' + e.message);
-      }
-    });
-
-    // Rewrite to schema — asks Fathom to rewrite this routine's prompt
-    // into the four-section schema and emit a proposal card. Redirects
-    // to the main feed where the user can review (Edit/Deny/Approve).
-    document.getElementById('routineRewriteSchema').addEventListener('click', async () => {
-      const rid = viewRoutineDetail.dataset.routine;
-      try {
-        const r = await fetch(API_BASE + '/v1/routines/' + rid + '/rewrite-to-schema', {
-          method: 'POST',
-          headers: { ...authHeaders(), 'Content-Type': 'application/json' },
-        });
-        const data = await r.json().catch(() => ({}));
-        if (!r.ok) throw new Error(data.detail || (r.status + ' ' + r.statusText));
-        if (data.skipped) {
-          alert(`Already in schema — nothing to rewrite.`);
-          return;
-        }
-        closeRoutineDetail();
-      } catch (e) {
-        alert('rewrite failed: ' + e.message);
       }
     });
 
@@ -8773,6 +8970,13 @@ GET  /v1/usage               Usage stats`,
 
     // ── Feed rendering helpers ──────────────────
 
+    const PH_BELL            = '<svg viewBox="0 0 256 256" fill="currentColor" width="16" height="16"><path d="M221.8,175.94C216.25,166.38,208,139.33,208,104a80,80,0,1,0-160,0c0,35.34-8.26,62.38-13.81,71.94A16,16,0,0,0,48,200H88.81a40,40,0,0,0,78.38,0H208a16,16,0,0,0,13.8-24.06ZM128,216a24,24,0,0,1-22.62-16h45.24A24,24,0,0,1,128,216ZM48,184c7.7-13.24,16-43.92,16-80a64,64,0,1,1,128,0c0,36.05,8.28,66.73,16,80Z"/></svg>';
+    const PH_PAPERCLIP       = '<svg viewBox="0 0 256 256" fill="currentColor" width="18" height="18"><path d="M209.66,122.34a8,8,0,0,1,0,11.32l-82.05,82a56,56,0,0,1-79.2-79.21L147.67,35.73a40,40,0,1,1,56.61,56.55L105,193A24,24,0,1,1,71,159L154.3,74.38A8,8,0,1,1,165.7,85.6L82.39,170.31a8,8,0,1,0,11.27,11.36L192.93,81A24,24,0,1,0,159,47L59.76,147.68a40,40,0,1,0,56.53,56.62l82.06-82A8,8,0,0,1,209.66,122.34Z"/></svg>';
+    const PH_PAPER_PLANE_TILT = '<svg viewBox="0 0 256 256" fill="currentColor" width="16" height="16"><path d="M227.32,28.68a16,16,0,0,0-15.66-4.08l-.15,0L19.57,82.84a16,16,0,0,0-2.49,29.8L102,154l41.3,84.87A15.86,15.86,0,0,0,157.74,248q.69,0,1.38-.06a15.88,15.88,0,0,0,14-11.51l58.2-191.94c0-.05,0-.1,0-.15A16,16,0,0,0,227.32,28.68ZM157.83,231.85l-.05.14,0-.07-40.06-82.3,48-48a8,8,0,0,0-11.31-11.31l-48,48L24.08,98.25l-.07,0,.14,0L216,40Z"/></svg>';
+    const PH_REPLY      = '<svg viewBox="0 0 256 256" fill="currentColor" width="13" height="13"><path d="M232,200a8,8,0,0,1-16,0,88.1,88.1,0,0,0-88-88H51.31l34.35,34.34a8,8,0,0,1-11.32,11.32l-48-48a8,8,0,0,1,0-11.32l48-48A8,8,0,0,1,85.66,61.66L51.31,96H128A104.11,104.11,0,0,1,232,200Z"/></svg>';
+    const PH_THUMBS_UP  = '<svg viewBox="0 0 256 256" fill="currentColor" width="13" height="13"><path d="M234,80.12A24,24,0,0,0,216,72H160V56a40,40,0,0,0-40-40,8,8,0,0,0-7.16,4.42L75.06,96H32a16,16,0,0,0-16,16v88a16,16,0,0,0,16,16H204a24,24,0,0,0,23.82-21l12-96A24,24,0,0,0,234,80.12ZM32,112H72v88H32ZM223.94,97l-12,96a8,8,0,0,1-7.94,7H88V105.89l36.71-73.43A24,24,0,0,1,144,56V80a8,8,0,0,0,8,8h64a8,8,0,0,1,7.94,9Z"/></svg>';
+    const PH_THUMBS_DOWN = '<svg viewBox="0 0 256 256" fill="currentColor" width="13" height="13"><path d="M239.82,157l-12-96A24,24,0,0,0,204,40H32A16,16,0,0,0,16,56v88a16,16,0,0,0,16,16H75.06l37.78,75.58A8,8,0,0,0,120,240a40,40,0,0,0,40-40V184h56a24,24,0,0,0,23.82-27ZM72,144H32V56H72Zm150,21.29a7.88,7.88,0,0,1-6,2.71H152a8,8,0,0,0-8,8v24a24,24,0,0,1-19.29,23.54L88,150.11V56H204a8,8,0,0,1,7.94,7l12,96A7.87,7.87,0,0,1,222,165.29Z"/></svg>';
+    const PH_CHAT_DOTS = '<svg class="ph-chat-dots" viewBox="0 0 256 256" fill="currentColor"><path d="M116,128a12,12,0,1,1,12,12A12,12,0,0,1,116,128ZM84,140a12,12,0,1,0-12-12A12,12,0,0,0,84,140Zm88,0a12,12,0,1,0-12-12A12,12,0,0,0,172,140Zm60-76V192a16,16,0,0,1-16,16H83l-32.6,28.16-.09.07A15.89,15.89,0,0,1,40,240a16.13,16.13,0,0,1-6.8-1.52A15.85,15.85,0,0,1,24,224V64A16,16,0,0,1,40,48H216A16,16,0,0,1,232,64ZM40,224h0ZM216,64H40V224l34.77-30A8,8,0,0,1,80,192H216Z"/></svg>';
     const PH_TRIANGLE = '<svg class="ph-triangle" viewBox="0 0 340 256" fill="currentColor"><g transform="rotate(20.4 128 150)" opacity="0.28"><path d="M236.8,188.09,149.35,36.22a24.76,24.76,0,0,0-42.7,0L19.2,188.09a23.51,23.51,0,0,0,0,23.72A24.35,24.35,0,0,0,40.55,224h174.9a24.35,24.35,0,0,0,21.33-12.19A23.51,23.51,0,0,0,236.8,188.09ZM222.93,203.8a8.5,8.5,0,0,1-7.48,4.2H40.55a8.5,8.5,0,0,1-7.48-4.2,7.59,7.59,0,0,1,0-7.72L120.52,44.21a8.75,8.75,0,0,1,15,0l87.45,151.87A7.59,7.59,0,0,1,222.93,203.8Z"/></g><g transform="translate(41 0) rotate(-17.2 128 150)" opacity="0.58"><path d="M236.8,188.09,149.35,36.22a24.76,24.76,0,0,0-42.7,0L19.2,188.09a23.51,23.51,0,0,0,0,23.72A24.35,24.35,0,0,0,40.55,224h174.9a24.35,24.35,0,0,0,21.33-12.19A23.51,23.51,0,0,0,236.8,188.09ZM222.93,203.8a8.5,8.5,0,0,1-7.48,4.2H40.55a8.5,8.5,0,0,1-7.48-4.2,7.59,7.59,0,0,1,0-7.72L120.52,44.21a8.75,8.75,0,0,1,15,0l87.45,151.87A7.59,7.59,0,0,1,222.93,203.8Z"/></g><g transform="translate(82 0) rotate(0.4 128 150)"><path d="M149.35,36.22a24.76,24.76,0,0,0-42.7,0L19.2,188.09a23.51,23.51,0,0,0,0,23.72A24.35,24.35,0,0,0,40.55,224h174.9a24.35,24.35,0,0,0,21.33-12.19,23.51,23.51,0,0,0,0-23.72Z"/></g></svg>';
 
     const TOOL_ICONS = {
@@ -8792,7 +8996,7 @@ GET  /v1/usage               Usage stats`,
           ? turn.from.charAt(0).toUpperCase() + turn.from.slice(1)
           : 'You';
         const viaPart = turn.via ? ` · ${_esc(turn.via)}` : '';
-        el.innerHTML = `<div class="msg-meta">${_esc(who)}${viaPart} · ${turn.time}</div><div class="msg-body">${_esc(turn.text)}</div>`;
+        el.innerHTML = `<div class="msg-body">${_esc(turn.text)}</div><div class="msg-meta">${_esc(who)}${viaPart} · ${turn.time}</div>`;
         return el;
       }
       if (turn.role === 'fathom') {
@@ -8802,15 +9006,9 @@ GET  /v1/usage               Usage stats`,
         const recalledHtml = turn.recalled
           ? `<div class="msg-recalled">${_esc(turn.recalled)}</div>`
           : '';
-        // Addressing meta — when Fathom is replying TO a specific
-        // contact (witness stamped `for:<slug>`) and/or via a specific
-        // channel (`to:<channel>:<corr>`), surface that. Reads
-        // "Fathom > Myra · openai:affectionate-glossy-squid · time".
-        const toName = turn.to
-          ? ' > ' + (turn.to.charAt(0).toUpperCase() + turn.to.slice(1))
-          : '';
-        const viaPart = turn.via ? ` · ${_esc(turn.via)}` : '';
-        el.innerHTML = `<div class="msg-meta">Fathom${_esc(toName)}${viaPart} · ${turn.time}</div>${recalledHtml}<div class="msg-body">${body}</div>`;
+        // No msg-meta header — time and addressing go in the engagement
+        // rail below the body, assembled by the caller (_renderPuddleItem).
+        el.innerHTML = `${recalledHtml}<div class="msg-body">${body}</div>`;
         return el;
       }
       if (turn.role === 'agent') {
@@ -8829,7 +9027,8 @@ GET  /v1/usage               Usage stats`,
         el.className = 'msg msg-fathom';
         const host = turn.host ? ` · ${_esc(turn.host)}` : '';
         const body = renderMd(turn.text || '');
-        el.innerHTML = `<div class="msg-meta">Fathom${host} · ${turn.time}</div><div class="msg-body">${body}</div>`;
+        const agentMeta = [turn.host, turn.time].filter(Boolean).join(' · ');
+        el.innerHTML = `<div class="msg-meta">${agentMeta}</div><div class="msg-body">${body}</div>`;
         return el;
       }
       if (turn.role === 'tool') {
@@ -9570,7 +9769,7 @@ GET  /v1/usage               Usage stats`,
         case 'dispatch_helper': return `Dispatching helper · ${a.host || ''}`;
         case 'mint_routine': return `Minting routine · ${a.name || ''}`;
         case 'respond': return 'Responding';
-        default: return tool.charAt(0).toUpperCase() + tool.slice(1);
+        default: return null;
       }
     }
 
@@ -9942,8 +10141,9 @@ GET  /v1/usage               Usage stats`,
 
       const engagementHtml = cardId
         ? `<span class="engagement-spacer"></span>
-           <button class="engagement-btn" data-kind="less" type="button" title="Less like this" aria-label="Less like this">−</button>
-           <button class="engagement-btn" data-kind="more" type="button" title="More like this" aria-label="More like this">+</button>`
+           <button class="engagement-btn" data-kind="reply" type="button" title="Reply to this" aria-label="Reply to this">${PH_REPLY}</button>
+           <button class="engagement-btn" data-kind="less" type="button" title="Less like this" aria-label="Less like this">${PH_THUMBS_DOWN}</button>
+           <button class="engagement-btn" data-kind="more" type="button" title="More like this" aria-label="More like this">${PH_THUMBS_UP}</button>`
         : '';
 
       // Source link: small "↗ source" affordance in the tail. Opens the
@@ -9963,12 +10163,15 @@ GET  /v1/usage               Usage stats`,
           ).join('')}</div>`
         : '';
 
+      const cardTimeStr = s.timestamp
+        ? new Date(s.timestamp).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })
+        : '';
       const bodyHtml = `<div class="card-body">
         ${kicker ? `<div class="kicker">${_esc(kicker)}</div>` : ''}
         <h3>${_esc(title)}</h3>
         ${body ? `<p>${_esc(body)}</p>` : ''}
         ${extraLinksHtml}
-        <div class="tail"><span>${_esc(tail)}</span>${linkHtml}<span class="action">Explore →</span>${engagementHtml}</div>
+        <div class="tail">${cardTimeStr ? `<span>${_esc(cardTimeStr)}</span>` : ''}<span>${_esc(tail)}</span>${linkHtml}<span class="action">Explore →</span>${engagementHtml}</div>
       </div>`;
 
       // Fallback cascade: if the primary image errors (expired signed URL,
@@ -10295,11 +10498,17 @@ GET  /v1/usage               Usage stats`,
       } else if (status === 'denied') {
         actionHtml = `<div class="proposal-status proposal-status-denied">Denied${decision && decision.timestamp ? ` · ${_relTime(decision.timestamp)}` : ''}</div>`;
       }
+      // Body content from harness-emitted proposals carries markdown
+      // (routine bodies prepend Schedule/Workspace/Route lines, then
+      // include the full # Purpose / # Steps prompt). Render through
+      // renderMd so headers, bold, and lists land as styled HTML
+      // instead of literal `#` / `**` characters in plain text.
+      const bodyHtml = body ? `<div class="proposal-body-md">${renderMd(body)}</div>` : '';
       card.innerHTML = `
         <div class="card-body">
           <div class="kicker">${_esc(kicker)}</div>
           <h3>${_esc(title)}</h3>
-          ${body ? `<p>${_esc(body)}</p>` : ''}
+          ${bodyHtml}
           <div class="proposal-summary">${summaryHtml}</div>
           ${actionHtml}
         </div>`;
@@ -10346,19 +10555,26 @@ GET  /v1/usage               Usage stats`,
 
     function _proposalSummaryHtml(tool, args) {
       if (tool === 'routines') {
+        // Routine prompts arrive as markdown — `# Purpose`, `**bold**`,
+        // numbered lists. Render the prompt field through renderMd so
+        // headers/bold/lists land as styled HTML; everything else stays
+        // plain-escaped key/value.
         const rows = [];
-        if (args.id) rows.push(['id', args.id]);
-        if (args.name) rows.push(['name', args.name]);
-        if (args.schedule) rows.push(['schedule', args.schedule]);
-        if (args.host) rows.push(['host', args.host]);
-        if (args.workspace) rows.push(['workspace', args.workspace]);
-        if (args.permission_mode) rows.push(['permission mode', args.permission_mode]);
-        if (typeof args.single_fire === 'boolean') rows.push(['single fire', args.single_fire ? 'yes' : 'no']);
-        if (typeof args.enabled === 'boolean') rows.push(['enabled', args.enabled ? 'yes' : 'no']);
-        if (args.prompt) rows.push(['prompt', args.prompt]);
-        return rows.map(([k, v]) =>
-          `<div class="proposal-row"><span class="proposal-row-key">${_esc(k)}</span><span class="proposal-row-val">${_esc(String(v))}</span></div>`
-        ).join('');
+        if (args.id) rows.push(['id', args.id, 'plain']);
+        if (args.name) rows.push(['name', args.name, 'plain']);
+        if (args.schedule) rows.push(['schedule', args.schedule, 'plain']);
+        if (args.host) rows.push(['host', args.host, 'plain']);
+        if (args.workspace) rows.push(['workspace', args.workspace, 'plain']);
+        if (args.permission_mode) rows.push(['permission mode', args.permission_mode, 'plain']);
+        if (typeof args.single_fire === 'boolean') rows.push(['single fire', args.single_fire ? 'yes' : 'no', 'plain']);
+        if (typeof args.enabled === 'boolean') rows.push(['enabled', args.enabled ? 'yes' : 'no', 'plain']);
+        if (args.prompt) rows.push(['prompt', args.prompt, 'md']);
+        return rows.map(([k, v, fmt]) => {
+          const valHtml = fmt === 'md'
+            ? `<div class="proposal-row-md">${renderMd(String(v))}</div>`
+            : _esc(String(v));
+          return `<div class="proposal-row${fmt === 'md' ? ' proposal-row-block' : ''}"><span class="proposal-row-key">${_esc(k)}</span><span class="proposal-row-val">${valHtml}</span></div>`;
+        }).join('');
       }
       if (tool === 'provenance') {
         const rows = [];
@@ -10543,6 +10759,25 @@ GET  /v1/usage               Usage stats`,
     // — render as compact .delta rows lifted from the experiment viz, so
     // the kind tinting (voice-creator, voice-preserver, voice-destroyer,
     // crystal purple, mood accent, recall signal-dim) carries through.
+    function _wrapThinkingRow(innerEl, oneliner, item) {
+      const det = document.createElement('details');
+      det.className = 'thinking-row';
+      det.dataset.kind = item.kind || '';
+      det.dataset.category = 'thinking';
+      det.dataset.fromPuddle = '1';
+      det.dataset.puddleId = item.id || '';
+      if (item.id) det.dataset.deltaId = item.id;
+      const summary = document.createElement('summary');
+      const label = (oneliner || item.kind || '').slice(0, 120);
+      summary.innerHTML = `<span class="th-icon">${PH_CHAT_DOTS}</span><span class="th-label">${_esc(label)}</span>`;
+      const body = document.createElement('div');
+      body.className = 'thinking-body';
+      body.appendChild(innerEl);
+      det.appendChild(summary);
+      det.appendChild(body);
+      return det;
+    }
+
     function _renderPuddleItem(it, delay) {
       const ts = it.timestamp ? new Date(it.timestamp) : new Date();
       const timeStr = ts.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
@@ -10632,10 +10867,16 @@ GET  /v1/usage               Usage stats`,
           if (body) {
             const rail = document.createElement('div');
             rail.className = 'tail';
-            rail.style.cssText = 'display:flex;gap:14px;margin-top:10px;font-family:var(--mono);font-size:11px;color:var(--ink-faint);letter-spacing:0.04em;';
-            rail.innerHTML = `<span style="flex:1"></span>
-              <button class="engagement-btn" data-kind="less" type="button" title="Less like this">−</button>
-              <button class="engagement-btn" data-kind="more" type="button" title="Save to lake">+</button>`;
+            rail.style.cssText = 'display:flex;gap:14px;margin-top:10px;font-family:var(--mono);font-size:11px;color:var(--ink-faint);letter-spacing:0.04em;align-items:center;';
+            const railMetaParts = [];
+            if (toName) railMetaParts.push('> ' + (toName.charAt(0).toUpperCase() + toName.slice(1)));
+            if (aVia) railMetaParts.push(_esc(aVia));
+            railMetaParts.push(timeStr);
+            const railMeta = railMetaParts.join(' · ');
+            rail.innerHTML = `<span>${railMeta}</span><span style="flex:1"></span>
+              <button class="engagement-btn" data-kind="reply" type="button" title="Reply to this">${PH_REPLY}</button>
+              <button class="engagement-btn" data-kind="less" type="button" title="Less like this">${PH_THUMBS_DOWN}</button>
+              <button class="engagement-btn" data-kind="more" type="button" title="Save to lake">${PH_THUMBS_UP}</button>`;
             body.appendChild(rail);
           }
         }
@@ -10680,6 +10921,11 @@ GET  /v1/usage               Usage stats`,
       // on click — the puddle copy is truncated at write time so even
       // the full expansion stays bounded.
       if (it.kind === 'harness-turn') {
+        {
+          let args = {};
+          try { args = JSON.parse(it.args_json || '{}'); } catch(e) {}
+          if (!_statusForTool(it.tool || '', args)) return null;
+        }
         const el = document.createElement('article');
         el.className = `delta thought harness-turn tool-${it.tool || 'unknown'}${it.error ? ' has-error' : ''}`;
         el.dataset.kind = 'harness-turn';
@@ -10718,7 +10964,8 @@ GET  /v1/usage               Usage stats`,
           parts.push(`<div class="harness-error"><strong>error:</strong> ${_esc(errorBlock)}</div>`);
         }
         el.innerHTML = parts.join('');
-        return el;
+        const oneliner = _statusForTool(it.tool || '', (() => { try { return JSON.parse(it.args_json || '{}'); } catch(e) { return {}; } })()) || (it.tool || 'thinking');
+        return _wrapThinkingRow(el, oneliner, it);
       }
       // Harness review pass — what the post-response review decided.
       // Renders inline beside the turns from the same fire so the user
@@ -10732,6 +10979,7 @@ GET  /v1/usage               Usage stats`,
       // 3+ stay as "provenance proposed" because the operator still
       // has to approve.
       if (it.kind === 'harness-review') {
+        if (it.review_kind === 'skipped') return null;
         const el = document.createElement('article');
         el.className = `delta thought harness-review review-${it.review_kind || 'unknown'}`;
         el.dataset.kind = 'harness-review';
@@ -10788,7 +11036,8 @@ GET  /v1/usage               Usage stats`,
           parts.push(`<details class="harness-detail"><summary>proposal args</summary><pre>${_esc(args)}</pre></details>`);
         }
         el.innerHTML = parts.join('');
-        return el;
+        const reviewOneliner = proposalTitle ? `${headLabel} — ${proposalTitle}` : headLabel;
+        return _wrapThinkingRow(el, reviewOneliner, it);
       }
       // Voice thought (legacy parliament shape — retained for old puddle
       // entries still in TTL window after the harness migration).
@@ -10800,7 +11049,9 @@ GET  /v1/usage               Usage stats`,
         el.dataset.puddleId = it.id || '';
         if (it.id) el.dataset.deltaId = it.id;
         el.innerHTML = `<header class="d-head"><span class="d-kind">${_esc(it.voice || 'voice')}</span><span class="d-ts">${timeStr}</span></header><div class="d-body">${renderMd(it.content || '')}</div>`;
-        return el;
+        const voiceSnip = (it.content || '').replace(/\s+/g, ' ').trim().slice(0, 90);
+        const voiceOneliner = `${it.voice || 'voice'}${voiceSnip ? ' — ' + voiceSnip : ''}`;
+        return _wrapThinkingRow(el, voiceOneliner, it);
       }
       // Pass intent (reflection / drift / bridging / alert) — purple-
       // tinted. These are PROMPTS the witness reads (the pulse
@@ -10902,7 +11153,9 @@ GET  /v1/usage               Usage stats`,
           </header>
           <div class="d-body${isJson ? ' is-json' : ''}">${isJson ? _esc(bodyText) : renderMd(bodyText)}</div>
         `;
-        return el;
+        const lakeSnip = raw.replace(/\s+/g, ' ').trim().slice(0, 70);
+        const lakeOneliner = `δ ${src}${lakeSnip ? ' — ' + lakeSnip : ''}`;
+        return _wrapThinkingRow(el, lakeOneliner, it);
       }
       // Claude-code DISPATCH — Fathom telling a claude-code agent on
       // a specific machine to do work. The body is the literal prompt
@@ -10952,7 +11205,9 @@ GET  /v1/usage               Usage stats`,
         el.dataset.puddleId = it.id || '';
         if (it.id) el.dataset.deltaId = it.id;
         el.innerHTML = `<header class="d-head"><span class="d-kind">recall</span><span class="d-ts">${timeStr}</span></header><div class="d-body">${renderMd(it.content || '')}</div>`;
-        return el;
+        const recallSnip = (it.content || '').replace(/\s+/g, ' ').trim().slice(0, 80);
+        const recallOneliner = `recall${recallSnip ? ' — ' + recallSnip : ''}`;
+        return _wrapThinkingRow(el, recallOneliner, it);
       }
       return null;
     }
@@ -10973,7 +11228,7 @@ GET  /v1/usage               Usage stats`,
     // at noon, the heartbeat at 6pm" exactly when that's the most
     // useful thing to see.
     const _CLUSTERABLE_CATEGORIES = new Set([
-      'prompts', 'thinking', 'identity',
+      'prompts', 'identity',
     ]);
 
     function _renderAccordion(items) {
@@ -11425,6 +11680,14 @@ GET  /v1/usage               Usage stats`,
       // both carry data-puddle-id when they came from the loop.
       const item = btn.closest('.card, .msg');
       if (!item) return;
+      // Reply button — arm reply-target instead of sending engagement.
+      if (btn.dataset.kind === 'reply') {
+        const id = item.dataset.deltaId || item.dataset.puddleId || item.dataset.cardId || '';
+        if (!id) return;
+        setReplyTarget({ id, preview: _previewFromEl(item) });
+        if (composerTa) setTimeout(() => composerTa.focus(), 0);
+        return;
+      }
       const puddleId = item.dataset.puddleId || item.dataset.cardId || '';
       if (!puddleId) return;
       const kind = btn.dataset.kind === 'less' ? 'less' : 'more';
@@ -11509,15 +11772,14 @@ GET  /v1/usage               Usage stats`,
 
     replyContextClear.addEventListener('click', clearReplyTarget);
 
-    // Delegated click handler — fires for any feed item that carries
-    // data-delta-id (cards, witness replies, recall blocks, voice-thoughts,
-    // crystals, moods, lake-deltas — see _renderPuddleItem). Skips the
-    // same in-card affordances the engagement handler skips, so + / − /
-    // image lightbox / external links don't accidentally arm reply.
+    // Delegated click handler — handles reply-mark scroll-to-target
+    // (clicking the "↩ in reply to..." chip on a user message scrolls
+    // to and flashes the original). The reply-arm path used to live
+    // here too as a click-anywhere-on-feed-item handler, but it
+    // surprised users who tapped a card to read it and got their
+    // composer hijacked. Reply now lives behind the explicit ↩ button
+    // on the engagement rail.
     feed.addEventListener('click', (e) => {
-      if (e.target.closest('.glightbox, .card-media, a[target], .engagement-btn, .engagement-spacer')) return;
-      // Reply-mark click — scroll to and highlight the original target
-      // instead of arming a new reply-target on the user message itself.
       const replyMark = e.target.closest('.reply-mark');
       if (replyMark && replyMark.dataset.replyTo) {
         e.stopPropagation();
@@ -11528,19 +11790,6 @@ GET  /v1/usage               Usage stats`,
           setTimeout(() => target.classList.remove('reply-target-flash'), 1500);
         }
         return;
-      }
-      const el = e.target.closest('[data-delta-id]');
-      if (!el) return;
-      const id = el.dataset.deltaId;
-      if (!id) return;
-      // Tap counts as explicit engagement — exclude from passive
-      // scroll-past / dwell-low signaling for cards.
-      if (el.classList && el.classList.contains('card') && el.dataset.cardId) {
-        _markEngaged(el.dataset.cardId);
-      }
-      setReplyTarget({ id, preview: _previewFromEl(el) });
-      if (composerTa) {
-        setTimeout(() => composerTa.focus(), 0);
       }
     });
 
@@ -11751,38 +12000,139 @@ GET  /v1/usage               Usage stats`,
       if (_convStatusTimer) { clearInterval(_convStatusTimer); _convStatusTimer = null; }
     }
 
-    // Fire-pulse button — hand-trigger a feed synthesis. Drops the four
-    // pass intents (reflection / drift / bridging / alert) into the
-    // puddle, same primitive the pressure-watcher fires automatically.
-    const _firePulseBtn = document.getElementById('firePulseBtn');
-    if (_firePulseBtn) {
-      _firePulseBtn.addEventListener('click', async () => {
-        _firePulseBtn.disabled = true;
-        _firePulseBtn.dataset.state = 'firing';
-        const original = _firePulseBtn.textContent;
-        _firePulseBtn.textContent = 'firing…';
-        try {
-          await fetch(API_BASE + '/v1/puddle/pulse?reason=manual-button', {
-            method: 'POST',
-            headers: authHeaders(),
-          });
-          // Pulse intents land in the puddle synchronously; kick the
-          // status poll so the convergence dots show "deliberating"
-          // immediately instead of waiting up to 1.5s.
-          _pollLoopStatus();
-        } catch (e) { /* button re-enables in finally */ }
-        finally {
-          // Brief delay so the user sees the firing state register
-          // even on fast networks; supervisor picks up the pending
-          // intents within ~1.5s, the dots take over the visual.
-          setTimeout(() => {
-            _firePulseBtn.textContent = original;
-            _firePulseBtn.dataset.state = '';
-            _firePulseBtn.disabled = false;
-          }, 1200);
-        }
+    // Per-tier fire buttons in the Weather card header. Each button
+    // dispatches its specific tier via /v1/puddle/pulse?tier=<name>;
+    // the manual path bypasses the pressure floor, but cooldowns still
+    // gate. Locked buttons show a live countdown.
+    (function weatherFireButtons() {
+      const row = document.getElementById('weatherFireRow');
+      if (!row) return;
+
+      const buttons = row.querySelectorAll('.weather-fire-btn');
+      const cooldownByTier = new Map();  // tier name → seconds remaining
+      // Preserve any leading icon (multi-turn arrows or feed-regen glyph)
+      // across re-paints so the visual indicator survives cooldown ticks
+      // and firing-state transitions.
+      const iconByTier = new Map();
+      buttons.forEach(btn => {
+        const icon = btn.querySelector('.multi-turn-icon, .feed-regen-glyph');
+        if (icon) iconByTier.set(btn.dataset.tier, icon.cloneNode(true));
       });
-    }
+
+      function fmtCountdown(seconds) {
+        if (seconds <= 0) return '';
+        if (seconds < 60) return Math.ceil(seconds) + 's';
+        if (seconds < 3600) return Math.ceil(seconds / 60) + 'm';
+        return (seconds / 3600).toFixed(1) + 'h';
+      }
+
+      function paintButton(btn) {
+        const tier = btn.dataset.tier;
+        const remaining = cooldownByTier.get(tier) || 0;
+        // Skip repainting while a fire is in flight — the click handler
+        // already set the firing label and will repaint on settle.
+        if (btn.dataset.state === 'firing') return;
+
+        // Always rebuild from scratch so SVG icon + tier name + (optional)
+        // cooldown counter end up in the right order without orphan nodes.
+        while (btn.firstChild) btn.removeChild(btn.firstChild);
+        const icon = iconByTier.get(tier);
+        if (icon) btn.appendChild(icon.cloneNode(true));
+        btn.appendChild(document.createTextNode(tier));
+
+        if (remaining > 0) {
+          btn.disabled = true;
+          btn.dataset.state = 'locked';
+          const span = document.createElement('span');
+          span.className = 'cooldown';
+          span.textContent = fmtCountdown(remaining);
+          btn.appendChild(span);
+        } else {
+          btn.disabled = false;
+          btn.dataset.state = '';
+        }
+      }
+
+      async function refreshCooldowns() {
+        // Read tier table + their cooldown_seconds, then check each
+        // tier's last fire from the loop's relief-cooldowns view.
+        // The /v1/loop/relief-cooldowns endpoint doesn't exist yet; we
+        // approximate by observing /v1/puddle/pulse responses (server
+        // returns cooldown_seconds when locked) and by ticking the
+        // remaining counter locally between server checks.
+        for (const btn of buttons) paintButton(btn);
+      }
+
+      function tickCountdowns() {
+        let any = false;
+        for (const [tier, sec] of cooldownByTier.entries()) {
+          if (sec > 0) {
+            cooldownByTier.set(tier, sec - 1);
+            any = true;
+          }
+        }
+        if (any) refreshCooldowns();
+      }
+      setInterval(tickCountdowns, 1000);
+
+      buttons.forEach(btn => {
+        btn.addEventListener('click', async () => {
+          const tier = btn.dataset.tier;
+          if (btn.disabled) return;
+          btn.disabled = true;
+          btn.dataset.state = 'firing';
+          // Replace text but keep the icon if present.
+          const icon = iconByTier.get(tier);
+          while (btn.firstChild) btn.removeChild(btn.firstChild);
+          if (icon) btn.appendChild(icon.cloneNode(true));
+          btn.appendChild(document.createTextNode('firing…'));
+          try {
+            // Feed-regen has its own endpoint (different machinery —
+            // crystal regeneration, not pressure relief). Everything
+            // else routes through /v1/puddle/pulse.
+            let url, expectedFiredValue;
+            if (tier === 'feed-regen') {
+              url = API_BASE + '/v1/feed/regen/fire';
+              expectedFiredValue = true;
+            } else {
+              url = API_BASE + '/v1/puddle/pulse'
+                + '?reason=manual-button-' + encodeURIComponent(tier)
+                + '&tier=' + encodeURIComponent(tier);
+              expectedFiredValue = tier;
+            }
+            const r = await fetch(url, {
+              method: 'POST',
+              headers: authHeaders(),
+            });
+            const data = await r.json().catch(() => ({}));
+            // Cooldown response shapes differ slightly between endpoints:
+            //   pulse → {reason: "on_cooldown", cooldown_seconds: <n>}
+            //   feed-regen → {fired: false, reason: "cooldown", cooldown_seconds: <n>}
+            const isCooldown = (data.reason === 'on_cooldown' || data.reason === 'cooldown')
+              && data.cooldown_seconds;
+            if (isCooldown) {
+              cooldownByTier.set(tier, Number(data.cooldown_seconds));
+            } else if (data.fired === expectedFiredValue) {
+              // Successful fire — start the cooldown clock with known
+              // defaults so the button reflects the lock immediately.
+              const defaults = {
+                alert: 600, bridging: 1800,
+                reflection: 10800, drift: 10800,
+                'feed-regen': 1800,
+              };
+              cooldownByTier.set(tier, defaults[tier] || 600);
+              if (typeof _pollLoopStatus === 'function') _pollLoopStatus();
+            }
+          } catch (e) { /* fall through */ }
+          finally {
+            setTimeout(() => {
+              btn.dataset.state = '';
+              paintButton(btn);
+            }, 800);
+          }
+        });
+      });
+    })();
 
     // ── Feed live-poll ─────────────────────────
     // The feed is now puddle-driven (Grand Loop cutover). Every few
@@ -12029,10 +12379,9 @@ GET  /v1/usage               Usage stats`,
       let statusText = '';
       try {
         const args = JSON.parse(latest.args_json || '{}');
-        statusText = _statusForTool(latest.tool, args) || latest.tool;
-      } catch (e) {
-        statusText = latest.tool;
-      }
+        statusText = _statusForTool(latest.tool, args) || '';
+      } catch (e) { /* leave empty */ }
+      if (!statusText) return;
 
       const badge = document.createElement('div');
       badge.className = 'fathom-live-status';
@@ -12110,132 +12459,8 @@ GET  /v1/usage               Usage stats`,
       if (_feedLiveTimer) { clearInterval(_feedLiveTimer); _feedLiveTimer = null; }
     }
 
-    // Active claude-code task strip — polls /v1/loop/claude-code-tasks
-    // every 5s and renders one row per live task. Visibility is gated
-    // on the Claude Code filter category: the same checkbox that
-    // governs whether claude-code feed items render also hides the
-    // strip when toggled off, so the user has one switch for the
-    // whole concept rather than two.
-    const _claudeCodeStatusEl = document.getElementById('claudeCodeStatus');
-    let _claudeCodeStatusTimer = null;
-    let _claudeCodeStatusLast = [];
-
-    function _formatRelative(iso) {
-      // "X ago" — coarsened. Status bars don't need second precision,
-      // and a re-render every 5s already keeps it fresh enough that
-      // a stale-by-a-second label is invisible.
-      if (!iso) return '';
-      const t = Date.parse(iso);
-      if (Number.isNaN(t)) return '';
-      const s = Math.max(0, Math.floor((Date.now() - t) / 1000));
-      if (s < 60)   return `${s}s ago`;
-      if (s < 3600) return `${Math.floor(s / 60)}m ago`;
-      if (s < 86400) return `${Math.floor(s / 3600)}h ago`;
-      return `${Math.floor(s / 86400)}d ago`;
-    }
-
-    function _renderClaudeCodeStatus(tasks) {
-      if (!_claudeCodeStatusEl) return;
-      _claudeCodeStatusLast = Array.isArray(tasks) ? tasks : [];
-      // The strip surfaces whenever a task is live, regardless of the
-      // Claude Code filter. The filter governs whether the closure
-      // replies render in the FEED below; the strip is the
-      // I-can-see-what's-happening status indicator and shouldn't
-      // disappear if the user filtered out the noisier feed rows.
-      const visible = _claudeCodeStatusLast.length > 0;
-      _claudeCodeStatusEl.hidden = !visible;
-      if (!visible) {
-        _claudeCodeStatusEl.innerHTML = '';
-        return;
-      }
-      const icon = (typeof PROVIDER_ICONS === 'object' && PROVIDER_ICONS['claude-code'])
-        ? PROVIDER_ICONS['claude-code']
-        : '';
-      const rows = _claudeCodeStatusLast.map(t => {
-        const title = (t.title || '(no prompt yet)').replace(/[<&]/g, c => c === '<' ? '&lt;' : '&amp;');
-        const host = (t.host || '?').replace(/[<&]/g, c => c === '<' ? '&lt;' : '&amp;');
-        const ago = _formatRelative(t.last_message_at);
-        const sid = (t.claude_session_id || '').replace(/[^a-zA-Z0-9-]/g, '');
-        const cwd = (t.project || '').replace(/[<&'"]/g, '');
-        // Resume command — shell-quoted enough for copy-paste safety.
-        // The user runs this on the targeted host themselves.
-        const resumeCmd = cwd
-          ? `cd ${cwd} && claude --resume ${sid}`
-          : `claude --resume ${sid}`;
-        const metaBits = [`on ${host}`];
-        if (ago) metaBits.push(`last message ${ago}`);
-        return `
-          <div class="claude-code-task" data-claude-session-id="${sid}" data-corr="${(t.corr || '').replace(/[<&"]/g, '')}" data-last-message-id="${(t.last_message_id || '').replace(/[<&"]/g, '')}" title="Click to scroll to the latest message in this task">
-            <span class="cc-icon">${icon}</span>
-            <span class="cc-title">${title}</span>
-            <span class="cc-meta">${metaBits.join(' · ')}</span>
-            <button class="cc-resume" type="button" data-resume-cmd="${resumeCmd.replace(/"/g, '&quot;')}" title="Copy resume command">resume</button>
-          </div>`;
-      }).join('');
-      _claudeCodeStatusEl.innerHTML = rows;
-    }
-
-    async function loadClaudeCodeTasks() {
-      try {
-        const r = await fetch(API_BASE + '/v1/loop/claude-code-tasks', {
-          headers: authHeaders(),
-        });
-        if (!r.ok) {
-          // Endpoint not yet deployed (older API) — hide quietly rather
-          // than spamming console errors. The feature degrades to
-          // invisible; no user-facing breakage.
-          _renderClaudeCodeStatus([]);
-          return;
-        }
-        const data = await r.json();
-        _renderClaudeCodeStatus(data.tasks || []);
-      } catch (e) {
-        _renderClaudeCodeStatus([]);
-      }
-    }
-
-    function _startClaudeCodeStatusPoll() {
-      if (_claudeCodeStatusTimer || document.hidden) return;
-      _claudeCodeStatusTimer = setInterval(loadClaudeCodeTasks, 5000);
-    }
-    function _stopClaudeCodeStatusPoll() {
-      if (_claudeCodeStatusTimer) {
-        clearInterval(_claudeCodeStatusTimer);
-        _claudeCodeStatusTimer = null;
-      }
-    }
-
-    // Click delegation: row click → scroll to latest delta from the
-    // task; resume-button click → copy command, suppress row click.
-    if (_claudeCodeStatusEl) {
-      _claudeCodeStatusEl.addEventListener('click', (e) => {
-        const resumeBtn = e.target.closest('.cc-resume');
-        if (resumeBtn) {
-          e.stopPropagation();
-          const cmd = resumeBtn.dataset.resumeCmd || '';
-          if (cmd && navigator.clipboard) {
-            navigator.clipboard.writeText(cmd).then(() => {
-              const orig = resumeBtn.textContent;
-              resumeBtn.textContent = 'copied';
-              setTimeout(() => { resumeBtn.textContent = orig; }, 1200);
-            }).catch(() => {
-              resumeBtn.textContent = 'copy failed';
-            });
-          }
-          return;
-        }
-        const row = e.target.closest('.claude-code-task');
-        if (!row) return;
-        const lastId = row.dataset.lastMessageId || '';
-        if (!lastId) return;
-        // Best-effort scroll to the matching feed item. Items rendered
-        // by _renderPuddleItem don't all carry data-delta-id today, so
-        // this works for chat-shape rows (which do) and silently no-ops
-        // for kinds that don't — fine as a first cut.
-        const target = document.querySelector(`.feed [data-delta-id="${lastId}"]`);
-        if (target) target.scrollIntoView({ behavior: 'smooth', block: 'center' });
-      });
-    }
+    // (task status strip removed — thinking-row per-item feed items
+    //  replace the live task strip)
 
     // _pollFeedLive IS the puddle poll now since the cutover. These
     // start/stop stubs stay as no-ops so the visibilitychange and boot
@@ -12249,12 +12474,10 @@ GET  /v1/usage               Usage stats`,
         _stopFeedStatusPoll();
         _stopFeedLivePoll();
         _stopPuddleLivePoll();
-        _stopClaudeCodeStatusPoll();
       } else {
         _startFeedStatusPoll();
         _startFeedLivePoll();
         _startPuddleLivePoll();
-        _startClaudeCodeStatusPoll();
       }
     });
 
@@ -12269,11 +12492,9 @@ GET  /v1/usage               Usage stats`,
     loadMyProfile();
     loadFeedStories(false);
     loadHeroMood();
-    loadClaudeCodeTasks();
     _startFeedStatusPoll();
     _startFeedLivePoll();
     _startPuddleLivePoll();
-    _startClaudeCodeStatusPoll();
     // (legacy /v1/feed/visit ping removed — the feed-loop synthesis
     // pipeline is retired; mark_visit() is a no-op now.)
 
@@ -12417,7 +12638,7 @@ GET  /v1/usage               Usage stats`,
       "1d":  { label: "1 day",    days: 1 },
       "6h":  { label: "6 hours",  days: 0.25 },
     };
-    let ECG_WINDOW_DAYS = ECG_WINDOWS["1w"].days;
+    let ECG_WINDOW_DAYS = ECG_WINDOWS["1d"].days;
     // Drift normalization — a drift of `threshold` reaches the zone's edge.
     // Auto-regen fires at ~0.9 of threshold so a fresh crystal pinches it
     // back to the centerline. Same value as crystal_drift_threshold.
@@ -12456,9 +12677,9 @@ GET  /v1/usage               Usage stats`,
       let crystalEvents = { events: [] };
       let feedDriftHist = { history: [] };
       let feedConfHist = { history: [] };
-      let feedEngagementHist = { history: [] };
       let feedCrystalEvents = { events: [] };
       let feedRegenEvents = { events: [] };
+      let weatherEvents = { events: [] };
 
       // Pass the chosen window length to the history endpoints so they
       // return data covering the visible span (pressure default is 36h).
@@ -12467,8 +12688,8 @@ GET  /v1/usage               Usage stats`,
       let reliefTiers = { threshold: 0, tiers: [] };
       try {
         [usageTotal, usageHist, recallHist, pressureHist, driftHist, moodHist, crystalEvents,
-         feedDriftHist, feedConfHist, feedEngagementHist, feedCrystalEvents, feedRegenEvents,
-         reliefTiers] = await Promise.all([
+         feedDriftHist, feedConfHist, feedCrystalEvents, feedRegenEvents,
+         reliefTiers, weatherEvents] = await Promise.all([
           api('/v1/usage').catch(() => ({ days: [], total: 0 })),
           api(`/v1/usage/history?since_seconds=${sinceSeconds}&buckets=60`).catch(() => ({ history: [] })),
           api(`/v1/recall/history?since_seconds=${sinceSeconds}&buckets=60`).catch(() => ({ history: [] })),
@@ -12478,10 +12699,10 @@ GET  /v1/usage               Usage stats`,
           api(`/v1/crystal/events?since_seconds=${sinceSeconds}`).catch(() => ({ events: [] })),
           api(`/v1/feed/drift/history?since_seconds=${sinceSeconds}`).catch(() => ({ history: [] })),
           api('/v1/feed/confidence/history').catch(() => ({ history: [] })),
-          api(`/v1/feed/engagement/history?since_seconds=${sinceSeconds}`).catch(() => ({ history: [] })),
           api(`/v1/feed/crystal/events?since_seconds=${sinceSeconds}`).catch(() => ({ events: [] })),
           api(`/v1/feed/regen/events?since_seconds=${sinceSeconds}`).catch(() => ({ events: [] })),
           api('/v1/loop/relief-tiers').catch(() => ({ threshold: 0, tiers: [] })),
+          api(`/v1/weather/events?since_seconds=${sinceSeconds}`).catch(() => ({ events: [] })),
         ]);
       } catch (e) { /* noop */ }
       const usage = usageTotal;  // total + days array still come from /v1/usage
@@ -12513,9 +12734,10 @@ GET  /v1/usage               Usage stats`,
       }
 
       renderActivityCard({ usage, usageHist, recallHist, crystalEvents });
-      renderPressureMoodCard({ pressureHist, moodHist, crystalEvents, feedRegenEvents, reliefTiers });
+      renderPressureMoodCard({ pressureHist, moodHist, crystalEvents, feedRegenEvents, reliefTiers, weatherEvents });
+      renderMoodStarCard();
       renderDriftCard({ driftHist, crystalEvents });
-      renderFeedOrientCard({ feedDriftHist, feedConfHist, feedEngagementHist, feedCrystalEvents });
+      renderFeedOrientCard({ feedDriftHist, feedConfHist, feedCrystalEvents });
 
       // Meta line: total + current mood as a colored chip
       ecgMeta.innerHTML = '';
@@ -12809,7 +13031,7 @@ GET  /v1/usage               Usage stats`,
       _drawXLabels(ctx, ticks);
     }
 
-    function renderPressureMoodCard({ pressureHist, moodHist, crystalEvents, feedRegenEvents, reliefTiers }) {
+    function renderPressureMoodCard({ pressureHist, moodHist, crystalEvents, feedRegenEvents, reliefTiers, weatherEvents }) {
       const svg = document.getElementById('svgPressureMood');
       if (!svg) return;
       const ctx = _chartCtx(svg, 200);
@@ -12986,10 +13208,228 @@ GET  /v1/usage               Usage stats`,
         ctx.svg.appendChild(icon);
       }
 
+      // Weather events — mood synthesis + relief-tier fires. Each
+      // event marks WHEN that thing fired in the timeline. Markers
+      // sit at the y-height of each tier's threshold line so the
+      // visual encoding matches the dashed reference lines:
+      //   mood        — lavender, just above the threshold line
+      //   alert       — red,      at alert floor (0.3)
+      //   bridging    — amber,    at bridging floor (0.5)
+      //   reflection  — teal,     at sit floor (0.7)
+      //   drift       — purple,   at sit floor (0.7) — multi-turn
+      // Reflection and drift carry the same back-and-forth glyph as
+      // the Weather header buttons to mark multi-turn dialogues.
+      const weEvents = (weatherEvents && weatherEvents.events) || [];
+      if (weEvents.length && reliefThreshold > 0) {
+        const yMax = 1.5;
+        const tierMeta = {
+          mood:       { ratio: 1.05, color: '#b08cff', glyph: '◉', isMulti: false },
+          alert:      { ratio: 0.30, color: '#e56a6a', glyph: '▲', isMulti: false },
+          bridging:   { ratio: 0.50, color: '#e8a24e', glyph: '⌒', isMulti: false },
+          reflection: { ratio: 0.70, color: '#5ce1c6', glyph: '↔', isMulti: true  },
+          drift:      { ratio: 0.70, color: '#9d8de8', glyph: '⇋', isMulti: true  },
+        };
+        for (const ev of weEvents) {
+          const meta = tierMeta[ev.kind];
+          if (!meta) continue;
+          const t = ev.timestamp ? new Date(ev.timestamp).getTime() : 0;
+          if (!t || t < ctx.tStart || t > ctx.now) continue;
+          const x = ctx.xForT(t);
+          const y = yFor(meta.ratio / yMax);
+
+          // Dot on the threshold line at the event's x position.
+          const dot = ecgSvgNS('circle', {
+            cx: x, cy: y, r: 3,
+            fill: meta.color,
+            'fill-opacity': 0.95,
+            stroke: 'var(--bg-deep, #081519)',
+            'stroke-width': 1,
+          });
+          const tStr = new Date(t).toLocaleString([], {
+            month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit',
+          });
+          const titleEl = ecgSvgNS('title');
+          const stateStr = ev.state ? ` · ${ev.state}` : '';
+          const reasonStr = ev.reason ? ` · ${ev.reason}` : '';
+          titleEl.textContent = `${ev.kind}${stateStr} · ${tStr}${reasonStr}`;
+          dot.appendChild(titleEl);
+          ctx.svg.appendChild(dot);
+
+          // Multi-turn glyph beside the dot for reflection/drift.
+          if (meta.isMulti) {
+            const g = ecgSvgNS('text', {
+              x: x + 5, y: y + 3,
+              'font-family': 'var(--mono)', 'font-size': '9px',
+              fill: meta.color,
+              opacity: 0.85,
+            });
+            g.textContent = meta.glyph;
+            ctx.svg.appendChild(g);
+          }
+        }
+      }
+
       _drawFreeTierBlackout(ctx, {
         headline: "Unlock Fathom's entire history right now.",
       });
       _drawXLabels(ctx, ticks);
+    }
+
+    // ── Mood Star (radar) ────────────────────────────────────────────
+    //
+    // Spoke length = current per-axis level (0–1) named by the latest
+    // carrier-wave. Rising drift since that carrier surfaces as an
+    // outward chevron on the spoke. Open-vocabulary axes: Fathom names
+    // whatever it's actually feeling, so the chart's labels move
+    // between syntheses (warmth, dread, awe, fatigue, focus, …).
+    async function renderMoodStarCard() {
+      const svg = document.getElementById('svgMoodStar');
+      if (!svg) return;
+      while (svg.firstChild) svg.removeChild(svg.firstChild);
+      const stateEl = document.getElementById('moodStarState');
+      const headlineEl = document.getElementById('moodStarHeadline');
+      const metaEl = document.getElementById('moodStarMeta');
+
+      let topo;
+      try {
+        topo = await api('/v1/mood/topology');
+      } catch (e) {
+        if (metaEl) metaEl.textContent = 'failed to load';
+        return;
+      }
+
+      const carrier = topo.carrier || null;
+      if (stateEl) stateEl.textContent = carrier && carrier.state ? carrier.state : '—';
+      if (headlineEl) headlineEl.textContent = carrier && carrier.headline ? carrier.headline : '';
+      if (metaEl) metaEl.textContent = '';
+
+      const axes = (topo.axes || []).slice(0, 14);  // cap label crowding
+      if (!axes.length) {
+        const empty = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+        empty.setAttribute('x', 0);
+        empty.setAttribute('y', 0);
+        empty.setAttribute('class', 'mood-star-empty');
+        empty.textContent = 'no carrier-wave yet';
+        svg.appendChild(empty);
+        return;
+      }
+
+      // Scale: radius 110 = level 1.0 (full intensity).
+      const R_MAX = 110;
+      const levelScale = R_MAX;  // direct map: level∈[0,1] → radius∈[0,R_MAX]
+
+      // Concentric guide rings at 0.25, 0.5, 0.75, 1.0 — intensity
+      // quartiles, not "fraction of max drift".
+      const ringG = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+      [0.25, 0.5, 0.75, 1.0].forEach(f => {
+        const c = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+        c.setAttribute('cx', 0);
+        c.setAttribute('cy', 0);
+        c.setAttribute('r', R_MAX * f);
+        c.setAttribute('class', 'mood-star-grid');
+        ringG.appendChild(c);
+      });
+      svg.appendChild(ringG);
+
+      const N = axes.length;
+
+      // Polygon connecting the spoke tips — gives the radar its
+      // gestalt shape. Drawn under the spokes so individual spokes
+      // still read crisply on top.
+      const polyPts = [];
+      axes.forEach((a, i) => {
+        const angle = -Math.PI / 2 + (2 * Math.PI * i) / N;
+        const level = Math.max(0, Math.min(1, a.level || 0));
+        const r = level * levelScale;
+        polyPts.push(`${(Math.cos(angle) * r).toFixed(2)},${(Math.sin(angle) * r).toFixed(2)}`);
+      });
+      if (polyPts.length >= 3) {
+        const poly = document.createElementNS('http://www.w3.org/2000/svg', 'polygon');
+        poly.setAttribute('points', polyPts.join(' '));
+        poly.setAttribute('class', 'mood-star-polygon');
+        svg.appendChild(poly);
+      }
+
+      // Render spokes + drift arrowheads
+      const spokeG = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+      svg.appendChild(spokeG);
+
+      axes.forEach((a, i) => {
+        const angle = -Math.PI / 2 + (2 * Math.PI * i) / N;  // 12 o'clock = first axis
+        const level = Math.max(0, Math.min(1, a.level || 0));
+        const r = level * levelScale;
+        const x = Math.cos(angle) * r;
+        const y = Math.sin(angle) * r;
+        const drift = a.net || 0;
+        const cls = drift > 0 ? ' rising' : '';
+
+        const line = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+        line.setAttribute('x1', 0);
+        line.setAttribute('y1', 0);
+        line.setAttribute('x2', x);
+        line.setAttribute('y2', y);
+        line.setAttribute('class', 'mood-star-spoke' + cls);
+        spokeG.appendChild(line);
+
+        const tip = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+        tip.setAttribute('cx', x);
+        tip.setAttribute('cy', y);
+        tip.setAttribute('class', 'mood-star-tip' + cls);
+        const reasons = (a.reasons || []).slice(0, 2).join(' · ');
+        const driftStr = drift > 0
+          ? ` · rising +${drift.toFixed(2)} across ${a.shifts}`
+          : '';
+        const tipTitle = document.createElementNS('http://www.w3.org/2000/svg', 'title');
+        tipTitle.textContent = `${a.axis}: level ${level.toFixed(2)}${driftStr}${reasons ? '\n' + reasons : ''}`;
+        tip.appendChild(tipTitle);
+        spokeG.appendChild(tip);
+
+        // Rising-drift arrowhead — outward chevron on axes that
+        // climbed since the last carrier-wave. Only renders when drift
+        // is meaningful and the spoke is long enough to host one.
+        // Falling drift doesn't render — once the next carrier-wave
+        // integrates the shifts, the spoke just shortens.
+        if (drift >= 0.05 && r >= 14) {
+          const arrowSize = Math.min(7, 3 + drift * 10);
+          // Anchor at 80% along the spoke so the chevron sits proud
+          // of the tip rather than crashing into it.
+          const anchorR = r * 0.8;
+          const ax = Math.cos(angle) * anchorR;
+          const ay = Math.sin(angle) * anchorR;
+          const px = -Math.sin(angle);
+          const py = Math.cos(angle);
+          const tipX = ax + Math.cos(angle) * arrowSize;
+          const tipY = ay + Math.sin(angle) * arrowSize;
+          const wing1X = ax + px * arrowSize * 0.6;
+          const wing1Y = ay + py * arrowSize * 0.6;
+          const wing2X = ax - px * arrowSize * 0.6;
+          const wing2Y = ay - py * arrowSize * 0.6;
+          const arrow = document.createElementNS('http://www.w3.org/2000/svg', 'polygon');
+          arrow.setAttribute('points', `${tipX.toFixed(2)},${tipY.toFixed(2)} ${wing1X.toFixed(2)},${wing1Y.toFixed(2)} ${wing2X.toFixed(2)},${wing2Y.toFixed(2)}`);
+          arrow.setAttribute('class', 'mood-star-arrow' + cls);
+          spokeG.appendChild(arrow);
+        }
+
+        // Label outside the outermost ring so labels stay legible
+        // regardless of spoke length.
+        const labelR = R_MAX + 18;
+        const lx = Math.cos(angle) * labelR;
+        const ly = Math.sin(angle) * labelR;
+        const label = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+        label.setAttribute('x', lx);
+        label.setAttribute('y', ly);
+        label.setAttribute('class', 'mood-star-label');
+        label.textContent = a.axis;
+        svg.appendChild(label);
+      });
+
+      // Center dot + state label
+      const center = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+      center.setAttribute('cx', 0);
+      center.setAttribute('cy', 0);
+      center.setAttribute('r', 2.5);
+      center.setAttribute('fill', 'var(--ink-soft, #9fb0b5)');
+      svg.appendChild(center);
     }
 
     function renderDriftCard({ driftHist, crystalEvents }) {
@@ -13084,87 +13524,72 @@ GET  /v1/usage               Usage stats`,
       _drawXLabels(ctx, ticks);
     }
 
-    function renderFeedOrientCard({ feedDriftHist, feedConfHist, feedEngagementHist, feedCrystalEvents }) {
-      // Same chart shape as the identity drift card, but the layers are:
-      //   • engagement-centroid drift (line)
-      //   • confidence (dotted line, on a 0-1 axis at the bottom band)
+    function renderFeedOrientCard({ feedDriftHist, feedConfHist, feedCrystalEvents }) {
+      // Layers, all on a shared [0,1] band so drift and confidence
+      // can be read against each other:
+      //   • engagement-centroid drift (line, normalized v / FEED_DRIFT_AXIS_MAX)
+      //   • confidence (line, native 0-1)
       //   • feed-orient crystal regenerations (vertical ticks + ◆)
-      //   • engagement marks (+/− at the bottom rule)
       const ctx = _chartCtx(svgFeedOrient, 160);
       const ticks = _ecgTicks(ECG_WINDOW_DAYS, ctx.tStart, ctx.now);
       _drawGrid(ctx, ticks);
 
       const plotTop = ctx.padding.top + 6;
       const plotBot = ctx.H - ctx.padding.bottom - 6;
-      const plotH = plotBot - plotTop;
-      // Top 70% = drift band; bottom 25% = confidence band; gap of 5%.
-      const driftTop = plotTop;
-      const driftBot = plotTop + plotH * 0.62;
-      const confTop = plotTop + plotH * 0.72;
-      const confBot = plotBot;
+      // Both series share the band: 0 at bottom, 1 at top.
+      const yFor = (v) => plotBot - Math.max(0, Math.min(1, v)) * (plotBot - plotTop);
 
-      // ── Drift band ─────────────────────────────
-      // Engagement centroid is much tighter than the whole-lake
-      // centroid — the user keeps engaging on related topics, so a
-      // typical drift sample is ~0.001-0.05 rather than the whole-
-      // lake's 0.1-0.5 range. Axis maxes out at 0.05 with a 0.03
-      // threshold so small but real movement is still readable.
+      // Engagement centroid stays tighter than the whole-lake centroid
+      // (the user engages on related topics), so raw drift samples sit
+      // around 0.001–0.05. We normalize against this axis max so the
+      // drift line shares the confidence line's 0–1 vertical scale.
       const FEED_DRIFT_AXIS_MAX = 0.05;
       const FEED_DRIFT_THRESHOLD = 0.03;
-      const driftThresholdY = driftTop + (1 - FEED_DRIFT_THRESHOLD / FEED_DRIFT_AXIS_MAX) * (driftBot - driftTop);
+      const FEED_CONF_FLOOR = 0.55;
+
+      // Threshold lines on the shared band — drift regen line at the
+      // normalized threshold, confidence floor at its raw value.
       ctx.svg.appendChild(ecgSvgNS('line', {
         x1: ctx.padding.left, x2: ctx.W - ctx.padding.right,
-        y1: driftThresholdY, y2: driftThresholdY,
+        y1: yFor(FEED_DRIFT_THRESHOLD / FEED_DRIFT_AXIS_MAX),
+        y2: yFor(FEED_DRIFT_THRESHOLD / FEED_DRIFT_AXIS_MAX),
         stroke: '#b08cff', 'stroke-width': 0.6, opacity: 0.55,
         'stroke-dasharray': '4 5',
       }));
-      // Drift baseline (zero distance — top of the band, since drift only goes up)
       ctx.svg.appendChild(ecgSvgNS('line', {
         x1: ctx.padding.left, x2: ctx.W - ctx.padding.right,
-        y1: driftBot, y2: driftBot,
-        stroke: '#b08cff', 'stroke-width': 0.5, opacity: 0.4,
+        y1: yFor(FEED_CONF_FLOOR), y2: yFor(FEED_CONF_FLOOR),
+        stroke: '#d8b14a', 'stroke-width': 0.6, opacity: 0.55,
+        'stroke-dasharray': '4 5',
       }));
+
+      // Drift line — normalized so it shares the band.
       const dHist = (feedDriftHist.history || []).filter(e => new Date(e.t).getTime() >= ctx.tStart);
       if (dHist.length >= 2) {
-        const norm = (v) => Math.max(0, Math.min(1, v / FEED_DRIFT_AXIS_MAX));
         const pts = dHist.map(e => {
           const x = ctx.xForT(new Date(e.t).getTime());
-          const y = driftBot - norm(e.v) * (driftBot - driftTop);
+          const y = yFor(e.v / FEED_DRIFT_AXIS_MAX);
           return [x, y];
         });
-        const d = _smoothPath(pts);
         ctx.svg.appendChild(ecgSvgNS('path', {
-          d, fill: 'none', class: 'ecg-line-feed-drift',
+          d: _smoothPath(pts), fill: 'none', class: 'ecg-line-feed-drift',
           'stroke-width': 1.4, 'stroke-opacity': 0.9,
         }));
       } else if (dHist.length === 1) {
         const e = dHist[0];
         const x = ctx.xForT(new Date(e.t).getTime());
-        const norm = Math.max(0, Math.min(1, e.v / FEED_DRIFT_AXIS_MAX));
         ctx.svg.appendChild(ecgSvgNS('circle', {
-          cx: x, cy: driftBot - norm * (driftBot - driftTop),
+          cx: x, cy: yFor(e.v / FEED_DRIFT_AXIS_MAX),
           r: 2.5, fill: '#b08cff',
         }));
       }
 
-      // ── Confidence band ────────────────────────
-      // 0-1 axis. Floor (default 0.55) marked with a dashed line. Below the
-      // floor → the regen predicate fires.
-      const FEED_CONF_FLOOR = 0.55;
-      const confFloorY = confTop + (1 - FEED_CONF_FLOOR) * (confBot - confTop);
-      ctx.svg.appendChild(ecgSvgNS('line', {
-        x1: ctx.padding.left, x2: ctx.W - ctx.padding.right,
-        y1: confFloorY, y2: confFloorY,
-        stroke: '#d8b14a', 'stroke-width': 0.6, opacity: 0.55,
-        'stroke-dasharray': '4 5',
-      }));
+      // Confidence line — already 0-1.
       const cHist = (feedConfHist.history || []).filter(e => e.v != null && new Date(e.t).getTime() >= ctx.tStart);
       if (cHist.length >= 2) {
         const pts = cHist.map(e => {
           const x = ctx.xForT(new Date(e.t).getTime());
-          const v = Math.max(0, Math.min(1, e.v));
-          const y = confTop + (1 - v) * (confBot - confTop);
-          return [x, y];
+          return [x, yFor(e.v)];
         });
         ctx.svg.appendChild(ecgSvgNS('path', {
           d: _smoothPath(pts), fill: 'none', class: 'ecg-line-feed-confidence',
@@ -13173,27 +13598,9 @@ GET  /v1/usage               Usage stats`,
       } else if (cHist.length === 1) {
         const e = cHist[0];
         const x = ctx.xForT(new Date(e.t).getTime());
-        const v = Math.max(0, Math.min(1, e.v));
         ctx.svg.appendChild(ecgSvgNS('circle', {
-          cx: x, cy: confTop + (1 - v) * (confBot - confTop),
+          cx: x, cy: yFor(e.v),
           r: 2.5, fill: '#d8b14a',
-        }));
-      }
-
-      // ── Engagement marks ───────────────────────
-      // Tiny + / − notches along the bottom rule. Compresses naturally for
-      // dense windows; readable for sparse ones.
-      for (const e of (feedEngagementHist.history || [])) {
-        const t = new Date(e.t).getTime();
-        if (!t || t < ctx.tStart || t > ctx.now) continue;
-        const x = ctx.xForT(t);
-        const positive = e.v > 0;
-        const tickLen = 4;
-        ctx.svg.appendChild(ecgSvgNS('line', {
-          class: 'ecg-engagement-mark',
-          x1: x, x2: x,
-          y1: confBot + 1, y2: confBot + 1 + tickLen,
-          stroke: positive ? '#7fcca0' : '#c85a4a',
         }));
       }
 
@@ -13303,6 +13710,64 @@ GET  /v1/usage               Usage stats`,
       // Re-render with current data by just refetching (cheap).
       loadECG();
     });
+
+    // Tab switching for the stat cards. Each .stat-card has a
+    // data-tab matching one button's data-tab; clicking flips
+    // visibility. Persists across reloads via localStorage so the
+    // user lands on the tab they were last looking at.
+    {
+      const tabButtons = document.querySelectorAll('.stat-tab');
+      const tabPanels = document.querySelectorAll('.stat-card[data-tab]');
+      const TAB_KEY = 'statTab';
+      const setTab = (target) => {
+        if (![...tabPanels].some(p => p.dataset.tab === target)) return;
+        tabButtons.forEach(b => {
+          const on = b.dataset.tab === target;
+          b.classList.toggle('active', on);
+          if (on) b.setAttribute('aria-selected', 'true');
+          else b.removeAttribute('aria-selected');
+        });
+        tabPanels.forEach(p => p.classList.toggle('active', p.dataset.tab === target));
+      };
+      const stored = localStorage.getItem(TAB_KEY);
+      if (stored) setTab(stored);
+      tabButtons.forEach(btn => {
+        btn.addEventListener('click', () => {
+          const target = btn.dataset.tab;
+          setTab(target);
+          try { localStorage.setItem(TAB_KEY, target); } catch (e) { /* noop */ }
+        });
+      });
+    }
+
+    // Touch / click: tap a card to reveal its sub-bar; tap elsewhere to hide.
+    document.addEventListener('click', (e) => {
+      const card = e.target.closest('.feed .msg-user, .feed .msg-fathom, .feed .card');
+      // If click landed on an engagement button keep the bar visible.
+      const onBtn = e.target.closest('.engagement-btn');
+      document.querySelectorAll('.tail-active').forEach(el => {
+        if (el !== card) el.classList.remove('tail-active');
+      });
+      if (card && !onBtn) card.classList.toggle('tail-active');
+    });
+
+    // Smooth-scroll for any in-page anchor link. Uses scrollIntoView
+    // (the codebase's existing primitive) so the topbar's
+    // `.scroll-target` margin-offset still applies. External links
+    // (target="_blank" / non-# hrefs) pass through untouched.
+    document.addEventListener('click', (e) => {
+      const link = e.target.closest('a[href^="#"]');
+      if (!link) return;
+      const href = link.getAttribute('href');
+      if (!href || href === '#' || href.length < 2) return;
+      let target = null;
+      try { target = document.querySelector(href); } catch (err) { return; }
+      if (!target) return;
+      e.preventDefault();
+      target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      try { history.replaceState(null, '', href); } catch (err) { /* noop */ }
+    });
+
   </script>
 
 </body>

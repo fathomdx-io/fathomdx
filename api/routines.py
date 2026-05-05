@@ -38,6 +38,46 @@ _SPEC_KEYS_ORDER = [
 ]
 
 
+# ── Scaffold composition ─────────────────────────────────────────────────
+#
+# Routine prompts have a single canonical wire shape (one freeform string
+# stored in the spec body), but the dashboard editor and the LLM tool now
+# both compose that string from four named sections — # Purpose, # Needs,
+# # Steps, # Ending. Older routines without sections continue to fire as-is;
+# re-saving them in the editor migrates them organically (the legacy prompt
+# slots into Steps).
+#
+# Server-side: when a caller supplies any scaffold section field, compose
+# the four-section prompt body. If the caller supplies the raw `prompt`
+# field instead, pass through unchanged. Mirrors the JS `_joinScaffoldSections`
+# in ui/index.html so the wire format is identical regardless of producer.
+
+
+_SCAFFOLD_KEYS = ("purpose", "needs", "steps", "ending")
+
+
+def _compose_scaffold_prompt(body: dict) -> str | None:
+    """Compose the four-section prompt if any scaffold field is present.
+
+    Returns None when the caller didn't supply any scaffold field (so the
+    caller's raw `prompt` field — if any — is used unchanged). Empty
+    sections render as `# Section\n\n`; the four headers always exist in
+    the saved body so the next open detects scaffold shape cleanly.
+    """
+    if not any(k in body for k in _SCAFFOLD_KEYS):
+        return None
+    purpose = (body.get("purpose") or "").strip()
+    needs = (body.get("needs") or "").strip()
+    steps = (body.get("steps") or "").strip()
+    ending = (body.get("ending") or "").strip()
+    return (
+        f"# Purpose\n{purpose}\n\n"
+        f"# Needs\n{needs}\n\n"
+        f"# Steps\n{steps}\n\n"
+        f"# Ending\n{ending}\n"
+    )
+
+
 # ── Frontmatter parse / render ───────────────────────────────────────────
 
 
@@ -488,7 +528,12 @@ def _merge_meta(body: dict, existing: dict | None = None) -> tuple[dict, str, st
             meta["interval_minutes"] = int(meta["interval_minutes"])
         except (ValueError, TypeError):
             meta.pop("interval_minutes", None)
-    return meta, body.get("prompt", ""), meta.get("workspace", "")
+    # Scaffold composition takes precedence when any scaffold field is
+    # present. The `prompt` fallback handles back-compat with callers
+    # that emit a freeform body (older clients, programmatic API usage).
+    composed = _compose_scaffold_prompt(body)
+    prompt = composed if composed is not None else body.get("prompt", "")
+    return meta, prompt, meta.get("workspace", "")
 
 
 def _slugify(name: str, max_len: int = 48) -> str:
@@ -633,8 +678,19 @@ async def fire(routine_id: str, prompt_override: str | None = None) -> dict:
     # the same way the operator's typed messages are. The correlation
     # is the routine_id so a follow-up reply can land back as a
     # routine-summary on this routine's page.
+    #
+    # `fired-at:<ts>` is load-bearing for repeat fires: lake's
+    # sequential-dedup (delta-store/deltas/store.py:106) skips writes
+    # whose most-recent same-source-same-tags row has identical
+    # content — without a per-fire varying tag, every fire after the
+    # first silently no-ops, and the threaded supervisor never sees
+    # the activation. The routine-tick row above already does this
+    # exact thing for the same reason.
     try:
         from . import thread as thread_mod
+        thread_extras: list[str] = [f"fired-at:{fired_at}"]
+        if host:
+            thread_extras.append(f"host:{host}")
         await thread_mod.append(
             role="user",
             msg_kind="routine-fire",
@@ -642,7 +698,7 @@ async def fire(routine_id: str, prompt_override: str | None = None) -> dict:
             channel="routine",
             correlation=routine_id,
             source="routine-scheduler",
-            extra_tags=[f"host:{host}"] if host else None,
+            extra_tags=thread_extras,
         )
     except Exception as e:
         print(f"[routine] thread shadow write failed: {type(e).__name__}: {e}")
