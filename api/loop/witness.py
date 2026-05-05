@@ -598,15 +598,19 @@ async def _write_constituting_writes(
 # ── Alert dedup (anti-storm) ───────────────────────────────────────────
 
 
-# Window during which a near-duplicate alert is suppressed. After this,
-# a fresh alert about the same chronic condition is allowed through —
-# the operator may genuinely want a periodic reminder.
-ALERT_DEDUP_WINDOW_S = 15 * 60
+# Window during which a near-duplicate alert is suppressed. Matched to
+# standpoint.ALERT_LOOKBACK_HOURS so the dispatch backstop covers the
+# same span the prompt-data architecture is already showing the model.
+# A fresh alert about the same chronic condition is allowed through
+# after this; the operator can ack via the bell to reset.
+ALERT_DEDUP_WINDOW_S = 6 * 60 * 60
 
-# Word-overlap threshold for "near-duplicate." Two alert bodies that
-# share more than this fraction of their non-trivial tokens are
-# treated as the same alert.
-ALERT_DEDUP_OVERLAP = 0.7
+# Word-overlap (Jaccard) threshold for "near-duplicate." LLM rephrasings
+# of the same chronic condition routinely land around 0.4 overlap (same
+# nouns — routine name, failure verb, root cause — with the rest of the
+# prose varying), so 0.7 was too strict to catch them. 0.4 still requires
+# substantive shared vocabulary, not just stop-word agreement.
+ALERT_DEDUP_OVERLAP = 0.4
 
 
 def _alert_tokens(text: str) -> set[str]:

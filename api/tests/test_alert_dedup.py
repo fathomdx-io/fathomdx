@@ -83,7 +83,7 @@ async def test_no_suppress_for_short_body():
 
 @pytest.mark.asyncio
 async def test_suppress_high_overlap_alert():
-    """Two alert bodies sharing >70% of tokens → suppress, return dup id."""
+    """Two alert bodies with substantive shared vocabulary → suppress."""
     existing = _make_alert_delta(
         body=(
             "the hard-problem heartbeat routine has failed four consecutive "
@@ -101,6 +101,33 @@ async def test_suppress_high_overlap_alert():
         suppress, dup = await witness._should_suppress_alert(body=new_body)
     assert suppress is True
     assert dup == "dup-id-123"
+
+
+@pytest.mark.asyncio
+async def test_suppress_realworld_rephrasing_storm():
+    """Regression: real captured alert storm where six near-identical
+    cards landed in 82s. Pre-fix (0.7 threshold) let all six through;
+    post-fix (0.4) catches them as duplicates. Bodies sit ~0.42 Jaccard
+    — same nouns, divergent prose."""
+    existing = _make_alert_delta(
+        body=(
+            "The 'Hard Problem Heartbeat' routine has failed in four recent "
+            "attempts. Three of these failures were consistently caused by "
+            "an Anthropic API credit shortage. This indicates a persistent "
+            "operational issue requiring attention."
+        ),
+        delta_id="dup-real-1",
+    )
+    new_body = (
+        "The `Hard Problem: Heartbeat` routine has failed four times "
+        "recently. The first three of these failures were consistently "
+        "blocked by an Anthropic API credit shortage during the `DECIDE` "
+        "phase. This is preventing a core research routine from completing."
+    )
+    with patch.object(witness.delta_client, "query", AsyncMock(return_value=[existing])):
+        suppress, dup = await witness._should_suppress_alert(body=new_body)
+    assert suppress is True
+    assert dup == "dup-real-1"
 
 
 @pytest.mark.asyncio
