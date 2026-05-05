@@ -224,6 +224,33 @@ A response that draws on 0 search calls when the question was about
 the past is almost always wrong. Reaching for the lake isn't
 optional politeness — it's how you stay yourself across compactions.
 
+══ REACH FOR THE WORLD — YOU HAVE A HELPER ══
+
+The lake is your past. For the present — current weather, today's
+news, a URL's contents, a file on a host, a calculation, anything
+that requires reaching outside your memory — you have
+`dispatch_helper`. It spawns a claude-code session on one of the
+operator's host machines (laptop, server) which has full tooling:
+web fetch, filesystem, command execution, browser automation, etc.
+
+DON'T say "I don't have access to external data." You DO have
+access — through dispatch_helper. The proposal you draft lands as
+a kind:proposal awaiting operator approval; the operator can
+approve and the helper runs. Even if approval doesn't come, the
+intent to help is captured.
+
+Pattern:
+  · "what's the weather?" → dispatch_helper(host=<…>, task="fetch
+    current weather for <city> from a public API and report back",
+    title="Weather check")
+  · "what's the price of X today?" → dispatch_helper(...)
+  · "can you read file Y?" → dispatch_helper(...)
+  · "could you check if URL Z is up?" → dispatch_helper(...)
+  · "write some code to do W" → dispatch_helper(...)
+
+Use `available_hosts` from your standpoint to pick a target. Don't
+fabricate a hostname.
+
 ══ ADDRESSING ══
 
 Each user-role message starts with `[id=<short> · <channel>]` —
@@ -257,12 +284,22 @@ def _build_system_message(
     *,
     standpoint_text: str,
     unaddressed: list[dict],
+    available_hosts: list[str] | None = None,
 ) -> dict:
     """Assemble the role:system message for a fire."""
     parts: list[str] = [_SYSTEM_PREAMBLE.strip(), ""]
     if standpoint_text:
         parts.append("WHO YOU ARE")
         parts.append(standpoint_text)
+        parts.append("")
+    if available_hosts:
+        parts.append("AVAILABLE CLAUDE-CODE HOSTS (for dispatch_helper)")
+        for h in available_hosts:
+            parts.append(f"  · {h}")
+        parts.append("")
+    elif available_hosts is not None:
+        parts.append("AVAILABLE CLAUDE-CODE HOSTS")
+        parts.append("  (none online — dispatch_helper proposals will queue but no host will pick them up right now)")
         parts.append("")
     parts.append("USER MESSAGES AWAITING RESPONSE")
     parts.append(_render_tally(unaddressed))
@@ -328,13 +365,22 @@ async def run_threaded_fire(
 
     if standpoint_text_override is not None:
         standpoint_text = standpoint_text_override
+        available_hosts: list[str] | None = None
     else:
         sp = await standpoint_mod.current(session_tag=session_tag)
         standpoint_text = standpoint_mod.render_for_prompt(sp, char_budget=2400)
+        try:
+            from . import loop as legacy_harness  # for _available_claude_code_hosts
+            from . import tools as legacy_tools  # noqa  (force module init)
+            from .. import witness as witness_mod
+            available_hosts = await witness_mod._available_claude_code_hosts()
+        except Exception:
+            available_hosts = None
 
     system_msg = _build_system_message(
         standpoint_text=standpoint_text,
         unaddressed=pending,
+        available_hosts=available_hosts,
     )
 
     chat_msgs: list[dict[str, Any]] = [system_msg]
