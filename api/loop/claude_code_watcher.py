@@ -461,6 +461,35 @@ async def claude_code_watcher_tick() -> None:
                 f"{type(e).__name__}: {e}"
             )
 
+        # Phase 5b shadow write: also append the closure to the global
+        # thread so the threaded supervisor sees it and fires. Without
+        # this, when FATHOM_THREADED_HARNESS=1 (legacy supervisor
+        # dormant), dispatched-task closures silently land in the
+        # puddle but never activate Fathom — operator-asked tasks
+        # would complete invisibly.
+        try:
+            from .. import thread as thread_mod
+            await thread_mod.append(
+                role="user",
+                msg_kind="claude-code-reply",
+                content=content,
+                channel="claude-code",
+                correlation=corr,
+                contact=info.get("contact") or "",
+                source="claude-code-watcher",
+                extra_tags=[
+                    f"task-corr:{corr}",
+                    f"reply-to:{closure_id}",
+                    f"host:{info['host']}" if info.get("host") else "",
+                    "closure:true",
+                ],
+            )
+        except Exception as e:
+            print(
+                f"[claude-code watcher] thread shadow write failed for "
+                f"{corr[:12]}: {type(e).__name__}: {e}"
+            )
+
 
 async def claude_code_watcher_loop() -> None:
     """Background task — periodic claude_code_watcher_tick().
