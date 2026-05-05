@@ -43,11 +43,26 @@ log = logging.getLogger(__name__)
 
 
 # Trigger thresholds. The feed-spec says "min 10 engagement deltas
-# since last regen" — keep that as the floor. Cooldown prevents
-# burst-clicking from triggering a regen storm.
+# since last regen" — keep that as the primary floor. Cooldown
+# prevents burst-clicking from triggering a regen storm.
 MIN_ENGAGEMENTS = 10
 MIN_COOLDOWN_S = 30 * 60  # 30 minutes
 POLL_INTERVAL_S = 60      # check every minute
+
+# Stale-regen secondary trigger. When engagement is sparse (e.g.
+# post-migration, when the legacy feed engine retired and the
+# new card surfaces haven't yet built engagement at the same rate),
+# the primary 10-engagement floor never trips. Mirrors mood's
+# shift-overflow pattern: when the topology has drifted long
+# enough, refresh even if the primary signal is quiet.
+#
+# Triggers when BOTH:
+#   · time since last regen ≥ STALE_REGEN_AGE_S
+#   · engagements since last regen ≥ STALE_REGEN_MIN_ENGAGEMENTS
+# The min-engagement guard prevents firing on truly dead substrate
+# (no signal at all → nothing to orient against).
+STALE_REGEN_AGE_S = 3 * 24 * 3600  # 3 days
+STALE_REGEN_MIN_ENGAGEMENTS = 2
 
 # How much history we feed into the regen prompt. The directive
 # wants enough signal to read intent without dragging in old noise.
@@ -311,6 +326,49 @@ async def _run_regen() -> bool:
         _in_flight = False
 
 
+async def force_run_regen() -> dict:
+    """Manual fire path — bypasses the engagement-count threshold so a
+    button click always tries to regenerate. Cooldown still applies
+    (30 min) so spamming the button can't loop-pin a regen storm.
+
+    Returns:
+      · `{"fired": True, ...}` on success
+      · `{"fired": False, "reason": "cooldown", "elapsed": <sec>}`
+        when within the cooldown window
+      · `{"fired": False, "reason": "in-flight"}` when a regen is
+        already mid-run
+      · `{"fired": False, "reason": "fire-failed"}` if `_run_regen`
+        returned False (LLM error, parse error, etc.)
+    """
+    if _in_flight:
+        return {"fired": False, "reason": "in-flight"}
+
+    prior = await _latest_feed_orient()
+    prior_ts = prior.get("timestamp") if prior else None
+    if prior_ts:
+        try:
+            elapsed = (
+                datetime.now(UTC)
+                - datetime.fromisoformat(prior_ts.replace("Z", "+00:00"))
+            ).total_seconds()
+        except Exception:
+            elapsed = float("inf")
+        if elapsed < MIN_COOLDOWN_S:
+            return {
+                "fired": False,
+                "reason": "cooldown",
+                "elapsed": int(elapsed),
+                "cooldown_seconds": MIN_COOLDOWN_S,
+            }
+
+    log.info("feed-orient regen firing (reason=manual)")
+    fired = await _run_regen()
+    return {
+        "fired": bool(fired),
+        "reason": "manual" if fired else "fire-failed",
+    }
+
+
 async def _check_once() -> dict:
     """One pass: sample engagement-drift, count engagement signal,
     decide, maybe fire."""
@@ -329,6 +387,7 @@ async def _check_once() -> dict:
     prior = await _latest_feed_orient()
     prior_ts = prior.get("timestamp") if prior else None
 
+    elapsed: float = float("inf")
     if prior_ts:
         try:
             elapsed = (
@@ -342,11 +401,28 @@ async def _check_once() -> dict:
 
     engagements = await _engagements_since(prior_ts)
     n = len(engagements)
-    if n < MIN_ENGAGEMENTS:
+
+    primary_ready = n >= MIN_ENGAGEMENTS
+    stale_ready = (
+        prior_ts is not None
+        and elapsed >= STALE_REGEN_AGE_S
+        and n >= STALE_REGEN_MIN_ENGAGEMENTS
+    )
+
+    if not primary_ready and not stale_ready:
         return {"feed_orient": "below-threshold", "count": n}
 
+    reason = "primary" if primary_ready else "stale"
+    log.info(
+        "feed-orient regen firing (reason=%s, %d engagements since prior)",
+        reason, n,
+    )
     fired = await _run_regen()
-    return {"feed_orient": "fired" if fired else "fire-failed", "count": n}
+    return {
+        "feed_orient": "fired" if fired else "fire-failed",
+        "count": n,
+        "reason": reason,
+    }
 
 
 async def _loop() -> None:
