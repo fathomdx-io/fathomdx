@@ -2,7 +2,7 @@
 
 Sibling of api/pressure.py. Same primitive (weighted-and-decayed lake
 volume since last synthesis), tuned for feed regeneration rather than
-mood synthesis. The Stats legend at ui/index.html names the shared
+mood synthesis. The Stats legend at dashboard/index.html names the shared
 intuition: pressure is "what's been building up since the last
 check-in. That feeling when there's too much you haven't sat with yet."
 Synthesis is the act of sitting with it. Mood synthesis sits with

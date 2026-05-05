@@ -50,7 +50,7 @@ _SPEC_KEYS_ORDER = [
 # Server-side: when a caller supplies any scaffold section field, compose
 # the four-section prompt body. If the caller supplies the raw `prompt`
 # field instead, pass through unchanged. Mirrors the JS `_joinScaffoldSections`
-# in ui/index.html so the wire format is identical regardless of producer.
+# in dashboard/index.html so the wire format is identical regardless of producer.
 
 
 _SCAFFOLD_KEYS = ("purpose", "needs", "steps", "ending")

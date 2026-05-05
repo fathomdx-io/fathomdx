@@ -1,7 +1,7 @@
 # Pre-commit hooks for fathomdx. Run `pre-commit install` once to activate.
 # Site/ is excluded — it's ralphed on its own.
 
-exclude: "^(site/|ui/|assets/|addons/.*/local-ui/|addons/browser-extension/dist/)"
+exclude: "^(site/|dashboard/|assets/|addons/.*/local-ui/|addons/browser-extension/dist/)"
 
 repos:
   - repo: https://github.com/pre-commit/pre-commit-hooks

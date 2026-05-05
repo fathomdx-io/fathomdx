@@ -1,15 +1,15 @@
 #!/usr/bin/env bash
-# Regenerate the PROVIDER_ICONS block in ui/index.html from the canonical SVGs
+# Regenerate the PROVIDER_ICONS block in dashboard/index.html from the canonical SVGs
 # at Fathom/web/design/public/v1/icons/.
 #
 # When the design repo's icon SVGs change, run this to refresh the inlined
-# copies here. The block lives between the sentinel comments in ui/index.html.
+# copies here. The block lives between the sentinel comments in dashboard/index.html.
 
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
 DESIGN_DIR=../web/design/public/v1/icons
-TARGET=ui/index.html
+TARGET=dashboard/index.html
 
 if [ ! -d "$DESIGN_DIR" ]; then
   echo "design repo not found at $DESIGN_DIR" >&2

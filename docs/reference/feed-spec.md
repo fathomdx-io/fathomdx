@@ -184,7 +184,7 @@ Same window selector as existing ECG. Same render conventions (`ecg-line-*` clas
 - **`api/feed_crystal.py`** (new) — crystal load/write, regen synthesis, drift sampling, confidence scoring.
 - **`api/feed_loop.py`** (new) — page-view debouncer, per-line `fathom_think` orchestration, budget enforcement.
 - **`api/server.py`** — endpoints listed above; lifespan-starts the loop module's debouncer.
-- **`ui/index.html`** — engagement buttons on each card, chat-from-card pairing, status indicator, new ECG card.
+- **`dashboard/index.html`** — engagement buttons on each card, chat-from-card pairing, status indicator, new ECG card.
 - **`api/chat_listener.py`** — when a chat session was seeded by a feed card (`seed_card_id` on session metadata), tag the user's first message as `feed-engagement` + `engagement:chat`.
 
 ## Phases
