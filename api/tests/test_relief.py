@@ -329,3 +329,83 @@ def test_dialogue_tiers_have_seed():
     for tier in relief.RELIEF_TIERS:
         if tier["engine"] == "dialogue":
             assert tier.get("seed"), f"{tier['name']}: dialogue tier needs seed"
+
+
+# ── _fire_single dual-write (Phase 5c) ────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_fire_single_writes_both_puddle_and_thread():
+    """Each pressure tier fire writes a puddle intent (legacy) AND a
+    thread user-msg (threaded). Whichever supervisor is active picks
+    up the activation; the dormant one ignores its side."""
+    tier = next(t for t in relief.RELIEF_TIERS if t["engine"] == "single-fire")
+
+    intent_calls: list[dict] = []
+    thread_calls: list[dict] = []
+
+    async def fake_write_intent(**kwargs):
+        intent_calls.append(kwargs)
+        return {"id": "intent-x"}
+
+    async def fake_thread_append(**kwargs):
+        thread_calls.append(kwargs)
+        return {"id": "thread-x"}
+
+    with patch("api.loop.relief.write_intent", side_effect=fake_write_intent), \
+         patch("api.thread.append", side_effect=fake_thread_append):
+        await relief._fire_single(tier, reason="pressure")
+
+    assert len(intent_calls) == 1
+    assert intent_calls[0]["kind"] == tier["intent_kind"]
+    assert intent_calls[0]["content"] == tier["directive"]
+
+    assert len(thread_calls) == 1
+    assert thread_calls[0]["role"] == "user"
+    assert thread_calls[0]["msg_kind"] == f"pressure-{tier['name']}"
+    assert thread_calls[0]["channel"] == "pressure"
+    assert thread_calls[0]["content"] == tier["directive"]
+    assert "pressure-tier:" + tier["name"] in (thread_calls[0]["extra_tags"] or [])
+
+
+@pytest.mark.asyncio
+async def test_fire_single_thread_failure_does_not_block_intent_write():
+    """Thread write failures are soft — the puddle path is still
+    authoritative until full cutover, so a thread hiccup must not
+    interrupt the legacy activation."""
+    tier = next(t for t in relief.RELIEF_TIERS if t["engine"] == "single-fire")
+    intent_calls: list[dict] = []
+
+    async def fake_write_intent(**kwargs):
+        intent_calls.append(kwargs)
+        return {"id": "intent-x"}
+
+    async def boom(**kwargs):
+        raise RuntimeError("lake down")
+
+    with patch("api.loop.relief.write_intent", side_effect=fake_write_intent), \
+         patch("api.thread.append", side_effect=boom):
+        # Should not raise.
+        await relief._fire_single(tier, reason="pressure")
+
+    assert len(intent_calls) == 1
+
+
+@pytest.mark.asyncio
+async def test_fire_single_intent_failure_does_not_block_thread_write():
+    """Symmetric — intent write failure shouldn't skip the thread shadow."""
+    tier = next(t for t in relief.RELIEF_TIERS if t["engine"] == "single-fire")
+    thread_calls: list[dict] = []
+
+    async def fake_thread_append(**kwargs):
+        thread_calls.append(kwargs)
+        return {"id": "thread-x"}
+
+    async def boom(**kwargs):
+        raise RuntimeError("puddle down")
+
+    with patch("api.loop.relief.write_intent", side_effect=boom), \
+         patch("api.thread.append", side_effect=fake_thread_append):
+        await relief._fire_single(tier, reason="pressure")
+
+    assert len(thread_calls) == 1

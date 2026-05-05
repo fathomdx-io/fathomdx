@@ -405,8 +405,20 @@ async def fire_relief(
 
 
 async def _fire_single(tier: dict[str, Any], reason: str) -> None:
-    """Drop one intent into the puddle. The supervisor picks it up
-    and runs the harness against it; output lands as a feed-card."""
+    """Drop one intent into the puddle AND a user-role thread message.
+
+    Whichever supervisor is active picks up the activation: the
+    legacy supervisor reads the puddle intent; the threaded
+    supervisor reads the thread message. Per Phase 5a one of them
+    is dormant at any time, so only one fire happens per relief
+    tick. The dual-write keeps the legacy fallback intact while
+    threaded is being validated.
+
+    The thread message uses msg_kind="pressure-<tier>" so the
+    dashboard can distinguish ambient pressure activations from
+    operator-typed prompts. The directive text is the content
+    (the model reads it like any user prompt).
+    """
     try:
         await write_intent(
             kind=tier["intent_kind"],
@@ -417,6 +429,25 @@ async def _fire_single(tier: dict[str, Any], reason: str) -> None:
     except Exception as e:
         print(
             f"[relief] {tier['name']} intent write failed: "
+            f"{type(e).__name__}: {e}"
+        )
+
+    # Phase 5c shadow write: thread activation for the threaded
+    # supervisor. Soft-fails like other shadow writers.
+    try:
+        from .. import thread as thread_mod
+        await thread_mod.append(
+            role="user",
+            msg_kind=f"pressure-{tier['name']}",
+            content=tier["directive"],
+            channel="pressure",
+            correlation=f"{tier['name']}-{reason}",
+            source="relief-watcher",
+            extra_tags=[f"pressure-tier:{tier['name']}", f"pressure-reason:{reason}"],
+        )
+    except Exception as e:
+        print(
+            f"[relief] {tier['name']} thread shadow write failed: "
             f"{type(e).__name__}: {e}"
         )
 
