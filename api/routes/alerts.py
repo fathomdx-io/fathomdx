@@ -238,6 +238,61 @@ async def _pending_proposal_alerts() -> list[dict]:
     return out
 
 
+async def _recent_provenance_alerts(viewed_at: str) -> list[dict]:
+    """Surface freshly-created provenance deltas in the bell.
+
+    L1/L2 provenance auto-approves silently — without this the operator
+    has no visibility into what's being named in the lake. The bell
+    becomes the live ledger of consolidation: each new provenance
+    landing pings here once, then ages past the viewer's read receipt
+    on the next mark-all-read.
+
+    L3+ pending review still flow through `_pending_proposal_alerts`
+    above; this function covers the auto-approved tier so both ends
+    of the provenance pipeline are visible.
+    """
+    try:
+        rows = await delta_client.query(
+            tags_include=["kind:provenance"],
+            limit=20,
+        )
+    except Exception:
+        return []
+    out: list[dict] = []
+    for d in rows:
+        ts = d.get("timestamp") or ""
+        if viewed_at and ts <= viewed_at:
+            continue
+        delta_id = d.get("id") or ""
+        if not delta_id:
+            continue
+        tags = d.get("tags") or []
+        level = _provenance_level(tags) or 1
+        # Constituent count from from:<id> tags.
+        from_ids = [t.split(":", 1)[1] for t in tags if isinstance(t, str) and t.startswith("from:")]
+        raw = (d.get("content") or "").strip()
+        # Provenance content is plain text — title's the first line,
+        # body the rest.
+        title_line = raw.split("\n", 1)[0].strip() if raw else ""
+        preview = raw[len(title_line):].strip()[:200] if raw else ""
+        title = f"L{level} created: {title_line}" if title_line else f"L{level} provenance created"
+        if from_ids:
+            preview = f"({len(from_ids)} constituents) {preview}"
+        out.append(
+            {
+                "session_id": delta_id,
+                "delta_id": delta_id,
+                "title": title,
+                "preview": preview,
+                "unread_since": ts,
+                "updated_at": ts,
+                "kind": "provenance-created",
+                "level": level,
+            }
+        )
+    return out
+
+
 async def _latest_viewed_at(viewer: str) -> str:
     """Most recent `alert-viewed-at` ISO timestamp for this viewer, or ''."""
     try:
@@ -305,7 +360,11 @@ async def list_alerts(request: Request):
     # only clears the timestamp-driven alerts (those age past viewed_at);
     # proposals are decision-driven, not read-driven.
     proposal_alerts = await _pending_proposal_alerts()
-    merged = proposal_alerts + alerts
+    # Auto-approved provenance (L1/L2) — surfaces what's been quietly
+    # named in the lake since the last mark-all-read. Read-driven, so
+    # acking clears them once seen.
+    provenance_alerts = await _recent_provenance_alerts(viewed_at)
+    merged = proposal_alerts + provenance_alerts + alerts
     merged.sort(key=lambda a: a.get("unread_since") or "", reverse=True)
     return {"viewer": viewer, "count": len(merged), "alerts": merged}
 

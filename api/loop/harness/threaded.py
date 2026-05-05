@@ -480,6 +480,54 @@ async def run_threaded_fire(
     }
 
 
+def _salvage_tool_call_from_content(content: str) -> dict | None:
+    """If the model emitted a propose_provenance call as JSON content
+    instead of using the native tool_calls field, extract its args.
+
+    Provider quirk — Gemini in particular sometimes wraps tool calls
+    in the legacy envelope shape {"kind": "tool_call", "tool": "...",
+    "args": {...}} as content rather than going through tool_calls.
+    Returns the args dict or None.
+    """
+    if not content:
+        return None
+    # Strip a leading code fence if present.
+    s = content.strip()
+    if s.startswith("```"):
+        s = s.split("\n", 1)[-1] if "\n" in s else s
+        if s.endswith("```"):
+            s = s[: s.rfind("```")].strip()
+    # Find a top-level JSON object (greedy from the first { to the matching }).
+    start = s.find("{")
+    if start < 0:
+        return None
+    depth = 0
+    end = -1
+    for i in range(start, len(s)):
+        c = s[i]
+        if c == "{":
+            depth += 1
+        elif c == "}":
+            depth -= 1
+            if depth == 0:
+                end = i + 1
+                break
+    if end < 0:
+        return None
+    try:
+        envelope = json.loads(s[start:end])
+    except Exception:
+        return None
+    if not isinstance(envelope, dict):
+        return None
+    if envelope.get("tool") != "propose_provenance":
+        return None
+    args = envelope.get("args")
+    if not isinstance(args, dict):
+        return None
+    return args
+
+
 def _tool_history_summary(chat_msgs: list[dict]) -> str:
     """Render the fire's tool calls + results as a flat text block
     for the review prompt. Includes recall hits inline so the model
@@ -571,7 +619,31 @@ async def _run_review_pass(
 
     tool_calls = asst.get("tool_calls") or []
     if not tool_calls:
-        skip_reason = (asst.get("content") or "").strip()
+        # Some providers (most notably Gemini for review-pass-shaped
+        # prompts) emit the tool call as JSON content rather than
+        # using the native tool_calls field. Parse and route from
+        # content as a fallback.
+        content = (asst.get("content") or "").strip()
+        salvaged = _salvage_tool_call_from_content(content)
+        if salvaged is not None:
+            try:
+                result = await tool_schemas.dispatch(
+                    name="propose_provenance",
+                    args=salvaged,
+                    session_tag=session_tag,
+                )
+            except Exception as e:
+                result = f"ERROR: {type(e).__name__}: {e}"
+            await _write_threaded_turn_trace(
+                session_tag=session_tag,
+                turn=0,
+                tool="propose_provenance",
+                thinking=f"(salvaged from content fallback) {content[:200]}",
+                args=salvaged,
+                result=result,
+            )
+            return
+        skip_reason = content
         await _write_threaded_turn_trace(
             session_tag=session_tag,
             turn=0,
