@@ -338,9 +338,77 @@ async def run_threaded_fire(
         except Exception as e:
             print(f"[threaded-fire] thread append failed: {type(e).__name__}: {e}")
 
+        # Phase 5d bridge: dual-write to the puddle as a feed-card so
+        # the existing dashboard's /v1/puddle/feed consumer can render
+        # the threaded reply too. Phase 5f removes this once the main
+        # dashboard cuts over to /v1/thread/window.
+        await _bridge_to_puddle_feed(
+            body=final_response["body"],
+            addresses=addr_set,
+            lake_id=lake_id,
+        )
+
     return {
         "final_response": final_response,
         "turns": turns_used,
         "addressed": addressed,
         "lake_id": lake_id,
     }
+
+
+async def _bridge_to_puddle_feed(
+    *,
+    body: str,
+    addresses: list[str],
+    lake_id: str,
+) -> None:
+    """Mirror a threaded assistant reply into the puddle as a feed-card.
+
+    The legacy dashboard reads /v1/puddle/feed; without this bridge,
+    a user typing in the composer would see their question land but
+    never see Fathom's response (the threaded supervisor wrote it to
+    the thread, not the puddle). Mirroring keeps the dashboard usable
+    during the cutover window.
+
+    Tag shape mirrors what witness._dispatch_card writes for a
+    chat-reply card: feed-card + route:chat-reply + addresses fan-out.
+    Source is `harness-threaded` so the renderer can distinguish
+    threaded-origin cards from witness-origin ones if needed.
+
+    Bridge addresses are the THREAD user-msg ids, not the puddle
+    intent ids — that's a feature, not a bug. The dashboard's feed
+    renderer will show the user message (puddle intent) and the
+    Fathom response (puddle feed-card) by chronological order; the
+    addresses linkage is decorative on the card UI side.
+    """
+    try:
+        from ..puddle import puddle
+        from ..intents import CONVO_TAG, Q_A_TTL_S
+        import json as _json
+
+        payload = _json.dumps({
+            "kicker": "",
+            "title": "",
+            "body": body,
+            "tail": "",
+        })
+        tags = [
+            CONVO_TAG,
+            "feed-card",
+            "synthesis",
+            "addressing-output",
+            "route:chat-reply",
+        ]
+        for addr in addresses:
+            tags.append(f"addresses:{addr}")
+        if lake_id:
+            tags.append(f"lake-id:{lake_id}")
+            tags.append(f"recalled-id:{lake_id[:24]}")
+        await puddle.write(
+            content=payload,
+            tags=tags,
+            source="harness-threaded",
+            ttl_seconds=Q_A_TTL_S,
+        )
+    except Exception as e:
+        print(f"[threaded-fire] puddle bridge failed: {type(e).__name__}: {e}")

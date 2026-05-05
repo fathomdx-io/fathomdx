@@ -308,6 +308,81 @@ async def test_fire_caps_runaway_tool_loop():
 
 
 @pytest.mark.asyncio
+async def test_fire_bridges_assistant_reply_to_puddle():
+    """Phase 5d bridge — the threaded reply should also land in the
+    puddle as a feed-card so the legacy dashboard sees it."""
+    user_msg = _user_delta(mid="u1", content="hi")
+
+    async def fake_build_window(**kwargs):
+        return {"messages": [user_msg], "unaddressed": [user_msg]}
+
+    async def fake_thread_append(**kwargs):
+        return {"id": "asst-thread-id"}
+
+    puddle_calls: list[dict] = []
+
+    async def fake_puddle_write(**kwargs):
+        puddle_calls.append(kwargs)
+        return {"id": "puddle-x"}
+
+    fake_chat = AsyncMock(return_value=_llm_response(
+        tool_calls=[_tool_call("respond", {"body": "the threaded reply", "addresses": ["u1"]}, "c")],
+    ))
+
+    with patch.object(threaded.thread_mod, "build_window", fake_build_window), \
+         patch.object(threaded.thread_mod, "append", fake_thread_append), \
+         patch.object(threaded, "loop_generate_chat", fake_chat), \
+         patch("api.loop.puddle.puddle.write", side_effect=fake_puddle_write):
+        await threaded.run_threaded_fire(standpoint_text_override="")
+
+    assert len(puddle_calls) == 1
+    bridge = puddle_calls[0]
+    # JSON content with the body field
+    import json as _json
+    payload = _json.loads(bridge["content"])
+    assert payload["body"] == "the threaded reply"
+    # Tag shape matches witness chat-reply
+    tags = bridge["tags"]
+    assert "feed-card" in tags
+    assert "route:chat-reply" in tags
+    assert "addresses:u1" in tags
+    assert "lake-id:asst-thread-id" in tags
+    # Source distinguishes from witness cards
+    assert bridge["source"] == "harness-threaded"
+
+
+@pytest.mark.asyncio
+async def test_fire_bridge_failure_does_not_break_thread_persistence():
+    """The puddle bridge is best-effort — a bridge failure mustn't
+    drop the assistant message from the thread."""
+    async def fake_build_window(**kwargs):
+        return {"messages": [], "unaddressed": []}
+
+    appended_to_thread: list[dict] = []
+
+    async def fake_thread_append(**kwargs):
+        appended_to_thread.append(kwargs)
+        return {"id": "x"}
+
+    async def boom(**kwargs):
+        raise RuntimeError("puddle down")
+
+    fake_chat = AsyncMock(return_value=_llm_response(
+        tool_calls=[_tool_call("respond", {"body": "hi"}, "c")],
+    ))
+
+    with patch.object(threaded.thread_mod, "build_window", fake_build_window), \
+         patch.object(threaded.thread_mod, "append", fake_thread_append), \
+         patch.object(threaded, "loop_generate_chat", fake_chat), \
+         patch("api.loop.puddle.puddle.write", side_effect=boom):
+        result = await threaded.run_threaded_fire(standpoint_text_override="")
+
+    # Thread append still happened despite puddle bridge failure.
+    assert len(appended_to_thread) == 1
+    assert result["lake_id"] == "x"
+
+
+@pytest.mark.asyncio
 async def test_fire_handles_llm_exception():
     """A provider error doesn't blow up the fire — it returns a clean
     no-response result with the error captured."""
