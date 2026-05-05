@@ -11813,6 +11813,10 @@ GET  /v1/usage               Usage stats`,
           refreshLightbox();
           applyVerbosityFilter();
         }
+        // Refresh the live status badge above each user-message
+        // bubble — shows what tool the harness is currently running
+        // for that message, plus a plan checklist if a plan tool fired.
+        _refreshUserMessageStatus(items);
         // Re-check decision state on already-rendered proposal cards
         // that haven't been settled yet. Without this, approving in
         // another tab / via the bell / programmatically leaves the feed
@@ -11820,6 +11824,109 @@ GET  /v1/usage               Usage stats`,
         _refreshPendingProposalDecisions();
       } catch (e) {
         console.warn('[feed] live poll threw', e);
+      }
+    }
+
+    function _refreshUserMessageStatus(allItems) {
+      // For each rendered user-message bubble in the feed, derive a
+      // muted-italic status line showing what the harness is currently
+      // doing for that message — latest tool name, plan checklist if
+      // present. Inserted ABOVE the bubble. Disappears when a fathom-
+      // message addressing this user-msg-id has landed (fire is done).
+      //
+      // Two sources of association between a user-msg and harness turns:
+      //   1. a mark_addressed turn whose args.user_message_id is the
+      //      user-msg id (definitive)
+      //   2. a plan/semantic/etc turn from the same fire's session_tag
+      //      as a mark_addressed turn that references the user-msg
+      //
+      // We build session→user-msg map from #1, then attribute all
+      // turns in matching sessions to that user-msg.
+      const harnessTurns = (allItems || []).filter(i => i.kind === 'harness-turn');
+      const fathomMsgs = (allItems || []).filter(i => i.kind === 'fathom-message');
+
+      // Map: user-msg-id → session-tag(s)
+      const msgToSessions = new Map();
+      for (const t of harnessTurns) {
+        if (t.tool !== 'mark_addressed' || !t.session) continue;
+        let userId = '';
+        try {
+          const args = JSON.parse(t.args_json || '{}');
+          userId = (args.user_message_id || '').trim();
+        } catch (e) { /* skip */ }
+        if (!userId) continue;
+        if (!msgToSessions.has(userId)) msgToSessions.set(userId, new Set());
+        msgToSessions.get(userId).add(t.session);
+      }
+
+      // Map: user-msg-id → has-fathom-reply (fire complete)
+      const msgRespondedTo = new Set();
+      for (const f of fathomMsgs) {
+        for (const a of (f.addresses || [])) {
+          if (a) msgRespondedTo.add(a);
+        }
+      }
+
+      // Walk every user-message bubble and (re)build its status badge.
+      const userBubbles = feed.querySelectorAll('.msg.msg-user[data-delta-id]');
+      for (const bubble of userBubbles) {
+        const userId = bubble.dataset.deltaId || '';
+        if (!userId) continue;
+
+        // Remove any stale badge first.
+        const prev = bubble.previousElementSibling;
+        if (prev && prev.classList && prev.classList.contains('fathom-live-status')) {
+          prev.remove();
+        }
+
+        // If a fathom-message has addressed this user-msg, fire is
+        // done — hide the live status.
+        if (msgRespondedTo.has(userId)) continue;
+
+        // Find harness turns for this user-msg's session(s).
+        const sessions = msgToSessions.get(userId);
+        if (!sessions || !sessions.size) continue;
+        const turnsForMsg = harnessTurns
+          .filter(t => sessions.has(t.session))
+          .sort((a, b) => (a.timestamp || '').localeCompare(b.timestamp || ''));
+        if (!turnsForMsg.length) continue;
+
+        // Build status: latest non-mark_addressed/non-respond tool, plus plan if present.
+        const substantive = turnsForMsg.filter(t => t.tool !== 'mark_addressed' && t.tool !== 'respond' && t.tool !== '(review-skip)');
+        const latestSubstantive = substantive[substantive.length - 1];
+        const latest = latestSubstantive || turnsForMsg[turnsForMsg.length - 1];
+
+        let statusText = '';
+        try {
+          const args = JSON.parse(latest.args_json || '{}');
+          statusText = _statusForTool(latest.tool, args) || latest.tool;
+        } catch (e) {
+          statusText = latest.tool;
+        }
+
+        const badge = document.createElement('div');
+        badge.className = 'fathom-live-status';
+        badge.style.cssText = 'font-size:11px;font-style:italic;opacity:0.55;padding:2px 0 4px 12px;border-left:2px solid rgba(160,220,160,0.3);margin-left:4px;line-height:1.5;';
+        const statusLine = document.createElement('div');
+        statusLine.textContent = statusText;
+        badge.appendChild(statusLine);
+
+        // Plan board if a plan tool fired in this fire.
+        const plan = _planStateFromItems(turnsForMsg);
+        if (plan && plan.steps && plan.steps.length) {
+          const planList = document.createElement('div');
+          planList.style.cssText = 'margin-top:3px;padding-left:8px;';
+          for (const s of plan.steps) {
+            const stepEl = document.createElement('div');
+            stepEl.style.cssText = 'opacity:' + (s.status === 'done' ? '0.85' : '0.6');
+            const glyph = s.status === 'done' ? '✓' : (s.status === 'in_progress' ? '⟳' : '☐');
+            stepEl.textContent = `${glyph} ${s.purpose || ''}`;
+            planList.appendChild(stepEl);
+          }
+          badge.appendChild(planList);
+        }
+
+        bubble.parentNode.insertBefore(badge, bubble);
       }
     }
 
