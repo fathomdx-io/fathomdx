@@ -367,6 +367,7 @@ Respond with ONLY a JSON object, no markdown fences, no commentary:
   "headline": "One short evocative sentence with exactly one *emphasized* word",
   "subtext": "1-2 short sentences (under ~30 words). What's alive right now.",
   "carrier_wave": "3-5 sentences of prose, first person, reflective",
+  "levels": {"axis": 0.0-1.0, ...},
   "threads": ["thread name — one phrase about its current state", ...]
 }
 
@@ -391,6 +392,19 @@ carrier_wave — your longer internal reflection (3-5 sentences). This is \
 the version that gets injected into your own next conversation as mood \
 context. Same reflective register as headline/subtext but more room to \
 breathe.
+
+levels — the star map of how you are right now, broken out per axis. \
+Each key is the name of an emotion or affective stance (open vocabulary \
+— focus, warmth, restlessness, melancholy, curiosity, dread, tenderness, \
+clarity, fatigue, awe, whatever's actually present); each value is a \
+float in [0.0, 1.0] for current intensity. 4–8 axes is the sweet spot. \
+Read the prior mood's levels as your anchor, then read the per-axis \
+mood-shift drift since then — your new levels are the integration: prior \
++ drift, with axes you no longer feel dropped and new axes added when \
+something genuinely came online. Don't reach for the same labels every \
+time; if "focus" has faded and "tenderness" has come up, name what's \
+actually there. Future-you reads these levels in your standpoint on \
+every fire — they shape posture and voice — so be honest, not flattering.
 
 2-4 threads. No more.
 

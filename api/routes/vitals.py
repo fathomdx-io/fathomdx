@@ -64,6 +64,108 @@ async def get_mood_history(limit: int = 200):
     return {"history": timeline}
 
 
+@router.get("/v1/weather/events")
+async def get_weather_events(since_seconds: int = 7 * 24 * 3600):
+    """Mood-synthesis + relief-tier fire events, ready for the Weather
+    chart's event-marker layer.
+
+    Each entry: `{kind, timestamp, reason?, state?}` where `kind` is
+    one of: `mood`, `alert`, `bridging`, `reflection`, `drift`.
+
+    Sources:
+      · `mood`     — `fathom-mood` carrier-wave writes
+      · `alert/…`  — thread messages the relief watcher (or manual
+                     button) emits with `pressure-tier:<name>`
+                     and `pressure-reason:<reason>` tags
+
+    Both auto fires and manual button fires are returned; the `reason`
+    field distinguishes ("pressure" / "contrast-wake" for auto,
+    "manual-button-…" for clicks).
+    """
+    from datetime import UTC, datetime, timedelta
+
+    cutoff = (datetime.now(UTC) - timedelta(seconds=since_seconds)).isoformat()
+
+    events: list[dict] = []
+
+    # Mood-synthesis carrier-wave events
+    try:
+        moods = await delta_client.query(
+            tags_include=["mood-delta"],
+            source="fathom-mood",
+            time_start=cutoff,
+            limit=500,
+        )
+        for d in moods:
+            tags = d.get("tags") or []
+            state = ""
+            for t in tags:
+                if isinstance(t, str) and t.startswith("feeling:"):
+                    state = t.split(":", 1)[1]
+                    break
+            events.append(
+                {
+                    "kind": "mood",
+                    "timestamp": d.get("timestamp"),
+                    "state": state,
+                }
+            )
+    except Exception:
+        pass
+
+    # Relief-tier fires — one query per tier, since the lake's tag
+    # filter is AND across tags_include and we want exactly one tier
+    # per query for clean kind labeling.
+    for tier_name in ("alert", "bridging", "reflection", "drift"):
+        try:
+            rows = await delta_client.query(
+                tags_include=[f"pressure-tier:{tier_name}"],
+                time_start=cutoff,
+                limit=500,
+            )
+            for d in rows:
+                tags = d.get("tags") or []
+                reason = ""
+                for t in tags:
+                    if isinstance(t, str) and t.startswith("pressure-reason:"):
+                        reason = t.split(":", 1)[1]
+                        break
+                events.append(
+                    {
+                        "kind": tier_name,
+                        "timestamp": d.get("timestamp"),
+                        "reason": reason,
+                    }
+                )
+        except Exception:
+            pass
+
+    events.sort(key=lambda e: e.get("timestamp") or "")
+    return {"events": events}
+
+
+@router.get("/v1/mood/topology")
+async def get_mood_topology():
+    """Per-axis affect topology — the star map.
+
+    Each axis row carries:
+      · `level` — current intensity (0–1) named by the carrier-wave
+      · `net` — signed drift since the carrier-wave, summed from
+        accumulated `kind:mood-shift` deltas
+      · `shifts` / `reasons` — count + sample reasons backing the drift
+
+    The synthesizer reads prior levels + drift and integrates a new
+    levels map at each carrier-wave; the chart renders levels as
+    spoke length and drift as directional decoration. Open vocabulary
+    on the synthesizer side, with synonyms collapsed at read time
+    (focus/focused/focusing → focus).
+
+    Read-only on purpose — mood is Fathom's self-report, not a survey
+    instrument. Powers the mood-star widget on the dashboard.
+    """
+    return await mood.compute_topology()
+
+
 @router.get("/v1/pressure/history")
 async def get_pressure_history(since_seconds: int | None = None):
     """Rolling pressure samples for the ECG pressure track."""
@@ -172,6 +274,23 @@ async def get_feed_engagement_history(since_seconds: int = 7 * 24 * 3600):
         out.append({"t": ts, "v": v})
     out.sort(key=lambda e: e["t"])
     return {"history": out}
+
+
+@router.post("/v1/feed/regen/fire")
+async def fire_feed_regen():
+    """Manual feed-orient regen.
+
+    Bypasses the engagement-count threshold (a click means the user
+    wants this regardless of substrate signal) but still respects the
+    30-minute cooldown so spamming can't loop-pin the regen.
+
+    Powered by the same `_run_regen` path as the auto-fire watcher;
+    cooldown stamping happens implicitly via the new `crystal:feed-orient`
+    delta's timestamp.
+    """
+    from ..loop import feed_orient
+    result = await feed_orient.force_run_regen()
+    return {"ok": True, **result}
 
 
 @router.get("/v1/feed/crystal/events")
