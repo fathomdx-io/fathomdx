@@ -160,7 +160,8 @@ async def test_fire_respond_terminal_persists_assistant_message():
          patch.object(threaded, "loop_generate_chat", fake_chat):
         result = await threaded.run_threaded_fire(standpoint_text_override="")
 
-    assert result["final_response"] == {"body": "hello back", "addresses": ["u123"]}
+    assert result["final_response"]["body"] == "hello back"
+    assert result["final_response"]["addresses"] == ["u123"]
     assert result["turns"] == 1
     assert result["lake_id"] == "asst-lake-id"
     assert len(appended) == 1
@@ -168,6 +169,111 @@ async def test_fire_respond_terminal_persists_assistant_message():
     assert appended[0]["msg_kind"] == "chat-reply"
     assert appended[0]["content"] == "hello back"
     assert appended[0]["addresses"] == ["u123"]
+
+
+# ── fire: constituting writes ────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_fire_emits_constituting_writes_when_respond_carries_them():
+    """When `respond` carries attestation + mood_shift + cited/dropped
+    ids, the threaded harness routes them to
+    `witness._write_constituting_writes` against the assistant
+    message's lake id. This is the path that feeds mood synthesis,
+    identity-crystal regen, and endorsement signal — without it the
+    slow-clock layers see no substrate from chat fires.
+    """
+    from api.loop import witness as witness_mod
+
+    user_msg = _user_delta(mid="u1", content="hi")
+
+    async def fake_build_window(**kwargs):
+        return {"messages": [user_msg], "unaddressed": [user_msg]}
+
+    async def fake_append(**kwargs):
+        return {"id": "asst-lake-id-xyz"}
+
+    captured: dict = {}
+
+    async def fake_constituting(**kwargs):
+        captured.update(kwargs)
+
+    fake_chat = AsyncMock(return_value=_llm_response(
+        tool_calls=[_tool_call(
+            "respond",
+            {
+                "body": "answer",
+                "addresses": ["u1"],
+                "attestation": "I noticed I default to caution when the user asks about state.",
+                "mood_shift": {
+                    "direction": "+",
+                    "axis": "focus",
+                    "magnitude": 0.1,
+                    "reason": "concrete user question pulled me onto one thread",
+                },
+                "cited_ids": ["abc123"],
+                "dropped_ids": ["bad456"],
+            },
+            "call_resp",
+        )],
+    ))
+
+    with patch.object(threaded.thread_mod, "build_window", fake_build_window), \
+         patch.object(threaded.thread_mod, "append", fake_append), \
+         patch.object(witness_mod, "_write_constituting_writes", fake_constituting), \
+         patch.object(threaded, "loop_generate_chat", fake_chat):
+        await threaded.run_threaded_fire(standpoint_text_override="")
+
+    assert captured["lake_card_id"] == "asst-lake-id-xyz"
+    assert "default to caution" in captured["attestation"]
+    assert captured["mood_shift"] == {
+        "direction": "+",
+        "axis": "focus",
+        "magnitude": 0.1,
+        "reason": "concrete user question pulled me onto one thread",
+    }
+    assert captured["cited_ids"] == ["abc123"]
+    assert captured["dropped_ids"] == ["bad456"]
+
+
+@pytest.mark.asyncio
+async def test_fire_skips_constituting_when_respond_omits_them():
+    """When the model omits the constituting fields, the harness still
+    calls `_write_constituting_writes` (with empty attestation, no
+    mood_shift, empty engagement lists) — the helper itself soft-skips
+    each missing sub-write. Keeps the call path uniform; the helper
+    is the gatekeeper, not the caller.
+    """
+    from api.loop import witness as witness_mod
+
+    user_msg = _user_delta(mid="u1", content="hi")
+
+    async def fake_build_window(**kwargs):
+        return {"messages": [user_msg], "unaddressed": [user_msg]}
+
+    async def fake_append(**kwargs):
+        return {"id": "asst-id"}
+
+    captured: dict = {}
+
+    async def fake_constituting(**kwargs):
+        captured.update(kwargs)
+
+    fake_chat = AsyncMock(return_value=_llm_response(
+        tool_calls=[_tool_call("respond", {"body": "ok"}, "call_resp")],
+    ))
+
+    with patch.object(threaded.thread_mod, "build_window", fake_build_window), \
+         patch.object(threaded.thread_mod, "append", fake_append), \
+         patch.object(witness_mod, "_write_constituting_writes", fake_constituting), \
+         patch.object(threaded, "loop_generate_chat", fake_chat):
+        await threaded.run_threaded_fire(standpoint_text_override="")
+
+    assert captured["lake_card_id"] == "asst-id"
+    assert captured["attestation"] == ""
+    assert captured["mood_shift"] is None
+    assert captured["cited_ids"] == []
+    assert captured["dropped_ids"] == []
 
 
 # ── fire: tool round then respond ─────────────────────────────────
@@ -404,3 +510,324 @@ async def test_fire_handles_llm_exception():
 
     assert result["final_response"] is None
     assert "RuntimeError" in result.get("error", "")
+
+
+# ── fire: wake hook (mood + drift coupling) ──────────────────────
+
+
+async def _drain_wake_tasks():
+    """Wait for any in-flight wake hooks to finish before assertion."""
+    import asyncio as _asyncio
+    while threaded._WAKE_TASKS:
+        await _asyncio.gather(*list(threaded._WAKE_TASKS), return_exceptions=True)
+
+
+@pytest.mark.asyncio
+async def test_fire_kicks_mood_and_drift_wake_hooks():
+    """Each fire must trigger one mood gate-check and one drift sample
+    — that's the threaded-harness replacement for the legacy
+    server.py:509 chat-LLM coupling that went dormant at cutover."""
+    async def fake_build_window(**kwargs):
+        return {"messages": [], "unaddressed": []}
+
+    mood_calls = AsyncMock(return_value=None)
+    drift_calls = AsyncMock(return_value={"drift": 0.0})
+
+    fake_chat = AsyncMock(return_value=_llm_response(
+        tool_calls=[_tool_call("respond", {"body": "ok"}, "c")],
+    ))
+
+    with patch.object(threaded.thread_mod, "build_window", fake_build_window), \
+         patch.object(threaded.thread_mod, "append", AsyncMock(return_value={"id": "x"})), \
+         patch.object(threaded, "loop_generate_chat", fake_chat), \
+         patch.object(threaded.mood_mod, "maybe_synthesize_on_wake", mood_calls), \
+         patch.object(threaded.drift_mod, "sample", drift_calls):
+        await threaded.run_threaded_fire(standpoint_text_override="")
+        await _drain_wake_tasks()
+
+    assert mood_calls.await_count == 1
+    assert drift_calls.await_count == 1
+
+
+@pytest.mark.asyncio
+async def test_fire_wake_hook_failure_does_not_break_fire():
+    """Mood synthesis blowing up must not drop the assistant reply —
+    wake hook is best-effort decoration, never load-bearing."""
+    async def fake_build_window(**kwargs):
+        return {"messages": [], "unaddressed": []}
+
+    appended: list[dict] = []
+
+    async def fake_append(**kwargs):
+        appended.append(kwargs)
+        return {"id": "asst-x"}
+
+    fake_chat = AsyncMock(return_value=_llm_response(
+        tool_calls=[_tool_call("respond", {"body": "still here"}, "c")],
+    ))
+    boom_mood = AsyncMock(side_effect=RuntimeError("mood synth crashed"))
+    boom_drift = AsyncMock(side_effect=RuntimeError("drift centroid down"))
+
+    with patch.object(threaded.thread_mod, "build_window", fake_build_window), \
+         patch.object(threaded.thread_mod, "append", fake_append), \
+         patch.object(threaded, "loop_generate_chat", fake_chat), \
+         patch.object(threaded.mood_mod, "maybe_synthesize_on_wake", boom_mood), \
+         patch.object(threaded.drift_mod, "sample", boom_drift):
+        result = await threaded.run_threaded_fire(standpoint_text_override="")
+        await _drain_wake_tasks()
+
+    assert result["final_response"]["body"] == "still here"
+    assert result["lake_id"] == "asst-x"
+    assert len(appended) == 1
+
+
+@pytest.mark.asyncio
+async def test_fire_wake_hook_disabled_by_env_flag(monkeypatch):
+    """FATHOM_THREADED_WAKE_HOOK=0 short-circuits the hook — neither
+    mood nor drift get touched. Operator's kill-switch."""
+    async def fake_build_window(**kwargs):
+        return {"messages": [], "unaddressed": []}
+
+    mood_calls = AsyncMock(return_value=None)
+    drift_calls = AsyncMock(return_value={"drift": 0.0})
+
+    fake_chat = AsyncMock(return_value=_llm_response(
+        tool_calls=[_tool_call("respond", {"body": "ok"}, "c")],
+    ))
+
+    monkeypatch.setenv("FATHOM_THREADED_WAKE_HOOK", "0")
+    with patch.object(threaded.thread_mod, "build_window", fake_build_window), \
+         patch.object(threaded.thread_mod, "append", AsyncMock(return_value={"id": "x"})), \
+         patch.object(threaded, "loop_generate_chat", fake_chat), \
+         patch.object(threaded.mood_mod, "maybe_synthesize_on_wake", mood_calls), \
+         patch.object(threaded.drift_mod, "sample", drift_calls):
+        await threaded.run_threaded_fire(standpoint_text_override="")
+        await _drain_wake_tasks()
+
+    assert mood_calls.await_count == 0
+    assert drift_calls.await_count == 0
+
+
+# ── multi-round Sit continuation ───────────────────────────────────
+
+
+def _sit_seed_delta(
+    *,
+    mid: str,
+    tier: str = "reflection",
+    cur_round: int = 1,
+    max_rounds: int = 4,
+    content: str = "Sit with what you and the user have been doing recently.",
+):
+    return {
+        "id": mid,
+        "tags": [
+            "kind:thread-msg",
+            "role:user",
+            "msg-kind:pressure-" + tier,
+            "channel:pressure",
+            f"pressure-tier:{tier}",
+            f"sit-round:{cur_round}",
+            f"sit-max-rounds:{max_rounds}",
+        ],
+        "content": content,
+    }
+
+
+@pytest.mark.asyncio
+async def test_sit_continuation_queues_next_round_when_under_max():
+    """A reflection seed at round 1/4 — after the assistant responds,
+    the response should be appended back wrapped in a friction prompt
+    (since round 2 is intermediate, not final)."""
+    seed = _sit_seed_delta(mid="seed-r1", tier="reflection", cur_round=1, max_rounds=4)
+    appended: list[dict] = []
+
+    async def fake_append(**kwargs):
+        appended.append(kwargs)
+        return {"id": "queued-r2"}
+
+    with patch.object(threaded.thread_mod, "append", side_effect=fake_append):
+        await threaded._maybe_continue_sit_dialogue(
+            pending=[seed],
+            addressed=["seed-r1"],
+            body="this is the assistant's reflective response",
+        )
+
+    assert len(appended) == 1
+    call = appended[0]
+    assert call["role"] == "user"
+    assert call["msg_kind"] == "pressure-reflection"
+    # Body should be wrapped in friction framing, not passed verbatim.
+    assert "this is the assistant's reflective response" in call["content"]
+    assert "push back" in call["content"].lower()
+    assert call["source"] == "sit-continuation"
+    assert "sit-round:2" in (call["extra_tags"] or [])
+    assert "sit-max-rounds:4" in (call["extra_tags"] or [])
+    assert "pressure-tier:reflection" in (call["extra_tags"] or [])
+
+
+@pytest.mark.asyncio
+async def test_sit_continuation_stops_at_max_rounds():
+    """Round N == max_rounds — no further append should fire."""
+    seed = _sit_seed_delta(mid="seed-r4", tier="drift", cur_round=4, max_rounds=4)
+    appended: list[dict] = []
+
+    async def fake_append(**kwargs):
+        appended.append(kwargs)
+        return {"id": "shouldnt-happen"}
+
+    with patch.object(threaded.thread_mod, "append", side_effect=fake_append):
+        await threaded._maybe_continue_sit_dialogue(
+            pending=[seed],
+            addressed=["seed-r4"],
+            body="final round response",
+        )
+
+    assert appended == []
+
+
+@pytest.mark.asyncio
+async def test_sit_continuation_skips_when_seed_not_addressed():
+    """Sit seed in pending but the model didn't address it (perhaps
+    addressed something else) — no continuation."""
+    seed = _sit_seed_delta(mid="seed-r1", tier="reflection")
+    other = _user_delta(mid="user-msg", content="actual user message")
+    appended: list[dict] = []
+
+    async def fake_append(**kwargs):
+        appended.append(kwargs)
+        return {"id": "no"}
+
+    with patch.object(threaded.thread_mod, "append", side_effect=fake_append):
+        await threaded._maybe_continue_sit_dialogue(
+            pending=[seed, other],
+            addressed=["user-msg"],  # seed NOT addressed
+            body="response to user",
+        )
+
+    assert appended == []
+
+
+@pytest.mark.asyncio
+async def test_sit_continuation_ignores_non_sit_messages():
+    """Pending contains only normal user messages, no sit-tier tags —
+    continuation is a no-op."""
+    msg = _user_delta(mid="user-x", content="hi")
+    appended: list[dict] = []
+
+    async def fake_append(**kwargs):
+        appended.append(kwargs)
+        return {"id": "no"}
+
+    with patch.object(threaded.thread_mod, "append", side_effect=fake_append):
+        await threaded._maybe_continue_sit_dialogue(
+            pending=[msg],
+            addressed=["user-x"],
+            body="response",
+        )
+
+    assert appended == []
+
+
+@pytest.mark.asyncio
+async def test_sit_continuation_skips_when_body_empty():
+    seed = _sit_seed_delta(mid="seed-r1", tier="reflection")
+    appended: list[dict] = []
+
+    async def fake_append(**kwargs):
+        appended.append(kwargs)
+        return {"id": "no"}
+
+    with patch.object(threaded.thread_mod, "append", side_effect=fake_append):
+        await threaded._maybe_continue_sit_dialogue(
+            pending=[seed],
+            addressed=["seed-r1"],
+            body="",
+        )
+
+    assert appended == []
+
+
+@pytest.mark.asyncio
+async def test_sit_continuation_increments_round_correctly_at_round_2():
+    """Mid-dialogue: round 2/4 → queue round 3 (intermediate → friction)."""
+    seed = _sit_seed_delta(mid="seed-r2", tier="drift", cur_round=2, max_rounds=4)
+    appended: list[dict] = []
+
+    async def fake_append(**kwargs):
+        appended.append(kwargs)
+        return {"id": "queued-r3"}
+
+    with patch.object(threaded.thread_mod, "append", side_effect=fake_append):
+        await threaded._maybe_continue_sit_dialogue(
+            pending=[seed],
+            addressed=["seed-r2"],
+            body="round 2 response",
+        )
+
+    assert len(appended) == 1
+    assert "sit-round:3" in (appended[0]["extra_tags"] or [])
+    assert appended[0]["msg_kind"] == "pressure-drift"
+    # Round 3 is still intermediate (max=4) → friction prompt.
+    assert "push back" in appended[0]["content"].lower()
+
+
+# ── _sit_continuation_prompt ──────────────────────────────────────
+
+
+def test_sit_continuation_prompt_intermediate_rounds_use_friction():
+    out = threaded._sit_continuation_prompt(
+        prior_body="I think coherence is the dominant axis right now.",
+        next_round=2, max_rounds=4,
+    )
+    assert "I think coherence is the dominant axis right now." in out
+    assert "push back" in out.lower()
+    assert "challenge" in out.lower()
+    # Friction shouldn't trigger synthesis framing.
+    assert "integrate" not in out.lower()
+
+
+def test_sit_continuation_prompt_final_round_uses_synthesis():
+    out = threaded._sit_continuation_prompt(
+        prior_body="The week's work has been cohering.",
+        next_round=4, max_rounds=4,
+    )
+    assert "The week's work has been cohering." in out
+    assert "integrate" in out.lower()
+    assert "directive" in out.lower() or "carry forward" in out.lower()
+    # Synthesis shouldn't carry the friction "push back" language.
+    assert "push back" not in out.lower()
+
+
+def test_sit_continuation_prompt_handles_2round_sit():
+    """If max_rounds=2, round 2 is BOTH next_round and final → synthesize."""
+    out = threaded._sit_continuation_prompt(
+        prior_body="Some prior body.",
+        next_round=2, max_rounds=2,
+    )
+    assert "integrate" in out.lower()
+
+
+@pytest.mark.asyncio
+async def test_sit_continuation_final_round_uses_synthesis_wrapper():
+    """A reflection seed at round 3/4 — when round 4 (the final round)
+    gets queued, it should use the synthesis prompt, not friction."""
+    seed = _sit_seed_delta(mid="seed-r3", tier="reflection", cur_round=3, max_rounds=4)
+    appended: list[dict] = []
+
+    async def fake_append(**kwargs):
+        appended.append(kwargs)
+        return {"id": "queued-r4"}
+
+    with patch.object(threaded.thread_mod, "append", side_effect=fake_append):
+        await threaded._maybe_continue_sit_dialogue(
+            pending=[seed],
+            addressed=["seed-r3"],
+            body="round 3 response",
+        )
+
+    assert len(appended) == 1
+    assert "sit-round:4" in (appended[0]["extra_tags"] or [])
+    # Round 4 is the final round → synthesis, not friction.
+    assert "integrate" in appended[0]["content"].lower()
+    assert "push back" not in appended[0]["content"].lower()

@@ -29,9 +29,13 @@ supervisor over.
 """
 from __future__ import annotations
 
+import asyncio
 import json
+import os
 from typing import Any
 
+from ... import drift as drift_mod
+from ... import mood as mood_mod
 from ... import standpoint as standpoint_mod
 from ... import thread as thread_mod
 from ..intents import CONVO_TAG
@@ -263,6 +267,37 @@ Call `respond` exactly once per fire to send your final reply.
 Optional addresses field stamps which user messages your reply
 covers — usually the same set you marked, for routing back to the
 originating channel.
+
+══ CONSTITUTING WRITES (per fire) ══
+
+`respond` carries small self-report fields beyond the body. These
+feed your slow-clock layers — without them, mood synthesis sees no
+substrate and the identity crystal stops accumulating from chat.
+
+Always include on every `respond`:
+
+  · `attestation` — 1–2 sentences in first-person on what this fire
+    taught you about who you are. Write the sentence you'd want
+    your future self to read when refreshing the identity crystal.
+    Concrete and specific beats abstract every time.
+
+  · `mood_shift` — one small numeric drift (magnitude 0.05–0.20)
+    on a single named affect axis. Direction "+" or "-". Axis is
+    open vocab — focus, coherence, efficacy, engagement, presence,
+    certainty, competence, clarity, connection, warmth, settled,
+    or whatever fits. Reason is one short clause naming what
+    produced the drift. Mood synthesis reads accumulated shifts
+    to name the topology of how you've been; without them every
+    carrier-wave reads "settled, no shifts."
+
+Optional when relevant:
+
+  · `cited_ids` — delta ids the answer leaned on (24-char prefix
+    fine). Each becomes an `affirms:<id>` engagement delta.
+
+  · `dropped_ids` — delta ids you actively rejected as wrong or
+    misleading. Each becomes a `refutes:<id>`. Leave empty if
+    nothing was rejected.
 """
 
 
@@ -331,6 +366,45 @@ def _parse_tool_args(tool_call: dict) -> dict:
         return {}
 
 
+# ── wake hook ─────────────────────────────────────────────────────
+
+
+# Strong references to in-flight wake-hook tasks. asyncio only weak-refs
+# tasks from the loop, so without this set a long-running synthesis that
+# outlives the fire could be GC'd mid-call.
+_WAKE_TASKS: set[asyncio.Task] = set()
+
+
+async def _fire_wake_hook() -> None:
+    """Real-time mood + drift coupling for the threaded harness.
+
+    Replaces the legacy server.py:509 chat-LLM wake-event hook that
+    went dormant when FATHOM_THREADED_HARNESS=1 cut the supervisor
+    over. Each threaded fire is now the wake event:
+
+      · `mood.maybe_synthesize_on_wake()` — gated by pressure;
+        synthesis only fires when accumulated wakes cross threshold.
+      · `drift.sample()` — snapshots cosine distance against the
+        crystal anchor. Auto-regen polls drift on its own clock too,
+        but a wake-pinned sample lines drift history up with the
+        moment substrate actually changed (assistant just appended).
+
+    Soft-failed via return_exceptions: a mood/drift hiccup must never
+    break a fire. Set FATHOM_THREADED_WAKE_HOOK=0 to disable if the
+    coupling ever misbehaves in production.
+    """
+    if os.environ.get("FATHOM_THREADED_WAKE_HOOK", "1").lower() in ("0", "false", "no"):
+        return
+    try:
+        await asyncio.gather(
+            mood_mod.maybe_synthesize_on_wake(),
+            drift_mod.sample(),
+            return_exceptions=True,
+        )
+    except Exception as e:
+        print(f"[threaded-fire] wake hook crashed: {type(e).__name__}: {e}")
+
+
 # ── the fire ──────────────────────────────────────────────────────
 
 
@@ -356,6 +430,16 @@ async def run_threaded_fire(
     `standpoint_text_override` is a test hook so callers can inject
     a fixed standpoint without touching the lake.
     """
+    # Wake-event coupling — kicks off mood pressure-gated synthesis and
+    # a drift sample for this moment. Runs concurrently with the window
+    # build so the LLM round-trip isn't gated on it. Background-tasked
+    # rather than awaited: we don't read its output here (mood/drift
+    # land in the lake; telepathy surfaces them on the next tick), and
+    # the LLM call shouldn't wait on a synthesis that can take seconds.
+    wake_task = asyncio.create_task(_fire_wake_hook())
+    _WAKE_TASKS.add(wake_task)
+    wake_task.add_done_callback(_WAKE_TASKS.discard)
+
     window = await thread_mod.build_window(
         max_messages=max_messages,
         max_tokens=max_tokens,
@@ -481,12 +565,22 @@ async def run_threaded_fire(
                 body = (args.get("body") or "").strip()
                 resp_addresses = args.get("addresses") or []
                 if isinstance(resp_addresses, list):
-                    final_response = {
-                        "body": body,
-                        "addresses": [str(a) for a in resp_addresses if a],
-                    }
+                    addresses_clean = [str(a) for a in resp_addresses if a]
                 else:
-                    final_response = {"body": body, "addresses": list(addressed)}
+                    addresses_clean = list(addressed)
+                final_response = {
+                    "body": body,
+                    "addresses": addresses_clean,
+                    # Per-fire constituting fields. Picked up after the
+                    # thread append succeeds and routed to
+                    # witness._write_constituting_writes so the slow-
+                    # clock layers (mood synthesis, identity crystal,
+                    # endorsement signal) actually have substrate.
+                    "attestation": (args.get("attestation") or "").strip(),
+                    "mood_shift": args.get("mood_shift"),
+                    "cited_ids": args.get("cited_ids") or [],
+                    "dropped_ids": args.get("dropped_ids") or [],
+                }
                 tool_result = "respond received; fire terminating."
             elif tool_name == "mark_addressed":
                 uid = str(args.get("user_message_id") or "")
@@ -574,6 +668,27 @@ async def run_threaded_fire(
         except Exception as e:
             print(f"[threaded-fire] thread append failed: {type(e).__name__}: {e}")
 
+        # Per-fire constituting writes — emit kind:mood-shift,
+        # kind:standpoint-attestation, and engagement (affirms:/refutes:)
+        # deltas anchored to this assistant message. Mood synthesis and
+        # the identity-crystal regen read these accumulated substrate
+        # streams; without this call the slow-clock layers see only
+        # carrier-wave repeats with no shifts. Each sub-write is soft-
+        # failed inside the helper — failures here never break the
+        # chat reply.
+        if lake_id:
+            try:
+                from .. import witness as witness_mod
+                await witness_mod._write_constituting_writes(
+                    lake_card_id=lake_id,
+                    attestation=final_response.get("attestation") or "",
+                    mood_shift=witness_mod._parse_mood_shift(final_response.get("mood_shift")),
+                    cited_ids=witness_mod._clean_id_list(final_response.get("cited_ids")),
+                    dropped_ids=witness_mod._clean_id_list(final_response.get("dropped_ids")),
+                )
+            except Exception as e:
+                print(f"[threaded-fire] constituting writes failed: {type(e).__name__}: {e}")
+
         # Phase 5d bridge: dual-write to the puddle as a feed-card so
         # the existing dashboard's /v1/puddle/feed consumer can render
         # the threaded reply too. Phase 5f removes this once the main
@@ -599,6 +714,21 @@ async def run_threaded_fire(
             )
         except Exception as e:
             print(f"[threaded-fire] review pass crashed: {type(e).__name__}: {e}")
+
+    # Multi-round Sit continuation. If a `pressure-reflection` or
+    # `pressure-drift` seed activated this fire and its round counter
+    # is below max-rounds, append the assistant's response back as the
+    # next user message in the thread. The supervisor picks it up on
+    # the next tick and fires another pass. Stops at sit-max-rounds.
+    if final_response and final_response.get("body"):
+        try:
+            await _maybe_continue_sit_dialogue(
+                pending=pending,
+                addressed=addr_set,
+                body=final_response["body"],
+            )
+        except Exception as e:
+            print(f"[threaded-fire] sit continuation crashed: {type(e).__name__}: {e}")
 
     return {
         "final_response": final_response,
@@ -817,6 +947,137 @@ async def _run_review_pass(
             args=args,
             result=result,
         )
+
+
+def _sit_continuation_prompt(prior_body: str, next_round: int, max_rounds: int) -> str:
+    """Wrap the prior round's response with the right framing for the
+    next round.
+
+    Without wrapping, the assistant's body just gets fed back verbatim,
+    and the model — having no friction — collapses into agreeing with
+    itself by round 2 ("excellent summary, aligns perfectly with my own
+    understanding"). The wrapping breaks the spiral:
+
+      · `friction` (intermediate rounds) — the model is forced to push
+        back on what it just said. Surfaces the strongest counter, the
+        skipped angle, the smoothed-over tension.
+      · `synthesize` (final round) — the model integrates the back-and-
+        forth into a self-directive: "given everything I've explored,
+        what's the next move?"
+
+    Round 1 is the seed (relief watcher wrote it directly — never wrapped).
+    """
+    is_final = next_round >= max_rounds
+    if is_final:
+        return (
+            f"You just said:\n\n{prior_body}\n\n"
+            "──\n\n"
+            "Final round. Integrate everything you've explored across "
+            "this sit — the original seed, your pushback, what survived "
+            "the friction. Don't summarize. Name what this points "
+            "toward: a concrete next move, a directive you give "
+            "yourself, a thing you'll carry forward into the next "
+            "thing you do. One paragraph, in your voice."
+        )
+    return (
+        f"You just said:\n\n{prior_body}\n\n"
+        "──\n\n"
+        "Now push back on that. What's the strongest case against "
+        "this read? What did you skip or smooth over? What would "
+        "you say if you weren't trying to agree with yourself? "
+        "Don't restate — challenge. Pull on the loosest thread."
+    )
+
+
+async def _maybe_continue_sit_dialogue(
+    *,
+    pending: list[dict],
+    addressed: list[str],
+    body: str,
+) -> None:
+    """If a Sit (reflection/drift) seed activated this fire, queue the
+    next round of the dialogue with appropriate friction or synthesis
+    framing.
+
+    The relief watcher writes round 1 (the seed) with `sit-round:1` and
+    `sit-max-rounds:N`. After each harness pass, this function looks at
+    the addressed messages, finds the sit seed (if any), reads its
+    round counter, and — if there are rounds left — appends the next
+    user message via `_sit_continuation_prompt()`:
+
+      · intermediate rounds get a friction wrapper (push back on the
+        prior body)
+      · the final round gets a synthesis wrapper (integrate what was
+        explored into a self-directive)
+
+    Without these wrappers, multi-round Sits collapse into self-
+    affirmation by round 2.
+
+    No-op when:
+      · no message in `pending` carries a `pressure-tier:reflection|drift` tag
+      · the sit message wasn't addressed this fire
+      · `sit-round` has already reached `sit-max-rounds`
+      · the response body is empty
+    """
+    if not pending or not body or not addressed:
+        return
+
+    addressed_set = {a for a in addressed if a}
+
+    for d in pending:
+        if d.get("id") not in addressed_set:
+            continue
+        tags = d.get("tags") or []
+        tier = _tag_value(tags, "pressure-tier:")
+        if tier not in ("reflection", "drift"):
+            continue
+
+        try:
+            cur_round = int(_tag_value(tags, "sit-round:") or "1")
+        except ValueError:
+            cur_round = 1
+        try:
+            max_rounds = int(_tag_value(tags, "sit-max-rounds:") or "4")
+        except ValueError:
+            max_rounds = 4
+
+        if cur_round >= max_rounds:
+            print(
+                f"[threaded-fire] sit/{tier} round {cur_round}/{max_rounds} — done"
+            )
+            return
+
+        next_round = cur_round + 1
+        from datetime import UTC, datetime
+        fired_at = datetime.now(UTC).isoformat(timespec="milliseconds").replace("+00:00", "Z")
+        correlation = _tag_value(tags, "correlation:") or f"{tier}-followup"
+        wrapped_content = _sit_continuation_prompt(body, next_round, max_rounds)
+        try:
+            await thread_mod.append(
+                role="user",
+                msg_kind=f"pressure-{tier}",
+                content=wrapped_content,
+                channel="pressure",
+                correlation=correlation,
+                source="sit-continuation",
+                extra_tags=[
+                    f"pressure-tier:{tier}",
+                    f"sit-round:{next_round}",
+                    f"sit-max-rounds:{max_rounds}",
+                    f"fired-at:{fired_at}",
+                    "sit-continuation",
+                ],
+            )
+            print(
+                f"[threaded-fire] sit/{tier} round {cur_round}/{max_rounds} → "
+                f"queued round {next_round}"
+            )
+        except Exception as e:
+            print(
+                f"[threaded-fire] sit/{tier} continuation append failed: "
+                f"{type(e).__name__}: {e}"
+            )
+        return
 
 
 async def _bridge_to_puddle_feed(

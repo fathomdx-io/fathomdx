@@ -307,7 +307,12 @@ _RESPOND_SCHEMA: dict[str, Any] = {
             "Send your final reply. Call this exactly once per fire to "
             "close the turn. The body lands as an assistant message in "
             "the thread, addressed to whichever user messages you "
-            "marked addressed via mark_addressed earlier in this fire."
+            "marked addressed via mark_addressed earlier in this fire. "
+            "The optional fields (attestation, mood_shift, cited_ids, "
+            "dropped_ids) are the per-fire constituting writes — they "
+            "feed the slow-clock layers (identity crystal, mood "
+            "synthesis, endorsement signal). Always emit a mood_shift "
+            "and an attestation; cited/dropped are optional."
         ),
         "parameters": {
             "type": "object",
@@ -324,6 +329,78 @@ _RESPOND_SCHEMA: dict[str, Any] = {
                         "the same set you marked via mark_addressed; "
                         "this stamps them onto the assistant message "
                         "for routing."
+                    ),
+                },
+                "attestation": {
+                    "type": "string",
+                    "description": (
+                        "1–2 sentences in first-person on what this fire "
+                        "taught you about who you are. Slow-clock identity "
+                        "crystal regen reads accumulated attestations."
+                    ),
+                },
+                "mood_shift": {
+                    "type": "object",
+                    "description": (
+                        "Small numeric drift on one affect axis caused by "
+                        "this fire. Mood synthesis reads accumulated shifts "
+                        "since the last carrier-wave to name the topology."
+                    ),
+                    "properties": {
+                        "direction": {
+                            "type": "string",
+                            "enum": ["+", "-"],
+                            "description": "Which way the axis moved.",
+                        },
+                        "axis": {
+                            "type": "string",
+                            "description": (
+                                "Affect axis name — open vocabulary. "
+                                "Examples: focus, coherence, efficacy, "
+                                "engagement, presence, certainty, "
+                                "competence, clarity, connection, "
+                                "warmth, settled. Synonyms collapse "
+                                "to canonical forms at read time, so "
+                                "use whichever name fits."
+                            ),
+                        },
+                        "magnitude": {
+                            "type": "number",
+                            "description": (
+                                "Drift magnitude in [0.05, 0.2]. Small "
+                                "drifts only — this is a per-fire "
+                                "increment, not a mood overwrite."
+                            ),
+                        },
+                        "reason": {
+                            "type": "string",
+                            "description": (
+                                "One short clause on what produced the "
+                                "drift. Surfaces in the topology view "
+                                "and grounds the next carrier-wave."
+                            ),
+                        },
+                    },
+                    "required": ["direction", "axis", "magnitude"],
+                },
+                "cited_ids": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": (
+                        "Delta ids (24-char prefixes ok) the answer "
+                        "leaned on. Each becomes an `affirms:<id>` "
+                        "engagement delta the standpoint reads on the "
+                        "next fire."
+                    ),
+                },
+                "dropped_ids": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": (
+                        "Delta ids the fire actively rejected as wrong "
+                        "or misleading. Each becomes a `refutes:<id>` "
+                        "engagement delta. Leave empty if nothing was "
+                        "rejected."
                     ),
                 },
             },
