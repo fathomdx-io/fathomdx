@@ -718,9 +718,11 @@ async def _bridge_to_puddle_feed(
     addresses linkage is decorative on the card UI side.
     """
     try:
+        from ... import delta_client as lake
         from ..puddle import puddle
         from ..intents import CONVO_TAG, Q_A_TTL_S
         import json as _json
+        from datetime import UTC, datetime, timedelta
 
         payload = _json.dumps({
             "kicker": "",
@@ -728,18 +730,45 @@ async def _bridge_to_puddle_feed(
             "body": body,
             "tail": "",
         })
-        tags = [
-            CONVO_TAG,
+        # Lake side first so we have a durable id to point the puddle
+        # mirror at via lake-id:<id>. Without the lake write the
+        # rehydrate's `feed-card` slice on the next api restart finds
+        # nothing and the assistant turn vanishes from the dashboard
+        # — only the user message (which has its own lake-side
+        # composer write) reappears.
+        lake_tags = [
             "feed-card",
             "synthesis",
             "addressing-output",
             "route:chat-reply",
         ]
         for addr in addresses:
-            tags.append(f"addresses:{addr}")
+            lake_tags.append(f"addresses:{addr}")
+        # Match witness's TTL so feed-cards age out of the lake the
+        # same way regardless of which harness produced them.
+        feed_card_ttl = Q_A_TTL_S
+        bridge_lake_id = ""
+        try:
+            lake_delta = await lake.write(
+                content=payload,
+                tags=lake_tags,
+                source="harness-threaded",
+                expires_at=(datetime.now(UTC) + timedelta(seconds=feed_card_ttl)).isoformat(),
+            )
+            if isinstance(lake_delta, dict):
+                bridge_lake_id = lake_delta.get("id") or ""
+        except Exception as le:
+            print(f"[threaded-fire] bridge lake write failed: {type(le).__name__}: {le}")
+
+        tags = [CONVO_TAG] + lake_tags
         if lake_id:
             tags.append(f"lake-id:{lake_id}")
             tags.append(f"recalled-id:{lake_id[:24]}")
+        if bridge_lake_id:
+            # Mark the puddle copy with the bridge's own lake id so
+            # rehydrate's recalled-id dedup recognizes them as the
+            # same row on cold-start replay.
+            tags.append(f"recalled-id:{bridge_lake_id[:24]}")
         await puddle.write(
             content=payload,
             tags=tags,
