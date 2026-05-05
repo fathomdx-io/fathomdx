@@ -274,6 +274,31 @@ _PROPOSE_PROVENANCE_SCHEMA: dict[str, Any] = {
 }
 
 
+_SKIP_SCHEMA: dict[str, Any] = {
+    "type": "function",
+    "function": {
+        "name": "skip",
+        "description": (
+            "Decline to act. Used in the post-response review pass when "
+            "the working set doesn't deserve a provenance proposal — "
+            "thin recall, scattered constituents, or already-good coverage. "
+            "Better no proposal than a dead-weight one. Pair with a one-"
+            "sentence reason."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "reason": {
+                    "type": "string",
+                    "description": "One sentence explaining why nothing's worth naming.",
+                },
+            },
+            "required": ["reason"],
+        },
+    },
+}
+
+
 _RESPOND_SCHEMA: dict[str, Any] = {
     "type": "function",
     "function": {
@@ -321,6 +346,21 @@ _ALL_SCHEMAS: list[dict[str, Any]] = [
     _PROPOSE_PROVENANCE_SCHEMA,
     _INTROSPECT_SCHEMA,
 ]
+
+
+# Review-pass tools — the post-response review fire only sees these.
+# `tool_choice="required"` forces one of them, eliminating the
+# inline-JSON-content quirk where the model wraps a tool call in
+# markdown instead of using the function-calling field.
+_REVIEW_SCHEMAS: list[dict[str, Any]] = [
+    _PROPOSE_PROVENANCE_SCHEMA,
+    _SKIP_SCHEMA,
+]
+
+
+def review_tools() -> list[dict[str, Any]]:
+    """Tool list for the post-response review pass."""
+    return [dict(s) for s in _REVIEW_SCHEMAS]
 
 
 def chat_tools() -> list[dict[str, Any]]:

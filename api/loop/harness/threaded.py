@@ -53,7 +53,7 @@ def _truncate(s: str, cap: int) -> str:
 async def _write_threaded_turn_trace(
     *,
     session_tag: str,
-    turn: int,
+    turn: int | str,
     tool: str,
     thinking: str = "",
     args: dict | None = None,
@@ -634,27 +634,33 @@ async def _run_review_pass(
         tool_history=tool_history,
     )
 
-    # Only propose_provenance is exposed — the review pass can't
-    # search, dispatch, or address anything. One job.
-    review_tools = [
-        s for s in tool_schemas.chat_tools()
-        if s.get("function", {}).get("name") == "propose_provenance"
-    ]
+    # Review pass exposes ONLY propose_provenance + skip, with
+    # tool_choice="required" so the model must pick one — eliminates
+    # the inline-JSON-content quirk where a model wraps a tool call
+    # in markdown content instead of using the function-calling field
+    # (we still keep the salvage parser as a backstop for providers
+    # that ignore tool_choice).
+    tools = tool_schemas.review_tools()
 
     messages = [
         {"role": "system", "content": system_text},
         {
             "role": "user",
-            "content": "Review this fire. Call propose_provenance if a stretch deserves naming, otherwise reply with a one-sentence skip reason and no tool call.",
+            "content": (
+                "Review the fire above. Call EITHER `propose_provenance` "
+                "(when a coherent stretch in the working set deserves "
+                "naming) OR `skip` (when it doesn't). Use the function-"
+                "calling tool field — do NOT emit JSON in your reply text."
+            ),
         },
     ]
 
     try:
         asst = await loop_generate_chat(
             messages=messages,
-            tools=review_tools,
-            tool_choice="auto",
-            max_tokens=1500,
+            tools=tools,
+            tool_choice="required",
+            max_tokens=4000,
         )
     except Exception as e:
         print(f"[threaded-review] LLM call crashed: {type(e).__name__}: {e}")
@@ -662,10 +668,8 @@ async def _run_review_pass(
 
     tool_calls = asst.get("tool_calls") or []
     if not tool_calls:
-        # Some providers (most notably Gemini for review-pass-shaped
-        # prompts) emit the tool call as JSON content rather than
-        # using the native tool_calls field. Parse and route from
-        # content as a fallback.
+        # Salvage path: a stubborn provider emitted the call as
+        # markdown JSON content instead of honoring tool_choice.
         content = (asst.get("content") or "").strip()
         salvaged = _salvage_tool_call_from_content(content)
         if salvaged is not None:
@@ -679,7 +683,7 @@ async def _run_review_pass(
                 result = f"ERROR: {type(e).__name__}: {e}"
             await _write_threaded_turn_trace(
                 session_tag=session_tag,
-                turn=0,
+                turn="R",
                 tool="propose_provenance",
                 thinking=f"(salvaged from content fallback) {content[:200]}",
                 args=salvaged,
@@ -689,7 +693,7 @@ async def _run_review_pass(
         skip_reason = content
         await _write_threaded_turn_trace(
             session_tag=session_tag,
-            turn=0,
+            turn="R",
             tool="(review-skip)",
             thinking=skip_reason[:300],
             result=skip_reason[:300] or "no tool call emitted",
@@ -699,9 +703,19 @@ async def _run_review_pass(
     for tc in tool_calls:
         fn = tc.get("function") or {}
         name = fn.get("name") or ""
+        args = _parse_tool_args(tc)
+        if name == "skip":
+            await _write_threaded_turn_trace(
+                session_tag=session_tag,
+                turn="R",
+                tool="(review-skip)",
+                thinking=(asst.get("content") or "")[:300],
+                args=args,
+                result=(args.get("reason") or "no reason given")[:300],
+            )
+            continue
         if name != "propose_provenance":
             continue
-        args = _parse_tool_args(tc)
         try:
             result = await tool_schemas.dispatch(
                 name="propose_provenance",
@@ -712,7 +726,7 @@ async def _run_review_pass(
             result = f"ERROR: {type(e).__name__}: {e}"
         await _write_threaded_turn_trace(
             session_tag=session_tag,
-            turn=0,
+            turn="R",
             tool="propose_provenance",
             thinking=(asst.get("content") or "")[:300],
             args=args,
