@@ -3837,10 +3837,9 @@
                 </svg>
                 drift
               </button>
-              <button class="weather-fire-btn" data-tier="feed-regen" data-engine="single" type="button"
-                title="Feed regen · synthesizes a fresh feed-orient crystal from recent engagement. Re-anchors what the feed should be surfacing. ~30m cooldown.">
-                <span class="feed-regen-glyph">✺</span>
-                feed-regen
+              <button class="weather-fire-btn" data-tier="feed" data-engine="single" type="button"
+                title="Feed · asks Fathom to generate a feed card from the current substrate. ~30m cooldown.">
+                feed
               </button>
             </div>
           </div>
@@ -3857,7 +3856,7 @@
               <span class="legend-desc">The weather of the moment. Each colored segment starts when Fathom checks in with itself — the same instant pressure resets to zero. Mood drives the drop you see in the orange line above.</span>
             </li>
             <li class="legend-item">
-              <span class="legend-key"><span class="ev" style="color:#b08cff;">✺</span>Feed regen</span>
+              <span class="legend-key"><span class="ev" style="color:#b08cff;">✺</span>Feed</span>
               <span class="legend-desc">A moment where the feed sat with everything that had built up and rewrote itself. Like the mood check-in, but for what's worth surfacing as cards.</span>
             </li>
             <li class="legend-item">
@@ -12013,11 +12012,6 @@ GET  /v1/usage               Usage stats`,
       // Preserve any leading icon (multi-turn arrows or feed-regen glyph)
       // across re-paints so the visual indicator survives cooldown ticks
       // and firing-state transitions.
-      const iconByTier = new Map();
-      buttons.forEach(btn => {
-        const icon = btn.querySelector('.multi-turn-icon, .feed-regen-glyph');
-        if (icon) iconByTier.set(btn.dataset.tier, icon.cloneNode(true));
-      });
 
       function fmtCountdown(seconds) {
         if (seconds <= 0) return '';
@@ -12036,8 +12030,6 @@ GET  /v1/usage               Usage stats`,
         // Always rebuild from scratch so SVG icon + tier name + (optional)
         // cooldown counter end up in the right order without orphan nodes.
         while (btn.firstChild) btn.removeChild(btn.firstChild);
-        const icon = iconByTier.get(tier);
-        if (icon) btn.appendChild(icon.cloneNode(true));
         btn.appendChild(document.createTextNode(tier));
 
         if (remaining > 0) {
@@ -12054,12 +12046,19 @@ GET  /v1/usage               Usage stats`,
       }
 
       async function refreshCooldowns() {
-        // Read tier table + their cooldown_seconds, then check each
-        // tier's last fire from the loop's relief-cooldowns view.
-        // The /v1/loop/relief-cooldowns endpoint doesn't exist yet; we
-        // approximate by observing /v1/puddle/pulse responses (server
-        // returns cooldown_seconds when locked) and by ticking the
-        // remaining counter locally between server checks.
+        try {
+          const data = await api('/v1/loop/relief-cooldowns');
+          const tiers = data.tiers || {};
+          for (const [name, info] of Object.entries(tiers)) {
+            const rem = Number(info.remaining_seconds) || 0;
+            // Only update if the server value is larger — don't let a
+            // stale server read clobber a locally-ticking countdown that
+            // we know is fresher (e.g. right after a click).
+            if (rem > (cooldownByTier.get(name) || 0)) {
+              cooldownByTier.set(name, rem);
+            }
+          }
+        } catch (_) { /* network hiccup — keep local state */ }
         for (const btn of buttons) paintButton(btn);
       }
 
@@ -12074,6 +12073,8 @@ GET  /v1/usage               Usage stats`,
         if (any) refreshCooldowns();
       }
       setInterval(tickCountdowns, 1000);
+      refreshCooldowns(); // seed button states from server on load
+      setInterval(refreshCooldowns, 60_000); // re-sync every minute
 
       buttons.forEach(btn => {
         btn.addEventListener('click', async () => {
@@ -12081,25 +12082,14 @@ GET  /v1/usage               Usage stats`,
           if (btn.disabled) return;
           btn.disabled = true;
           btn.dataset.state = 'firing';
-          // Replace text but keep the icon if present.
-          const icon = iconByTier.get(tier);
           while (btn.firstChild) btn.removeChild(btn.firstChild);
-          if (icon) btn.appendChild(icon.cloneNode(true));
           btn.appendChild(document.createTextNode('firing…'));
           try {
-            // Feed-regen has its own endpoint (different machinery —
-            // crystal regeneration, not pressure relief). Everything
-            // else routes through /v1/puddle/pulse.
-            let url, expectedFiredValue;
-            if (tier === 'feed-regen') {
-              url = API_BASE + '/v1/feed/regen/fire';
-              expectedFiredValue = true;
-            } else {
-              url = API_BASE + '/v1/puddle/pulse'
-                + '?reason=manual-button-' + encodeURIComponent(tier)
-                + '&tier=' + encodeURIComponent(tier);
-              expectedFiredValue = tier;
-            }
+            // All tiers route through /v1/puddle/pulse.
+            const url = API_BASE + '/v1/puddle/pulse'
+              + '?reason=manual-button-' + encodeURIComponent(tier)
+              + '&tier=' + encodeURIComponent(tier);
+            const expectedFiredValue = tier;
             const r = await fetch(url, {
               method: 'POST',
               headers: authHeaders(),
@@ -12118,7 +12108,7 @@ GET  /v1/usage               Usage stats`,
               const defaults = {
                 alert: 600, bridging: 1800,
                 reflection: 10800, drift: 10800,
-                'feed-regen': 1800,
+                feed: 1800,
               };
               cooldownByTier.set(tier, defaults[tier] || 600);
               if (typeof _pollLoopStatus === 'function') _pollLoopStatus();

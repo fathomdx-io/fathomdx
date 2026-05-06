@@ -834,6 +834,43 @@ async def relief_tiers() -> dict:
     }
 
 
+@router.get("/v1/loop/relief-cooldowns")
+async def relief_cooldowns() -> dict:
+    """Current cooldown state for every fire button in the Weather card.
+
+    Returns each tier's last_fired_at, cooldown_seconds, and
+    remaining_seconds so the UI can disable locked buttons on load
+    rather than waiting for the first failed click to discover the lock.
+    """
+    from datetime import UTC, datetime
+    from . import relief
+    from ..settings import settings
+
+    now = datetime.now(UTC)
+    state = relief._load_cooldowns()
+
+    def _remaining(tier_name: str, cooldown_s: int) -> dict:
+        last_iso = state.get(tier_name)
+        if not last_iso:
+            return {"last_fired_at": None, "cooldown_seconds": cooldown_s, "remaining_seconds": 0}
+        try:
+            last = datetime.fromisoformat(last_iso.replace("Z", "+00:00"))
+            elapsed = (now - last).total_seconds()
+            remaining = max(0.0, cooldown_s - elapsed)
+        except Exception:
+            remaining = 0.0
+            last_iso = None
+        return {
+            "last_fired_at": last_iso,
+            "cooldown_seconds": cooldown_s,
+            "remaining_seconds": int(remaining),
+        }
+
+    tiers = {t["name"]: _remaining(t["name"], t["cooldown_seconds"]) for t in relief.RELIEF_TIERS}
+
+    return {"tiers": tiers}
+
+
 @router.post("/v1/puddle/pulse")
 async def fire_pulse(reason: str = "manual", tier: str | None = None) -> dict:
     """Trigger one tier of pressure relief.

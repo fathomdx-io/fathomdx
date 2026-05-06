@@ -515,6 +515,7 @@ async def run_threaded_fire(
                 messages=chat_msgs,
                 tools=tools,
                 tool_choice=choice,
+                max_tokens=8192,
             )
         except Exception as e:
             print(f"[threaded-fire] LLM call crashed turn {turn}: {type(e).__name__}: {e}")
@@ -693,10 +694,19 @@ async def run_threaded_fire(
         # the existing dashboard's /v1/puddle/feed consumer can render
         # the threaded reply too. Phase 5f removes this once the main
         # dashboard cuts over to /v1/thread/window.
+        #
+        # Feed-tier fires (pressure-feed) route as feed-card, not
+        # chat-reply, so the card surfaces in the feed rather than the
+        # conversation thread.
+        _is_feed_fire = any(
+            "msg-kind:pressure-feed" in (p.get("tags") or [])
+            for p in pending
+        )
         await _bridge_to_puddle_feed(
             body=final_response["body"],
             addresses=addr_set,
             lake_id=lake_id,
+            route="feed-card" if _is_feed_fire else "chat-reply",
         )
 
     # Phase 5 review pass — separate focused turn whose only job is
@@ -1085,6 +1095,7 @@ async def _bridge_to_puddle_feed(
     body: str,
     addresses: list[str],
     lake_id: str,
+    route: str = "chat-reply",
 ) -> None:
     """Mirror a threaded assistant reply into the puddle as a feed-card.
 
@@ -1112,10 +1123,33 @@ async def _bridge_to_puddle_feed(
         import json as _json
         from datetime import UTC, datetime, timedelta
 
+        # The model sometimes responds with the FULL cards JSON as the
+        # body text instead of using the respond tool's cards parameter.
+        # Detect and unwrap so the dashboard gets clean kicker/title/body
+        # instead of raw JSON, and honour the embedded route.
+        kicker = ""
+        title = ""
+        card_body = body
+        if body.strip().startswith("{"):
+            try:
+                parsed = _json.loads(body.strip())
+                cards = parsed.get("cards") or []
+                if cards and isinstance(cards, list):
+                    first = cards[0]
+                    kicker = (first.get("kicker") or "").strip()
+                    title = (first.get("title") or "").strip()
+                    card_body = (first.get("body") or body).strip()
+                    # Honour route embedded in the card JSON.
+                    embedded_route = (first.get("route") or "").strip()
+                    if embedded_route:
+                        route = embedded_route
+            except Exception:
+                pass
+
         payload = _json.dumps({
-            "kicker": "",
-            "title": "",
-            "body": body,
+            "kicker": kicker,
+            "title": title,
+            "body": card_body,
             "tail": "",
         })
         # Lake side first so we have a durable id to point the puddle
@@ -1128,7 +1162,7 @@ async def _bridge_to_puddle_feed(
             "feed-card",
             "synthesis",
             "addressing-output",
-            "route:chat-reply",
+            f"route:{route}",
         ]
         for addr in addresses:
             lake_tags.append(f"addresses:{addr}")

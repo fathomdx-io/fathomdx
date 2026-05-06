@@ -67,7 +67,20 @@ async def pressure_watcher() -> None:
         # reasons (`pressure`, `contrast-wake`) are the real triggers.
         if should and reason in ("pressure", "contrast-wake") and not RELIEF_DISABLED:
             try:
-                await relief.fire_relief(reason)
+                # Cascade: fire tiers consecutively until nothing is
+                # eligible. Natural post-fire pressure (the floor
+                # mechanism) determines how far the cascade goes —
+                # no floor bypass, so tiers only fire if residual
+                # pressure still meets their min_pressure_ratio.
+                # Typical result: alert → bridging in one burst;
+                # sit tiers pick up separately once their 3h cooldown
+                # and a full pressure rebuild align.
+                cascade_reason = reason
+                while True:
+                    result = await relief.fire_relief(cascade_reason)
+                    if result.get("fired") is None:
+                        break
+                    cascade_reason = "cascade"
             except asyncio.CancelledError:
                 return
             except Exception as e:

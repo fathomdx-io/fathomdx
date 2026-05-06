@@ -92,6 +92,17 @@ DRIFT_SEED = (
     "keep going. What does it ask of you?"
 )
 
+FEED_DIRECTIVE = (
+    "Generate a feed card. Look at what's recently landed in your substrate "
+    "from Sources — news items, articles, research updates, routine outputs — "
+    "and pick ONE that Myra would actually want to read right now. Use your "
+    "feed-orient crystal as the guide: what topics and signals does it say "
+    "she cares about? Surface that item in your voice: what it is, why it "
+    "matters to her specifically. Do not reflect on your own processes or "
+    "architecture — the card is about content from the world, filtered "
+    "through what you know about her."
+)
+
 
 RELIEF_TIERS: list[dict[str, Any]] = [
     {
@@ -129,6 +140,17 @@ RELIEF_TIERS: list[dict[str, Any]] = [
         "cooldown_seconds": 10_800,
         "seed": DRIFT_SEED,
         "max_rounds": 4,
+    },
+    {
+        "name": "feed",
+        "engine": "single-fire",
+        # manual-only: excluded from the automatic pressure-watcher cascade
+        "manual_only": True,
+        "min_pressure_ratio": 0.0,
+        "consume_weight": 0.3,
+        "cooldown_seconds": 1800,
+        "directive": FEED_DIRECTIVE,
+        "intent_kind": "feed",
     },
 ]
 
@@ -247,6 +269,8 @@ async def pick_tier(
         state = _load_cooldowns()
     next_sit = _next_sit_flavor(state)
     for tier in RELIEF_TIERS:
+        if tier.get("manual_only"):
+            continue
         if not bypass_floor and pressure_ratio < tier["min_pressure_ratio"]:
             continue
         if _is_on_cooldown(tier["name"], tier["cooldown_seconds"], state):

@@ -23,6 +23,7 @@ You have a harness of tools. Use them as needed before responding. When you have
 
 {anchors_block}
 ══ CONVERSATION SO FAR ══
+Turns labeled `you` are from the user. Turns labeled `me` are your own prior output from a parallel claude-code session — treat them as your own work, not as something to acknowledge or thank.
 {feed_block}
 
 ══ THE INTENTS ══

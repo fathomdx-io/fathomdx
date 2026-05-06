@@ -61,7 +61,7 @@ POLL_INTERVAL_S = 60      # check every minute
 #   · engagements since last regen ≥ STALE_REGEN_MIN_ENGAGEMENTS
 # The min-engagement guard prevents firing on truly dead substrate
 # (no signal at all → nothing to orient against).
-STALE_REGEN_AGE_S = 3 * 24 * 3600  # 3 days
+STALE_REGEN_AGE_S = 6 * 3600  # 6 hours — refresh daily even in quiet periods
 STALE_REGEN_MIN_ENGAGEMENTS = 2
 
 # How much history we feed into the regen prompt. The directive
@@ -245,20 +245,21 @@ async def _run_regen() -> bool:
             cleaned = cleaned.strip()
             if cleaned.endswith("```"):
                 cleaned = cleaned[:-3].strip()
-        # If the response wraps JSON in prose, extract the first { ... }
-        # block. Common shape: "Here's the crystal:\n{...}".
-        if cleaned and not cleaned.lstrip().startswith("{"):
-            import re as _re
-            m = _re.search(r"\{.*\}", cleaned, _re.DOTALL)
-            if m:
-                cleaned = m.group(0)
-
         if not cleaned:
             log.warning(
                 "feed-orient regen LLM returned empty content (prompt %d chars)",
                 len(prompt),
             )
             return False
+
+        # Extract the first {...} block. Handles three shapes:
+        #   · clean JSON response
+        #   · JSON preceded by prose ("Here's the crystal:\n{...}")
+        #   · JSON followed by prose ("{...}\n\nSome trailing note.")
+        import re as _re
+        m = _re.search(r"\{.*\}", cleaned, _re.DOTALL)
+        if m:
+            cleaned = m.group(0)
 
         try:
             payload = json.loads(cleaned)

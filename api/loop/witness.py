@@ -187,7 +187,9 @@ def _render_conversation_feed(items: list[dict]) -> str:
         if not content:
             continue
         snippet = content[:600] + ("…" if len(content) > 600 else "")
-        if src in _FEED_USER_SOURCES:
+        if src == "claude-code":
+            speaker = "me"
+        elif src in _FEED_USER_SOURCES:
             speaker = "you"
         elif src == "witness":
             speaker = "fathom"

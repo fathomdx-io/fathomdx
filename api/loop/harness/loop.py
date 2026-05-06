@@ -1656,7 +1656,9 @@ def _render_conversation_feed_full(session_tag: str) -> str:
                 pass
         if not content:
             continue
-        if src in _FEED_USER_SOURCES:
+        if src == "claude-code":
+            speaker = "me"
+        elif src in _FEED_USER_SOURCES:
             speaker = "you"
         elif src == "witness":
             speaker = "fathom"
