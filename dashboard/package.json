@@ -1,0 +1,10 @@
+{
+  "name": "fathom-dashboard",
+  "private": true,
+  "scripts": {
+    "dev": "vite"
+  },
+  "devDependencies": {
+    "vite": "^6.3.5"
+  }
+}

@@ -1921,7 +1921,9 @@
       padding: 16px 16px calc(14px + env(safe-area-inset-bottom));
       background: linear-gradient(180deg, transparent 0%, var(--bg) 40%);
       z-index: 20;
-      transition: transform 320ms ease, opacity 320ms ease, filter 320ms ease;
+      transition: transform 260ms cubic-bezier(0.4, 0, 0.2, 1),
+                  opacity 220ms ease,
+                  filter 320ms ease;
     }
     .composer-wrap.sunk {
       transform: translateY(20px) scale(0.96);
@@ -2163,18 +2165,66 @@
     }
     .sidebar-backdrop.visible { opacity: 1; pointer-events: auto; }
 
-    /* Desktop: sidebar always visible, content offset.
+    /* ── Right sidebar ─────────────────────── */
+    .right-sidebar {
+      position: fixed; top: 0; right: 0; bottom: 0;
+      width: 540px; max-width: 100vw;
+      background: var(--bg-deep);
+      border-left: 1px solid var(--rule-soft);
+      display: flex; flex-direction: column;
+      z-index: 40;
+      transform: translateX(100%);
+      transition: transform 280ms cubic-bezier(0.4, 0, 0.2, 1);
+    }
+    .right-sidebar.open { transform: translateX(0); }
+
+    .right-sidebar-backdrop {
+      position: fixed; inset: 0; background: rgba(0, 0, 0, 0.5);
+      opacity: 0; pointer-events: none;
+      transition: opacity 220ms;
+      z-index: 35;
+    }
+    .right-sidebar-backdrop.visible { opacity: 1; pointer-events: auto; }
+
+    /* Main composer exits rightward when chat opens */
+    body.chat-open .composer-wrap {
+      transform: translateX(80px) scale(0.93);
+      opacity: 0;
+      pointer-events: none;
+    }
+
+    /* Chat composer — floats at the bottom of the right sidebar, same
+       style as the main .composer-wrap but pinned to the sidebar column */
+    .chat-composer-foot {
+      position: fixed; right: 0; bottom: 0;
+      width: 540px;
+      padding: 16px 16px calc(14px + env(safe-area-inset-bottom));
+      background: linear-gradient(180deg, transparent 0%, var(--bg-deep) 40%);
+      z-index: 45;
+      pointer-events: auto;
+      transition: transform 280ms cubic-bezier(0.4, 0, 0.2, 1),
+                  opacity 240ms ease;
+    }
+    /* On mobile the chat composer rides into view with the sidebar;
+       prevent it from showing before the sidebar is open */
+    @media (max-width: 1099px) {
+      .right-sidebar:not(.open) .chat-composer-foot {
+        transform: translateX(100%);
+        opacity: 0;
+        pointer-events: none;
+      }
+    }
+    .chat-composer-foot .composer { max-width: none; margin: 0; }
+
+    /* Desktop: right sidebar always visible, left sidebar stays a drawer.
        Breakpoint = sidebar width (540px) + a usable content column. */
     @media (min-width: 1100px) {
-      .sidebar { transform: translateX(0); }
-      .sidebar-backdrop { display: none; }
-      body { padding-left: 540px; }
-      .composer-wrap { left: 540px; }
-      #sidebarToggleBtn { display: none; }
-      /* On desktop the sidebar is permanent — its in-header close button
-         would be a no-op (the media query forces translateX(0) regardless
-         of the .open class), so hide it. */
-      #sidebarCloseBtn { display: none; }
+      .right-sidebar { transform: translateX(0); }
+      .right-sidebar-backdrop { display: none; }
+      body { padding-right: 540px; }
+      /* Main composer is always hidden on desktop — composer lives in chat sidebar */
+      .composer-wrap { display: none; }
+      #rightSidebarToggleBtn { display: none; }
     }
 
     /* ── Views: main + drill-down ─────────── */
@@ -3958,6 +4008,40 @@
   </aside>
   <div class="sidebar-backdrop" id="sidebarBackdrop"></div>
 
+  <!-- ═══ RIGHT SIDEBAR ═══════════════════════════ -->
+  <aside class="right-sidebar" id="rightSidebar">
+    <div class="sidebar-head">
+      <div class="sidebar-brand">
+        <div class="sidebar-brand-left">
+          <span style="font-family: var(--serif); font-size: 18px; color: var(--ink-soft);">Chat</span>
+        </div>
+        <button class="icon-btn" id="rightSidebarCloseBtn" aria-label="Close panel">
+          <svg viewBox="0 0 256 256" fill="currentColor" width="16" height="16"><path d="M205.66,194.34a8,8,0,0,1-11.32,11.32L128,139.31,61.66,205.66a8,8,0,0,1-11.32-11.32L116.69,128,50.34,61.66A8,8,0,0,1,61.66,50.34L128,116.69l66.34-66.35a8,8,0,0,1,11.32,11.32L139.31,128Z"/></svg>
+        </button>
+      </div>
+    </div>
+    <div class="sidebar-body" id="rightSidebarBody">
+      <!-- feed/chat content arrives in a later phase -->
+    </div>
+    <div class="chat-composer-foot" id="chatComposerFoot">
+      <div id="chatReplyContext" class="reply-context" hidden>
+        <span class="reply-context-text"><span class="reply-context-prefix">↩ Replying to:</span> <span id="chatReplyContextPreview"></span></span>
+        <button id="chatReplyContextClear" class="reply-context-clear" type="button" aria-label="Clear reply target">✕</button>
+      </div>
+      <div class="composer">
+        <textarea rows="1" id="chatComposerTa" placeholder="Ask Fathom…"></textarea>
+        <div class="tools">
+          <button class="send" id="chatComposerSend" aria-label="Send">
+            <svg class="icon-send" viewBox="0 0 256 256" fill="currentColor" width="16" height="16"><path d="M227.32,28.68a16,16,0,0,0-15.66-4.08l-.15,0L19.57,82.84a16,16,0,0,0-2.49,29.8L102,154l41.3,84.87A15.86,15.86,0,0,0,157.74,248q.69,0,1.38-.06a15.88,15.88,0,0,0,14-11.51l58.2-191.94c0-.05,0-.1,0-.15A16,16,0,0,0,227.32,28.68ZM157.83,231.85l-.05.14,0-.07-40.06-82.3,48-48a8,8,0,0,0-11.31-11.31l-48,48L24.08,98.25l-.07,0,.14,0L216,40Z"/></svg>
+            <svg class="icon-copy" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg>
+            <svg class="icon-check" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+          </button>
+        </div>
+      </div>
+    </div>
+  </aside>
+  <div class="right-sidebar-backdrop" id="rightSidebarBackdrop"></div>
+
   <!-- ═══ VIEW: MAIN ═══════════════════════════════ -->
   <div class="view view-main" id="viewMain">
 
@@ -3970,6 +4054,9 @@
       <div class="brand">fathom<span class="brand-mark"><svg class="ph-triangle" viewBox="0 0 340 256" fill="currentColor"><g transform="rotate(20.4 128 150)" opacity="0.28"><path d="M236.8,188.09,149.35,36.22a24.76,24.76,0,0,0-42.7,0L19.2,188.09a23.51,23.51,0,0,0,0,23.72A24.35,24.35,0,0,0,40.55,224h174.9a24.35,24.35,0,0,0,21.33-12.19A23.51,23.51,0,0,0,236.8,188.09ZM222.93,203.8a8.5,8.5,0,0,1-7.48,4.2H40.55a8.5,8.5,0,0,1-7.48-4.2,7.59,7.59,0,0,1,0-7.72L120.52,44.21a8.75,8.75,0,0,1,15,0l87.45,151.87A7.59,7.59,0,0,1,222.93,203.8Z"/></g><g transform="translate(41 0) rotate(-17.2 128 150)" opacity="0.58"><path d="M236.8,188.09,149.35,36.22a24.76,24.76,0,0,0-42.7,0L19.2,188.09a23.51,23.51,0,0,0,0,23.72A24.35,24.35,0,0,0,40.55,224h174.9a24.35,24.35,0,0,0,21.33-12.19A23.51,23.51,0,0,0,236.8,188.09ZM222.93,203.8a8.5,8.5,0,0,1-7.48,4.2H40.55a8.5,8.5,0,0,1-7.48-4.2,7.59,7.59,0,0,1,0-7.72L120.52,44.21a8.75,8.75,0,0,1,15,0l87.45,151.87A7.59,7.59,0,0,1,222.93,203.8Z"/></g><g transform="translate(82 0) rotate(0.4 128 150)"><path d="M149.35,36.22a24.76,24.76,0,0,0-42.7,0L19.2,188.09a23.51,23.51,0,0,0,0,23.72A24.35,24.35,0,0,0,40.55,224h174.9a24.35,24.35,0,0,0,21.33-12.19,23.51,23.51,0,0,0,0-23.72Z"/></g></svg></span></div>
     </div>
     <div class="topbar-right">
+      <button class="icon-btn" id="rightSidebarToggleBtn" aria-label="Open chat">
+        <svg viewBox="0 0 256 256" fill="currentColor" width="16" height="16"><path d="M216,40H40A16,16,0,0,0,24,56V200a16,16,0,0,0,16,16H216a16,16,0,0,0,16-16V56A16,16,0,0,0,216,40ZM40,56H96V200H40ZM216,200H112V56H216Z"/></svg>
+      </button>
       <button class="stack-version-chip" id="stackVersionChip" type="button" hidden>
         <span class="sha" id="stackVersionSha">—</span>
         <span class="behind" id="stackVersionBehind" hidden></span>
@@ -4896,10 +4983,10 @@
       _enforceAuthGate();
     })();
 
-    // Composer visibility — only show on the main feed view
+    // Composer visibility — show on main feed view only when chat is closed
     const composerWrap = document.getElementById('composerWrap');
     function syncComposer() {
-      const show = !viewMain.hidden;
+      const show = !viewMain.hidden && !document.body.classList.contains('chat-open');
       composerWrap.classList.toggle('sunk', !show);
     }
 
@@ -8955,6 +9042,56 @@ GET  /v1/usage               Usage stats`,
     sidebarBackdrop.addEventListener('click', closeSidebar);
     document.getElementById('sidebarCloseBtn').addEventListener('click', closeSidebar);
 
+    // ── Right sidebar (Chat) ────────────────────
+    const rightSidebar = document.getElementById('rightSidebar');
+    const rightSidebarBackdrop = document.getElementById('rightSidebarBackdrop');
+    const rightSidebarToggleBtn = document.getElementById('rightSidebarToggleBtn');
+    const chatComposerTa = document.getElementById('chatComposerTa');
+    const chatComposerSend = document.getElementById('chatComposerSend');
+
+    function isChatOpen() {
+      return document.body.classList.contains('chat-open');
+    }
+    function openRightSidebar() {
+      rightSidebar.classList.add('open');
+      rightSidebarBackdrop.classList.add('visible');
+      document.body.classList.add('chat-open');
+      syncComposer();
+      setTimeout(() => chatComposerTa.focus(), 280);
+    }
+    function closeRightSidebar() {
+      rightSidebar.classList.remove('open');
+      rightSidebarBackdrop.classList.remove('visible');
+      document.body.classList.remove('chat-open');
+      syncComposer();
+    }
+    rightSidebarToggleBtn.addEventListener('click', openRightSidebar);
+    rightSidebarBackdrop.addEventListener('click', closeRightSidebar);
+    document.getElementById('rightSidebarCloseBtn').addEventListener('click', closeRightSidebar);
+
+    // On desktop the right sidebar is always anchored — mark chat open immediately
+    const _desktopMq = window.matchMedia('(min-width: 1100px)');
+    function _syncDesktopChatOpen(matches) {
+      if (matches) {
+        document.body.classList.add('chat-open');
+        syncComposer();
+      } else if (!rightSidebar.classList.contains('open')) {
+        document.body.classList.remove('chat-open');
+        syncComposer();
+      }
+    }
+    _syncDesktopChatOpen(_desktopMq.matches);
+    _desktopMq.addEventListener('change', e => _syncDesktopChatOpen(e.matches));
+
+    // Clicking the main composer opens chat rather than sending directly
+    composerWrap.addEventListener('click', openRightSidebar);
+
+    // Auto-grow chat textarea
+    chatComposerTa.addEventListener('input', () => {
+      chatComposerTa.style.height = 'auto';
+      chatComposerTa.style.height = Math.min(chatComposerTa.scrollHeight, 160) + 'px';
+    });
+
     // Account row → open settings (and close sidebar on mobile since settings is a full view)
     document.getElementById('accountRowBtn').addEventListener('click', () => {
       if (isMobile()) closeSidebar();
@@ -9299,11 +9436,13 @@ GET  /v1/usage               Usage stats`,
     }
 
     // Composer send — drops a seed into the Grand Loop puddle.
-    async function sendFromComposer() {
-      const text = composerTa.value.trim();
+    // Reads from whichever textarea is currently active (chat or main).
+    async function sendFromComposer(ta) {
+      const activeTa = ta || (isChatOpen() ? chatComposerTa : composerTa);
+      const text = activeTa.value.trim();
       if (!text) return;
-      composerTa.value = '';
-      composerTa.style.height = 'auto';
+      activeTa.value = '';
+      activeTa.style.height = 'auto';
 
       // Cutover: the composer drops into the Grand Loop puddle as a
       // kind:question intent. The supervisor picks it up within ~2s,
@@ -9381,7 +9520,16 @@ GET  /v1/usage               Usage stats`,
     composerTa.addEventListener('keydown', (e) => {
       if (e.key === 'Enter' && !e.shiftKey) {
         e.preventDefault();
-        sendFromComposer();
+        sendFromComposer(composerTa);
+      }
+    });
+
+    // Chat composer send
+    chatComposerSend.addEventListener('click', () => sendFromComposer(chatComposerTa));
+    chatComposerTa.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' && !e.shiftKey) {
+        e.preventDefault();
+        sendFromComposer(chatComposerTa);
       }
     });
 
@@ -11684,7 +11832,7 @@ GET  /v1/usage               Usage stats`,
         const id = item.dataset.deltaId || item.dataset.puddleId || item.dataset.cardId || '';
         if (!id) return;
         setReplyTarget({ id, preview: _previewFromEl(item) });
-        if (composerTa) setTimeout(() => composerTa.focus(), 0);
+        setTimeout(() => chatComposerTa.focus(), 280);
         return;
       }
       const puddleId = item.dataset.puddleId || item.dataset.cardId || '';
@@ -11735,6 +11883,9 @@ GET  /v1/usage               Usage stats`,
     const replyContextEl = document.getElementById('replyContext');
     const replyContextPreview = document.getElementById('replyContextPreview');
     const replyContextClear = document.getElementById('replyContextClear');
+    const chatReplyContextEl = document.getElementById('chatReplyContext');
+    const chatReplyContextPreview = document.getElementById('chatReplyContextPreview');
+    document.getElementById('chatReplyContextClear').addEventListener('click', clearReplyTarget);
 
     function _previewFromEl(el) {
       // Prefer the title (h3) text on cards; fall back to first message
@@ -11756,13 +11907,16 @@ GET  /v1/usage               Usage stats`,
 
     function setReplyTarget(target) {
       _replyTarget = target;
-      if (!target) {
-        replyContextEl.hidden = true;
-        replyContextPreview.textContent = '';
-        return;
-      }
-      replyContextPreview.textContent = target.preview || target.id;
-      replyContextEl.hidden = false;
+      // Always clear both context bars first
+      replyContextEl.hidden = true;
+      replyContextPreview.textContent = '';
+      chatReplyContextEl.hidden = true;
+      chatReplyContextPreview.textContent = '';
+      if (!target) return;
+      // Open chat so the user can see what they're replying in
+      openRightSidebar();
+      chatReplyContextPreview.textContent = target.preview || target.id;
+      chatReplyContextEl.hidden = false;
     }
 
     function clearReplyTarget() {
