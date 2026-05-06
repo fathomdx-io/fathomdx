@@ -12099,9 +12099,10 @@ GET  /v1/usage               Usage stats`,
     function _refreshFilterToggleLabel() {
       if (!_feedFilterToggleLabel) return;
       const enabled = getEnabledCategories();
-      // Togglable categories — exclude `chat` since it's always-on
-      // and shouldn't influence the count or the "All" label.
-      const togglable = Object.keys(CATEGORY_DEFAULTS).filter(c => c !== 'chat');
+      // Derive togglable list from the actual checkboxes in the panel,
+      // not CATEGORY_DEFAULTS — so removed options don't skew the count.
+      const checkboxes = document.querySelectorAll('#feedFilterPanel input[data-category]');
+      const togglable = Array.from(checkboxes).map(cb => cb.dataset.category);
       const on = togglable.filter(c => enabled[c]);
       let text;
       if (on.length === 0) text = 'Chat only';
