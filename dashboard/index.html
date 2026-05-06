@@ -9944,6 +9944,21 @@ GET  /v1/usage               Usage stats`,
         case 'dispatch_helper': return `Dispatching helper · ${a.host || ''}`;
         case 'mint_routine': return `Minting routine · ${a.name || ''}`;
         case 'respond': return 'Responding';
+        case 'mark_addressed': return 'Addressed';
+        // MCP tool calls surfaced as harness-turns
+        case 'recall':
+        case 'remember': {
+          const q = (a.query || '').trim();
+          return q ? `Recalled "${q.slice(0, 50)}${q.length > 50 ? '…' : ''}"` : 'Recalling';
+        }
+        case 'write': return 'Writing to memory';
+        case 'engage': return 'Engaging memory';
+        case 'send_message': return `Sending message · ${a.channel || ''}`;
+        case 'deep_recall': return 'Deep recall';
+        // Internal loop markers — skip, not user-facing
+        case '(fire-start)':
+        case '(review-skip)':
+          return null;
         default: return null;
       }
     }
@@ -10211,7 +10226,10 @@ GET  /v1/usage               Usage stats`,
         const kind = el.dataset.kind || '';
         const lvl = el.dataset.level || '';
         const cat = el.dataset.category || _categoryOf(kind);
-        const passes = (lvl === 'ALERT') || cat === 'chat' || !!enabled[cat];
+        // chatFeed items are always visible — the filter toggle only
+        // controls the main feed. Items in chatFeed pass unconditionally.
+        const inChatFeed = chatFeed && chatFeed.contains(el);
+        const passes = inChatFeed || (lvl === 'ALERT') || cat === 'chat' || !!enabled[cat];
         el.dataset.hidden = passes ? 'false' : 'true';
         // Only count top-level children — accordion bodies hold their
         // own kid rows with data-kind, but those are gated by the
