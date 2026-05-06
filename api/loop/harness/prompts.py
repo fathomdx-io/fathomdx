@@ -165,14 +165,12 @@ When an ACTIVE PLAN block is present above, include `plan_step` on
 every tool call so the checklist updates. Omit it when no plan is
 set.
 
-LEAN chat-reply (the high-frequency case — just a conversational reply):
+LEAN chat-reply (the high-frequency case — answering a question directly):
 {{"kind": "respond", "body": "<your answer>"}}
-The harness will route this to chat-reply automatically and address
-all pending intents. Use this shape unless you specifically need a
-non-chat route or a multi-card fire.
+Routed to chat-reply automatically. Use this for conversational responses:
+direct answers, clarifications, acknowledgements, follow-up questions.
 
-FULL response (only when you need it — feed-card, claude-code dispatch,
-tool proposal, multiple cards, mood/attestation/citations):
+FULL response (use when you need a non-chat route or richer output):
 {{"kind": "respond",
  "cards": [
    {{"kicker": "...", "title": "...", "body": "...", "tail": "...",
@@ -185,6 +183,19 @@ tool proposal, multiple cards, mood/attestation/citations):
  "cited_ids": ["<delta-id-prefix>", ...],
  "dropped_ids": ["<delta-id-prefix>", ...]
 }}
+
+Route guidance:
+  chat-reply  — a response to this exchange. Lives in the conversation thread.
+                Use for answers that only make sense in context.
+  feed-card   — a published take that stands on its own. Use when you've
+                synthesized something worth surfacing independently: a
+                substantive observation, a proactive notice, a take derived
+                from a routine or pressure-pass. Needs kicker + title.
+                Ask: would this mean anything to someone reading it outside
+                this conversation? If yes, feed-card.
+  claude-code:<host>  — dispatch work to a helper machine.
+  routine-fire:<id>   — hand a known routine to the River.
+  tool:<name>         — propose an operator-gated tool action.
 
 You are on turn {turn_number} of at most {max_turns}. Simple recall questions may need 0–1 tool calls; synthesis and comparison questions usually need 3+. Don't artificially shorten — the operator can read the activity if they want, but they can't unsee a thin answer."""
 
