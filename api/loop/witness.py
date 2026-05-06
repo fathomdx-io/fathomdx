@@ -701,7 +701,7 @@ async def _dispatch_card(
     # claiming a specific intent — they're ambient observations, not
     # responses. Letting them sweep all pending intents would silently
     # consume user questions that should belong to a chat-reply card.
-    route_value = (card.get("route") or "chat-reply").strip()
+    raw_route = (card.get("route") or "chat-reply").strip()
 
     # Alert dedup. Chronic broken substrate (e.g. a routine failing
     # every cron tick) makes every harness fire route to alert because
@@ -711,7 +711,7 @@ async def _dispatch_card(
     # if a route:alert:* card with a similar body landed in the last
     # ALERT_DEDUP_WINDOW, downgrade this one to feed-card and write
     # an audit delta. Operator can verify dedup is working.
-    if route_value.startswith("alert:"):
+    if raw_route.startswith("alert:"):
         try:
             should_suppress, dup_id = await _should_suppress_alert(
                 body=(card.get("body") or "").strip(),
@@ -722,7 +722,7 @@ async def _dispatch_card(
             dup_id = ""
         if should_suppress:
             print(
-                f"[alert-dedup] suppressed route={route_value!r} — "
+                f"[alert-dedup] suppressed route={raw_route!r} — "
                 f"near-duplicate of {dup_id[:12]} within window. "
                 f"Downgrading to feed-card."
             )
@@ -731,25 +731,27 @@ async def _dispatch_card(
                     content=f"alert suppressed (near-duplicate of {dup_id[:12]})",
                     tags=[
                         "kind:alert-suppressed",
-                        f"would-be-route:{route_value}",
+                        f"would-be-route:{raw_route}",
                         f"duplicate-of:{dup_id}",
                     ],
                     source="alert-dedup",
                 )
             except Exception as e:
                 print(f"[alert-dedup] audit write failed: {type(e).__name__}: {e}")
-            route_value = "feed-card"
+            raw_route = "feed-card"
 
-    # Feed-cards without a real title are incomplete — the model chose
-    # the wrong route. Downgrade to chat-reply so the body reaches the
-    # user rather than landing as an "Untitled" card in the feed.
-    if route_value == "feed-card":
-        title = (card.get("title") or "").strip().lower()
-        if not title or title == "untitled":
-            print(
-                "[witness] feed-card missing title — downgrading to chat-reply"
-            )
-            route_value = "chat-reply"
+    # Routing layer — validate and normalise the model's route hint.
+    # Centralises: title check (feed-card without title → chat-reply),
+    # host-availability check (helper:<host> not online → chat-reply).
+    from .router import validate_route as _validate_route
+    title = (card.get("title") or "").strip().lower()
+    has_title = bool(title) and title != "untitled"
+    route_value = await _validate_route(
+        raw_route,
+        tags=None,
+        available_hosts=available_hosts,
+        has_title=has_title,
+    )
 
     is_responsive_route = (
         route_value == "chat-reply"
@@ -839,24 +841,18 @@ async def _dispatch_card(
         if channel and addressee and originating_channel:
             break
 
-    # Proactive helper dispatch — card picked `helper:<host>` as its
-    # route. Mint a fresh correlation; kitty plugin on the named host
-    # will pick it up via (route:helper AND host:<me>).
-    if route_value.startswith("helper:") and available_hosts:
+    # Proactive helper dispatch — router already validated the host is
+    # available; just mint a fresh correlation so kitty picks it up via
+    # (route:helper AND host:<me>).
+    if route_value.startswith("helper:"):
         target = route_value.split(":", 1)[1].strip()
-        if target in available_hosts:
-            channel = "helper"
-            correlation = uuid.uuid4().hex[:12]
-            host_for_channel = target
-            print(
-                f"[witness] proactive helper dispatch → host={target} "
-                f"corr={correlation}"
-            )
-        else:
-            print(
-                f"[witness] dropped helper:{target} dispatch — "
-                f"host not in available hosts {available_hosts}"
-            )
+        channel = "helper"
+        correlation = uuid.uuid4().hex[:12]
+        host_for_channel = target
+        print(
+            f"[witness] proactive helper dispatch → host={target} "
+            f"corr={correlation}"
+        )
 
     # Proactive routine fire — card picked `routine-fire:<id>` as its
     # route. Hand the routine to the River on this tick (routines.fire
