@@ -339,31 +339,29 @@ async def approve_proposal(delta_id: str, body: dict | None = None):
             if not task:
                 raise HTTPException(status_code=400, detail="task required")
             # Approval materializes the dispatch as a feed-card delta with
-            # the same tag shape the witness uses for proactive
-            # claude-code dispatches: bare `route:claude-code` (NOT
-            # `route:claude-code:<host>`), plus separate `host:<host>`
+            # the same tag shape the witness uses for proactive helper
+            # dispatches: bare `route:helper` plus separate `host:<host>`
             # and `task-corr:<corr>` tags.
             #
             # The host-side kitty plugin polls
-            # `tags_include=route:claude-code,host:<myhost>` (AND
-            # semantics, exact-match on tag strings) and only matches
-            # when both bare tags are present. Without this exact shape,
-            # the dispatch lands in the lake but the host never picks
-            # it up.
+            # `tags_include=route:helper,host:<myhost>` (AND semantics,
+            # exact-match on tag strings) and only matches when both bare
+            # tags are present. Without this exact shape, the dispatch
+            # lands in the lake but the host never picks it up.
             corr = _uuid.uuid4().hex[:12]
-            # `to:claude-code:<corr>` is the addressing tag the host's
-            # kitty plugin requires (see addons/agent/plugins/kitty.js).
-            # Without it the dispatch is logged "missing to:claude-code:
-            # <corr>" and skipped. The witness's _dispatch_card also
-            # writes this via channels.address_tag().
+            # `to:helper:<corr>` is the addressing tag the host's kitty
+            # plugin requires (see addons/agent/plugins/kitty.js). Without
+            # it the dispatch is logged "missing to:helper:<corr>" and
+            # skipped. The witness's _dispatch_card also writes this via
+            # channels.address_tag().
             dispatch = await delta_client.write(
                 content=task,
                 tags=[
                     "feed-card",
-                    "route:claude-code",
+                    "route:helper",
                     f"host:{host}",
-                    "channel:claude-code",
-                    f"to:claude-code:{corr}",
+                    "channel:helper",
+                    f"to:helper:{corr}",
                     f"task-corr:{corr}",
                     "kind:helper-dispatch",
                     f"approved-from-proposal:{delta_id}",

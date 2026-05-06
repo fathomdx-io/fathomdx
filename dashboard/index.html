@@ -587,8 +587,8 @@
        chips, arrow, and blinking cursor all use `--signal` (the
        "alive" token — phosphorescent teal in dark, deep teal in
        light), echoing the convergence dots and the status strip. */
-    .feed .delta.claude-code-dispatch,
-    .feed .delta.claude-code-reply {
+    .feed .delta.helper-dispatch,
+    .feed .delta.helper-reply {
       border-left: none;
       background: var(--bg-deep);
       border: 1px solid var(--rule-soft);
@@ -597,16 +597,16 @@
     }
     /* Each card is a native <details>. The d-head is the <summary> —
        click to expand the body. Closed by default; chevron rotates open. */
-    .feed .delta.claude-code-dispatch > summary.d-head,
-    .feed .delta.claude-code-reply > summary.d-head {
+    .feed .delta.helper-dispatch > summary.d-head,
+    .feed .delta.helper-reply > summary.d-head {
       list-style: none;
       cursor: pointer;
       user-select: none;
     }
-    .feed .delta.claude-code-dispatch > summary.d-head::-webkit-details-marker,
-    .feed .delta.claude-code-reply > summary.d-head::-webkit-details-marker { display: none; }
-    .feed .delta.claude-code-dispatch > summary.d-head::before,
-    .feed .delta.claude-code-reply > summary.d-head::before {
+    .feed .delta.helper-dispatch > summary.d-head::-webkit-details-marker,
+    .feed .delta.helper-reply > summary.d-head::-webkit-details-marker { display: none; }
+    .feed .delta.helper-dispatch > summary.d-head::before,
+    .feed .delta.helper-reply > summary.d-head::before {
       content: "▸";
       display: inline-block;
       width: 0.9rem;
@@ -614,25 +614,25 @@
       opacity: 0.7;
       transition: transform 160ms;
     }
-    .feed .delta.claude-code-dispatch[open] > summary.d-head::before,
-    .feed .delta.claude-code-reply[open] > summary.d-head::before { transform: rotate(90deg); }
+    .feed .delta.helper-dispatch[open] > summary.d-head::before,
+    .feed .delta.helper-reply[open] > summary.d-head::before { transform: rotate(90deg); }
     /* Closed: summary alone — drop the divider + bottom margin so the
        header sits flush. Open: divider returns and body follows. */
-    .feed .delta.claude-code-dispatch > summary.d-head,
-    .feed .delta.claude-code-reply > summary.d-head {
+    .feed .delta.helper-dispatch > summary.d-head,
+    .feed .delta.helper-reply > summary.d-head {
       display: flex;
       align-items: center;
       gap: 0.5rem;
     }
-    .feed .delta.claude-code-dispatch[open] > summary.d-head,
-    .feed .delta.claude-code-reply[open] > summary.d-head {
+    .feed .delta.helper-dispatch[open] > summary.d-head,
+    .feed .delta.helper-reply[open] > summary.d-head {
       margin-bottom: 0.6rem;
       padding-bottom: 0.45rem;
       border-bottom: 1px solid color-mix(in srgb, var(--signal) 22%, transparent);
     }
-    /* Helper-dispatch proposals reuse the claude-code-dispatch shape but
+    /* Helper-dispatch proposals reuse the helper-dispatch shape but
        carry the proposal action footer + a "pending review" chip. */
-    .feed .delta.claude-code-dispatch.helper-dispatch-proposal .proposal-pending-chip {
+    .feed .delta.helper-dispatch.helper-dispatch-proposal .proposal-pending-chip {
       font-family: var(--mono); font-size: 10.5px;
       letter-spacing: 0.05em; text-transform: uppercase;
       color: #fbbf24;
@@ -641,13 +641,13 @@
       border-radius: 3px;
       margin-left: 6px;
     }
-    .feed .delta.claude-code-dispatch.helper-dispatch-proposal .proposal-actions-cc {
+    .feed .delta.helper-dispatch.helper-dispatch-proposal .proposal-actions-cc {
       display: flex; gap: 6px; justify-content: flex-end;
       margin-top: 12px;
       padding-top: 8px;
       border-top: 1px dashed rgba(255, 255, 255, 0.08);
     }
-    .feed .delta.claude-code-dispatch.helper-dispatch-proposal .proposal-actions-cc .proposal-btn {
+    .feed .delta.helper-dispatch.helper-dispatch-proposal .proposal-actions-cc .proposal-btn {
       padding: 4px 10px;
       font-family: var(--mono); font-size: 11px;
       letter-spacing: 0.04em;
@@ -658,22 +658,22 @@
       cursor: pointer;
       transition: color 120ms, border-color 120ms, background 120ms;
     }
-    .feed .delta.claude-code-dispatch.helper-dispatch-proposal .proposal-actions-cc .proposal-btn:hover {
+    .feed .delta.helper-dispatch.helper-dispatch-proposal .proposal-actions-cc .proposal-btn:hover {
       color: var(--ink);
       border-color: rgba(255, 255, 255, 0.25);
       background: rgba(255, 255, 255, 0.04);
     }
-    .feed .delta.claude-code-dispatch.helper-dispatch-proposal .proposal-actions-cc .proposal-approve {
+    .feed .delta.helper-dispatch.helper-dispatch-proposal .proposal-actions-cc .proposal-approve {
       color: #6ee7b7;
       border-color: rgba(110, 231, 183, 0.45);
     }
-    .feed .delta.claude-code-dispatch.helper-dispatch-proposal .proposal-actions-cc .proposal-approve:hover {
+    .feed .delta.helper-dispatch.helper-dispatch-proposal .proposal-actions-cc .proposal-approve:hover {
       background: rgba(110, 231, 183, 0.08);
     }
-    .feed .delta.claude-code-dispatch.helper-dispatch-proposal .proposal-actions-cc .proposal-btn:disabled {
+    .feed .delta.helper-dispatch.helper-dispatch-proposal .proposal-actions-cc .proposal-btn:disabled {
       opacity: 0.5; cursor: progress;
     }
-    .feed .delta.claude-code-dispatch.helper-dispatch-proposal .proposal-status-cc {
+    .feed .delta.helper-dispatch.helper-dispatch-proposal .proposal-status-cc {
       margin-top: 12px; padding-top: 8px;
       border-top: 1px dashed rgba(255, 255, 255, 0.08);
       font-family: var(--mono); font-size: 11px;
@@ -681,14 +681,14 @@
       color: var(--ink-soft);
       text-align: right;
     }
-    .feed .delta.claude-code-dispatch.helper-dispatch-proposal .proposal-status-approved {
+    .feed .delta.helper-dispatch.helper-dispatch-proposal .proposal-status-approved {
       color: #6ee7b7;
     }
-    .feed .delta.claude-code-dispatch.helper-dispatch-proposal .proposal-status-denied {
+    .feed .delta.helper-dispatch.helper-dispatch-proposal .proposal-status-denied {
       color: #f87171;
     }
-    .feed .delta.claude-code-dispatch .cc-icon,
-    .feed .delta.claude-code-reply .cc-icon {
+    .feed .delta.helper-dispatch .cc-icon,
+    .feed .delta.helper-reply .cc-icon {
       width: 14px;
       height: 14px;
       color: var(--signal);
@@ -696,13 +696,13 @@
       display: inline-flex;
       align-items: center;
     }
-    .feed .delta.claude-code-dispatch .cc-icon svg,
-    .feed .delta.claude-code-reply .cc-icon svg {
+    .feed .delta.helper-dispatch .cc-icon svg,
+    .feed .delta.helper-reply .cc-icon svg {
       width: 100%;
       height: 100%;
     }
-    .feed .delta.claude-code-dispatch .d-kind,
-    .feed .delta.claude-code-reply .d-kind {
+    .feed .delta.helper-dispatch .d-kind,
+    .feed .delta.helper-reply .d-kind {
       color: var(--signal);
       font-family: var(--mono);
       font-size: 11px;
@@ -710,18 +710,18 @@
       text-transform: lowercase;
       flex: 1;
     }
-    .feed .delta.claude-code-dispatch .d-ts,
-    .feed .delta.claude-code-reply .d-ts {
+    .feed .delta.helper-dispatch .d-ts,
+    .feed .delta.helper-reply .d-ts {
       color: color-mix(in srgb, var(--signal) 65%, transparent);
     }
-    .feed .delta.claude-code-dispatch .cc-arrow,
-    .feed .delta.claude-code-reply .cc-arrow {
+    .feed .delta.helper-dispatch .cc-arrow,
+    .feed .delta.helper-reply .cc-arrow {
       color: var(--signal);
       opacity: 0.7;
       margin: 0 0.25em;
     }
-    .feed .delta.claude-code-dispatch .d-body,
-    .feed .delta.claude-code-reply .d-body {
+    .feed .delta.helper-dispatch .d-body,
+    .feed .delta.helper-reply .d-body {
       font-family: var(--mono);
       font-size: 12.5px;
       color: var(--ink-soft);
@@ -729,8 +729,8 @@
       white-space: pre-wrap;
     }
     /* Blinking-cursor rectangle at the end of the body. */
-    .feed .delta.claude-code-dispatch .cc-cursor,
-    .feed .delta.claude-code-reply .cc-cursor {
+    .feed .delta.helper-dispatch .cc-cursor,
+    .feed .delta.helper-reply .cc-cursor {
       display: inline-block;
       width: 0.55em;
       height: 1em;
@@ -4074,7 +4074,7 @@
               <span class="feed-filter-caret" aria-hidden="true">▾</span>
             </button>
             <div class="feed-filter-panel" id="feedFilterPanel" role="group" aria-label="Filter what shows in chat">
-              <label><input type="checkbox" data-category="claude-code" checked> Claude Code</label>
+              <label><input type="checkbox" data-category="helper" checked> Helper</label>
               <label><input type="checkbox" data-category="prompts"> Prompts</label>
               <label><input type="checkbox" data-category="thinking"> Thinking</label>
               <label><input type="checkbox" data-category="routine"> Routines</label>
@@ -6038,8 +6038,8 @@
     //   role=infra     → plugin is internal (heartbeat), not usually shown
     // ── PROVIDER_ICONS (generated from ../web/design/public/v1/icons) ──
     const PROVIDER_ICONS = {
-      'claude-code': `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor">
-  <title>Claude Code</title>
+      'helper': `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor">
+  <title>Helper</title>
   <path clip-rule="evenodd" fill-rule="evenodd" d="M20.998 10.949H24v3.102h-3v3.028h-1.487V20H18v-2.921h-1.487V20H15v-2.921H9V20H7.488v-2.921H6V20H4.487v-2.921H3V14.05H0V10.95h3V5h17.998v5.949zM6 10.949h1.488V8.102H6v2.847zm10.51 0H18V8.102h-1.49v2.847z"/>
 </svg>`,
       'apple': `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 263.67 323.91" fill="currentColor">
@@ -9908,7 +9908,7 @@ GET  /v1/usage               Usage stats`,
     const KIND_TO_CATEGORY = {
       'chat':                  'chat',
       'card':                  'card',
-      'proposal':              'claude-code',
+      'proposal':              'helper',
       'pass-intent':           'prompts',
       'voice-thought':         'thinking',
       'harness-turn':          'thinking',
@@ -9919,8 +9919,8 @@ GET  /v1/usage               Usage stats`,
       'mood':                  'identity',
       'routine':               'routine',
       'routine-due':           'routine',
-      'claude-code-dispatch':  'claude-code',
-      'claude-code-reply':     'claude-code',
+      'helper-dispatch':  'helper',
+      'helper-reply':     'helper',
     };
     const CATEGORY_LABELS = {
       'chat':        'Chat',
@@ -9929,7 +9929,7 @@ GET  /v1/usage               Usage stats`,
       'thinking':    'Thinking',
       'identity':    'Identity',
       'routine':     'Routine Activity',
-      'claude-code': 'Claude Code',
+      'helper': 'Helper',
     };
     const CATEGORY_DEFAULTS = {
       'chat':        true,   // always-on; no UI toggle exists for this
@@ -9938,7 +9938,7 @@ GET  /v1/usage               Usage stats`,
       'thinking':    false,  // voice/recall/delta firehose — opt in
       'identity':    true,
       'routine':     true,
-      'claude-code': true,
+      'helper': true,
     };
     function _categoryOf(kind) {
       return KIND_TO_CATEGORY[kind] || '';
@@ -10192,7 +10192,7 @@ GET  /v1/usage               Usage stats`,
     const _CATEGORY_TO_SECTION = {
       'chat':        'chat',
       'card':        'feed',
-      'claude-code': 'background',
+      'helper': 'background',
       'prompts':     'background',
       'thinking':    'background',
       'identity':    'background',
@@ -10551,7 +10551,7 @@ GET  /v1/usage               Usage stats`,
       const tool = it.tool || '';
       const args = (it.tool_args && typeof it.tool_args === 'object') ? it.tool_args : {};
       const proposalId = it.lake_id || it.id || '';
-      // Helper-dispatch proposals get the existing claude-code-dispatch
+      // Helper-dispatch proposals get the existing helper-dispatch
       // visual treatment — boat icon, fathom→host header, terminal-style
       // body — with inline approve/deny actions attached at the bottom.
       // This keeps "what fathom is asking to send to a host" looking
@@ -10591,12 +10591,12 @@ GET  /v1/usage               Usage stats`,
     }
 
     function _renderHelperDispatchProposal(it, args, proposalId, delay) {
-      // <details> shape mirrors the existing kind:claude-code-dispatch
+      // <details> shape mirrors the existing kind:helper-dispatch
       // card: boat icon, fathom→host header, terminal body with the
       // dispatch task. Adds a `helper-dispatch-proposal` class so we
       // can style the action footer separately.
       const el = document.createElement('details');
-      el.className = 'delta claude-code-dispatch helper-dispatch-proposal';
+      el.className = 'delta helper-dispatch helper-dispatch-proposal';
       if (delay) el.style.animationDelay = delay + 's';
       el.dataset.kind = 'proposal';
       el.dataset.tool = 'helper-dispatch';
@@ -10610,8 +10610,8 @@ GET  /v1/usage               Usage stats`,
       const host = (args.host || '').toString();
       const task = (args.task || it.body || it.content || '').toString();
       const hostEsc = host.replace(/[<>&]/g, c => ({'<':'&lt;','>':'&gt;','&':'&amp;'}[c]));
-      const icon = (typeof PROVIDER_ICONS === 'object' && PROVIDER_ICONS['claude-code'])
-        ? PROVIDER_ICONS['claude-code']
+      const icon = (typeof PROVIDER_ICONS === 'object' && PROVIDER_ICONS['helper'])
+        ? PROVIDER_ICONS['helper']
         : '';
       const peer = hostEsc || 'claude';
       const headLabel = `fathom <span class="cc-arrow">→</span> ${peer}`;
@@ -11404,20 +11404,20 @@ GET  /v1/usage               Usage stats`,
       // mono everywhere, claude-code icon inline-left in the header,
       // a blinking cyan cursor rectangle at the end of the body so
       // the card reads as a live shell waiting for the next line.
-      if (it.kind === 'claude-code-dispatch' || it.kind === 'claude-code-reply') {
+      if (it.kind === 'helper-dispatch' || it.kind === 'helper-reply') {
         // Native <details> — the d-head is the summary (click to expand);
         // d-body is the content. Closed by default.
         const el = document.createElement('details');
-        const isDispatch = it.kind === 'claude-code-dispatch';
-        el.className = isDispatch ? 'delta claude-code-dispatch' : 'delta claude-code-reply';
-        el.dataset.kind = isDispatch ? 'claude-code-dispatch' : 'claude-code-reply';
+        const isDispatch = it.kind === 'helper-dispatch';
+        el.className = isDispatch ? 'delta helper-dispatch' : 'delta helper-reply';
+        el.dataset.kind = isDispatch ? 'helper-dispatch' : 'helper-reply';
         el.dataset.fromPuddle = '1';
         el.dataset.puddleId = it.id || '';
         if (it.id) el.dataset.deltaId = it.id;
         const host = (it.host || '').replace(/[<>&]/g, c => ({'<':'&lt;','>':'&gt;','&':'&amp;'}[c]));
         const body = (isDispatch ? (it.body || it.content || '') : (it.content || '')).toString();
-        const icon = (typeof PROVIDER_ICONS === 'object' && PROVIDER_ICONS['claude-code'])
-          ? PROVIDER_ICONS['claude-code']
+        const icon = (typeof PROVIDER_ICONS === 'object' && PROVIDER_ICONS['helper'])
+          ? PROVIDER_ICONS['helper']
           : '';
         // Dispatch: fathom → host. Reply: fathom ← host (or "claude" if
         // the closure landed without host provenance, which is rare —

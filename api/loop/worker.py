@@ -44,7 +44,7 @@ REAP_INTERVAL_S = 30
 _supervisor_task: asyncio.Task | None = None
 _reaper_task: asyncio.Task | None = None
 _pressure_task: asyncio.Task | None = None
-_claude_code_task: asyncio.Task | None = None
+_helper_task: asyncio.Task | None = None
 _boot_iso: str = ""
 
 
@@ -199,8 +199,8 @@ async def rehydrate_puddle() -> None:
         # route:feed-card, route:claude-code dispatches, route:tool:*
         # proposals — every shape of Fathom-authored turn
         ["feed-card"],
-        # Claude-code dispatched-task closures the watcher minted intents for
-        ["claude-code-reply"],
+        # Helper dispatched-task closures the watcher minted intents for
+        ["helper-reply"],
         # Routine machinery — when a cron tripped, what it produced
         ["routine-fire"],
         ["routine-summary"],
@@ -282,7 +282,7 @@ def start() -> None:
     post-restart fire has context.
     """
     global _supervisor_task, _reaper_task, _pressure_task
-    global _claude_code_task, _boot_iso
+    global _helper_task, _boot_iso
     if _supervisor_task is not None:
         return
     _boot_iso = _now_iso()
@@ -290,8 +290,8 @@ def start() -> None:
     _supervisor_task = asyncio.create_task(_supervisor(), name="loop/supervisor")
     _reaper_task = asyncio.create_task(_reaper(), name="loop/reaper")
     _pressure_task = asyncio.create_task(pressure_watcher(), name="loop/pressure")
-    _claude_code_task = asyncio.create_task(
-        claude_code_watcher_loop(), name="loop/claude-code-watcher"
+    _helper_task = asyncio.create_task(
+        claude_code_watcher_loop(), name="loop/helper-watcher"
     )
     feed_orient.start()
 
@@ -306,7 +306,7 @@ def start() -> None:
 async def stop() -> None:
     """Cancel all background tasks. Idempotent."""
     global _supervisor_task, _reaper_task, _pressure_task
-    global _claude_code_task
+    global _helper_task
     await feed_orient.stop()
     from . import threaded_supervisor
     await threaded_supervisor.stop()
@@ -314,7 +314,7 @@ async def stop() -> None:
         _supervisor_task,
         _reaper_task,
         _pressure_task,
-        _claude_code_task,
+        _helper_task,
     ):
         if task is None:
             continue
@@ -326,4 +326,4 @@ async def stop() -> None:
     _supervisor_task = None
     _reaper_task = None
     _pressure_task = None
-    _claude_code_task = None
+    _helper_task = None

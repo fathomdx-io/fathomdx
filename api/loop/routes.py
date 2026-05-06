@@ -282,16 +282,16 @@ def get_feed(
                 "route": route,
                 **payload,
             }
-            if route == "claude-code":
-                # Outbound dispatch: Fathom asking a claude-code agent
-                # on a specific machine to do work. Body is the literal
-                # prompt claude reads. Surface the host so the renderer
-                # can show "Fathom → <host>" instead of a generic card.
+            if route == "helper":
+                # Outbound dispatch: Fathom asking a helper agent on a
+                # specific machine to do work. Body is the literal prompt
+                # the agent reads. Surface the host so the renderer can
+                # show "Fathom → <host>" instead of a generic card.
                 host = next(
                     (t.split(":", 1)[1] for t in tags if t.startswith("host:")),
                     "",
                 )
-                items.append({"kind": "claude-code-dispatch", "host": host, **base})
+                items.append({"kind": "helper-dispatch", "host": host, **base})
             elif route == "chat-reply":
                 sit_round_v = next(
                     (t.split(":", 1)[1] for t in tags if t.startswith("sit-round:")),
@@ -573,7 +573,7 @@ def get_feed(
                 "",
             )
             items.append({
-                "kind": "claude-code-reply",
+                "kind": "helper-reply",
                 "host": host,
                 "content": d.get("content") or "",
                 **common,
@@ -1117,9 +1117,9 @@ async def stream() -> StreamingResponse:
     return StreamingResponse(event_gen(), media_type="text/event-stream")
 
 
-@router.get("/v1/loop/claude-code-tasks")
-async def get_claude_code_tasks() -> dict:
-    """Active claude-code-channel tasks for the dashboard's status bar.
+@router.get("/v1/loop/helper-tasks")
+async def get_helper_tasks() -> dict:
+    """Active helper-channel tasks for the dashboard's status bar.
 
     Joins three lake reads — `task-spawn` (the kitty handshake delta),
     `task-complete` (claude's closure signal), and `assistant`/`user`
@@ -1166,7 +1166,7 @@ async def get_claude_code_tasks() -> dict:
     for s in spawns:
         tags = s.get("tags") or []
         corr = _tag_value(tags, "task-corr:")
-        sid = _tag_value(tags, "claude-code-session:")
+        sid = _tag_value(tags, "helper-session:")
         if not corr or not sid or corr in completed or corr in seen:
             continue
         seen.add(corr)

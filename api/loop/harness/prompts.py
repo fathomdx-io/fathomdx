@@ -174,7 +174,7 @@ FULL response (use when you need a non-chat route or richer output):
 {{"kind": "respond",
  "cards": [
    {{"kicker": "...", "title": "...", "body": "...", "tail": "...",
-    "route": "chat-reply" | "feed-card" | "claude-code:<host>" | "routine-fire:<id>" | "tool:<name>",
+    "route": "chat-reply" | "feed-card" | "helper:<host>" | "routine-fire:<id>" | "tool:<name>",
     "addresses": ["<intent-id-prefix>", ...],
     "tool": "...", "tool_args": {{...}}}}
  ],
@@ -195,7 +195,7 @@ Route guidance:
                 can't write one, choose chat-reply instead. "Untitled" is
                 not a title. Ask: would this headline mean something to
                 someone reading it a week from now? If yes, feed-card.
-  claude-code:<host>  — dispatch work to a helper machine.
+  helper:<host>       — dispatch work to a helper machine.
   routine-fire:<id>   — hand a known routine to the River.
   tool:<name>         — propose an operator-gated tool action.
 

@@ -8,7 +8,7 @@ response open and streams every chat-reply card addressed to this
 turn — joined by a blank-line separator — until the question is
 gone from the tally.
 
-"Done" = no `route:claude-code` dispatch addressing this intent is
+"Done" = no `route:helper` dispatch addressing this intent is
 still missing its `about-task-corr:<corr>` closure-followup card.
 That's the witness's own "this thread is wrapped" stamp; checking
 witness output rather than puddle state avoids racing the watcher.
@@ -44,7 +44,7 @@ def _staged(monkeypatch):
       replies[sid]    = list of (timestamp, body) — chat-reply cards
                         addressing this session's intent. Streamed in
                         timestamp order.
-      dispatches[sid] = list of task_corrs — `route:claude-code` cards
+      dispatches[sid] = list of task_corrs — `route:helper` cards
                         addressing this session's intent.
       followups[sid]  = set of task_corrs whose closure-followup
                         chat-reply is "available" — when the endpoint
@@ -98,7 +98,7 @@ def _staged(monkeypatch):
         # ── Witness-card poll: to:openai:<sid> + addresses:<intent_id>
         sid = ""
         addresses = ""
-        is_dispatch_lookup = "route:claude-code" in tags_include
+        is_dispatch_lookup = "route:helper" in tags_include
         about_corr = ""
         for t in tags_include:
             if t.startswith("to:openai:"):
@@ -134,7 +134,7 @@ def _staged(monkeypatch):
                     "id": f"dispatch-{i}",
                     "content": "",
                     "tags": [
-                        "route:claude-code",
+                        "route:helper",
                         f"addresses:{addresses}",
                         f"task-corr:{c}",
                     ],

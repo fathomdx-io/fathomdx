@@ -96,7 +96,7 @@ const MAX_FIRE_AGE_MS = 6 * 60 * 60 * 1000; // 6h
 // Distinct from openFires because the keys are different (correlation vs
 // fire-delta-id), the close trigger is different (`task-complete` vs
 // `routine-summary`), and the lifecycle supports mid-task continuation —
-// a second `to:claude-code:<corr>` for an already-open task injects into
+// a second `to:helper:<corr>` for an already-open task injects into
 // the same window via kittySendText instead of respawning.
 //
 // `claude_session_id` is null until the handshake matches the first hook
@@ -107,7 +107,7 @@ const openTasks = new Map();
 // Set of correlation ids we've seen `task-complete` deltas for during
 // this run. Witness's reply to a closure intent should route as
 // `chat-reply` (the witness branch handles that), but if anything ever
-// re-emits a `to:claude-code:<corr>` for an already-closed corr, this
+// re-emits a `to:helper:<corr>` for an already-closed corr, this
 // gate makes us refuse to respawn — the task is over; a new window
 // would have no continuity with the prior session anyway.
 //
@@ -223,10 +223,10 @@ function buildTaskPrompt(body, corr) {
     "",
     `MCP (preferred):`,
     `  tool: mcp__fathom__write`,
-    `  args: { content: "<your reply or summary>", tags: ["task-complete", "task-corr:${corr}", "kind:claude-code-reply"], source: "claude-code:task" }`,
+    `  args: { content: "<your reply or summary>", tags: ["task-complete", "task-corr:${corr}", "kind:helper-reply"], source: "claude-code:task" }`,
     "",
     `CLI (fallback):`,
-    `  \`fathom delta write "<your reply or summary>" --tags task-complete,task-corr:${corr},kind:claude-code-reply --source claude-code:task\``,
+    `  \`fathom delta write "<your reply or summary>" --tags task-complete,task-corr:${corr},kind:helper-reply --source claude-code:task\``,
     "",
     "Intermediate progress: write deltas as you go — your normal hook deltas are picked up automatically.",
   ].join("\n");
@@ -269,7 +269,7 @@ async function pollOnce(config, pusher, state) {
       // host:<myhost>) means each agent only ever sees fires for itself,
       // even before the per-delta veto runs.
       pusher.query({
-        tags_include: `route:claude-code,host:${myHost}`,
+        tags_include: `route:helper,host:${myHost}`,
         time_start: state.task_seen_at,
         limit: 50,
       }),
@@ -327,7 +327,7 @@ async function pollOnce(config, pusher, state) {
         tags: [
           "task-spawn",
           `task-corr:${corr}`,
-          `claude-code-session:${sid}`,
+          `helper-session:${sid}`,
           `host:${myHost}`,
           ...(projectTag ? [`project:${projectTag}`] : []),
         ],
@@ -402,18 +402,18 @@ async function pollOnce(config, pusher, state) {
 // session feel like an actual conversation rather than a chain of
 // disconnected one-shots.
 function dispatchClaudeCodeTask(delta, config, pusher, myHost) {
-  // Pull the corr off the `to:claude-code:<corr>` tag. The witness
+  // Pull the corr off the `to:helper:<corr>` tag. The witness
   // stamps this for every claude-code-routed card; without it we have
   // nothing to track the task by, so skip.
   let corr = null;
   for (const t of delta.tags || []) {
-    if (t.startsWith("to:claude-code:")) {
-      corr = t.slice("to:claude-code:".length);
+    if (t.startsWith("to:helper:")) {
+      corr = t.slice("to:helper:".length);
       break;
     }
   }
   if (!corr) {
-    console.warn(`  kitty: claude-code dispatch ${delta.id.slice(0, 8)} missing to:claude-code:<corr>`);
+    console.warn(`  kitty: claude-code dispatch ${delta.id.slice(0, 8)} missing to:helper:<corr>`);
     return;
   }
 
@@ -836,7 +836,7 @@ export default {
   start(config, pusher) {
     const state = loadState();
     const allowed = config.allowed_permission_modes || ["auto", "normal"];
-    console.log(`  kitty: polling lake for route:claude-code dispatches (last seen: ${state.task_seen_at || state.last_seen})`);
+    console.log(`  kitty: polling lake for route:helper dispatches (last seen: ${state.task_seen_at || state.last_seen})`);
     console.log(`  kitty: allowed permission modes = [${allowed.join(", ")}]`);
 
     const tick = () => pollOnce(config, pusher, state);

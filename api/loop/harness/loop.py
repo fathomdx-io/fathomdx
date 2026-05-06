@@ -275,7 +275,7 @@ async def run_harness(
     # telepathy refreshes (anchors) or new conversation feed entries
     # land mid-loop, but cheap enough that we don't cache.
     intent_block, short_to_full = _render_intent_block(pending)
-    available_hosts = await witness_mod._available_claude_code_hosts()
+    available_hosts = await witness_mod._available_helper_hosts()
     hosts_block = witness_mod._render_hosts_block(available_hosts)
     routines_block = await witness_mod._render_routines_block(available_hosts)
     # The harness's design principle: the model sees everything that's
@@ -1393,12 +1393,12 @@ async def _dispatch_response(
       intent ids, kicker/title/tail empty. No need for the model to
       pad out a feed-card form when the answer is just conversation.
 
-      Full (any route — feed-card / claude-code dispatch / tool
+      Full (any route — feed-card / helper dispatch / tool
       proposal / multi-card fire):
         {"kind": "respond", "cards": [...], "attestation": "...", ...}
     """
     cards_raw = response.get("cards")
-    available_hosts = await witness_mod._available_claude_code_hosts()
+    available_hosts = await witness_mod._available_helper_hosts()
     primary_intent = (pending[0].get("content") or "").strip() if pending else ""
 
     # All pending intent ids in short form — the witness expects shorts.
@@ -1754,13 +1754,13 @@ def _render_intent_block(pending: list[dict]) -> tuple[str, dict[str, str]]:
                 contact = t.split(":", 1)[1]
                 break
         ch, corr = extract_channel(it.get("tags") or [])
-        is_claude_code_reply = kind == "claude-code-reply"
+        is_helper_reply = kind == "helper-reply"
         meta_parts: list[str] = []
         if contact:
-            label = "for" if is_claude_code_reply else "from"
+            label = "for" if is_helper_reply else "from"
             meta_parts.append(f"{label}: {contact}")
-        if is_claude_code_reply:
-            meta_parts.append("source: claude-code task reply")
+        if is_helper_reply:
+            meta_parts.append("source: helper task reply")
         if ch and corr:
             meta_parts.append(f"via: {ch}:{corr}")
         elif ch:

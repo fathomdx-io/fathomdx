@@ -793,7 +793,7 @@ async def proxy_stats():
 @router.post("/v1/dispatch-helper")
 async def dispatch_helper_endpoint(body: dict):
     """Draft a helper-dispatch proposal. Operator-gated — approval
-    flow lands the actual route:claude-code dispatch on the lake.
+    flow lands the actual route:helper dispatch on the lake.
 
     See LAKE_TOOLS["dispatch_helper"] for the schema.
     """

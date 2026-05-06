@@ -84,8 +84,8 @@ def _render_feed(payload: dict) -> str:
     return json.dumps(payload, ensure_ascii=False)
 
 
-def _render_claude_code(payload: dict) -> str:
-    """Witness card → prompt body for an agent-side claude-code consumer.
+def _render_helper(payload: dict) -> str:
+    """Witness card → prompt body for an agent-side helper consumer.
 
     Same shape as openai — text-only, body-or-empty. The channel-level
     contract is just "the task body Fathom wants run." The agent-side
@@ -105,9 +105,9 @@ class Channel:
 
 
 REGISTRY: dict[str, Channel] = {
-    "openai":      Channel(name="openai",      render=_render_openai),
-    "feed":        Channel(name="feed",        render=_render_feed),
-    "claude-code": Channel(name="claude-code", render=_render_claude_code),
+    "openai":  Channel(name="openai",  render=_render_openai),
+    "feed":    Channel(name="feed",    render=_render_feed),
+    "helper":  Channel(name="helper",  render=_render_helper),
 }
 
 

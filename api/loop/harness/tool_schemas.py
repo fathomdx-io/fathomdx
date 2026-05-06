@@ -228,8 +228,8 @@ _MINT_ROUTINE_SCHEMA: dict[str, Any] = {
                 "workspace": {"type": "string", "description": "Optional workspace name for routing."},
                 "route_to": {
                     "type": "string",
-                    "enum": ["river", "claude-code"],
-                    "description": "Where the routine fires — 'river' (default) or 'claude-code' on a host.",
+                    "enum": ["river", "helper"],
+                    "description": "Where the routine fires — 'river' (default) or 'helper' on a host.",
                 },
                 "title": {"type": "string", "description": "Short title for the proposal card."},
             },

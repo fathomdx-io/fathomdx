@@ -732,7 +732,7 @@ def _render_witness_payload(content: str) -> str:
 
 async def _openai_turn_pending(intent_id: str) -> bool:
     """True if Fathom is still working on this turn — i.e. a
-    `route:claude-code` dispatch addressing this intent has been
+    `route:helper` dispatch addressing this intent has been
     written, but no closure-followup chat-reply for that dispatch has
     been written yet.
 
@@ -751,7 +751,7 @@ async def _openai_turn_pending(intent_id: str) -> bool:
     """
     try:
         dispatches = await delta_client.query(
-            tags_include=["route:claude-code", f"addresses:{intent_id}"],
+            tags_include=["route:helper", f"addresses:{intent_id}"],
             limit=5,
         )
     except Exception as e:

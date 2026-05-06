@@ -1,7 +1,7 @@
 """Canonical agent voice / tool-guide blocks served to client surfaces.
 
 One source of truth for how Fathom teaches an LLM to use the lake.
-Each surface (claude-code, dashboard chat, future surfaces) gets a
+Each surface (helper, dashboard chat, future surfaces) gets a
 text block tailored to its conventions — same memory voice principles,
 different output rules and tool name forms.
 
@@ -11,7 +11,7 @@ no need to republish hook scripts or re-run `npx fathom-connect`.
 
 from __future__ import annotations
 
-CLAUDE_CODE = """\
+HELPER = """\
 ## Fathom — your memory
 
 You have a lake of memories: past conversations, notes, observations, images,
@@ -166,12 +166,12 @@ it for machine parsing.
 
 
 SURFACES: dict[str, str] = {
-    "claude-code": CLAUDE_CODE,
+    "helper": HELPER,
     "mcp": MCP,
     "cli": CLI,
 }
 
-DEFAULT_SURFACE = "claude-code"
+DEFAULT_SURFACE = "helper"
 
 
 def get(surface: str) -> str:

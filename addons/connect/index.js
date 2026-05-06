@@ -204,7 +204,7 @@ async function main() {
   console.error("  └─────────────────────────────┘\n");
 
   const host = await choose("Where are you connecting Fathom?", [
-    { label: "Claude Code", note: "MCP + hooks (full experience)", value: "claude-code" },
+    { label: "Claude Code", note: "MCP + hooks (full experience)", value: "helper" },
     { label: "Claude Desktop / Cursor", note: "MCP only", value: "desktop" },
     { label: "Other", note: "print config to copy", value: "other" },
   ]);
@@ -226,7 +226,7 @@ async function main() {
   }
   console.error(`  ✓ Connected — ${test.total.toLocaleString()} deltas in the lake`);
 
-  if (host === "claude-code") {
+  if (host === "helper") {
     // MCP → ~/.claude.json (user scope)
     const mcpPath = patchClaudeMcp(url, key);
     console.error(`  ✓ MCP server written to ${mcpPath}`);

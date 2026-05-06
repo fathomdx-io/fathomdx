@@ -148,7 +148,7 @@ async def _dispatch_origin_for_corr(corr: str) -> dict:
     out: dict = {}
     try:
         dispatches = await delta_client.query(
-            tags_include=["route:claude-code", f"task-corr:{corr}"],
+            tags_include=["route:helper", f"task-corr:{corr}"],
             limit=5,
         )
     except Exception as e:
@@ -220,7 +220,7 @@ async def _correlation_state() -> tuple[dict[str, dict], dict[str, dict]]:
     for s in spawns:
         tags = s.get("tags") or []
         corr = _tag_value(tags, "task-corr:")
-        sid = _tag_value(tags, "claude-code-session:")
+        sid = _tag_value(tags, "helper-session:")
         if not corr or not sid:
             continue
         if corr in active or corr in closing:
@@ -313,10 +313,10 @@ async def _prime_last_minted() -> None:
 
 def _build_intent_tags(corr: str, sid: str, info: dict, source_id: str, *, closure: bool) -> list[str]:
     tags = [
-        channel_tag("claude-code"),
-        correlation_tag("claude-code", corr),
+        channel_tag("helper"),
+        correlation_tag("helper", corr),
         f"task-corr:{corr}",
-        f"claude-code-session:{sid}",
+        f"helper-session:{sid}",
         f"reply-to:{source_id}",
     ]
     if info.get("host"):
@@ -326,7 +326,7 @@ def _build_intent_tags(corr: str, sid: str, info: dict, source_id: str, *, closu
     if closure:
         # Witness reads this to know "the task already wrapped up;
         # acknowledge in chat rather than dispatching another turn."
-        # Without this marker, route:claude-code on the witness reply
+        # Without this marker, route:helper on the witness reply
         # would respawn the task — see kitty plugin's gate.
         tags.append("closure:true")
         # Propagate the chain's original addressee onto the closure
@@ -394,7 +394,7 @@ async def claude_code_watcher_tick() -> None:
                 continue
             try:
                 await write_intent(
-                    kind="claude-code-reply",
+                    kind="helper-reply",
                     content=content,
                     extra_tags=_build_intent_tags(corr, sid, info, r.get("id") or "", closure=False),
                     source="claude-code-watcher",
@@ -445,7 +445,7 @@ async def claude_code_watcher_tick() -> None:
             continue
         try:
             await write_intent(
-                kind="claude-code-reply",
+                kind="helper-reply",
                 content=content,
                 extra_tags=_build_intent_tags(corr, sid, info, closure_id, closure=True),
                 source="claude-code-watcher",
@@ -471,9 +471,9 @@ async def claude_code_watcher_tick() -> None:
             from .. import thread as thread_mod
             await thread_mod.append(
                 role="user",
-                msg_kind="claude-code-reply",
+                msg_kind="helper-reply",
                 content=content,
-                channel="claude-code",
+                channel="helper",
                 correlation=corr,
                 contact=info.get("contact") or "",
                 source="claude-code-watcher",

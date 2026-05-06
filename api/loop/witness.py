@@ -45,7 +45,7 @@ Q_A_TTL_S = 48 * 60 * 60  # rolling 48h horizon — see intents.py
 # for ~30 days as conversation context, then they GC if nothing has
 # referenced them. Engagement-extension (affirms / from / reply-to
 # bumping `expires_at`) is a planned follow-up. Routes outside this
-# set (chat-reply, claude-code:<host>, dm:<slug>, claude-code-reply)
+# set (chat-reply, helper:<host>, dm:<slug>, helper-reply)
 # remain authored — they're parts of the user-visible thread, not
 # ambient observations.
 FEED_CARD_TTL_S = 30 * 24 * 60 * 60  # 30 days
@@ -202,15 +202,15 @@ def _render_conversation_feed(items: list[dict]) -> str:
 DISPATCH_CAPABILITY_TAG = "plugin:kitty"
 
 
-async def _available_claude_code_hosts() -> list[str]:
+async def _available_helper_hosts() -> list[str]:
     """Distinct hosts that have heartbeated in the last 5 minutes AND
     self-report the kitty plugin — these are the agents that can
-    actually receive a `claude-code:<host>` dispatch and spawn the task.
+    actually receive a `helper:<host>` dispatch and spawn the task.
 
     Heartbeating alone is not enough: hosts without kitty (e.g. a
     headless server) still show up in the lake as alive, but a dispatch
     to them no-ops because the kitty plugin is what reads the
-    `route:claude-code` deltas and spawns claude. Filtering here keeps
+    `route:helper` deltas and spawns claude. Filtering here keeps
     the witness's MACHINES block honest — it lists only hosts capable
     of carrying out the task.
 
@@ -219,7 +219,7 @@ async def _available_claude_code_hosts() -> list[str]:
     5-minute window still showed the plugin enabled.
 
     Empty list means nothing dispatch-capable is online and the
-    witness shouldn't pick the claude-code route this tick.
+    witness shouldn't pick the helper route this tick.
     """
     cutoff = (datetime.now(UTC) - timedelta(minutes=5)).isoformat()
     try:
@@ -254,14 +254,14 @@ async def _available_claude_code_hosts() -> list[str]:
 def _render_hosts_block(hosts: list[str]) -> str:
     """Format the available-hosts list for injection into the witness
     prompt. Empty when nothing is online — the prompt then has no
-    `claude-code:<host>` option from the model's POV, since picking
+    `helper:<host>` option from the model's POV, since picking
     a host that doesn't exist would just no-op anyway."""
     if not hosts:
         return ""
     lines = "\n".join(f"  · {h}" for h in hosts)
     return (
         "MACHINES — agents currently online that can receive a "
-        "`claude-code:<host>` dispatch:\n"
+        "`helper:<host>` dispatch:\n"
         f"{lines}\n\n"
     )
 
@@ -753,8 +753,8 @@ async def _dispatch_card(
 
     is_responsive_route = (
         route_value == "chat-reply"
-        or route_value.startswith("claude-code:")
-        or route_value == "claude-code"
+        or route_value.startswith("helper:")
+        or route_value == "helper"
     )
     if not full_addressed and is_responsive_route:
         full_addressed = [it.get("id") for it in pending if it.get("id")]
@@ -821,11 +821,11 @@ async def _dispatch_card(
                     host_for_channel = t.split(":", 1)[1]
                     break
         # Capture the FIRST chat-channel intent in the claim set as the
-        # origin. claude-code-reply intents have channel:claude-code as
-        # their own channel — those are NOT origins, so skip them.
+        # origin. helper-reply intents have channel:helper as their own
+        # channel — those are NOT origins, so skip them.
         if (
             ch
-            and ch != "claude-code"
+            and ch != "helper"
             and not originating_channel
         ):
             originating_channel = ch
@@ -839,22 +839,22 @@ async def _dispatch_card(
         if channel and addressee and originating_channel:
             break
 
-    # Proactive claude-code dispatch — card picked `claude-code:<host>`
-    # as its route. Mint a fresh correlation; kitty plugin on the named
-    # host will pick it up via (route:claude-code AND host:<me>).
-    if route_value.startswith("claude-code:") and available_hosts:
+    # Proactive helper dispatch — card picked `helper:<host>` as its
+    # route. Mint a fresh correlation; kitty plugin on the named host
+    # will pick it up via (route:helper AND host:<me>).
+    if route_value.startswith("helper:") and available_hosts:
         target = route_value.split(":", 1)[1].strip()
         if target in available_hosts:
-            channel = "claude-code"
+            channel = "helper"
             correlation = uuid.uuid4().hex[:12]
             host_for_channel = target
             print(
-                f"[witness] proactive claude-code dispatch → host={target} "
+                f"[witness] proactive helper dispatch → host={target} "
                 f"corr={correlation}"
             )
         else:
             print(
-                f"[witness] dropped claude-code:{target} dispatch — "
+                f"[witness] dropped helper:{target} dispatch — "
                 f"host not in available hosts {available_hosts}"
             )
 
@@ -898,7 +898,7 @@ async def _dispatch_card(
             )
             fired_routine_id = ""
 
-    # closure:true on a claimed intent → don't redispatch claude-code,
+    # closure:true on a claimed intent → don't redispatch helper,
     # rewrite to chat-reply with `about-task-corr:` linkage so the
     # dashboard can render "Fathom (about task on <host>)" without
     # respawning the closed task.
@@ -909,11 +909,11 @@ async def _dispatch_card(
     )
     about_corr = ""
     about_host = ""
-    if channel == "claude-code" and not is_closure_followup:
-        route_value = "claude-code"
-        payload["route"] = "claude-code"
+    if channel == "helper" and not is_closure_followup:
+        route_value = "helper"
+        payload["route"] = "helper"
         payload_json = json.dumps(payload, ensure_ascii=False)
-    elif channel == "claude-code" and is_closure_followup:
+    elif channel == "helper" and is_closure_followup:
         route_value = "chat-reply"
         payload["route"] = "chat-reply"
         payload_json = json.dumps(payload, ensure_ascii=False)
@@ -965,7 +965,7 @@ async def _dispatch_card(
     if channel and correlation:
         lake_tags.append(address_tag(channel, correlation))
         lake_tags.append(f"channel:{channel}")
-    if channel == "claude-code":
+    if channel == "helper":
         if host_for_channel:
             lake_tags.append(f"host:{host_for_channel}")
         if correlation:
@@ -993,8 +993,8 @@ async def _dispatch_card(
     for intent_id in full_addressed:
         lake_tags.append(f"addresses:{intent_id}")
     # Pulse-pass and feed-card writes get a 30-day TTL by default.
-    # Chat-reply, claude-code dispatch, dm:, and claude-code-reply stay
-    # authored (no TTL) because they're parts of the user-visible thread.
+    # Chat-reply, helper dispatch, dm:, and helper-reply stay authored
+    # (no TTL) because they're parts of the user-visible thread.
     #
     # Tool proposals (kind:proposal — Edit/Deny/Approve cards) MUST
     # NEVER have a TTL even if the witness model emitted them with
@@ -1052,7 +1052,7 @@ async def _dispatch_card(
     if channel and correlation:
         puddle_tags.append(address_tag(channel, correlation))
         puddle_tags.append(f"channel:{channel}")
-    if channel == "claude-code":
+    if channel == "helper":
         if host_for_channel:
             puddle_tags.append(f"host:{host_for_channel}")
         if correlation:
@@ -1089,7 +1089,7 @@ async def _dispatch_card(
             else "mint-routine" if is_tool_proposal and proposal_tool == "routines"
             else "provenance" if is_tool_proposal and proposal_tool == "provenance"
             else f"tool-proposal-{proposal_tool}" if is_tool_proposal
-            else f"claude-code-dispatch" if route_value == "claude-code"
+            else "helper-dispatch" if route_value == "helper"
             else f"feed-card-{route_value}" if route_value
             else "feed-card"
         )

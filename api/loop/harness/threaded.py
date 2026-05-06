@@ -328,12 +328,12 @@ def _build_system_message(
         parts.append(standpoint_text)
         parts.append("")
     if available_hosts:
-        parts.append("AVAILABLE CLAUDE-CODE HOSTS (for dispatch_helper)")
+        parts.append("AVAILABLE HELPER HOSTS (for dispatch_helper)")
         for h in available_hosts:
             parts.append(f"  · {h}")
         parts.append("")
     elif available_hosts is not None:
-        parts.append("AVAILABLE CLAUDE-CODE HOSTS")
+        parts.append("AVAILABLE HELPER HOSTS")
         parts.append("  (none online — dispatch_helper proposals will queue but no host will pick them up right now)")
         parts.append("")
     parts.append("USER MESSAGES AWAITING RESPONSE")
@@ -454,10 +454,10 @@ async def run_threaded_fire(
         sp = await standpoint_mod.current(session_tag=session_tag)
         standpoint_text = standpoint_mod.render_for_prompt(sp, char_budget=2400)
         try:
-            from . import loop as legacy_harness  # for _available_claude_code_hosts
+            from . import loop as legacy_harness  # for _available_helper_hosts
             from . import tools as legacy_tools  # noqa  (force module init)
             from .. import witness as witness_mod
-            available_hosts = await witness_mod._available_claude_code_hosts()
+            available_hosts = await witness_mod._available_helper_hosts()
         except Exception:
             available_hosts = None
 

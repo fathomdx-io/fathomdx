@@ -1457,8 +1457,8 @@ async def tool_dispatch_helper(
     shell commands, anything outside the lake. The dispatch is
     operator-gated: this tool drafts a `kind:proposal tool:helper-dispatch`
     proposal that surfaces in the header bell. On approve, a real
-    `route:claude-code:<host>` delta lands; the claude-code-watcher
-    picks it up and runs `claude-code` on the named host.
+    `route:helper` delta lands; the helper watcher picks it up
+    and runs the task on the named host via kitty.
 
     Args:
       host: slug of a connected host (visible to the model in the
@@ -1481,11 +1481,11 @@ async def tool_dispatch_helper(
     if not task:
         return "ERROR: task is required"
 
-    # _available_claude_code_hosts returns list[str] of host slugs that
+    # _available_helper_hosts returns list[str] of host slugs that
     # have a recent heartbeat AND advertise dispatch capability. Empty
     # list means nothing dispatch-capable is online — refuse the call
     # rather than draft a proposal for a host that won't pick it up.
-    available = await witness_mod._available_claude_code_hosts() or []
+    available = await witness_mod._available_helper_hosts() or []
     available_names = set(available)
     if not available_names:
         return (

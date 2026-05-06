@@ -391,7 +391,7 @@ async def _get_proposal(proposal_id: str) -> dict | None:
 # on accept. Anything else in source_context is informational only — it
 # stays on the proposal delta as sediment but doesn't land on the
 # contact. Keep this set narrow; dashboard/ollama are system-managed.
-HANDLE_CHANNELS = {"email", "telegram", "twitter", "teams", "claude-code"}
+HANDLE_CHANNELS = {"email", "telegram", "twitter", "teams", "helper"}
 
 
 async def _write_proposal_resolution(
