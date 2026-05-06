@@ -3025,6 +3025,32 @@
       padding: 2px 0 0;
     }
 
+    /* Sit session container — wraps the N rounds of a reflection/drift
+       dialogue in a single visual block with a round-progress label. */
+    .sit-container {
+      margin-bottom: 1.75rem;
+      border-left: 2px solid var(--rule);
+      padding-left: 0;
+    }
+    .sit-header {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 4px 14px 10px;
+      font-family: var(--mono);
+      font-size: 11px;
+      color: var(--ink-faint);
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+    }
+    .sit-progress {
+      color: var(--ink-dim, var(--ink-faint));
+      font-variant-numeric: tabular-nums;
+    }
+    .sit-container.sit-complete .sit-header { opacity: 0.45; }
+    .sit-container .msg-fathom { margin-bottom: 1rem; padding-left: 14px; }
+    .sit-container .msg-fathom:last-child { margin-bottom: 0; }
+
     /* Silent-ack variant — renders only a meta line (no body bubble)
        with a checkmark. Occupies a turn's worth of visual space so
        you notice it on the same scan as a real reply, but doesn't
@@ -9948,10 +9974,11 @@ GET  /v1/usage               Usage stats`,
         case 'time': return `Time · ${a.action || 'help'}`;
         case 'relate': return `Relate · ${a.action || 'help'}`;
         case 'propose_provenance': return 'Proposing provenance';
-        case 'dispatch_helper': return `Dispatching helper · ${a.host || ''}`;
         case 'mint_routine': return `Minting routine · ${a.name || ''}`;
         case 'respond': return 'Responding';
-        case 'mark_addressed': return 'Addressed';
+        // Internal plumbing — not user-facing in chat
+        case 'dispatch_helper':
+        case 'mark_addressed': return null;
         // MCP tool calls surfaced as harness-turns
         case 'recall':
         case 'remember': {
@@ -11062,6 +11089,13 @@ GET  /v1/usage               Usage stats`,
           el.dataset.puddleId = it.id || '';
           if (it.id) el.dataset.deltaId = it.id;
           el.dataset.kind = 'chat';
+          // Sit session metadata — used by the insertion path to group
+          // rounds into a visual sit-container.
+          if (it.sit_session) {
+            el.dataset.sitSession = it.sit_session;
+            el.dataset.sitRound = String(it.sit_round || 1);
+            el.dataset.sitMaxRounds = String(it.sit_max_rounds || 4);
+          }
           // Stash addresses so the provenance-created badge can match
           // this fathom-message back to its originating session.
           const addressesArr = (it.addresses || []).filter(Boolean);
@@ -11538,6 +11572,34 @@ GET  /v1/usage               Usage stats`,
       return wrap;
     }
 
+    // ── Sit-session grouping helpers ────────────────────────────────────
+    function _createSitContainer(sitSession, maxRounds) {
+      const el = document.createElement('div');
+      el.className = 'sit-container';
+      el.dataset.sitSession = sitSession;
+      el.dataset.sitMaxRounds = String(maxRounds || 4);
+      const hdr = document.createElement('div');
+      hdr.className = 'sit-header';
+      hdr.innerHTML = `<span class="sit-label">Sitting</span><span class="sit-progress">0 of ${maxRounds || 4}</span>`;
+      const body = document.createElement('div');
+      body.className = 'sit-body';
+      el.appendChild(hdr);
+      el.appendChild(body);
+      return el;
+    }
+
+    function _updateSitProgress(container) {
+      const body = container.querySelector('.sit-body');
+      const prog = container.querySelector('.sit-progress');
+      const maxRounds = parseInt(container.dataset.sitMaxRounds || '4', 10);
+      if (body && prog) {
+        const count = body.children.length;
+        prog.textContent = `${count} of ${maxRounds}`;
+        if (count >= maxRounds) container.classList.add('sit-complete');
+        else container.classList.remove('sit-complete');
+      }
+    }
+
     // Find an existing same-(category, session) accordion or flat .delta
     // a new item should merge into. Walks the container top-to-bottom —
     // first hit wins. Pass chatFeed for non-card categories.
@@ -11582,8 +11644,24 @@ GET  /v1/usage               Usage stats`,
       const isChat = category && category !== 'card';
       const targetContainer = (isChat && chatFeed) ? chatFeed : feed;
       if (!category || !_CLUSTERABLE_CATEGORIES.has(category)) {
-        if (isChat && chatFeed) { chatFeed.appendChild(node); _scrollChatToBottom(); }
-        else feed.insertBefore(node, feed.firstChild);
+        if (isChat && chatFeed) {
+          // Group sit-session rounds into a visual container.
+          const sitSession = node.dataset.sitSession;
+          if (sitSession) {
+            let sitEl = chatFeed.querySelector(`.sit-container[data-sit-session="${CSS.escape(sitSession)}"]`);
+            if (!sitEl) {
+              sitEl = _createSitContainer(sitSession, node.dataset.sitMaxRounds || 4);
+              chatFeed.appendChild(sitEl);
+            }
+            sitEl.querySelector('.sit-body').appendChild(node);
+            _updateSitProgress(sitEl);
+          } else {
+            chatFeed.appendChild(node);
+          }
+          _scrollChatToBottom();
+        } else {
+          feed.insertBefore(node, feed.firstChild);
+        }
         return;
       }
       const target = _findMergeTarget(category, session, targetContainer);

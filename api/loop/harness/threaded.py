@@ -702,11 +702,31 @@ async def run_threaded_fire(
             "msg-kind:pressure-feed" in (p.get("tags") or [])
             for p in pending
         )
+        _sit_round: int | None = None
+        _sit_max_rounds: int | None = None
+        _sit_session: str = ""
+        for _p in pending:
+            _pt = _p.get("tags") or []
+            _tier = _tag_value(_pt, "pressure-tier:")
+            if _tier in ("reflection", "drift"):
+                try:
+                    _sit_round = int(_tag_value(_pt, "sit-round:") or "0") or None
+                except (ValueError, TypeError):
+                    _sit_round = None
+                try:
+                    _sit_max_rounds = int(_tag_value(_pt, "sit-max-rounds:") or "0") or None
+                except (ValueError, TypeError):
+                    _sit_max_rounds = None
+                _sit_session = _tag_value(_pt, "correlation:") or ""
+                break
         await _bridge_to_puddle_feed(
             body=final_response["body"],
             addresses=addr_set,
             lake_id=lake_id,
             route="feed-card" if _is_feed_fire else "chat-reply",
+            sit_round=_sit_round,
+            sit_max_rounds=_sit_max_rounds,
+            sit_session=_sit_session,
         )
 
     # Phase 5 review pass — separate focused turn whose only job is
@@ -1096,6 +1116,9 @@ async def _bridge_to_puddle_feed(
     addresses: list[str],
     lake_id: str,
     route: str = "chat-reply",
+    sit_round: int | None = None,
+    sit_max_rounds: int | None = None,
+    sit_session: str = "",
 ) -> None:
     """Mirror a threaded assistant reply into the puddle as a feed-card.
 
@@ -1166,6 +1189,12 @@ async def _bridge_to_puddle_feed(
         ]
         for addr in addresses:
             lake_tags.append(f"addresses:{addr}")
+        if sit_round is not None:
+            lake_tags.append(f"sit-round:{sit_round}")
+        if sit_max_rounds is not None:
+            lake_tags.append(f"sit-max-rounds:{sit_max_rounds}")
+        if sit_session:
+            lake_tags.append(f"sit-session:{sit_session}")
         # Match witness's TTL so feed-cards age out of the lake the
         # same way regardless of which harness produced them.
         feed_card_ttl = Q_A_TTL_S

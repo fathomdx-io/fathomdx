@@ -293,7 +293,27 @@ def get_feed(
                 )
                 items.append({"kind": "claude-code-dispatch", "host": host, **base})
             elif route == "chat-reply":
-                items.append({"kind": "fathom-message", **base})
+                sit_round_v = next(
+                    (t.split(":", 1)[1] for t in tags if t.startswith("sit-round:")),
+                    None,
+                )
+                sit_max_v = next(
+                    (t.split(":", 1)[1] for t in tags if t.startswith("sit-max-rounds:")),
+                    None,
+                )
+                sit_session_v = next(
+                    (t.split(":", 1)[1] for t in tags if t.startswith("sit-session:")),
+                    "",
+                )
+                sit_extra = {}
+                if sit_round_v is not None:
+                    try:
+                        sit_extra["sit_round"] = int(sit_round_v)
+                        sit_extra["sit_max_rounds"] = int(sit_max_v or "4")
+                        sit_extra["sit_session"] = sit_session_v
+                    except (ValueError, TypeError):
+                        pass
+                items.append({"kind": "fathom-message", **base, **sit_extra})
             elif "kind:proposal" in tags:
                 # Tool-call proposal — operator-actionable card with
                 # Edit / Deny / Approve buttons. The decision delta

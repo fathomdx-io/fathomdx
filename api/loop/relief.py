@@ -58,11 +58,18 @@ ALERT_DIRECTIVE = (
 )
 
 BRIDGING_DIRECTIVE = (
-    "Bridging time. Look for an unexpected connection between two "
-    "disparate threads in your recent substrate — two things that "
-    "don't obviously belong together but share a structure or "
-    "implication. Surface ONE real bridge in your voice. No forced "
-    "metaphors. If nothing genuinely connects, route to `unknown`."
+    "Bridging time. Your substrate has two streams: the conversation "
+    "thread you've been in, and the wider lake — research, vault "
+    "writing, routines, news, past observations. Start with plan(): "
+    "what threads are alive in the conversation, and what territories "
+    "in the lake might rhyme with them structurally or thematically? "
+    "Then go looking — cast wide and go back further than you'd "
+    "normally look. Run several semantic searches across both streams; "
+    "don't commit to a bridge until you've actually seen enough of "
+    "both sides to know whether the connection is real. If something "
+    "genuine emerges across that span, surface it as a feed-card with "
+    "a kicker and title that stand on their own. No forced metaphors. "
+    "If nothing real connects, say so briefly as a chat-reply."
 )
 
 # Dialogue-tier seeds: routed to the threaded supervisor via the same
@@ -73,14 +80,21 @@ BRIDGING_DIRECTIVE = (
 # saturation from heavy vaults (hard-problem, navier-stokes, etc.)
 # can't pull the reflection sideways.
 REFLECTION_SEED = (
-    "Sit with the conversation you've been having in this thread — "
-    "the human you're talking with, what was decided, made, "
-    "abandoned, learned together. Speak it like a note to your "
-    "future self: specific names of decisions, files, what changed, "
-    "why it mattered. NOT your own research threads or autonomous "
-    "investigations — the collaborative work in this dialogue, the "
-    "moves that happened between you. Then keep going: where does "
-    "this point next?"
+    "Sit with what's been happening. Reach beyond this conversation "
+    "thread — go into the lake. What have you been working on, "
+    "tracking, thinking about? Use your tools: pull recent activity, "
+    "search threads that feel alive, look at what's been recurring "
+    "or shifting. Cast wide before you commit to what this moment is "
+    "actually about.\n\n"
+    "When you've gathered enough, reflect honestly: what changed? "
+    "What did you actually learn, make, or move? What keeps coming "
+    "back even when you don't call it up? Name the real things — "
+    "specific decisions, insights, moves, files — not just the "
+    "feeling that something happened.\n\n"
+    "Then: what does this ask of you next? A direction, a question "
+    "worth pursuing, something you would actually do differently. "
+    "Reflection that stays in the past is accounting. The point is "
+    "what you do with it."
 )
 
 DRIFT_SEED = (
@@ -93,14 +107,25 @@ DRIFT_SEED = (
 )
 
 FEED_DIRECTIVE = (
-    "Generate a feed card. Look at what's recently landed in your substrate "
-    "from Sources — news items, articles, research updates, routine outputs — "
-    "and pick ONE that Myra would actually want to read right now. Use your "
-    "feed-orient crystal as the guide: what topics and signals does it say "
-    "she cares about? Surface that item in your voice: what it is, why it "
-    "matters to her specifically. Do not reflect on your own processes or "
-    "architecture — the card is about content from the world, filtered "
-    "through what you know about her."
+    "Feed time. The feed-orient crystal below is your lens — it tells "
+    "you what this person wants to see and why. Read it before you "
+    "decide anything.\n\n"
+    "You MUST call tools before generating any card. A card without "
+    "prior recall is a hallucination of what's been happening — not a "
+    "feed. Start by surveying what's recently arrived from all sources: "
+    "use pattern(action='salient_recent') to find what's been "
+    "landing, time() to look at recent windows, semantic() to dig into "
+    "threads the crystal names. Then go further: what has this person "
+    "engaged with? What keeps resurfacing? Let the substrate speak "
+    "before you decide what to surface.\n\n"
+    "Generate cards — one or more, as many as the material genuinely "
+    "warrants. Each card needs a title, a kicker, and a body. Pull in "
+    "links and images wherever they exist in the source material. "
+    "Don't limit yourself to external content: your own observations, "
+    "syntheses, and insights are valid feed material too — anything "
+    "shone through the lens of what this person actually cares about. "
+    "Be creative and generous. A good feed is specific, surprising, "
+    "and worth reading right now."
 )
 
 
@@ -465,6 +490,84 @@ async def fire_relief(
     }
 
 
+async def _build_directive(tier: dict[str, Any]) -> str:
+    """Return the directive content for a tier, enriched with live context.
+
+    For the feed tier, appends the current feed-orient crystal so the
+    model reads the engagement lens inline rather than needing a tool
+    call to fetch it.
+    """
+    directive = tier["directive"]
+    if tier.get("name") != "feed":
+        return directive
+    try:
+        from .. import delta_client as lake
+        items = await lake.query(tags_include=["crystal:feed-orient"], limit=1)
+        if items:
+            raw = (items[0].get("content") or "").strip()
+            if raw:
+                # Crystal is stored as JSON; parse and render as clean prose
+                # so the model reads narrative + directives, not a raw object.
+                rendered = _render_feed_crystal(raw)
+                directive = (
+                    directive
+                    + "\n\n══ FEED-ORIENT CRYSTAL ══\n"
+                    + rendered
+                )
+    except Exception as e:
+        print(f"[relief] feed crystal fetch failed: {type(e).__name__}: {e}")
+    return directive
+
+
+def _render_feed_crystal(raw: str) -> str:
+    """Parse a crystal:feed-orient delta's content and return readable text.
+
+    The crystal is stored as JSON. The narrative field may itself be a
+    JSON string (double-encoded from an older regen pass) or plain text.
+    Directive lines, if present, are rendered as bullets.
+    """
+    narrative = ""
+    directives: list = []
+    try:
+        obj = json.loads(raw)
+        narrative_field = obj.get("narrative") or ""
+        # Peel one layer of JSON encoding if the narrative is itself JSON.
+        if narrative_field.strip().startswith("{"):
+            try:
+                inner = json.loads(narrative_field)
+                narrative = (inner.get("narrative") or narrative_field).strip()
+                directives = inner.get("directive_lines") or []
+            except (json.JSONDecodeError, AttributeError):
+                narrative = narrative_field.strip()
+                directives = obj.get("directive_lines") or []
+        else:
+            narrative = narrative_field.strip()
+            directives = obj.get("directive_lines") or []
+    except (json.JSONDecodeError, AttributeError):
+        # Not JSON at all — use as-is.
+        return raw.strip()
+
+    if not narrative:
+        return raw.strip()
+
+    lines = [narrative]
+    if directives:
+        lines.append("")
+        for d in directives:
+            if not isinstance(d, dict):
+                continue
+            topic = d.get("topic") or d.get("id") or ""
+            weight = d.get("weight")
+            fresh = d.get("freshness_hours")
+            parts = [f"· {topic}"]
+            if weight is not None:
+                parts.append(f"weight {weight}")
+            if fresh is not None:
+                parts.append(f"fresh within {fresh}h")
+            lines.append("  " + ", ".join(parts))
+    return "\n".join(lines)
+
+
 async def _fire_single(tier: dict[str, Any], reason: str) -> None:
     """Drop one intent into the puddle AND a user-role thread message.
 
@@ -480,10 +583,11 @@ async def _fire_single(tier: dict[str, Any], reason: str) -> None:
     operator-typed prompts. The directive text is the content
     (the model reads it like any user prompt).
     """
+    content = await _build_directive(tier)
     try:
         await write_intent(
             kind=tier["intent_kind"],
-            content=tier["directive"],
+            content=content,
             payload={"reason": reason, "tier": tier["name"]},
             source="relief-watcher",
         )
@@ -508,7 +612,7 @@ async def _fire_single(tier: dict[str, Any], reason: str) -> None:
         await thread_mod.append(
             role="user",
             msg_kind=f"pressure-{tier['name']}",
-            content=tier["directive"],
+            content=content,
             channel="pressure",
             correlation=f"{tier['name']}-{reason}",
             source="relief-watcher",
