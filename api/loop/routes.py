@@ -443,7 +443,7 @@ def get_feed(
                 (t.split(":", 1)[1] for t in tags if t.startswith("kind:")),
                 "unknown",
             )
-            if kind in ("reflection", "drift", "bridging", "alert", "drop-in"):
+            if kind in ("reflection", "drift", "bridging", "alert", "drop-in", "feed"):
                 items.append({
                     "kind": "pass-intent",
                     "pass_kind": kind,
