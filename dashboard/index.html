@@ -4097,6 +4097,11 @@
       <button class="icon-btn" id="rightSidebarToggleBtn" aria-label="Open chat">
         <svg viewBox="0 0 256 256" fill="currentColor" width="16" height="16"><path d="M216,40H40A16,16,0,0,0,24,56V200a16,16,0,0,0,16,16H216a16,16,0,0,0,16-16V56A16,16,0,0,0,216,40ZM40,56H96V200H40ZM216,200H112V56H216Z"/></svg>
       </button>
+      <span class="convergence-bars" id="convergenceBars" aria-hidden="true" hidden>
+        <span class="conv-bar voice-creator"><span></span></span>
+        <span class="conv-bar voice-preserver"><span></span></span>
+        <span class="conv-bar voice-destroyer"><span></span></span>
+      </span>
       <button class="stack-version-chip" id="stackVersionChip" type="button" hidden>
         <span class="sha" id="stackVersionSha">—</span>
         <span class="behind" id="stackVersionBehind" hidden></span>
@@ -4138,14 +4143,6 @@
       <div class="section-head">
         <h2>What I noticed</h2>
         <span class="meta section-meta-group">
-          <!-- Convergence dots — three RGB dots in a fixed row. Pulse
-               on staggered phases while the loop has pending intents,
-               snap to teal when the witness is writing the final card. -->
-          <span class="convergence-bars" id="convergenceBars" aria-hidden="true" hidden>
-            <span class="conv-bar voice-creator"><span></span></span>
-            <span class="conv-bar voice-preserver"><span></span></span>
-            <span class="conv-bar voice-destroyer"><span></span></span>
-          </span>
           <span class="feed-meta-sep" id="feedMetaSep" hidden> · </span>
           <span id="feedMeta"></span>
         </span>
