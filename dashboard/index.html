@@ -2186,6 +2186,14 @@
     }
     .right-sidebar-backdrop.visible { opacity: 1; pointer-events: auto; }
 
+    /* Chat column — items render oldest-at-top, newest-at-bottom */
+    #rightSidebarBody { padding: 0; }
+    .chat-feed {
+      display: flex; flex-direction: column;
+      padding: 20px 20px 210px;
+      gap: 10px;
+    }
+
     /* Main composer exits rightward when chat opens */
     body.chat-open .composer-wrap {
       transform: translateX(80px) scale(0.93);
@@ -4021,7 +4029,7 @@
       </div>
     </div>
     <div class="sidebar-body" id="rightSidebarBody">
-      <!-- feed/chat content arrives in a later phase -->
+      <div class="chat-feed" id="chatFeed"></div>
     </div>
     <div class="chat-composer-foot" id="chatComposerFoot">
       <div id="chatReplyContext" class="reply-context" hidden>
@@ -9052,12 +9060,30 @@ GET  /v1/usage               Usage stats`,
     function isChatOpen() {
       return document.body.classList.contains('chat-open');
     }
+    const rightSidebarBody = document.getElementById('rightSidebarBody');
+
+    // Scroll the chat column to the bottom. force=true always scrolls;
+    // default only scrolls if the user is already near the bottom so
+    // we don't hijack scroll when they're reading history.
+    function _scrollChatToBottom(force) {
+      if (!rightSidebarBody) return;
+      const nearBottom = rightSidebarBody.scrollHeight
+        - rightSidebarBody.scrollTop
+        - rightSidebarBody.clientHeight < 160;
+      if (force || nearBottom) {
+        rightSidebarBody.scrollTop = rightSidebarBody.scrollHeight;
+      }
+    }
+
     function openRightSidebar() {
       rightSidebar.classList.add('open');
       rightSidebarBackdrop.classList.add('visible');
       document.body.classList.add('chat-open');
       syncComposer();
-      setTimeout(() => chatComposerTa.focus(), 280);
+      setTimeout(() => {
+        chatComposerTa.focus();
+        _scrollChatToBottom(true);
+      }, 280);
     }
     function closeRightSidebar() {
       rightSidebar.classList.remove('open');
@@ -9474,7 +9500,7 @@ GET  /v1/usage               Usage stats`,
             role: 'fathom', time: timeStr,
             html: `<p style="color: var(--danger);">Couldn't drop seed: ${_esc(r.status + ' ' + r.statusText)}.</p>`,
           });
-          feed.insertBefore(errEl, feed.firstChild);
+          if (chatFeed) chatFeed.appendChild(errEl); else feed.insertBefore(errEl, feed.firstChild);
           return;
         }
         // Optimistic render: pull the freshly-written intent off the
@@ -9497,6 +9523,7 @@ GET  /v1/usage               Usage stats`,
             _renderItemsClustered([item], 'prepend');
             refreshLightbox();
             applyVerbosityFilter();
+            _scrollChatToBottom(true);
           }
         } catch (e) { /* response already consumed or non-JSON; poll will catch up */ }
         // Successful send — clear the reply target so the next message
@@ -9512,7 +9539,7 @@ GET  /v1/usage               Usage stats`,
           role: 'fathom', time: timeStr,
           html: `<p style="color: var(--danger);">Connection error: ${_esc(err.message)}</p>`,
         });
-        feed.insertBefore(errEl, feed.firstChild);
+        if (chatFeed) chatFeed.appendChild(errEl); else feed.insertBefore(errEl, feed.firstChild);
       }
     }
 
@@ -9597,6 +9624,7 @@ GET  /v1/usage               Usage stats`,
 
     // ── Live feed stories ───────────────────────
     const feed = document.querySelector('.feed');
+    const chatFeed = document.getElementById('chatFeed');
     const showMoreBtn = document.getElementById('showMoreFeed');
     // Time-windowed pagination: each page is 1h of the puddle, walking
     // backward from now. _feedPageUntilIso names the upper boundary of
@@ -10170,7 +10198,9 @@ GET  /v1/usage               Usage stats`,
       // .msg / .card rows carry data-kind which we map back to a
       // category. Chat always passes; alerts pierce regardless.
       // Selector union catches both attribute carriers in one pass.
-      const items = document.querySelectorAll('.feed [data-category], .feed [data-kind]');
+      const items = document.querySelectorAll(
+        '.feed [data-category], .feed [data-kind], #chatFeed [data-category], #chatFeed [data-kind]'
+      );
       const seen = new Set();
       let visibleCount = 0;
       items.forEach(el => {
@@ -11479,12 +11509,12 @@ GET  /v1/usage               Usage stats`,
     }
 
     // Find an existing same-(category, session) accordion or flat .delta
-    // a new item should merge into. Walks the feed top-to-bottom — first
-    // hit wins, so we always merge into the most recent matching cluster.
-    // Same-category clusters in different sessions stay separate.
-    function _findMergeTarget(category, session) {
+    // a new item should merge into. Walks the container top-to-bottom —
+    // first hit wins. Pass chatFeed for non-card categories.
+    function _findMergeTarget(category, session, container) {
+      const c = container || feed;
       const sessionKey = session || '';
-      for (const child of feed.children) {
+      for (const child of c.children) {
         if (!child.classList || !child.dataset) continue;
         const childCat = child.dataset.category
           || _categoryOf(child.dataset.kind || '');
@@ -11519,11 +11549,14 @@ GET  /v1/usage               Usage stats`,
       if (category) node.dataset.category = category;
       const sec = _CATEGORY_TO_SECTION[category];
       if (sec) node.dataset.section = sec;
+      const isChat = category && category !== 'card';
+      const targetContainer = (isChat && chatFeed) ? chatFeed : feed;
       if (!category || !_CLUSTERABLE_CATEGORIES.has(category)) {
-        feed.insertBefore(node, feed.firstChild);
+        if (isChat && chatFeed) { chatFeed.appendChild(node); _scrollChatToBottom(); }
+        else feed.insertBefore(node, feed.firstChild);
         return;
       }
-      const target = _findMergeTarget(category, session);
+      const target = _findMergeTarget(category, session, targetContainer);
       if (target && target.classList.contains('accordion')) {
         const body = target.querySelector('.accordion-body');
         if (body) {
@@ -11580,7 +11613,8 @@ GET  /v1/usage               Usage stats`,
       _renderAccordionSummary(summary, category, item ? [item] : []);
       det.appendChild(summary);
       det.appendChild(body);
-      feed.insertBefore(det, feed.firstChild);
+      if (isChat && chatFeed) { chatFeed.appendChild(det); _scrollChatToBottom(); }
+      else feed.insertBefore(det, feed.firstChild);
     }
 
     // Engagement projection: feed-engagement deltas are diffs that
@@ -11728,7 +11762,11 @@ GET  /v1/usage               Usage stats`,
           // for singletons. Keeps the feed visually grouped by category
           // and lets later same-(category, session) arrivals fold in
           // through _mergeOrPrependNode without a flat→accordion swap.
-          feed.appendChild(_renderAccordion(run));
+          // Clusterable items are never 'card' so always go to chatFeed.
+          // API returns newest-first; insertBefore(firstChild) reverses
+          // that so chatFeed reads oldest-at-top.
+          if (chatFeed) chatFeed.insertBefore(_renderAccordion(run), chatFeed.firstChild);
+          else feed.appendChild(_renderAccordion(run));
         } else {
           _renderedFeedIds.add(it.id);
           const node = _renderPuddleItem(it, (delayIdx++) * 0.06);
@@ -11738,7 +11776,8 @@ GET  /v1/usage               Usage stats`,
             if (cat) node.dataset.category = cat;
             const sec = _CATEGORY_TO_SECTION[cat];
             if (sec) node.dataset.section = sec;
-            feed.appendChild(node);
+            if (cat !== 'card' && chatFeed) chatFeed.insertBefore(node, chatFeed.firstChild);
+            else feed.appendChild(node);
           }
           placedIndex.add(i);
         }
@@ -11764,6 +11803,7 @@ GET  /v1/usage               Usage stats`,
         const items = _projectEngagement(data.items || []);
         if (!append) {
           feed.innerHTML = '';
+          if (chatFeed) chatFeed.innerHTML = '';
           _renderedFeedIds.clear();
           _feedPageUntilIso = undefined;
         }
@@ -11807,6 +11847,9 @@ GET  /v1/usage               Usage stats`,
         // pierce; below-threshold cards get data-hidden=true so they
         // vanish without disturbing the layout above them.
         applyVerbosityFilter();
+        // On initial load always land at the bottom of the chat column
+        // (newest message visible). On Show-more, preserve scroll.
+        if (!append) _scrollChatToBottom(true);
       } catch (err) {
         // API down — soft-fail; the existing DOM stays as-is.
       }
