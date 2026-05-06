@@ -4029,7 +4029,7 @@
       </div>
     </div>
     <div class="sidebar-body" id="rightSidebarBody">
-      <div class="chat-feed" id="chatFeed"></div>
+      <div class="chat-feed feed" id="chatFeed"></div>
     </div>
     <div class="chat-composer-foot" id="chatComposerFoot">
       <div id="chatReplyContext" class="reply-context" hidden>
@@ -4140,7 +4140,7 @@
           <span id="feedMeta"></span>
         </span>
       </div>
-      <div class="feed">
+      <div class="feed" id="mainFeed">
         <!-- Populated by loadFeedStories() -->
       </div>
       <button class="show-more-feed" id="showMoreFeed" type="button" style="display:none">Show more</button>
@@ -9623,7 +9623,7 @@ GET  /v1/usage               Usage stats`,
     });
 
     // ── Live feed stories ───────────────────────
-    const feed = document.querySelector('.feed');
+    const feed = document.getElementById('mainFeed');
     const chatFeed = document.getElementById('chatFeed');
     const showMoreBtn = document.getElementById('showMoreFeed');
     // Time-windowed pagination: each page is 1h of the puddle, walking
@@ -9875,7 +9875,7 @@ GET  /v1/usage               Usage stats`,
     const KIND_TO_CATEGORY = {
       'chat':                  'chat',
       'card':                  'card',
-      'proposal':              'card',
+      'proposal':              'claude-code',
       'pass-intent':           'prompts',
       'voice-thought':         'thinking',
       'harness-turn':          'thinking',
@@ -10198,8 +10198,10 @@ GET  /v1/usage               Usage stats`,
       // .msg / .card rows carry data-kind which we map back to a
       // category. Chat always passes; alerts pierce regardless.
       // Selector union catches both attribute carriers in one pass.
+      // Scope to #mainFeed for the count/filter logic; chatFeed items are
+      // always visible and don't affect the empty-state or filter banner.
       const items = document.querySelectorAll(
-        '.feed [data-category], .feed [data-kind], #chatFeed [data-category], #chatFeed [data-kind]'
+        '#mainFeed [data-category], #mainFeed [data-kind], #chatFeed [data-category], #chatFeed [data-kind]'
       );
       const seen = new Set();
       let visibleCount = 0;
@@ -10217,14 +10219,12 @@ GET  /v1/usage               Usage stats`,
         // the visible-items total used for the empty-state letter.
         if (passes && el.parentElement === feed) visibleCount += 1;
       });
-      // Empty-state composition:
-      //   * filter banner — when items exist but the filter hides them.
-      //     Tells the user this is THEIR doing and they can tick more.
-      //   * welcome letter — Fathom's intro, shown whenever the feed
-      //     surfaces zero items (filter-hidden OR genuinely cold-start).
-      //     Sits below the filter banner when both fire, so the user
-      //     gets the diagnostic AND something to read.
-      const totalItems = items.length;
+      // Empty-state and filter-banner logic is scoped to the main feed
+      // only. chatFeed items are always shown and don't count here.
+      const mainFeedItems = document.querySelectorAll(
+        '#mainFeed [data-category], #mainFeed [data-kind]'
+      );
+      const totalItems = mainFeedItems.length;
       const filterHidesAll = totalItems > 0 && visibleCount === 0;
       _toggleFilterBanner(filterHidesAll);
       _toggleEmptyLetter(visibleCount === 0);
@@ -10250,7 +10250,7 @@ GET  /v1/usage               Usage stats`,
         </div>`;
     }
     function _toggleEmptyLetter(show) {
-      const feedEl = document.querySelector('.feed');
+      const feedEl = document.getElementById('mainFeed');
       if (!feedEl) return;
       let letter = feedEl.querySelector(':scope > .feed-empty');
       if (show) {
@@ -10267,7 +10267,7 @@ GET  /v1/usage               Usage stats`,
       }
     }
     function _toggleFilterBanner(show) {
-      const feedEl = document.querySelector('.feed');
+      const feedEl = document.getElementById('mainFeed');
       if (!feedEl) return;
       let banner = feedEl.querySelector('.feed-no-news[data-source="filter"]');
       if (show) {
@@ -10655,6 +10655,8 @@ GET  /v1/usage               Usage stats`,
       actions.outerHTML = `<div class="proposal-status ${cls} proposal-status-cc">${verb}${stamp}</div>`;
       const chip = el.querySelector('.proposal-pending-chip');
       if (chip) chip.remove();
+      // Decided cards collapse — they're noise once acted on.
+      el.open = false;
     }
 
     function _proposalRender(card, it, args, status, decision) {
