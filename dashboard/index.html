@@ -10371,7 +10371,7 @@ GET  /v1/usage               Usage stats`,
       const bodyHtml = `<div class="card-body">
         ${kicker ? `<div class="kicker">${_esc(kicker)}</div>` : ''}
         <h3>${_esc(title)}</h3>
-        ${body ? `<p>${_esc(body)}</p>` : ''}
+        ${body ? `<div class="card-body-text">${renderMd(body)}</div>` : ''}
         ${extraLinksHtml}
         <div class="tail">${cardTimeStr ? `<span>${_esc(cardTimeStr)}</span>` : ''}<span>${_esc(tail)}</span>${linkHtml}<span class="action">Explore →</span>${engagementHtml}</div>
       </div>`;
@@ -11277,7 +11277,7 @@ GET  /v1/usage               Usage stats`,
         el.dataset.fromPuddle = '1';
         el.dataset.puddleId = it.id || '';
         if (it.id) el.dataset.deltaId = it.id;
-        el.innerHTML = `<div class="msg-body">${_esc(raw)}</div><div class="msg-meta">${_esc(passKind)} · ${timeStr}</div>`;
+        el.innerHTML = `<div class="msg-body">${renderMd(raw)}</div><div class="msg-meta">${_esc(passKind)} · ${timeStr}</div>`;
         return el;
       }
       // Routine-due — the cron tick that handed a routine to the River.
