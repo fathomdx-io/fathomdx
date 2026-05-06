@@ -4022,6 +4022,19 @@
       <div class="sidebar-brand">
         <div class="sidebar-brand-left">
           <span style="font-family: var(--serif); font-size: 18px; color: var(--ink-soft);">Chat</span>
+          <span class="feed-filter" id="feedFilter" data-open="false" style="margin-left: 10px;">
+            <button type="button" class="feed-filter-toggle" id="feedFilterToggle" aria-haspopup="true" aria-expanded="false" aria-controls="feedFilterPanel" title="Filter chat activity">
+              <span id="feedFilterToggleLabel">Filter</span>
+              <span class="feed-filter-caret" aria-hidden="true">▾</span>
+            </button>
+            <div class="feed-filter-panel" id="feedFilterPanel" role="group" aria-label="Filter what shows in chat">
+              <label><input type="checkbox" data-category="claude-code" checked> Claude Code</label>
+              <label><input type="checkbox" data-category="prompts"> Prompts</label>
+              <label><input type="checkbox" data-category="thinking"> Thinking</label>
+              <label><input type="checkbox" data-category="identity"> Identity</label>
+              <label><input type="checkbox" data-category="routine"> Routine Activity</label>
+            </div>
+          </span>
         </div>
         <button class="icon-btn" id="rightSidebarCloseBtn" aria-label="Close panel">
           <svg viewBox="0 0 256 256" fill="currentColor" width="16" height="16"><path d="M205.66,194.34a8,8,0,0,1-11.32,11.32L128,139.31,61.66,205.66a8,8,0,0,1-11.32-11.32L116.69,128,50.34,61.66A8,8,0,0,1,61.66,50.34L128,116.69l66.34-66.35a8,8,0,0,1,11.32,11.32L139.31,128Z"/></svg>
@@ -4113,28 +4126,6 @@
             <span class="conv-bar voice-creator"><span></span></span>
             <span class="conv-bar voice-preserver"><span></span></span>
             <span class="conv-bar voice-destroyer"><span></span></span>
-          </span>
-          <span class="feed-filter" id="feedFilter" data-open="false">
-            <button type="button" class="feed-filter-toggle" id="feedFilterToggle" aria-haspopup="true" aria-expanded="false" aria-controls="feedFilterPanel" title="Pick what shows in the feed">
-              <span id="feedFilterToggleLabel">Filter</span>
-              <span class="feed-filter-caret" aria-hidden="true">▾</span>
-            </button>
-            <div class="feed-filter-panel" id="feedFilterPanel" role="group" aria-label="Filter what shows in the feed">
-              <label class="always-on" title="Alerts always pierce — they reach you whether or not you've checked them">
-                <span class="pierce-mark">⚠</span> Alerts <span style="margin-left:auto; font-size:10px; opacity:0.7;">always on</span>
-              </label>
-              <div class="filter-group-head">Feed</div>
-              <label class="always-on" title="Chat turns are always visible — like alerts, you can't filter them out">
-                Chat <span style="margin-left:auto; font-size:10px; opacity:0.7;">always on</span>
-              </label>
-              <label><input type="checkbox" data-category="card" checked> Cards</label>
-              <div class="filter-group-head">Background</div>
-              <label><input type="checkbox" data-category="claude-code" checked> Claude Code</label>
-              <label><input type="checkbox" data-category="prompts"> Prompts</label>
-              <label><input type="checkbox" data-category="thinking"> Thinking</label>
-              <label><input type="checkbox" data-category="identity"> Identity</label>
-              <label><input type="checkbox" data-category="routine"> Routine Activity</label>
-            </div>
           </span>
           <span class="feed-meta-sep" id="feedMetaSep" hidden> · </span>
           <span id="feedMeta"></span>
