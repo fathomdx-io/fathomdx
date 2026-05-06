@@ -190,9 +190,11 @@ Route guidance:
   feed-card   — a published take that stands on its own. Use when you've
                 synthesized something worth surfacing independently: a
                 substantive observation, a proactive notice, a take derived
-                from a routine or pressure-pass. Needs kicker + title.
-                Ask: would this mean anything to someone reading it outside
-                this conversation? If yes, feed-card.
+                from a routine or pressure-pass. REQUIRES a real kicker and
+                title — a headline someone can read without context. If you
+                can't write one, choose chat-reply instead. "Untitled" is
+                not a title. Ask: would this headline mean something to
+                someone reading it a week from now? If yes, feed-card.
   claude-code:<host>  — dispatch work to a helper machine.
   routine-fire:<id>   — hand a known routine to the River.
   tool:<name>         — propose an operator-gated tool action.

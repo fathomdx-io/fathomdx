@@ -740,6 +740,17 @@ async def _dispatch_card(
                 print(f"[alert-dedup] audit write failed: {type(e).__name__}: {e}")
             route_value = "feed-card"
 
+    # Feed-cards without a real title are incomplete — the model chose
+    # the wrong route. Downgrade to chat-reply so the body reaches the
+    # user rather than landing as an "Untitled" card in the feed.
+    if route_value == "feed-card":
+        title = (card.get("title") or "").strip().lower()
+        if not title or title == "untitled":
+            print(
+                "[witness] feed-card missing title — downgrading to chat-reply"
+            )
+            route_value = "chat-reply"
+
     is_responsive_route = (
         route_value == "chat-reply"
         or route_value.startswith("claude-code:")
