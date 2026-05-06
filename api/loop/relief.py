@@ -495,61 +495,38 @@ async def _build_directive(tier: dict[str, Any]) -> str:
 
     For the feed tier, appends the current feed-orient crystal so the
     model reads the engagement lens inline rather than needing a tool
-    call to fetch it.
+    call to fetch it. Uses the router's cached crystal to avoid a
+    redundant lake query on every relief tick.
     """
     directive = tier["directive"]
     if tier.get("name") != "feed":
         return directive
     try:
-        from .. import delta_client as lake
-        items = await lake.query(tags_include=["crystal:feed-orient"], limit=1)
-        if items:
-            raw = (items[0].get("content") or "").strip()
-            if raw:
-                # Crystal is stored as JSON; parse and render as clean prose
-                # so the model reads narrative + directives, not a raw object.
-                rendered = _render_feed_crystal(raw)
-                directive = (
-                    directive
-                    + "\n\n══ FEED-ORIENT CRYSTAL ══\n"
-                    + rendered
-                )
+        from .router import get_engagement_crystal
+        crystal = await get_engagement_crystal()
+        if crystal:
+            rendered = _render_feed_crystal(crystal)
+            directive = (
+                directive
+                + "\n\n══ FEED-ORIENT CRYSTAL ══\n"
+                + rendered
+            )
     except Exception as e:
         print(f"[relief] feed crystal fetch failed: {type(e).__name__}: {e}")
     return directive
 
 
-def _render_feed_crystal(raw: str) -> str:
-    """Parse a crystal:feed-orient delta's content and return readable text.
+def _render_feed_crystal(crystal: dict) -> str:
+    """Render a parsed feed-orient crystal dict as readable text.
 
-    The crystal is stored as JSON. The narrative field may itself be a
-    JSON string (double-encoded from an older regen pass) or plain text.
-    Directive lines, if present, are rendered as bullets.
+    The crystal dict comes from router.get_engagement_crystal() which
+    already handles JSON parsing and double-encoding. Directive lines,
+    if present, are rendered as bullets.
     """
-    narrative = ""
-    directives: list = []
-    try:
-        obj = json.loads(raw)
-        narrative_field = obj.get("narrative") or ""
-        # Peel one layer of JSON encoding if the narrative is itself JSON.
-        if narrative_field.strip().startswith("{"):
-            try:
-                inner = json.loads(narrative_field)
-                narrative = (inner.get("narrative") or narrative_field).strip()
-                directives = inner.get("directive_lines") or []
-            except (json.JSONDecodeError, AttributeError):
-                narrative = narrative_field.strip()
-                directives = obj.get("directive_lines") or []
-        else:
-            narrative = narrative_field.strip()
-            directives = obj.get("directive_lines") or []
-    except (json.JSONDecodeError, AttributeError):
-        # Not JSON at all — use as-is.
-        return raw.strip()
-
+    narrative = (crystal.get("narrative") or "").strip()
     if not narrative:
-        return raw.strip()
-
+        return ""
+    directives = crystal.get("directive_lines") or []
     lines = [narrative]
     if directives:
         lines.append("")

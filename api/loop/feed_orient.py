@@ -292,6 +292,15 @@ async def _run_regen() -> bool:
         if isinstance(written, dict):
             crystal_id = written.get("id") or ""
 
+        # Invalidate the router's engagement crystal cache so the new
+        # crystal is picked up immediately on the next routing decision
+        # rather than waiting for the 5-minute TTL to expire.
+        try:
+            from .router import invalidate_crystal_cache
+            invalidate_crystal_cache()
+        except Exception:
+            pass
+
         # Anchor the engagement centroid at the moment of acceptance —
         # drift now reads ~0 by construction and grows as user signals
         # diverge from what this crystal predicted. Mirrors the
