@@ -2186,6 +2186,18 @@
     }
     .right-sidebar-backdrop.visible { opacity: 1; pointer-events: auto; }
 
+    /* Right sidebar header — vertically center Chat label + filter pill */
+    .right-sidebar .sidebar-head {
+      display: flex;
+      align-items: center;
+      padding: 0 14px;
+      min-height: 55px;
+    }
+    .right-sidebar .sidebar-brand {
+      flex: 1;
+      padding: 0 4px;
+    }
+
     /* Chat column — items render oldest-at-top, newest-at-bottom */
     #rightSidebarBody { padding: 0; }
     .chat-feed {
