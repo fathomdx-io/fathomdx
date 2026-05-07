@@ -237,7 +237,6 @@ from .routes import sources as _sources_routes  # noqa: E402
 from .routes import stack as _stack_routes  # noqa: E402
 from .routes import vitals as _vitals_routes  # noqa: E402
 from .loop import routes as _loop_routes  # noqa: E402
-from .loop.harness import routes as _harness_routes  # noqa: E402
 
 app.include_router(_agent_instructions_routes.router)
 app.include_router(_agents_routes.router)
@@ -253,7 +252,6 @@ app.include_router(_sources_routes.router)
 app.include_router(_stack_routes.router)
 app.include_router(_vitals_routes.router)
 app.include_router(_loop_routes.router)
-app.include_router(_harness_routes.router)
 
 
 # ── Helpers ─────────────────────────────────────
