@@ -120,6 +120,16 @@ def _anchor_marker(d: dict) -> str:
     return "▸" if d.get("is_anchor") else " "
 
 
+def _media_suffix(d: dict) -> str:
+    """Inline tail marking attached images. Same shape as `_delta_line`
+    in search.py and the harness projection, so the model sees one
+    consistent `[Image attached: media_hash=<hash>]` token everywhere
+    and knows to call see_image when relevant.
+    """
+    h = (d.get("media_hash") or "").strip()
+    return f" [Image attached: media_hash={h}]" if h else ""
+
+
 def _id_prefix(d: dict) -> str:
     """Show the 12-char delta id on anchor lines so the model has real
     references when it wants to engage / cite / propose constituents.
@@ -141,7 +151,7 @@ def _id_prefix(d: dict) -> str:
 
 def _render_default(d: dict) -> str:
     src = (d.get("source") or "?").ljust(13)[:13]
-    return f"{_anchor_marker(d)} {_short_ts(d)}  {src}· {_id_prefix(d)}{_content_oneline(d)}"
+    return f"{_anchor_marker(d)} {_short_ts(d)}  {src}· {_id_prefix(d)}{_content_oneline(d)}{_media_suffix(d)}"
 
 
 def _render_collapsed(d: dict) -> str:
@@ -162,7 +172,7 @@ def _render_dialog(d: dict) -> str:
     src = (d.get("source") or "?").ljust(13)[:13]
     role_str = f" {role}:" if role else ""
     return (
-        f"{_anchor_marker(d)} {_short_ts(d)}  {src}·{role_str} {_id_prefix(d)}{_content_oneline(d)}"
+        f"{_anchor_marker(d)} {_short_ts(d)}  {src}·{role_str} {_id_prefix(d)}{_content_oneline(d)}{_media_suffix(d)}"
     )
 
 
@@ -177,7 +187,7 @@ def _render_sediment(d: dict) -> str:
     n_from = sum(1 for t in (d.get("tags") or []) if t.startswith("from:"))
     src = "sediment".ljust(13)
     suffix = f" (from {n_from} sources)" if n_from else ""
-    return f"{_anchor_marker(d)} {_short_ts(d)}  {src}· {_id_prefix(d)}{first}{suffix}"
+    return f"{_anchor_marker(d)} {_short_ts(d)}  {src}· {_id_prefix(d)}{first}{suffix}{_media_suffix(d)}"
 
 
 def _render_routine_fire(d: dict) -> str:
@@ -186,7 +196,7 @@ def _render_routine_fire(d: dict) -> str:
         "?",
     )
     src = "routine".ljust(13)
-    return f"{_anchor_marker(d)} {_short_ts(d)}  {src}· {_id_prefix(d)}[routine {rid} fired]"
+    return f"{_anchor_marker(d)} {_short_ts(d)}  {src}· {_id_prefix(d)}[routine {rid} fired]{_media_suffix(d)}"
 
 
 def _render_mood(d: dict) -> str:
@@ -196,7 +206,7 @@ def _render_mood(d: dict) -> str:
     )
     src = "mood".ljust(13)
     label = f"feeling: {state}" if state else _content_oneline(d, cap=80)
-    return f"{_anchor_marker(d)} {_short_ts(d)}  {src}· {_id_prefix(d)}{label}"
+    return f"{_anchor_marker(d)} {_short_ts(d)}  {src}· {_id_prefix(d)}{label}{_media_suffix(d)}"
 
 
 def _render_provenance(d: dict) -> str:
@@ -229,7 +239,7 @@ def _render_provenance(d: dict) -> str:
     src = ("qa-marker" if is_qa else "prov").ljust(13)
     did = (d.get("id") or "")[:12]
     badge = f"[L{level} · {n_from} delta{'s' if n_from != 1 else ''} · {did}] "
-    return f"{_anchor_marker(d)} {_short_ts(d)}  {src}· {badge}{title}"
+    return f"{_anchor_marker(d)} {_short_ts(d)}  {src}· {badge}{title}{_media_suffix(d)}"
 
 
 # Registration — most-specific first.
