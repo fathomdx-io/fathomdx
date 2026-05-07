@@ -9972,7 +9972,14 @@ GET  /v1/usage               Usage stats`,
           return kind ? `Engaging feed · ${kind}${n ? ` (${n})` : ''}` : 'Engaging feed';
         }
         case 'orient_shift': return 'Shifting feed orientation';
-        case 'respond': return 'Responding';
+        case 'respond': {
+          const np = (a.next_prompt || '').trim();
+          if (np) {
+            const preview = np.length > 60 ? np.slice(0, 60) + '…' : np;
+            return `Responding · chain → "${preview}"`;
+          }
+          return 'Responding';
+        }
         // Internal plumbing — not user-facing in chat
         case 'dispatch_helper':
         case 'mark_addressed': return null;

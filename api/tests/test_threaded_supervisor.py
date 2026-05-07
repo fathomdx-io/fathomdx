@@ -266,3 +266,61 @@ async def test_start_idempotent(monkeypatch):
             await ts.stop()
     finally:
         ts._supervisor_task = prev_task
+
+
+# ── self-continuation integration ─────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_continuation_msg_picked_up_by_supervisor():
+    """A continuation message written by `_maybe_continue_inquiry`
+    lands as `role:user msg-kind:self-continue` with no tally mark —
+    `thread.unaddressed()` must treat it as a pending msg so the
+    supervisor's next poll fires fire-N+1."""
+    from api.loop.harness import threaded
+    from api import thread as thread_mod
+
+    written: list[dict] = []
+
+    async def fake_append(*, role, msg_kind, content, **kwargs):
+        # Mirror what thread.append actually returns — a delta dict
+        # with id, role-tag, msg-kind tag, no tally mark.
+        d = {
+            "id": f"d_{len(written):03d}",
+            "content": content,
+            "tags": [
+                "kind:thread-msg",
+                f"role:{role}",
+                f"msg-kind:{msg_kind}",
+                *(kwargs.get("extra_tags") or []),
+            ],
+            "timestamp": "2026-05-07T19:00:00Z",
+        }
+        written.append(d)
+        return d
+
+    # The continuation hook writes via thread_mod.append; the supervisor
+    # reads via thread_mod.unaddressed. Both go through the same module.
+    with patch.object(threaded.thread_mod, "append", side_effect=fake_append):
+        await threaded._maybe_continue_inquiry(
+            pending=[],
+            addressed=[],
+            body="fire-1 reply body",
+            next_prompt="dig deeper on Y",
+        )
+
+    assert len(written) == 1
+    cont = written[0]
+    # The continuation msg is role:user — supervisor's unaddressed
+    # filter (`thread._role(d) == "user"`) will include it.
+    assert "role:user" in cont["tags"]
+    # No addresses tag points at this msg id, so the tally check
+    # treats it as unaddressed.
+    assert not any(t.startswith("addresses:") for t in cont["tags"])
+
+    # Simulate supervisor read: pending should include this msg.
+    # `unaddressed` queries the lake for tally marks; mock to empty.
+    with patch.object(thread_mod.delta_client, "query", AsyncMock(return_value=[])):
+        pending = await thread_mod.unaddressed([cont])
+    assert len(pending) == 1
+    assert pending[0]["id"] == cont["id"]

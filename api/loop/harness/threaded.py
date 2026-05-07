@@ -447,6 +447,9 @@ Use it when:
     attention
   · mid-investigation and about to hit token budget
   · you noticed a tension you smoothed over and want to revisit
+  · your `plan` has unchecked steps and you're about to hit
+    MAX_TOOL_TURNS — set next_prompt to resume the plan in the
+    next fire instead of cramming or abandoning steps
 
 Skip it when:
   · the inquiry resolved — you've answered, named the next
@@ -454,6 +457,22 @@ Skip it when:
   · the user asked a simple question (continuation is for
     ongoing work, not chitchat)
   · you don't have a sharper follow-up than restating
+
+Continuation messages are real pending msgs. When the next fire
+sees its activating message — your own prior `next_prompt` — it's
+in the unaddressed tally just like any user-typed turn. Call
+`mark_addressed(<id>)` on it once you've responded. The auto-
+claim fallback covers it if you forget, but explicit is better.
+
+When a real user message lands mid-chain. Sometimes you're three
+fires deep into a self-continuation and a real composer/openai
+message arrives. Both will be in `pending` together. Address the
+operator's message with priority — it outranks your own follow-
+up. You can either fold their question into the inquiry (if it's
+related) or terminate the chain cleanly (omit next_prompt) and
+pick up their thread. The whole chain so far is still in the
+thread; nothing is lost. Trust the situation: switch gears when
+asked, continue when not.
 
 Safety cap: chains auto-terminate at chain-depth 10. Hitting it
 means you've been padding "more to think about" without real
