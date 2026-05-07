@@ -132,7 +132,7 @@ async def post_seed(req: SeedRequest, request: Request) -> dict:
 
 
 @router.get("/v1/puddle/feed")
-def get_feed(
+async def get_feed(
     until: str | None = None,
     hours: float = 1.0,
     limit: int = 500,
@@ -149,6 +149,14 @@ def get_feed(
     of whether the witness has addressed it yet — leaving the seed visible
     after its reply lands keeps the conversation legible. The witness
     output's `addresses` list points back to the seed it answered.
+
+    Cards are decoupled from the puddle TTL: every fire's feed-card is
+    durable in the lake (the threaded harness writes there first, then
+    mirrors into the puddle). For each window we read both, then drop
+    any lake card already represented in the puddle via its
+    `recalled-id:<lake_id[:24]>` / `lake-id:<full>` mirror tags. Live
+    edge stays puddle-fast; older windows hydrate from the lake even
+    after the mirror has aged out.
     """
     # Time-windowed pagination: each page is the last `hours` of the
     # puddle counted backward from `until` (defaults to now). The dashboard
@@ -174,6 +182,40 @@ def get_feed(
         time_end=until_iso,
         limit=limit,
     )
+
+    # Lake feed-cards in the same window — durable counterparts to the
+    # puddle mirror. For the live edge these mostly duplicate `raw` and
+    # get deduped below; for older windows they're the only source.
+    lake_cards: list[dict] = []
+    try:
+        lake_cards = await delta_client.query(
+            tags_include=["feed-card"],
+            time_start=since_iso,
+            time_end=until_iso,
+            limit=limit,
+        ) or []
+    except Exception as e:
+        print(f"[feed] lake feed-card fetch failed: {type(e).__name__}: {e}")
+        lake_cards = []
+
+    # Card anchor — on the live edge (until is None), the active hour
+    # is often sparse but the user still wants to see Fathom's recent
+    # cards. The puddle's chat anchor only pulls user-seeds + chat-
+    # replies (route:chat-reply), so editorial cards (route:feed-card,
+    # route:helper) never appeared at all when the live edge was quiet.
+    # Pull the most recent N feed-cards from before the window straight
+    # from the lake; dedupe handles any overlap with the in-window
+    # query and the puddle mirror tags.
+    if until is None:
+        try:
+            anchor_cards = await delta_client.query(
+                tags_include=["feed-card"],
+                time_end=since_iso,
+                limit=50,
+            ) or []
+            lake_cards = lake_cards + anchor_cards
+        except Exception as e:
+            print(f"[feed] lake card-anchor fetch failed: {type(e).__name__}: {e}")
 
     # Routine-due dedupe: a single cron tick produces TWO puddle items —
     # the witness's own write_intent (kind:routine-due) and telepathy's
@@ -218,6 +260,29 @@ def get_feed(
             continue
         seen_ids.add(d_id)
         deduped.append(d)
+
+    # Lake-card dedupe: walk the puddle items first to gather every lake
+    # id they reference, then drop matching lake cards. Puddle items
+    # carry `recalled-id:<lake_id[:24]>` (telepathy + bridge convention)
+    # and sometimes `lake-id:<full>` (witness dual-write). Either tag
+    # identifies the lake counterpart.
+    puddle_lake_short: set[str] = set()
+    puddle_lake_full: set[str] = set()
+    for d in deduped:
+        for t in d.get("tags") or []:
+            if isinstance(t, str):
+                if t.startswith("recalled-id:"):
+                    puddle_lake_short.add(t.split(":", 1)[1])
+                elif t.startswith("lake-id:"):
+                    puddle_lake_full.add(t.split(":", 1)[1])
+    for c in lake_cards:
+        c_id = c.get("id") or ""
+        if not c_id or c_id in seen_ids:
+            continue
+        if c_id in puddle_lake_full or c_id[:24] in puddle_lake_short:
+            continue
+        seen_ids.add(c_id)
+        deduped.append(c)
 
     for d in deduped:
         tags = set(d.get("tags") or [])
@@ -638,20 +703,34 @@ def get_feed(
         })
 
     items.sort(key=lambda it: it.get("timestamp") or "", reverse=True)
-    # has_more is true if the puddle holds anything older than the
-    # window's `since` boundary. One cheap query, since=None,
-    # time_end=since: any hit means there's more to page through.
+    # has_more is true if either the puddle OR the lake holds anything
+    # older than the window's `since` boundary. The puddle peek catches
+    # ephemera (intents, voice thoughts) still alive within TTL; the
+    # lake peek catches feed-cards that have aged out of the puddle but
+    # are still walkable via Show-more.
     older = puddle.query(
         tags_include=[CONVO_TAG],
         time_end=since_iso,
         limit=1,
     )
+    if not older:
+        try:
+            older_lake = await delta_client.query(
+                tags_include=["feed-card"],
+                time_end=since_iso,
+                limit=1,
+            ) or []
+        except Exception as e:
+            print(f"[feed] lake has_more peek failed: {type(e).__name__}: {e}")
+            older_lake = []
+    else:
+        older_lake = []
     return {
         "items": items,
         "since": since_iso,
         "until": until_iso,
         "hours": hours,
-        "has_more": bool(older),
+        "has_more": bool(older or older_lake),
     }
 
 
