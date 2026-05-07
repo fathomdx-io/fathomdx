@@ -1673,9 +1673,6 @@
     .ecg-line-usage-out { stroke: #7fcca0; }      /* green — moments retrieved */
     .ecg-line-pressure { stroke: #f0a060; }
     .ecg-line-drift { stroke: #7fcca0; }
-    .ecg-line-feed-drift { stroke: #b08cff; }
-    .ecg-line-feed-confidence { stroke: #d8b14a; stroke-dasharray: 5 4; }
-    .ecg-engagement-mark { stroke-width: 1.2; opacity: 0.7; }
 
     /* Feed-loop status pip on the "What I noticed" header. Two states only:
          generating → breathing green (LLM tokens flowing)
@@ -3898,7 +3895,6 @@
           <button class="stat-tab" data-tab="weather" role="tab" type="button">Weather</button>
           <button class="stat-tab active" data-tab="mood" role="tab" type="button" aria-selected="true">Mood</button>
           <button class="stat-tab" data-tab="identity" role="tab" type="button">Identity</button>
-          <button class="stat-tab" data-tab="feed" role="tab" type="button">Feed</button>
         </nav>
         <div class="stat-card" data-tab="usage">
           <h3 class="stat-card-title">Usage</h3>
@@ -4021,26 +4017,6 @@
             <li class="legend-item">
               <span class="legend-key"><span class="ev crystal">◆</span>Identity Crystal Regeneration</span>
               <span class="legend-desc">A moment where Fathom paused, looked at everything, and rewrote its own self-description. Journaling "who am I now?" and meaning it.</span>
-            </li>
-          </ul>
-        </div>
-        <div class="stat-card" data-tab="feed">
-          <h3 class="stat-card-title">Feed</h3>
-          <div class="ecg-chart">
-            <svg id="svgFeedOrient" width="100%" height="160" preserveAspectRatio="none"></svg>
-          </div>
-          <ul class="ecg-legend">
-            <li class="legend-item">
-              <span class="legend-key"><span class="dot" style="background:#b08cff;"></span>Engagement drift</span>
-              <span class="legend-desc">How far your signals (more, less, chats from cards) have moved since the last feed-orient crystal, normalized to the same 0–1 scale as confidence. Anchored at acceptance — drift reads zero immediately after a fresh crystal. Dashed line marks the regen threshold.</span>
-            </li>
-            <li class="legend-item">
-              <span class="legend-key"><span class="dot" style="background:#d8b14a;"></span>Confidence</span>
-              <span class="legend-desc">How well the previous crystal predicted your reactions to the cards it generated. Each new crystal is tagged with the score it earned over its lifetime. Dashed line marks the regen-fire floor.</span>
-            </li>
-            <li class="legend-item">
-              <span class="legend-key"><span class="ev crystal">◆</span>Feed-orient crystal regeneration</span>
-              <span class="legend-desc">A moment Fathom rewrote its model of "what to put in your feed." Triggered by drift or low confidence, gated by cooldown and a min-signal cold-start guard.</span>
             </li>
           </ul>
         </div>
@@ -10431,10 +10407,6 @@ GET  /v1/usage               Usage stats`,
       }
       // Background capture: archive story images to the lake
       captureStoryImages(card, s);
-      // Hook passive-engagement tracking — emits scroll-past /
-      // dwell-low when the card leaves the viewport without an
-      // explicit thumbs / chat engagement.
-      _watchCardForPassiveEngagement(card);
       return card;
     }
 
@@ -11067,7 +11039,11 @@ GET  /v1/usage               Usage stats`,
       }
       // A (fathom message) — kind=chat
       if (it.kind === 'fathom-message') {
-        const html = (typeof renderMd === 'function') ? renderMd(it.body || '') : _esc(it.body || '');
+        const bodyHtml = (typeof renderMd === 'function') ? renderMd(it.body || '') : _esc(it.body || '');
+        const tailHtml = it.tail ? `<div class="card-tail" style="margin-top:10px;font-family:var(--mono);font-size:11px;color:var(--ink-faint);letter-spacing:0.04em;">${_esc(it.tail)}</div>` : '';
+        const kickerHtml = it.kicker ? `<div class="card-kicker" style="font-family:var(--mono);font-size:11px;text-transform:uppercase;letter-spacing:0.08em;color:var(--ink-faint);margin-bottom:6px;">${_esc(it.kicker)}</div>` : '';
+        const titleHtml = it.title ? `<div class="card-title" style="font-family:var(--serif);font-size:1.4em;font-weight:600;line-height:1.25;margin-bottom:12px;">${_esc(it.title)}</div>` : '';
+        const html = `${kickerHtml}${titleHtml}${bodyHtml}${tailHtml}`;
         // Addressing — `for:<slug>` names the recipient; the channel/
         // correlation pair is the wire. Renders as
         // "Fathom > Myra · openai:greedy-clumsy-salamander".
@@ -11989,7 +11965,6 @@ GET  /v1/usage               Usage stats`,
       const puddleId = item.dataset.puddleId || item.dataset.cardId || '';
       if (!puddleId) return;
       const kind = btn.dataset.kind === 'less' ? 'less' : 'more';
-      _markEngaged(puddleId);
       try {
         // Puddle-sourced items go through the loop's engage endpoint,
         // which dual-writes the engagement-promoted delta to BOTH the
@@ -12003,16 +11978,6 @@ GET  /v1/usage               Usage stats`,
             body: JSON.stringify({ kind }),
           });
           if (!r.ok) throw new Error('engage failed: ' + r.status);
-        } else {
-          await api('/v1/feed/engagement', {
-            method: 'POST',
-            body: JSON.stringify({
-              kind,
-              card_id: puddleId,
-              topic: item.dataset.topic || '',
-              card_excerpt: item.dataset.excerpt || '',
-            }),
-          });
         }
         // Immediate poll so the engagement state shows up within
         // ~one round-trip instead of waiting for the next scheduled
@@ -12111,65 +12076,6 @@ GET  /v1/usage               Usage stats`,
     // Each card fires at most one passive-negative signal per page-view
     // session. Cards that get an explicit engagement (more / less /
     // tap-to-reply) are excluded from passive tracking via the
-    // _passiveSent set.
-    const _passiveSent = new Set();
-    const _cardSeenAt = new Map();  // cardId -> timestamp first became visible
-
-    function _markEngaged(cardId) {
-      // Called from the explicit-engagement handler so a card that
-      // was thumbs'd doesn't ALSO fire scroll-past on its way out.
-      if (cardId) _passiveSent.add(cardId);
-    }
-
-    async function _emitPassiveEngagement(cardId, kind, card) {
-      if (!cardId || _passiveSent.has(cardId)) return;
-      _passiveSent.add(cardId);
-      try {
-        await api('/v1/feed/engagement', {
-          method: 'POST',
-          body: JSON.stringify({
-            kind,
-            card_id: cardId,
-            topic: card.dataset.topic || '',
-            card_excerpt: card.dataset.excerpt || '',
-          }),
-        });
-      } catch (e) { /* best-effort */ }
-    }
-
-    const _passiveObserver = ('IntersectionObserver' in window) ? new IntersectionObserver(entries => {
-      const now = Date.now();
-      entries.forEach(entry => {
-        const card = entry.target;
-        if (!(card instanceof HTMLElement)) return;
-        const cardId = card.dataset.cardId || '';
-        if (!cardId || _passiveSent.has(cardId)) return;
-        if (entry.isIntersecting && entry.intersectionRatio >= 0.5) {
-          // Becoming visible — start the clock.
-          if (!_cardSeenAt.has(cardId)) _cardSeenAt.set(cardId, now);
-        } else {
-          // Leaving the viewport. If we have a start time, decide
-          // which passive signal (if any) to emit.
-          const seenAt = _cardSeenAt.get(cardId);
-          if (seenAt) {
-            const dwellMs = now - seenAt;
-            _cardSeenAt.delete(cardId);
-            if (dwellMs >= 4000) {
-              // Genuine read. No negative signal.
-              return;
-            }
-            const kind = dwellMs < 1500 ? 'scroll-past' : 'dwell-low';
-            _emitPassiveEngagement(cardId, kind, card);
-          }
-        }
-      });
-    }, { threshold: [0, 0.5, 1.0] }) : null;
-
-    function _watchCardForPassiveEngagement(card) {
-      if (!_passiveObserver || !card || !card.dataset.cardId) return;
-      _passiveObserver.observe(card);
-    }
-
     // ── Feed-filter dropdown panel ──────────────────────────────────
     // Click-to-open dropdown of bucket checkboxes (default / reflection
     // / bridging / discrepancy). ALERT-level cards always pierce — no
@@ -12918,7 +12824,6 @@ GET  /v1/usage               Usage stats`,
     const svgActivity = document.getElementById('svgActivity');
     const svgDrift = document.getElementById('svgDrift');
     const svgPressureMood = document.getElementById('svgPressureMood');
-    const svgFeedOrient = document.getElementById('svgFeedOrient');
     const ecgMeta = document.getElementById('ecgMeta');
     const ecgWindowSelect = document.getElementById('ecgWindow');
 
@@ -12959,10 +12864,8 @@ GET  /v1/usage               Usage stats`,
     }
 
     async function loadECG() {
-      // Fire drift samples so history isn't empty on first load, then fetch all.
-      // Both identity-drift and feed-engagement-drift need a fresh sample
-      // to land at least one point on the curve.
-      try { await Promise.all([api('/v1/drift'), api('/v1/feed/drift')]); } catch (e) { /* best-effort */ }
+      // Fire a drift sample so history isn't empty on first load.
+      try { await api('/v1/drift'); } catch (e) { /* best-effort */ }
 
       let usageTotal = { days: [], total: 0 };
       let usageHist = { history: [] };
@@ -12971,9 +12874,6 @@ GET  /v1/usage               Usage stats`,
       let driftHist = { history: [] };
       let moodHist = { history: [] };
       let crystalEvents = { events: [] };
-      let feedDriftHist = { history: [] };
-      let feedConfHist = { history: [] };
-      let feedCrystalEvents = { events: [] };
       let feedRegenEvents = { events: [] };
       let weatherEvents = { events: [] };
 
@@ -12984,7 +12884,7 @@ GET  /v1/usage               Usage stats`,
       let reliefTiers = { threshold: 0, tiers: [] };
       try {
         [usageTotal, usageHist, recallHist, pressureHist, driftHist, moodHist, crystalEvents,
-         feedDriftHist, feedConfHist, feedCrystalEvents, feedRegenEvents,
+         feedRegenEvents,
          reliefTiers, weatherEvents] = await Promise.all([
           api('/v1/usage').catch(() => ({ days: [], total: 0 })),
           api(`/v1/usage/history?since_seconds=${sinceSeconds}&buckets=60`).catch(() => ({ history: [] })),
@@ -12993,9 +12893,6 @@ GET  /v1/usage               Usage stats`,
           api(`/v1/drift/history?since_seconds=${sinceSeconds}`).catch(() => ({ history: [] })),
           api('/v1/moods/history').catch(() => ({ history: [] })),
           api(`/v1/crystal/events?since_seconds=${sinceSeconds}`).catch(() => ({ events: [] })),
-          api(`/v1/feed/drift/history?since_seconds=${sinceSeconds}`).catch(() => ({ history: [] })),
-          api('/v1/feed/confidence/history').catch(() => ({ history: [] })),
-          api(`/v1/feed/crystal/events?since_seconds=${sinceSeconds}`).catch(() => ({ events: [] })),
           api(`/v1/feed/regen/events?since_seconds=${sinceSeconds}`).catch(() => ({ events: [] })),
           api('/v1/loop/relief-tiers').catch(() => ({ threshold: 0, tiers: [] })),
           api(`/v1/weather/events?since_seconds=${sinceSeconds}`).catch(() => ({ events: [] })),
@@ -13033,8 +12930,6 @@ GET  /v1/usage               Usage stats`,
       renderPressureMoodCard({ pressureHist, moodHist, crystalEvents, feedRegenEvents, reliefTiers, weatherEvents });
       renderMoodStarCard();
       renderDriftCard({ driftHist, crystalEvents });
-      renderFeedOrientCard({ feedDriftHist, feedConfHist, feedCrystalEvents });
-
       // Meta line: total + current mood as a colored chip
       ecgMeta.innerHTML = '';
       const totalSpan = document.createElement('span');
@@ -13060,7 +12955,7 @@ GET  /v1/usage               Usage stats`,
 
     function renderECGEmpty(totalDeltas) {
       // Show the empty state in the activity card; clear the others.
-      [svgDrift, svgPressureMood, svgFeedOrient].forEach(s => { if (s) while (s.firstChild) s.removeChild(s.firstChild); });
+      [svgDrift, svgPressureMood].forEach(s => { if (s) while (s.firstChild) s.removeChild(s.firstChild); });
       const svg = svgActivity;
       while (svg.firstChild) svg.removeChild(svg.firstChild);
       const W = svg.clientWidth || 800;
@@ -13809,117 +13704,6 @@ GET  /v1/usage               Usage stats`,
         icon.textContent = '◆';
         const title = ecgSvgNS('title');
         title.textContent = 'crystal regenerated · ' + (ev.timestamp || '');
-        icon.appendChild(title);
-        ctx.svg.appendChild(icon);
-      }
-
-      _drawFreeTierBlackout(ctx, {
-        headline: "Just $x.xx / mo",
-        large: true,
-      });
-      _drawXLabels(ctx, ticks);
-    }
-
-    function renderFeedOrientCard({ feedDriftHist, feedConfHist, feedCrystalEvents }) {
-      // Layers, all on a shared [0,1] band so drift and confidence
-      // can be read against each other:
-      //   • engagement-centroid drift (line, normalized v / FEED_DRIFT_AXIS_MAX)
-      //   • confidence (line, native 0-1)
-      //   • feed-orient crystal regenerations (vertical ticks + ◆)
-      const ctx = _chartCtx(svgFeedOrient, 160);
-      const ticks = _ecgTicks(ECG_WINDOW_DAYS, ctx.tStart, ctx.now);
-      _drawGrid(ctx, ticks);
-
-      const plotTop = ctx.padding.top + 6;
-      const plotBot = ctx.H - ctx.padding.bottom - 6;
-      // Both series share the band: 0 at bottom, 1 at top.
-      const yFor = (v) => plotBot - Math.max(0, Math.min(1, v)) * (plotBot - plotTop);
-
-      // Engagement centroid stays tighter than the whole-lake centroid
-      // (the user engages on related topics), so raw drift samples sit
-      // around 0.001–0.05. We normalize against this axis max so the
-      // drift line shares the confidence line's 0–1 vertical scale.
-      const FEED_DRIFT_AXIS_MAX = 0.05;
-      const FEED_DRIFT_THRESHOLD = 0.03;
-      const FEED_CONF_FLOOR = 0.55;
-
-      // Threshold lines on the shared band — drift regen line at the
-      // normalized threshold, confidence floor at its raw value.
-      ctx.svg.appendChild(ecgSvgNS('line', {
-        x1: ctx.padding.left, x2: ctx.W - ctx.padding.right,
-        y1: yFor(FEED_DRIFT_THRESHOLD / FEED_DRIFT_AXIS_MAX),
-        y2: yFor(FEED_DRIFT_THRESHOLD / FEED_DRIFT_AXIS_MAX),
-        stroke: '#b08cff', 'stroke-width': 0.6, opacity: 0.55,
-        'stroke-dasharray': '4 5',
-      }));
-      ctx.svg.appendChild(ecgSvgNS('line', {
-        x1: ctx.padding.left, x2: ctx.W - ctx.padding.right,
-        y1: yFor(FEED_CONF_FLOOR), y2: yFor(FEED_CONF_FLOOR),
-        stroke: '#d8b14a', 'stroke-width': 0.6, opacity: 0.55,
-        'stroke-dasharray': '4 5',
-      }));
-
-      // Drift line — normalized so it shares the band.
-      const dHist = (feedDriftHist.history || []).filter(e => new Date(e.t).getTime() >= ctx.tStart);
-      if (dHist.length >= 2) {
-        const pts = dHist.map(e => {
-          const x = ctx.xForT(new Date(e.t).getTime());
-          const y = yFor(e.v / FEED_DRIFT_AXIS_MAX);
-          return [x, y];
-        });
-        ctx.svg.appendChild(ecgSvgNS('path', {
-          d: _smoothPath(pts), fill: 'none', class: 'ecg-line-feed-drift',
-          'stroke-width': 1.4, 'stroke-opacity': 0.9,
-        }));
-      } else if (dHist.length === 1) {
-        const e = dHist[0];
-        const x = ctx.xForT(new Date(e.t).getTime());
-        ctx.svg.appendChild(ecgSvgNS('circle', {
-          cx: x, cy: yFor(e.v / FEED_DRIFT_AXIS_MAX),
-          r: 2.5, fill: '#b08cff',
-        }));
-      }
-
-      // Confidence line — already 0-1.
-      const cHist = (feedConfHist.history || []).filter(e => e.v != null && new Date(e.t).getTime() >= ctx.tStart);
-      if (cHist.length >= 2) {
-        const pts = cHist.map(e => {
-          const x = ctx.xForT(new Date(e.t).getTime());
-          return [x, yFor(e.v)];
-        });
-        ctx.svg.appendChild(ecgSvgNS('path', {
-          d: _smoothPath(pts), fill: 'none', class: 'ecg-line-feed-confidence',
-          'stroke-width': 1.4, 'stroke-opacity': 0.9,
-        }));
-      } else if (cHist.length === 1) {
-        const e = cHist[0];
-        const x = ctx.xForT(new Date(e.t).getTime());
-        ctx.svg.appendChild(ecgSvgNS('circle', {
-          cx: x, cy: yFor(e.v),
-          r: 2.5, fill: '#d8b14a',
-        }));
-      }
-
-      // ── Crystal regen events ───────────────────
-      for (const ev of (feedCrystalEvents.events || [])) {
-        const t = ev.timestamp ? new Date(ev.timestamp).getTime() : 0;
-        if (!t || t < ctx.tStart || t > ctx.now) continue;
-        const x = ctx.xForT(t);
-        ctx.svg.appendChild(ecgSvgNS('line', {
-          class: 'ecg-event-line',
-          x1: x, x2: x,
-          y1: ctx.padding.top, y2: ctx.H - ctx.padding.bottom,
-        }));
-        const icon = ecgSvgNS('text', {
-          class: 'ecg-event-icon',
-          x: x, y: ctx.padding.top + 10,
-          'text-anchor': 'middle',
-        });
-        icon.textContent = '◆';
-        const conf = ev.confidence;
-        const confLabel = (conf == null) ? 'no confidence yet' : `confidence ${conf.toFixed(2)}`;
-        const title = ecgSvgNS('title');
-        title.textContent = `feed-orient regen · ${ev.timestamp || ''} · ${confLabel}`;
         icon.appendChild(title);
         ctx.svg.appendChild(icon);
       }

@@ -477,6 +477,7 @@ async def run_threaded_fire(
     addressed: list[str] = []
     final_response: dict[str, Any] | None = None
     turns_used = 0
+    plan_called = False  # plan() is one-shot per fire — see filter below
 
     # Per-fire session tag so harness-turn traces cluster together in
     # the dashboard's thinking accordion.
@@ -510,10 +511,18 @@ async def run_threaded_fire(
         # path. Subsequent turns are auto so iterative tool use
         # works normally.
         choice = "required" if turn == 1 else "auto"
+        # plan() is a once-per-fire decomposition. After it's been called,
+        # remove it from the tools list so the model can't loop on it. The
+        # plan output is in chat_msgs and the model should now execute
+        # against it (semantic, etc) rather than re-planning.
+        active_tools = (
+            [t for t in tools if (t.get("function") or {}).get("name") != "plan"]
+            if plan_called else tools
+        )
         try:
             asst = await loop_generate_chat(
                 messages=chat_msgs,
-                tools=tools,
+                tools=active_tools,
                 tool_choice=choice,
                 max_tokens=8192,
             )
@@ -563,14 +572,60 @@ async def run_threaded_fire(
             args = _parse_tool_args(tc)
 
             if tool_name == "respond":
+                cards_raw = args.get("cards") or []
+                cards_clean: list[dict] = []
+                if isinstance(cards_raw, list):
+                    for c in cards_raw:
+                        if not isinstance(c, dict):
+                            continue
+                        cb = (c.get("body") or "").strip()
+                        if not cb:
+                            continue
+                        cards_clean.append({
+                            "kicker": (c.get("kicker") or "").strip(),
+                            "title": (c.get("title") or "").strip(),
+                            "body": cb,
+                            "tail": (c.get("tail") or "").strip(),
+                        })
                 body = (args.get("body") or "").strip()
+                if not cards_clean and body:
+                    cards_clean = [{
+                        "kicker": (args.get("kicker") or "").strip(),
+                        "title": (args.get("title") or "").strip(),
+                        "body": body,
+                        "tail": (args.get("tail") or "").strip(),
+                    }]
+                # Thread sees the joined prose so a follow-up turn can
+                # reference the full reply as one assistant message;
+                # the puddle gets one delta per card for the dashboard.
+                joined_body = "\n\n".join(
+                    "\n".join(filter(None, [
+                        f"**{c['title']}**" if c["title"] else "",
+                        c["body"],
+                    ]))
+                    for c in cards_clean
+                ).strip() or body
                 resp_addresses = args.get("addresses") or []
                 if isinstance(resp_addresses, list):
                     addresses_clean = [str(a) for a in resp_addresses if a]
                 else:
                     addresses_clean = list(addressed)
+                # Route default: chat-reply, regardless of card shape.
+                # Cards in chat render with title chrome inline; cards
+                # in the feed publish as standalone takes. The choice is
+                # about WHERE the answer belongs (chat vs feed), not
+                # HOW it's shaped. Pressure-feed fires override below
+                # in the bridge call. Model can opt into feed-card with
+                # explicit `route` when the answer is a published take.
+                explicit_route = (args.get("route") or "").strip()
+                if explicit_route in ("chat-reply", "feed-card", "alert"):
+                    chosen_route = explicit_route
+                else:
+                    chosen_route = "chat-reply"
                 final_response = {
-                    "body": body,
+                    "body": joined_body,
+                    "cards": cards_clean,
+                    "route": chosen_route,
                     "addresses": addresses_clean,
                     # Per-fire constituting fields. Picked up after the
                     # thread append succeeds and routed to
@@ -587,6 +642,13 @@ async def run_threaded_fire(
                 uid = str(args.get("user_message_id") or "")
                 if uid and uid not in addressed:
                     addressed.append(uid)
+                tool_result = await tool_schemas.dispatch(
+                    name=tool_name,
+                    args=args,
+                    session_tag=session_tag,
+                )
+            elif tool_name == "plan":
+                plan_called = True
                 tool_result = await tool_schemas.dispatch(
                     name=tool_name,
                     args=args,
@@ -645,6 +707,11 @@ async def run_threaded_fire(
         # the next tick and fires AGAIN — operator gets a duplicate
         # reply for one prompt.
         addr_set = list(final_response.get("addresses") or addressed)
+        print(
+            f"[threaded-fire] auto-claim check: addr_set={len(addr_set)} "
+            f"pending={len(pending)} addressed={len(addressed)} "
+            f"resp.addresses={len(final_response.get('addresses') or [])}"
+        )
         if not addr_set and pending:
             addr_set = [p.get("id") for p in pending if p.get("id")]
             # Stamp tally-marks so future fires also see them addressed.
@@ -655,6 +722,7 @@ async def run_threaded_fire(
                         note="auto-claimed by harness response",
                         by="harness-auto-claim",
                     )
+                    print(f"[threaded-fire] auto-claimed {uid[:12]}")
                 except Exception as e:
                     print(f"[threaded-fire] auto-claim mark failed for {uid[:12]}: {type(e).__name__}: {e}")
         try:
@@ -719,11 +787,20 @@ async def run_threaded_fire(
                     _sit_max_rounds = None
                 _sit_session = _tag_value(_pt, "correlation:") or ""
                 break
+        # Pressure-feed fires force feed-card route (the fire was
+        # triggered to publish, not chat). Otherwise honor the model's
+        # chosen route, which defaults to feed-card when cards are
+        # provided and chat-reply otherwise (set in the respond branch).
+        bridge_route = (
+            "feed-card" if _is_feed_fire
+            else (final_response.get("route") or "chat-reply")
+        )
         await _bridge_to_puddle_feed(
             body=final_response["body"],
+            cards=final_response.get("cards") or [],
             addresses=addr_set,
             lake_id=lake_id,
-            route="feed-card" if _is_feed_fire else "chat-reply",
+            route=bridge_route,
             sit_round=_sit_round,
             sit_max_rounds=_sit_max_rounds,
             sit_session=_sit_session,
@@ -1113,6 +1190,7 @@ async def _maybe_continue_sit_dialogue(
 async def _bridge_to_puddle_feed(
     *,
     body: str,
+    cards: list[dict] | None = None,
     addresses: list[str],
     lake_id: str,
     route: str = "chat-reply",
@@ -1120,13 +1198,19 @@ async def _bridge_to_puddle_feed(
     sit_max_rounds: int | None = None,
     sit_session: str = "",
 ) -> None:
-    """Mirror a threaded assistant reply into the puddle as a feed-card.
+    """Mirror a threaded assistant reply into the puddle as feed-card(s).
 
     The legacy dashboard reads /v1/puddle/feed; without this bridge,
     a user typing in the composer would see their question land but
     never see Fathom's response (the threaded supervisor wrote it to
     the thread, not the puddle). Mirroring keeps the dashboard usable
     during the cutover window.
+
+    `cards` carries the model's structured output: one entry per card
+    (kicker, title, body, tail). Each card becomes its own pair of
+    deltas (lake feed-card + puddle mirror) so the dashboard renders
+    them as N separate cards. When `cards` is empty, falls back to a
+    single card with `body` and empty kicker/title/tail.
 
     Tag shape mirrors what witness._dispatch_card writes for a
     chat-reply card: feed-card + route:chat-reply + addresses fan-out.
@@ -1146,85 +1230,56 @@ async def _bridge_to_puddle_feed(
         import json as _json
         from datetime import UTC, datetime, timedelta
 
-        # The model sometimes responds with the FULL cards JSON as the
-        # body text instead of using the respond tool's cards parameter.
-        # Detect and unwrap so the dashboard gets clean kicker/title/body
-        # instead of raw JSON, and honour the embedded route.
-        kicker = ""
-        title = ""
-        card_body = body
-        if body.strip().startswith("{"):
-            try:
-                parsed = _json.loads(body.strip())
-                cards = parsed.get("cards") or []
-                if cards and isinstance(cards, list):
-                    first = cards[0]
-                    kicker = (first.get("kicker") or "").strip()
-                    title = (first.get("title") or "").strip()
-                    card_body = (first.get("body") or body).strip()
-                    # Honour route embedded in the card JSON.
-                    embedded_route = (first.get("route") or "").strip()
-                    if embedded_route:
-                        route = embedded_route
-            except Exception:
-                pass
+        cards_to_write = list(cards or [])
+        if not cards_to_write:
+            cards_to_write = [{"kicker": "", "title": "", "body": body, "tail": ""}]
 
-        payload = _json.dumps({
-            "kicker": kicker,
-            "title": title,
-            "body": card_body,
-            "tail": "",
-        })
-        # Lake side first so we have a durable id to point the puddle
-        # mirror at via lake-id:<id>. Without the lake write the
-        # rehydrate's `feed-card` slice on the next api restart finds
-        # nothing and the assistant turn vanishes from the dashboard
-        # — only the user message (which has its own lake-side
-        # composer write) reappears.
-        lake_tags = [
-            "feed-card",
-            "synthesis",
-            "addressing-output",
-            f"route:{route}",
-        ]
-        for addr in addresses:
-            lake_tags.append(f"addresses:{addr}")
-        if sit_round is not None:
-            lake_tags.append(f"sit-round:{sit_round}")
-        if sit_max_rounds is not None:
-            lake_tags.append(f"sit-max-rounds:{sit_max_rounds}")
-        if sit_session:
-            lake_tags.append(f"sit-session:{sit_session}")
-        # Match witness's TTL so feed-cards age out of the lake the
-        # same way regardless of which harness produced them.
         feed_card_ttl = Q_A_TTL_S
-        bridge_lake_id = ""
-        try:
-            lake_delta = await lake.write(
-                content=payload,
-                tags=lake_tags,
-                source="harness-threaded",
-                expires_at=(datetime.now(UTC) + timedelta(seconds=feed_card_ttl)).isoformat(),
-            )
-            if isinstance(lake_delta, dict):
-                bridge_lake_id = lake_delta.get("id") or ""
-        except Exception as le:
-            print(f"[threaded-fire] bridge lake write failed: {type(le).__name__}: {le}")
+        for card in cards_to_write:
+            payload = _json.dumps({
+                "kicker": (card.get("kicker") or "").strip(),
+                "title": (card.get("title") or "").strip(),
+                "body": (card.get("body") or "").strip(),
+                "tail": (card.get("tail") or "").strip(),
+            })
+            lake_tags = [
+                "feed-card",
+                "synthesis",
+                "addressing-output",
+                f"route:{route}",
+            ]
+            for addr in addresses:
+                lake_tags.append(f"addresses:{addr}")
+            if sit_round is not None:
+                lake_tags.append(f"sit-round:{sit_round}")
+            if sit_max_rounds is not None:
+                lake_tags.append(f"sit-max-rounds:{sit_max_rounds}")
+            if sit_session:
+                lake_tags.append(f"sit-session:{sit_session}")
+            bridge_lake_id = ""
+            try:
+                lake_delta = await lake.write(
+                    content=payload,
+                    tags=lake_tags,
+                    source="harness-threaded",
+                    expires_at=(datetime.now(UTC) + timedelta(seconds=feed_card_ttl)).isoformat(),
+                )
+                if isinstance(lake_delta, dict):
+                    bridge_lake_id = lake_delta.get("id") or ""
+            except Exception as le:
+                print(f"[threaded-fire] bridge lake write failed: {type(le).__name__}: {le}")
 
-        tags = [CONVO_TAG] + lake_tags
-        if lake_id:
-            tags.append(f"lake-id:{lake_id}")
-            tags.append(f"recalled-id:{lake_id[:24]}")
-        if bridge_lake_id:
-            # Mark the puddle copy with the bridge's own lake id so
-            # rehydrate's recalled-id dedup recognizes them as the
-            # same row on cold-start replay.
-            tags.append(f"recalled-id:{bridge_lake_id[:24]}")
-        await puddle.write(
-            content=payload,
-            tags=tags,
-            source="harness-threaded",
-            ttl_seconds=Q_A_TTL_S,
-        )
+            tags = [CONVO_TAG] + lake_tags
+            if lake_id:
+                tags.append(f"lake-id:{lake_id}")
+                tags.append(f"recalled-id:{lake_id[:24]}")
+            if bridge_lake_id:
+                tags.append(f"recalled-id:{bridge_lake_id[:24]}")
+            await puddle.write(
+                content=payload,
+                tags=tags,
+                source="harness-threaded",
+                ttl_seconds=Q_A_TTL_S,
+            )
     except Exception as e:
         print(f"[threaded-fire] puddle bridge failed: {type(e).__name__}: {e}")

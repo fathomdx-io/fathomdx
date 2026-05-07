@@ -1683,6 +1683,27 @@ async def tool_mint_routine(
     )
 
 
+# ─── orient_shift ──────────────────────────────────────────────────────────
+
+
+async def tool_orient_shift(*, reason: str = "", session_tag: str = "") -> str:
+    """Signal that this fire shifted the model of what to put in the feed.
+
+    Fires regen_from_signal() in the background (no cooldown). Returns
+    immediately — the regen runs async and the caller doesn't wait.
+    """
+    import asyncio as _asyncio
+    from ..feed_orient import regen_from_signal
+
+    reason = (reason or "").strip() or "harness signal"
+    log.info("orient_shift tool called: %s", reason)
+    _asyncio.create_task(regen_from_signal())
+    return (
+        f"Feed-orient regen triggered (reason: {reason}). "
+        "Running in background — crystal will update shortly."
+    )
+
+
 # ─── tool dispatch ─────────────────────────────────────────────────────
 
 
@@ -1702,6 +1723,7 @@ TOOL_HANDLERS = {
     "propose_provenance": tool_propose_provenance,
     "dispatch_helper": tool_dispatch_helper,
     "mint_routine": tool_mint_routine,
+    "orient_shift": tool_orient_shift,
 }
 
 
@@ -1748,4 +1770,5 @@ TOOL_MODEL_ARGS = {
     "propose_provenance": {"level", "title", "summary", "from_ids", "rationale", "test_questions"},
     "dispatch_helper": {"host", "task", "title"},
     "mint_routine": {"name", "schedule", "prompt", "workspace", "route_to", "title"},
+    "orient_shift": {"reason"},
 }

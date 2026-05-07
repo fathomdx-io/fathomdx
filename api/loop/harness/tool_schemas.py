@@ -104,7 +104,7 @@ _SEARCH_SCHEMA: dict[str, Any] = {
     "function": {
         "name": "semantic",
         "description": (
-            "Natural-language search of the lake (long-term memory). "
+            "Natural-language search of your memory. "
             "Returns a timeline rendering of matching moments, not "
             "raw deltas. Use when you need recall — 'what did we say "
             "about X', 'find the era when Y', 'show me past Z'."
@@ -274,6 +274,33 @@ _PROPOSE_PROVENANCE_SCHEMA: dict[str, Any] = {
 }
 
 
+_ORIENT_SHIFT_SCHEMA: dict[str, Any] = {
+    "type": "function",
+    "function": {
+        "name": "orient_shift",
+        "description": (
+            "Signal that this fire has shifted your model of what to "
+            "surface in the feed. Triggers an immediate feed-orient "
+            "crystal regen (no cooldown). Use when the conversation "
+            "has meaningfully updated your sense of what the user "
+            "cares about — not as a reflexive end-of-fire gesture. "
+            "Fire-and-forget: returns immediately while regen runs "
+            "in the background."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "reason": {
+                    "type": "string",
+                    "description": "One sentence on what shifted and why.",
+                },
+            },
+            "required": ["reason"],
+        },
+    },
+}
+
+
 _SKIP_SCHEMA: dict[str, Any] = {
     "type": "function",
     "function": {
@@ -305,21 +332,91 @@ _RESPOND_SCHEMA: dict[str, Any] = {
         "name": "respond",
         "description": (
             "Send your final reply. Call this exactly once per fire to "
-            "close the turn. The body lands as an assistant message in "
-            "the thread, addressed to whichever user messages you "
-            "marked addressed via mark_addressed earlier in this fire. "
-            "The optional fields (attestation, mood_shift, cited_ids, "
-            "dropped_ids) are the per-fire constituting writes — they "
-            "feed the slow-clock layers (identity crystal, mood "
-            "synthesis, endorsement signal). Always emit a mood_shift "
-            "and an attestation; cited/dropped are optional."
+            "close the turn. Lands as an assistant message in the thread "
+            "and as one or more feed cards in the dashboard, addressed "
+            "to whichever user messages you marked via mark_addressed. "
+            "Use `body` for a single-block reply, or `cards: [...]` for "
+            "multi-part output (each card becomes its own delta). "
+            "Always include `attestation` and `mood_shift` (constituting "
+            "writes for slow-clock layers). `cited_ids` / `dropped_ids` "
+            "are optional."
         ),
         "parameters": {
             "type": "object",
             "properties": {
                 "body": {
                     "type": "string",
-                    "description": "Your reply to the operator. Plain prose.",
+                    "description": (
+                        "Single-block reply. Use when the response is "
+                        "one continuous thought; for multi-part output "
+                        "use `cards` instead. Required when `cards` is "
+                        "empty; ignored when `cards` is provided."
+                    ),
+                },
+                "kicker": {
+                    "type": "string",
+                    "description": (
+                        "Short label above the title — a category, "
+                        "vibe, or one-word framing (e.g. \"system "
+                        "status\", \"reflection\", \"alert\"). Optional. "
+                        "Ignored when `cards` is provided."
+                    ),
+                },
+                "title": {
+                    "type": "string",
+                    "description": (
+                        "One-line title for the card. Leave empty for "
+                        "a plain chat reply; set for richer responses "
+                        "where a title aids scanability. Ignored when "
+                        "`cards` is provided."
+                    ),
+                },
+                "tail": {
+                    "type": "string",
+                    "description": (
+                        "Short footer line — a citation, a CTA, a "
+                        "next-step nudge. Optional. Ignored when "
+                        "`cards` is provided."
+                    ),
+                },
+                "cards": {
+                    "type": "array",
+                    "description": (
+                        "For multi-part responses: emit one card per "
+                        "distinct point. Each card becomes its own "
+                        "feed delta. Use when the response naturally "
+                        "splits — comparison sides, sequential steps, "
+                        "separate alerts. The thread sees the combined "
+                        "prose; the dashboard renders each card "
+                        "separately. Leave empty for single-card replies."
+                    ),
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "kicker": {"type": "string"},
+                            "title": {"type": "string"},
+                            "body": {"type": "string"},
+                            "tail": {"type": "string"},
+                        },
+                        "required": ["body"],
+                    },
+                },
+                "route": {
+                    "type": "string",
+                    "enum": ["chat-reply", "feed-card", "alert"],
+                    "description": (
+                        "Where the output lands. Default is `chat-reply` "
+                        "— the answer lives in the conversation chat "
+                        "panel (cards there render with title chrome "
+                        "inline). Set `feed-card` ONLY when the answer "
+                        "is a published take that stands on its own "
+                        "under \"What I noticed\" — a headline that "
+                        "would mean something to a reader without "
+                        "the conversational context. `alert` is for "
+                        "time-sensitive notices. Cards vs body is "
+                        "about shape; route is about WHERE the answer "
+                        "belongs."
+                    ),
                 },
                 "addresses": {
                     "type": "array",
@@ -410,18 +507,188 @@ _RESPOND_SCHEMA: dict[str, Any] = {
 }
 
 
-# Order matters for prompt budgeting — most-used tools first so the
-# model sees them when scanning.
+_PLAN_SCHEMA: dict[str, Any] = {
+    "type": "function",
+    "function": {
+        "name": "plan",
+        "description": (
+            "Decompose a synthesis question into 2–4 ordered steps, each "
+            "a concrete tool call. Returns a checklist that becomes the "
+            "ACTIVE PLAN block; declare plan_step on each subsequent call "
+            "so progress is visible. REQUIRED as your first call for any "
+            "question about connections, comparisons, or relationships "
+            "between two or more things. Do not call semantic() first on "
+            "these — plan() then semantic(X) and semantic(Y) independently."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "question": {
+                    "type": "string",
+                    "description": "The synthesis question to decompose.",
+                },
+            },
+            "required": ["question"],
+        },
+    },
+}
+
+_PATTERN_SCHEMA: dict[str, Any] = {
+    "type": "function",
+    "function": {
+        "name": "pattern",
+        "description": (
+            "Structural queries over your memory's metadata — aggregation, "
+            "ranking, filtering by shape and position, not meaning. "
+            "action='salient_recent' returns feed-cards ranked by judge-axes "
+            "score. action='dormant' surfaces old substantive content that "
+            "hasn't been retrieved. action='tagged' filters by tag. "
+            "action='count_by' shows distribution by source or kind. "
+            "Call pattern(action='help') for the full list."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "action": {"type": "string"},
+                "tag": {"type": "string"},
+                "since": {"type": "string"},
+                "limit": {"type": "integer"},
+                "group_by": {"type": "string"},
+                "hours": {"type": "number"},
+                "silent_for_days": {"type": "number"},
+                "min_chars": {"type": "integer"},
+            },
+            "required": ["action"],
+        },
+    },
+}
+
+_TIME_SCHEMA: dict[str, Any] = {
+    "type": "function",
+    "function": {
+        "name": "time",
+        "description": (
+            "Temporal queries — topic-agnostic. Finds everything in a "
+            "window regardless of content. action='between' pulls a time "
+            "slice. action='bucket_by' shows activity rhythms. "
+            "action='around' returns the chronological neighborhood of a "
+            "specific delta (use after any search match you want context "
+            "on). Call time(action='help') for the full list."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "action": {"type": "string"},
+                "start": {"type": "string"},
+                "end": {"type": "string"},
+                "source": {"type": "string"},
+                "tag": {"type": "string"},
+                "limit": {"type": "integer"},
+                "period": {"type": "string"},
+                "since": {"type": "string"},
+                "group_by": {"type": "string"},
+                "delta_id": {"type": "string"},
+                "gap_minutes": {"type": "number"},
+            },
+            "required": ["action"],
+        },
+    },
+}
+
+_STATE_SCHEMA: dict[str, Any] = {
+    "type": "function",
+    "function": {
+        "name": "state",
+        "description": (
+            "Present-moment attention — the puddle's surface. Not for "
+            "history; for right now. action='pending_intents' shows what's "
+            "in the queue. action='mood' returns current mood deltas. "
+            "action='crystal' returns the latest identity facets. "
+            "action='recent' shows what sources have been active. "
+            "Call state(action='help') for the full list."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "action": {"type": "string"},
+                "hours": {"type": "number"},
+                "group_by": {"type": "string"},
+            },
+            "required": ["action"],
+        },
+    },
+}
+
+_RELATE_SCHEMA: dict[str, Any] = {
+    "type": "function",
+    "function": {
+        "name": "relate",
+        "description": (
+            "Valence and social graph — how ideas were received and who "
+            "they involve. Finds content by relationship, not topic. "
+            "action='with_contact' returns everything involving a person. "
+            "action='engagement' surfaces recent affirm/refute signals. "
+            "action='cited_by' walks the citation graph forward. "
+            "action='dropped_around' finds refutations of a delta. "
+            "Call relate(action='help') for the full list."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "action": {"type": "string"},
+                "slug": {"type": "string"},
+                "limit": {"type": "integer"},
+                "direction": {"type": "string"},
+                "hours": {"type": "number"},
+                "delta_id": {"type": "string"},
+            },
+            "required": ["action"],
+        },
+    },
+}
+
+_DELIBERATE_SCHEMA: dict[str, Any] = {
+    "type": "function",
+    "function": {
+        "name": "deliberate",
+        "description": (
+            "Synthesis via parliament voices (creator / preserver / "
+            "destroyer). Three parallel LLM calls, each taking a "
+            "different stance. Expensive. For genuine antagonism: values "
+            "tensions, judgment under uncertainty, 'is this the right "
+            "move.' Not retrieval — don't call when you just need substrate."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "question": {
+                    "type": "string",
+                    "description": "The question to deliberate on.",
+                },
+            },
+            "required": ["question"],
+        },
+    },
+}
+
+
+# plan first — synthesis guard; respond last — it closes the fire.
 _ALL_SCHEMAS: list[dict[str, Any]] = [
-    _RESPOND_SCHEMA,
-    _MARK_ADDRESSED_SCHEMA,
+    _PLAN_SCHEMA,
     _SEARCH_SCHEMA,
+    _PATTERN_SCHEMA,
+    _TIME_SCHEMA,
+    _STATE_SCHEMA,
+    _RELATE_SCHEMA,
     _EXPAND_SCHEMA,
     _ASCEND_SCHEMA,
+    _DELIBERATE_SCHEMA,
+    _INTROSPECT_SCHEMA,
     _DISPATCH_HELPER_SCHEMA,
     _MINT_ROUTINE_SCHEMA,
-    _PROPOSE_PROVENANCE_SCHEMA,
-    _INTROSPECT_SCHEMA,
+    _ORIENT_SHIFT_SCHEMA,
+    _MARK_ADDRESSED_SCHEMA,
+    _RESPOND_SCHEMA,
 ]
 
 
