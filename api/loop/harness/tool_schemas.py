@@ -410,6 +410,21 @@ _RESPOND_SCHEMA: dict[str, Any] = {
                         "`cards` is provided."
                     ),
                 },
+                "media_hash": {
+                    "type": "string",
+                    "description": (
+                        "Optional 16-char hex media_hash to attach an "
+                        "image to this reply — the picture renders "
+                        "inline above the body. Use when the image IS "
+                        "the answer or core to it: a recalled photo, "
+                        "the diagram you're explaining, the screen "
+                        "you're describing. Cite-by-pointing beats "
+                        "prose paraphrase. Only pass a hash you've "
+                        "actually opened with see_image — never "
+                        "fabricate one. Ignored when `cards` is "
+                        "provided (set per-card instead)."
+                    ),
+                },
                 "cards": {
                     "type": "array",
                     "description": (
@@ -428,6 +443,16 @@ _RESPOND_SCHEMA: dict[str, Any] = {
                             "title": {"type": "string"},
                             "body": {"type": "string"},
                             "tail": {"type": "string"},
+                            "media_hash": {
+                                "type": "string",
+                                "description": (
+                                    "Optional 16-char hex media_hash "
+                                    "to attach an image to this card. "
+                                    "Same rule as the top-level field: "
+                                    "use only hashes you've opened with "
+                                    "see_image."
+                                ),
+                            },
                         },
                         "required": ["body"],
                     },

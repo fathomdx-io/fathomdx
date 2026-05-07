@@ -80,6 +80,7 @@ class Puddle:
         expires_at: str | None = None,
         embedding: list[float] | None = None,
         timestamp: str | None = None,
+        media_hash: str | None = None,
     ) -> dict:
         """Append a delta. Returns the stored dict (with id, timestamp).
 
@@ -116,6 +117,8 @@ class Puddle:
         }
         if embedding is not None:
             delta["_embedding"] = list(embedding)
+        if media_hash:
+            delta["media_hash"] = media_hash
         async with self._lock:
             self._deltas.append(delta)
         # Fan out to subscribers outside the lock so one slow consumer

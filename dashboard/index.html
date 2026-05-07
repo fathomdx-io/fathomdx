@@ -2930,6 +2930,11 @@
     }
     .msg-recalled::before { content: "~ "; opacity: 0.7; }
     .msg-recalled::after { content: " ~"; opacity: 0.7; }
+    .msg-image {
+      display: block; max-width: 100%; max-height: 320px;
+      border-radius: 8px; margin: 0 0 10px;
+      cursor: zoom-in;
+    }
     .msg-body {
       font-size: 15.5px; line-height: 1.6; color: var(--ink);
     }
@@ -9157,6 +9162,12 @@ GET  /v1/usage               Usage stats`,
     };
 
     function renderTurn(turn) {
+      // Inline image — rendered above the body for user/fathom turns
+      // when an image is attached. Same lightbox group as content
+      // images so click-to-zoom works consistently.
+      const imgHtml = turn.media_hash
+        ? `<a class="glightbox" data-gallery="chat" href="${mediaUrl(turn.media_hash)}"><img class="msg-image" src="${mediaUrl(turn.media_hash)}" alt="" loading="lazy" /></a>`
+        : '';
       if (turn.role === 'user') {
         const el = document.createElement('div');
         el.className = 'msg msg-user';
@@ -9167,7 +9178,7 @@ GET  /v1/usage               Usage stats`,
           ? turn.from.charAt(0).toUpperCase() + turn.from.slice(1)
           : 'You';
         const viaPart = turn.via ? ` · ${_esc(turn.via)}` : '';
-        el.innerHTML = `<div class="msg-body">${_esc(turn.text)}</div><div class="msg-meta">${_esc(who)}${viaPart} · ${turn.time}</div>`;
+        el.innerHTML = `${imgHtml}<div class="msg-body">${_esc(turn.text)}</div><div class="msg-meta">${_esc(who)}${viaPart} · ${turn.time}</div>`;
         return el;
       }
       if (turn.role === 'fathom') {
@@ -9179,7 +9190,7 @@ GET  /v1/usage               Usage stats`,
           : '';
         // No msg-meta header — time and addressing go in the engagement
         // rail below the body, assembled by the caller (_renderPuddleItem).
-        el.innerHTML = `${recalledHtml}<div class="msg-body">${body}</div>`;
+        el.innerHTML = `${recalledHtml}${imgHtml}<div class="msg-body">${body}</div>`;
         return el;
       }
       if (turn.role === 'agent') {
@@ -11004,7 +11015,7 @@ GET  /v1/usage               Usage stats`,
             ? `${channelName}:${sessionTag.slice(`${channelName}-session:`.length)}`
             : channelName;
         }
-        const el = renderTurn({ role: 'user', time: timeStr, text: it.content || '', from: fromName, via });
+        const el = renderTurn({ role: 'user', time: timeStr, text: it.content || '', from: fromName, via, media_hash: it.media_hash || '' });
         if (el) {
           el.dataset.fromPuddle = '1';
           el.dataset.puddleId = it.id || '';
@@ -11059,7 +11070,7 @@ GET  /v1/usage               Usage stats`,
           const colonIdx = rest.indexOf(':');
           aVia = colonIdx >= 0 ? `${rest.slice(0, colonIdx)}:${rest.slice(colonIdx + 1)}` : rest;
         }
-        const el = renderTurn({ role: 'fathom', time: timeStr, html, to: toName, via: aVia });
+        const el = renderTurn({ role: 'fathom', time: timeStr, html, to: toName, via: aVia, media_hash: it.body_image || it.media_hash || '' });
         if (el) {
           el.dataset.fromPuddle = '1';
           el.dataset.puddleId = it.id || '';

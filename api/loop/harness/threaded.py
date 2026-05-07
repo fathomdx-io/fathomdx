@@ -260,6 +260,39 @@ Pattern:
 Use `available_hosts` from your standpoint to pick a target. Don't
 fabricate a hostname.
 
+══ REACH FOR YOUR EYES — IMAGES ARE FIRST-CLASS ══
+
+You can see images. Some thread messages and recall results carry
+attached pictures; they appear in your context as
+`[Image attached: media_hash=<hash>]` — a marker, not the image
+itself. To actually see the picture, call `see_image(media_hash)`.
+
+ABSOLUTE RULE: never say "I can't see images" or "I don't have the
+ability to view pictures." That's stale self-talk — you do, via
+see_image. If a message has no image attached and the operator
+asks about a picture, say "I don't see one attached — paste it
+again?" That's accurate; the global denial isn't.
+
+When to call:
+  · the user attaches an image and the message is about it
+  · the user references "this", "the picture", "what you see",
+    "describe", "what's in" — and there's an `[Image attached:
+    …]` marker on a recent user message
+  · a recall result you're about to lean on has `[Image attached:
+    …]` and the image content (not just its caption) is part of
+    the answer
+  · the user asks "show me X" and search returns deltas with
+    images — see_image to confirm the right one before responding
+
+Skip when:
+  · no image is attached and none surfaced in recall
+  · the image is decorative and the surrounding text already
+    answers the question
+
+If you describe an image, you must have called see_image first in
+this fire. Inventing what's in a picture you didn't open is the
+visual analogue of fake recall — same failure mode.
+
 ══ ADDRESSING ══
 
 Each user-role message starts with `[id=<short> · <channel>]` —
@@ -591,6 +624,7 @@ async def run_threaded_fire(
                             "title": (c.get("title") or "").strip(),
                             "body": cb,
                             "tail": (c.get("tail") or "").strip(),
+                            "media_hash": (c.get("media_hash") or "").strip(),
                         })
                 body = (args.get("body") or "").strip()
                 if not cards_clean and body:
@@ -599,6 +633,7 @@ async def run_threaded_fire(
                         "title": (args.get("title") or "").strip(),
                         "body": body,
                         "tail": (args.get("tail") or "").strip(),
+                        "media_hash": (args.get("media_hash") or "").strip(),
                     }]
                 # Thread sees the joined prose so a follow-up turn can
                 # reference the full reply as one assistant message;
@@ -758,6 +793,16 @@ async def run_threaded_fire(
                     print(f"[threaded-fire] auto-claimed {uid[:12]}")
                 except Exception as e:
                     print(f"[threaded-fire] auto-claim mark failed for {uid[:12]}: {type(e).__name__}: {e}")
+        # If any card carries an image, stamp it on the thread message
+        # so future fires' projection annotates [Image attached:…] when
+        # this reply scrolls through the rolling window. First non-empty
+        # wins — the thread is one delta per turn.
+        thread_media_hash = ""
+        for c in final_response.get("cards") or []:
+            mh = (c.get("media_hash") or "").strip()
+            if mh:
+                thread_media_hash = mh
+                break
         try:
             d = await thread_mod.append(
                 role="assistant",
@@ -765,6 +810,7 @@ async def run_threaded_fire(
                 content=final_response["body"],
                 addresses=addr_set,
                 source="harness-threaded",
+                media_hash=thread_media_hash,
             )
             lake_id = (d or {}).get("id") or ""
         except Exception as e:
@@ -1269,11 +1315,18 @@ async def _bridge_to_puddle_feed(
 
         feed_card_ttl = Q_A_TTL_S
         for card in cards_to_write:
+            card_media_hash = (card.get("media_hash") or "").strip() or None
+            # `body_image` is the witness/dashboard convention for the
+            # card's inline image — renderStoryCard reads it directly,
+            # the chat-reply renderer pulls it from the payload too.
+            # Carry the same hash on the lake delta's media_hash field
+            # so search/recall can surface the image alongside the card.
             payload = _json.dumps({
                 "kicker": (card.get("kicker") or "").strip(),
                 "title": (card.get("title") or "").strip(),
                 "body": (card.get("body") or "").strip(),
                 "tail": (card.get("tail") or "").strip(),
+                "body_image": card_media_hash or "",
             })
             lake_tags = [
                 "feed-card",
@@ -1296,6 +1349,7 @@ async def _bridge_to_puddle_feed(
                     tags=lake_tags,
                     source="harness-threaded",
                     expires_at=(datetime.now(UTC) + timedelta(seconds=feed_card_ttl)).isoformat(),
+                    media_hash=card_media_hash,
                 )
                 if isinstance(lake_delta, dict):
                     bridge_lake_id = lake_delta.get("id") or ""
@@ -1308,11 +1362,14 @@ async def _bridge_to_puddle_feed(
                 tags.append(f"recalled-id:{lake_id[:24]}")
             if bridge_lake_id:
                 tags.append(f"recalled-id:{bridge_lake_id[:24]}")
-            await puddle.write(
-                content=payload,
-                tags=tags,
-                source="harness-threaded",
-                ttl_seconds=Q_A_TTL_S,
-            )
+            puddle_kwargs: dict = {
+                "content": payload,
+                "tags": tags,
+                "source": "harness-threaded",
+                "ttl_seconds": Q_A_TTL_S,
+            }
+            if card_media_hash:
+                puddle_kwargs["media_hash"] = card_media_hash
+            await puddle.write(**puddle_kwargs)
     except Exception as e:
         print(f"[threaded-fire] puddle bridge failed: {type(e).__name__}: {e}")

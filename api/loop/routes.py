@@ -253,6 +253,7 @@ def get_feed(
             "source": d.get("source"),
             "tags": list(d.get("tags") or []),
             "session": session_tag,
+            "media_hash": d.get("media_hash") or None,
         }
 
         # ── Q (always visible by default) ─────────────────
