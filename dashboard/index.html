@@ -1929,6 +1929,10 @@
       filter: blur(4px);
       pointer-events: none;
     }
+    .composer-wrap.drag-over .composer {
+      outline: 2px dashed var(--accent);
+      outline-offset: -2px;
+    }
     .composer {
       max-width: 720px; margin: 0 auto;
       display: flex; align-items: end; gap: 8px;
@@ -4721,10 +4725,13 @@
     </div>
     <div class="composer">
       <input type="file" id="fileInput" accept="image/*" hidden />
-      <!-- Attach hidden post-cutover: the puddle's seed shape is
-           text-only; image flow comes back when the loop knows how to
-           render media in witness output. -->
-      <button class="attach" id="attachBtn" aria-label="Attach" hidden>
+      <!-- Image flow: file picker / paste / drag-drop → uploadPendingImage
+           returns {id, media_hash}; sendFromComposer threads media_hash
+           through /v1/puddle/seed so the lake user-seed delta carries it.
+           Harness rolling-window projection annotates the user message
+           with `[Image attached: media_hash=…]`, and the model can call
+           `see_image(<hash>)` to actually load the pixels. -->
+      <button class="attach" id="attachBtn" aria-label="Attach">
         <svg viewBox="0 0 256 256" fill="currentColor" width="18" height="18"><path d="M209.66,122.34a8,8,0,0,1,0,11.32l-82.05,82a56,56,0,0,1-79.2-79.21L147.67,35.73a40,40,0,1,1,56.61,56.55L105,193A24,24,0,1,1,71,159L154.3,74.38A8,8,0,1,1,165.7,85.6L82.39,170.31a8,8,0,1,0,11.27,11.36L192.93,81A24,24,0,1,0,159,47L59.76,147.68a40,40,0,1,0,56.53,56.62l82.06-82A8,8,0,0,1,209.66,122.34Z"/></svg>
       </button>
       <div class="attach-preview" id="attachPreview">
@@ -9302,9 +9309,23 @@ GET  /v1/usage               Usage stats`,
     // Composer send — drops a seed into the Grand Loop puddle.
     async function sendFromComposer() {
       const text = composerTa.value.trim();
-      if (!text) return;
+      // Allow image-only sends (no text) — the model can still see_image
+      // and respond. Empty text + no attachment is the only no-op.
+      if (!text && !pendingFile) return;
       composerTa.value = '';
       composerTa.style.height = 'auto';
+
+      // Upload any attached image first so the seed POST can carry the
+      // media_hash. uploadPendingImage clears `pendingFile` on success
+      // and returns {id, media_hash}; on failure it returns null and
+      // we fall through to a text-only send rather than blocking.
+      let mediaHash = null;
+      if (pendingFile) {
+        try {
+          const upload = await uploadPendingImage('', text);
+          mediaHash = upload?.media_hash || null;
+        } catch (e) { /* fall through to text-only send */ }
+      }
 
       // Cutover: the composer drops into the Grand Loop puddle as a
       // kind:question intent. The supervisor picks it up within ~2s,
@@ -9315,11 +9336,14 @@ GET  /v1/usage               Usage stats`,
       //
       // If _replyTarget is armed, we tag the seed `reply-to:<delta_id>`
       // so the witness can thread the answer to whatever feed item the
-      // user tapped.
+      // user tapped. media_hash, if set, lands on the lake user-seed
+      // delta and the thread shadow append — the harness projection
+      // surfaces it as `[Image attached: …]` next to the user line.
       const body = { content: text };
       if (_replyTarget && _replyTarget.id) {
         body.extra_tags = [`reply-to:${_replyTarget.id}`];
       }
+      if (mediaHash) body.media_hash = mediaHash;
       try {
         const r = await fetch(API_BASE + '/v1/puddle/seed', {
           method: 'POST',
@@ -9395,20 +9419,61 @@ GET  /v1/usage               Usage stats`,
     const attachRemove = document.getElementById('attachRemove');
     let pendingFile = null;
 
-    attachBtn.addEventListener('click', () => fileInput.click());
-    fileInput.addEventListener('change', () => {
-      const file = fileInput.files[0];
-      if (!file) return;
+    function _attachFile(file) {
+      if (!file || !file.type || !file.type.startsWith('image/')) return;
+      if (attachThumb.src && attachThumb.src.startsWith('blob:')) URL.revokeObjectURL(attachThumb.src);
       pendingFile = file;
       attachThumb.src = URL.createObjectURL(file);
       attachPreview.classList.add('visible');
-    });
+    }
+
+    attachBtn.addEventListener('click', () => fileInput.click());
+    fileInput.addEventListener('change', () => _attachFile(fileInput.files[0]));
     attachRemove.addEventListener('click', () => {
       pendingFile = null;
       fileInput.value = '';
       attachPreview.classList.remove('visible');
       if (attachThumb.src.startsWith('blob:')) URL.revokeObjectURL(attachThumb.src);
     });
+
+    // Paste an image directly into the textarea → attach it. Other
+    // clipboard items (text, html) flow through to the default paste.
+    composerTa.addEventListener('paste', (e) => {
+      const items = e.clipboardData?.items || [];
+      for (const it of items) {
+        if (it.type && it.type.startsWith('image/')) {
+          const f = it.getAsFile();
+          if (f) {
+            e.preventDefault();
+            _attachFile(f);
+            return;
+          }
+        }
+      }
+    });
+
+    // Drag-drop onto the composer wrap.
+    const _composerWrap = document.getElementById('composerWrap');
+    if (_composerWrap) {
+      ['dragenter', 'dragover'].forEach((ev) => {
+        _composerWrap.addEventListener(ev, (e) => {
+          if ([...(e.dataTransfer?.types || [])].includes('Files')) {
+            e.preventDefault();
+            _composerWrap.classList.add('drag-over');
+          }
+        });
+      });
+      ['dragleave', 'drop'].forEach((ev) => {
+        _composerWrap.addEventListener(ev, () => _composerWrap.classList.remove('drag-over'));
+      });
+      _composerWrap.addEventListener('drop', (e) => {
+        const f = e.dataTransfer?.files?.[0];
+        if (f && f.type && f.type.startsWith('image/')) {
+          e.preventDefault();
+          _attachFile(f);
+        }
+      });
+    }
 
     async function uploadPendingImage(sessionSlug, captionText) {
       if (!pendingFile) return null;
