@@ -46,6 +46,7 @@ class SeedRequest(BaseModel):
     content: str
     kind: str = "question"
     extra_tags: list[str] | None = None
+    media_hash: str | None = None
 
 
 @router.post("/v1/puddle/seed")
@@ -83,12 +84,14 @@ async def post_seed(req: SeedRequest, request: Request) -> dict:
         lake_tags.extend(req.extra_tags)
     if contact_tag and contact_tag not in lake_tags:
         lake_tags.append(contact_tag)
+    media_hash = (req.media_hash or "").strip() or None
     lake_id = ""
     try:
         lake_delta = await delta_client.write(
             content=body,
             tags=lake_tags,
             source="composer",
+            media_hash=media_hash,
         )
         if isinstance(lake_delta, dict):
             lake_id = lake_delta.get("id") or ""
@@ -120,6 +123,7 @@ async def post_seed(req: SeedRequest, request: Request) -> dict:
             channel="composer",
             contact=contact_slug or "",
             source="composer",
+            media_hash=media_hash or "",
         )
     except Exception as e:
         print(f"[seed] thread shadow write failed: {type(e).__name__}: {e}")

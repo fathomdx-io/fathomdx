@@ -155,6 +155,7 @@ def _project_delta(d: dict) -> dict | None:
     if not role or not content:
         return None
     msg_id = d.get("id") or ""
+    media_hash = (d.get("media_hash") or "").strip()
     if role == "user":
         channel = _tag_value(tags, "channel:")
         msg_kind = _tag_value(tags, "msg-kind:")
@@ -164,7 +165,10 @@ def _project_delta(d: dict) -> dict | None:
         elif msg_kind:
             prefix_parts.append(msg_kind)
         prefix = "[" + " · ".join(prefix_parts) + "]"
-        return {"role": "user", "content": f"{prefix} {content}"}
+        # Annotate attached images so the model knows to call see_image
+        # if it needs to actually look at them.
+        media_note = f"\n[Image attached: media_hash={media_hash}]" if media_hash else ""
+        return {"role": "user", "content": f"{prefix} {content}{media_note}"}
     if role == "assistant":
         return {"role": "assistant", "content": content}
     if role == "tool":
