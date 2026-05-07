@@ -1071,6 +1071,16 @@ async def engage_card(card_id: str, req: EngageRequest) -> dict:
         ttl_seconds=Q_A_TTL_S,
     )
 
+    # Fire the thumb-threshold check in the background — if this push
+    # tips the count to THUMB_REGEN_THRESHOLD since the last crystal,
+    # regen_from_signal triggers immediately (no cooldown).
+    try:
+        import asyncio as _asyncio
+        from . import feed_orient as _feed_orient
+        _asyncio.create_task(_feed_orient.on_engagement_written())
+    except Exception:
+        pass
+
     return {
         "ok": True,
         "marker_id": marker_id,

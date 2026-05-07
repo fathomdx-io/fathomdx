@@ -16,7 +16,6 @@ from fastapi import APIRouter, HTTPException
 
 from .. import crystal, delta_client, drift, mood, pressure, recall
 from .. import usage as usage_module
-from ..loop import feed_orient_confidence, feed_orient_drift
 
 router = APIRouter()
 
@@ -231,50 +230,6 @@ async def get_crystal_events(limit: int = 50, since_seconds: int | None = None):
 
 
 # ── Feed-orient signal ──────────────────────────────────────────────────────
-# Backing the dashboard's "Feed orientation" card. The Grand Loop now writes
-# crystal:feed-orient regens (api/loop/feed_orient.py) and feed-engagement
-# deltas (engage_card in api/loop/routes.py) — the legacy /v1/feed/* paths
-# the ECG polls were 404'ing post-retire. These thin endpoints surface the
-# new signal in the shapes the renderer already expects.
-
-
-@router.get("/v1/feed/engagement/history")
-async def get_feed_engagement_history(since_seconds: int = 7 * 24 * 3600):
-    """+/- engagement marks for the bottom rule of the feed-orient card.
-
-    Returns [{t, v}] where v = +1 for engagement:more / engagement:chat
-    and -1 for engagement:less. Pulls feed-engagement deltas straight
-    from the lake — the Grand Loop's engage_card writes them durable.
-    """
-    since = (datetime.now(UTC) - timedelta(seconds=since_seconds)).isoformat()
-    try:
-        items = await delta_client.query(
-            tags_include=["feed-engagement"],
-            time_start=since,
-            limit=500,
-        )
-    except Exception:
-        return {"history": []}
-    out: list[dict] = []
-    for d in items:
-        ts = d.get("timestamp")
-        if not ts:
-            continue
-        kind = ""
-        for t in d.get("tags") or []:
-            if isinstance(t, str) and t.startswith("engagement:"):
-                kind = t.split(":", 1)[1]
-                break
-        if kind in ("more", "chat"):
-            v = 1
-        elif kind == "less":
-            v = -1
-        else:
-            continue
-        out.append({"t": ts, "v": v})
-    out.sort(key=lambda e: e["t"])
-    return {"history": out}
-
 
 @router.post("/v1/feed/regen/fire")
 async def fire_feed_regen():
@@ -335,28 +290,6 @@ async def get_feed_crystal_events(
     events.sort(key=lambda e: e.get("timestamp") or "")
     return {"events": events}
 
-
-@router.get("/v1/feed/drift")
-async def get_feed_drift():
-    """Sample current engagement-drift against the feed-orient anchor."""
-    return await feed_orient_drift.sample()
-
-
-@router.get("/v1/feed/drift/history")
-async def get_feed_drift_history(since_seconds: int | None = None):
-    """Engagement-drift samples accumulated from the feed-orient poll
-    cadence (every 60s) plus on-regen post-anchor samples."""
-    items = await feed_orient_drift.history(since_seconds=since_seconds)
-    return {"history": items}
-
-
-@router.get("/v1/feed/confidence/history")
-async def get_feed_confidence_history(since_seconds: int | None = None):
-    """Confidence samples accumulated from the feed-orient poll
-    cadence. Each sample = mean predicted-vs-actual score over all
-    feed-engagements written since the latest crystal:feed-orient."""
-    items = await feed_orient_confidence.history(since_seconds=since_seconds)
-    return {"history": items}
 
 
 @router.get("/v1/usage")

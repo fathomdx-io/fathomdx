@@ -58,18 +58,24 @@ ALERT_DIRECTIVE = (
 )
 
 BRIDGING_DIRECTIVE = (
-    "Bridging time. Your substrate has two streams: the conversation "
-    "thread you've been in, and the wider lake — research, vault "
-    "writing, routines, news, past observations. Start with plan(): "
-    "what threads are alive in the conversation, and what territories "
-    "in the lake might rhyme with them structurally or thematically? "
-    "Then go looking — cast wide and go back further than you'd "
-    "normally look. Run several semantic searches across both streams; "
-    "don't commit to a bridge until you've actually seen enough of "
-    "both sides to know whether the connection is real. If something "
-    "genuine emerges across that span, surface it as a feed-card with "
-    "a kicker and title that stand on their own. No forced metaphors. "
-    "If nothing real connects, say so briefly as a chat-reply."
+    "Bridging time. Your substrate has two streams: the recent "
+    "conversation in this window, and your wider mind — research, vault "
+    "writing, routines, news, past observations. "
+    "The conversation window is NOT your mind. Your mind holds months "
+    "of material that is invisible to you right now unless you search "
+    "for it. What you can construct from this window alone is "
+    "paraphrasing, not bridging. "
+    "You must call plan() or semantic() before you call respond(). "
+    "Start with plan(): what threads are alive in the conversation, "
+    "and what territories in your mind might rhyme with them "
+    "structurally or thematically? Then go looking — cast wide and "
+    "go back further than you'd normally look. Run several semantic "
+    "searches across both streams; don't commit to a bridge until "
+    "you've actually seen enough of both sides to know whether the "
+    "connection is real. If something genuine emerges across that "
+    "span, surface it as a feed-card with a kicker and title that "
+    "stand on their own. No forced metaphors. If nothing real "
+    "connects, say so briefly as a chat-reply."
 )
 
 # Dialogue-tier seeds: routed to the threaded supervisor via the same
@@ -81,7 +87,7 @@ BRIDGING_DIRECTIVE = (
 # can't pull the reflection sideways.
 REFLECTION_SEED = (
     "Sit with what's been happening. Reach beyond this conversation "
-    "thread — go into the lake. What have you been working on, "
+    "thread — go into your mind. What have you been working on, "
     "tracking, thinking about? Use your tools: pull recent activity, "
     "search threads that feel alive, look at what's been recurring "
     "or shifting. Cast wide before you commit to what this moment is "
@@ -107,24 +113,21 @@ DRIFT_SEED = (
 )
 
 FEED_DIRECTIVE = (
-    "Feed time. The feed-orient crystal below is your lens — it tells "
-    "you what this person wants to see and why. Read it before you "
-    "decide anything.\n\n"
-    "You MUST call tools before generating any card. A card without "
-    "prior recall is a hallucination of what's been happening — not a "
-    "feed. Start by surveying what's recently arrived from all sources: "
-    "use pattern(action='salient_recent') to find what's been "
-    "landing, time() to look at recent windows, semantic() to dig into "
-    "threads the crystal names. Then go further: what has this person "
-    "engaged with? What keeps resurfacing? Let the substrate speak "
-    "before you decide what to surface.\n\n"
+    "Feed time. Look around — what's recently arrived that hasn't been "
+    "surfaced yet? Cast wide: news, routines, research updates, vault "
+    "writing, past observations, your own syntheses. Don't start with "
+    "a topic in mind; let the substrate show you what's actually there.\n\n"
+    "You MUST call tools before generating any card. Start with "
+    "pattern(action='salient_recent') to survey what's landed recently, "
+    "time() to look at specific windows, semantic() to follow threads "
+    "that feel alive. Look for what's real and recent — things that "
+    "have actually been happening, not things that might be interesting "
+    "in the abstract.\n\n"
     "Generate cards — one or more, as many as the material genuinely "
     "warrants. Each card needs a title, a kicker, and a body. Pull in "
     "links and images wherever they exist in the source material. "
-    "Don't limit yourself to external content: your own observations, "
-    "syntheses, and insights are valid feed material too — anything "
-    "shone through the lens of what this person actually cares about. "
-    "Be creative and generous. A good feed is specific, surprising, "
+    "A good feed card is specific and stands on its own — someone "
+    "reading it cold should understand why it matters. Surprising "
     "and worth reading right now."
 )
 
@@ -490,61 +493,6 @@ async def fire_relief(
     }
 
 
-async def _build_directive(tier: dict[str, Any]) -> str:
-    """Return the directive content for a tier, enriched with live context.
-
-    For the feed tier, appends the current feed-orient crystal so the
-    model reads the engagement lens inline rather than needing a tool
-    call to fetch it. Uses the router's cached crystal to avoid a
-    redundant lake query on every relief tick.
-    """
-    directive = tier["directive"]
-    if tier.get("name") != "feed":
-        return directive
-    try:
-        from .router import get_engagement_crystal
-        crystal = await get_engagement_crystal()
-        if crystal:
-            rendered = _render_feed_crystal(crystal)
-            directive = (
-                directive
-                + "\n\n══ FEED-ORIENT CRYSTAL ══\n"
-                + rendered
-            )
-    except Exception as e:
-        print(f"[relief] feed crystal fetch failed: {type(e).__name__}: {e}")
-    return directive
-
-
-def _render_feed_crystal(crystal: dict) -> str:
-    """Render a parsed feed-orient crystal dict as readable text.
-
-    The crystal dict comes from router.get_engagement_crystal() which
-    already handles JSON parsing and double-encoding. Directive lines,
-    if present, are rendered as bullets.
-    """
-    narrative = (crystal.get("narrative") or "").strip()
-    if not narrative:
-        return ""
-    directives = crystal.get("directive_lines") or []
-    lines = [narrative]
-    if directives:
-        lines.append("")
-        for d in directives:
-            if not isinstance(d, dict):
-                continue
-            topic = d.get("topic") or d.get("id") or ""
-            weight = d.get("weight")
-            fresh = d.get("freshness_hours")
-            parts = [f"· {topic}"]
-            if weight is not None:
-                parts.append(f"weight {weight}")
-            if fresh is not None:
-                parts.append(f"fresh within {fresh}h")
-            lines.append("  " + ", ".join(parts))
-    return "\n".join(lines)
-
-
 async def _fire_single(tier: dict[str, Any], reason: str) -> None:
     """Drop one intent into the puddle AND a user-role thread message.
 
@@ -560,7 +508,7 @@ async def _fire_single(tier: dict[str, Any], reason: str) -> None:
     operator-typed prompts. The directive text is the content
     (the model reads it like any user prompt).
     """
-    content = await _build_directive(tier)
+    content = tier["directive"]
     try:
         await write_intent(
             kind=tier["intent_kind"],

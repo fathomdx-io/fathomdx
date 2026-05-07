@@ -1,84 +1,49 @@
-"""Feed-orient crystal regeneration — the heavy aggregation layer.
+"""Feed-orient crystal regeneration.
 
-The witness reads identity facets and mood from the puddle on every
-fire to anchor its take. The feed-orient crystal is a third anchor:
-"what does the user actually want to see right now," distilled from
-their accumulated engagement (the +/- markers, the cards they opened
-into chat, what they pushed back on).
+Distills the user's accumulated engagement (the +/- markers, chats
+from cards) into a short narrative that the routing layer uses to
+decide what the feed should surface.
 
-This module mirrors auto_regen.py's pattern for the identity crystal,
-adapted for engagement-driven cadence:
+Trigger paths (all bypass cooldown except the manual button):
+  · Thumb trigger  — on_engagement_written() called after each +/-;
+                     fires when THUMB_REGEN_THRESHOLD thumbs have
+                     accumulated since the last crystal.
+  · Harness signal — regen_from_signal() called by the orient_shift
+                     harness tool when a fire reveals orientation shift.
+  · Manual button  — force_run_regen() in the dashboard; 30-min
+                     cooldown so spamming can't pin a regen storm.
 
-  * Background task polls every POLL_INTERVAL_S.
-  * Counts feed-engagement deltas written since the last
-    crystal:feed-orient delta (or all of them, on first run).
-  * If count >= MIN_ENGAGEMENTS and we're past the cooldown, fire a
-    regen pass: gather inputs, run FEED_CRYSTAL_DIRECTIVE through
-    loop_generate, write the result as a crystal:feed-orient lake
-    delta. Telepathy picks it up on its next tick and surfaces it to
-    the witness as a `facet:feed-orient` puddle delta alongside the
-    identity facets.
-
-The output JSON shape is the legacy feed-loop's (narrative +
-directive_lines + topic_weights + skip_rules). The Grand Loop
-witness currently only reads narrative; the other fields persist
-durably in the lake delta as future signal we can reach for when
-ranking, filtering, or audit becomes useful.
+Output JSON: {narrative, directive_lines, topic_weights, skip_rules}.
+The routing layer reads `narrative`; other fields persist in the lake
+delta as future signal.
 """
 
 from __future__ import annotations
 
-import asyncio
-import contextlib
 import json
 import logging
 from datetime import datetime, timedelta, UTC
 
 from .. import delta_client
 from ..prompt import FEED_CRYSTAL_DIRECTIVE
-from . import feed_orient_anchor, feed_orient_confidence, feed_orient_drift
 from .llm import loop_generate
 
 log = logging.getLogger(__name__)
 
 
-# Trigger thresholds. The feed-spec says "min 10 engagement deltas
-# since last regen" — keep that as the primary floor. Cooldown
-# prevents burst-clicking from triggering a regen storm.
-MIN_ENGAGEMENTS = 10
-MIN_COOLDOWN_S = 30 * 60  # 30 minutes
-POLL_INTERVAL_S = 60      # check every minute
+MIN_COOLDOWN_S = 30 * 60  # manual button cooldown only
 
-# Stale-regen secondary trigger. When engagement is sparse (e.g.
-# post-migration, when the legacy feed engine retired and the
-# new card surfaces haven't yet built engagement at the same rate),
-# the primary 10-engagement floor never trips. Mirrors mood's
-# shift-overflow pattern: when the topology has drifted long
-# enough, refresh even if the primary signal is quiet.
-#
-# Triggers when BOTH:
-#   · time since last regen ≥ STALE_REGEN_AGE_S
-#   · engagements since last regen ≥ STALE_REGEN_MIN_ENGAGEMENTS
-# The min-engagement guard prevents firing on truly dead substrate
-# (no signal at all → nothing to orient against).
-STALE_REGEN_AGE_S = 6 * 3600  # 6 hours — refresh daily even in quiet periods
-STALE_REGEN_MIN_ENGAGEMENTS = 2
+# Number of thumb signals since the last crystal that triggers an
+# automatic regen. Bypasses the cooldown — explicit engagement is
+# direct signal.
+THUMB_REGEN_THRESHOLD = 5
 
-# How much history we feed into the regen prompt. The directive
-# wants enough signal to read intent without dragging in old noise.
-# Trimmed values vs the legacy feed-loop's: a too-fat prompt was
-# producing empty responses on the "hard" tier. The witness reads
-# anchors, not the full engagement history; we just need enough
-# signal to distill a 2-4 sentence narrative.
 ENGAGEMENT_LOOKBACK_DAYS = 14
 CARD_LOOKBACK_DAYS = 7
 ENGAGEMENT_LIMIT = 60
 CARD_LIMIT = 20
 PRIOR_CRYSTAL_MAX_CHARS = 1200
 
-
-_task: asyncio.Task | None = None
-_stop_event: asyncio.Event | None = None
 _in_flight = False
 
 
@@ -96,7 +61,7 @@ async def _latest_feed_orient() -> dict | None:
 
 
 async def _engagements_since(ts_iso: str | None) -> list[dict]:
-    """feed-engagement deltas written since `ts_iso` (or in the
+    """feed-engagement deltas written since `ts_iso` (or within the
     lookback window if ts_iso is None). Newest first."""
     since = ts_iso
     if not since:
@@ -213,18 +178,12 @@ async def _run_regen() -> bool:
         prompt = f"{FEED_CRYSTAL_DIRECTIVE}\n\n{inputs}"
 
         log.info(
-            "feed-orient regen firing (prompt %d chars; %d engagements, prior=%s)",
+            "feed-orient regen firing (prompt %d chars; prior=%s)",
             len(prompt),
-            len(await _engagements_since(prior.get("timestamp") if prior else None)),
             "yes" if prior else "no",
         )
 
         try:
-            # No json_mode — the directive already says "respond with
-            # ONLY a JSON object, no markdown fences", and providers
-            # vary on how strict json_mode is for nested shapes (some
-            # return empty when they can't produce a valid object).
-            # We strip code fences + parse defensively below.
             raw = await loop_generate(
                 prompt=prompt,
                 tier="hard",
@@ -237,7 +196,6 @@ async def _run_regen() -> bool:
             return False
 
         cleaned = raw.strip()
-        # Strip code fences defensively (some providers wrap output).
         if cleaned.startswith("```"):
             cleaned = cleaned.lstrip("`")
             if cleaned.startswith("json"):
@@ -252,10 +210,6 @@ async def _run_regen() -> bool:
             )
             return False
 
-        # Extract the first {...} block. Handles three shapes:
-        #   · clean JSON response
-        #   · JSON preceded by prose ("Here's the crystal:\n{...}")
-        #   · JSON followed by prose ("{...}\n\nSome trailing note.")
         import re as _re
         m = _re.search(r"\{.*\}", cleaned, _re.DOTALL)
         if m:
@@ -279,7 +233,7 @@ async def _run_regen() -> bool:
             return False
 
         try:
-            written = await delta_client.write(
+            await delta_client.write(
                 content=json.dumps(payload, ensure_ascii=False),
                 tags=["crystal:feed-orient", "crystal-regen"],
                 source="feed-orient",
@@ -288,43 +242,11 @@ async def _run_regen() -> bool:
             log.exception("feed-orient regen lake write failed")
             return False
 
-        crystal_id = ""
-        if isinstance(written, dict):
-            crystal_id = written.get("id") or ""
-
-        # Invalidate the router's engagement crystal cache so the new
-        # crystal is picked up immediately on the next routing decision
-        # rather than waiting for the 5-minute TTL to expire.
         try:
             from .router import invalidate_crystal_cache
             invalidate_crystal_cache()
         except Exception:
             pass
-
-        # Anchor the engagement centroid at the moment of acceptance —
-        # drift now reads ~0 by construction and grows as user signals
-        # diverge from what this crystal predicted. Mirrors the
-        # identity-crystal anchor pattern.
-        try:
-            c = await delta_client.centroid(tags_include=["feed-engagement"])
-            vec = c.get("centroid") if isinstance(c, dict) else None
-            if vec:
-                await feed_orient_anchor.save(vec, crystal_id or None)
-        except Exception:
-            log.exception("feed-orient regen anchor snapshot failed (non-fatal)")
-
-        # Sample drift + confidence right away so the chart has fresh
-        # post-regen points (drift resets to zero by construction;
-        # confidence resets to None until new post-regen engagement
-        # arrives).
-        try:
-            await feed_orient_drift.sample()
-        except Exception:
-            log.exception("feed-orient regen post-anchor drift sample failed")
-        try:
-            await feed_orient_confidence.sample()
-        except Exception:
-            log.exception("feed-orient regen post-anchor confidence sample failed")
 
         log.info(
             "feed-orient regen wrote crystal (narrative %d chars, %d directive lines)",
@@ -336,19 +258,40 @@ async def _run_regen() -> bool:
         _in_flight = False
 
 
+async def regen_from_signal() -> None:
+    """Signal-triggered regen — no cooldown check. Called by the thumb
+    trigger (THUMB_REGEN_THRESHOLD engagements) and the harness
+    orient_shift tool. In-flight guard still applies."""
+    if _in_flight:
+        log.debug("feed-orient regen_from_signal: already in flight, skipping")
+        return
+    log.info("feed-orient regen firing (reason=signal)")
+    await _run_regen()
+
+
+async def on_engagement_written() -> None:
+    """Call after each feed-engagement delta is written. Fires regen
+    when THUMB_REGEN_THRESHOLD thumbs have accumulated since the last
+    crystal. Safe to fire-and-forget via asyncio.create_task."""
+    try:
+        prior = await _latest_feed_orient()
+        prior_ts = prior.get("timestamp") if prior else None
+        engagements = await _engagements_since(prior_ts)
+        if len(engagements) >= THUMB_REGEN_THRESHOLD:
+            await regen_from_signal()
+    except Exception as e:
+        log.warning("feed-orient on_engagement_written failed: %s", e)
+
+
 async def force_run_regen() -> dict:
-    """Manual fire path — bypasses the engagement-count threshold so a
-    button click always tries to regenerate. Cooldown still applies
-    (30 min) so spamming the button can't loop-pin a regen storm.
+    """Manual fire path (dashboard button). Cooldown applies so
+    spamming can't pin a regen storm.
 
     Returns:
-      · `{"fired": True, ...}` on success
-      · `{"fired": False, "reason": "cooldown", "elapsed": <sec>}`
-        when within the cooldown window
-      · `{"fired": False, "reason": "in-flight"}` when a regen is
-        already mid-run
-      · `{"fired": False, "reason": "fire-failed"}` if `_run_regen`
-        returned False (LLM error, parse error, etc.)
+      · {"fired": True, ...}
+      · {"fired": False, "reason": "cooldown", "elapsed": <sec>}
+      · {"fired": False, "reason": "in-flight"}
+      · {"fired": False, "reason": "fire-failed"}
     """
     if _in_flight:
         return {"fired": False, "reason": "in-flight"}
@@ -379,103 +322,10 @@ async def force_run_regen() -> dict:
     }
 
 
-async def _check_once() -> dict:
-    """One pass: sample engagement-drift, count engagement signal,
-    decide, maybe fire."""
-    # Drift + confidence sampling runs on every tick so history
-    # populates smoothly between regens. Cheap: one centroid query
-    # plus one delta-query for confidence's post-regen engagements.
-    try:
-        await feed_orient_drift.sample()
-    except Exception:
-        log.exception("feed-orient drift sample failed")
-    try:
-        await feed_orient_confidence.sample()
-    except Exception:
-        log.exception("feed-orient confidence sample failed")
-
-    prior = await _latest_feed_orient()
-    prior_ts = prior.get("timestamp") if prior else None
-
-    elapsed: float = float("inf")
-    if prior_ts:
-        try:
-            elapsed = (
-                datetime.now(UTC)
-                - datetime.fromisoformat(prior_ts.replace("Z", "+00:00"))
-            ).total_seconds()
-        except Exception:
-            elapsed = float("inf")
-        if elapsed < MIN_COOLDOWN_S:
-            return {"feed_orient": "cooldown", "elapsed": elapsed}
-
-    engagements = await _engagements_since(prior_ts)
-    n = len(engagements)
-
-    primary_ready = n >= MIN_ENGAGEMENTS
-    stale_ready = (
-        prior_ts is not None
-        and elapsed >= STALE_REGEN_AGE_S
-        and n >= STALE_REGEN_MIN_ENGAGEMENTS
-    )
-
-    if not primary_ready and not stale_ready:
-        return {"feed_orient": "below-threshold", "count": n}
-
-    reason = "primary" if primary_ready else "stale"
-    log.info(
-        "feed-orient regen firing (reason=%s, %d engagements since prior)",
-        reason, n,
-    )
-    fired = await _run_regen()
-    return {
-        "feed_orient": "fired" if fired else "fire-failed",
-        "count": n,
-        "reason": reason,
-    }
-
-
-async def _loop() -> None:
-    log.info(
-        "feed-orient loop starting (min_engagements=%d, cooldown=%ds, poll=%ds)",
-        MIN_ENGAGEMENTS,
-        MIN_COOLDOWN_S,
-        POLL_INTERVAL_S,
-    )
-    assert _stop_event is not None
-    while not _stop_event.is_set():
-        try:
-            await _check_once()
-        except Exception:
-            log.exception("feed-orient poll error")
-        with contextlib.suppress(TimeoutError):
-            await asyncio.wait_for(
-                _stop_event.wait(),
-                timeout=POLL_INTERVAL_S,
-            )
-    log.info("feed-orient loop stopped")
-
-
 def start() -> None:
-    """Kick off the polling task. Idempotent."""
-    global _task, _stop_event
-    if _task is not None and not _task.done():
-        return
-    _stop_event = asyncio.Event()
-    _task = asyncio.create_task(_loop(), name="loop/feed-orient")
+    """No-op — regen is now event-driven (thumbs + harness tool).
+    Kept for interface compatibility with worker.py."""
 
 
 async def stop() -> None:
-    """Signal the loop to exit. Awaits the task briefly."""
-    global _task, _stop_event
-    if _stop_event is not None:
-        _stop_event.set()
-    if _task is not None:
-        try:
-            await asyncio.wait_for(_task, timeout=5.0)
-        except TimeoutError:
-            _task.cancel()
-        except Exception:
-            pass
-    _task = None
-    _stop_event = None
+    """No-op — no background task to stop."""
