@@ -3268,6 +3268,22 @@
       border-radius: 6px; font-family: var(--mono); font-size: 11px;
       color: var(--ink-soft); white-space: pre-wrap; max-height: 240px; overflow: auto;
     }
+    .routine-description {
+      margin: 0 0 24px; font-size: 14px; line-height: 1.55;
+      color: var(--ink-soft);
+    }
+    .routine-description > :first-child { margin-top: 0; }
+    .routine-description > :last-child { margin-bottom: 0; }
+    .routine-schedule-text {
+      margin: 0 0 12px; font-size: 14px; line-height: 1.55;
+      color: var(--ink-soft);
+    }
+    .routine-prompt-body {
+      margin: 0; font-size: 14px; line-height: 1.55;
+      color: var(--ink-soft);
+    }
+    .routine-prompt-body > :first-child { margin-top: 0; }
+    .routine-prompt-body > :last-child { margin-bottom: 0; }
 
     /* Editor — unboxed; the parent view's chrome is enough.
        Was wrapped in a card with border + surface tint, which read as a
@@ -4442,13 +4458,12 @@
       <!-- Hero -->
       <section class="source-hero">
         <div class="row">
-          <div class="source-logo" id="routineDetailLogo">R</div>
+          <h1 id="routineDetailName" style="margin: 0;">Routine</h1>
           <div class="detail-actions">
             <button class="btn ghost compact" id="routineQuickPause"><span class="dot" id="routineDot"></span> Pause</button>
             <button class="btn ghost compact" id="routineFireNow">Fire now</button>
           </div>
         </div>
-        <h1 id="routineDetailName">Routine</h1>
         <div class="source-meta">
           <span class="source-status" id="routineStatusLine"><span id="routineStatusText">next fire · in 23m</span></span>
         </div>
@@ -4459,34 +4474,57 @@
            recent fires, manage actions). Edit shows the inline form. -->
       <div class="settings-tabs" role="tablist">
         <button class="settings-tab active" data-routine-tab="info" role="tab">Info</button>
+        <button class="settings-tab" data-routine-tab="recent" role="tab">Recent</button>
         <button class="settings-tab" data-routine-tab="edit" role="tab">Edit</button>
       </div>
 
       <!-- ═══ INFO PANEL ═══════════════════════════ -->
       <div class="settings-panel" data-routine-panel="info">
-        <!-- Activity -->
-        <section class="section">
-          <div class="section-head">
-            <h2>Activity</h2>
-            <span class="meta" id="routineLastSeen">—</span>
-          </div>
-          <div class="stats-row" id="routineStats">
-            <div class="stat"><span class="n" id="routineCount24h">—</span><span class="lbl">last 24h</span></div>
-            <div class="stat"><span class="n" id="routineCount7d">—</span><span class="lbl">last 7d</span></div>
-            <div class="stat"><span class="n" id="routineCountAll">—</span><span class="lbl">all time</span></div>
-          </div>
-        </section>
+        <!-- Purpose — extracted from the prompt's PURPOSE section -->
+        <p class="routine-description" id="routineDescription" hidden></p>
 
-        <!-- Schedule + prompt preview -->
+        <!-- Schedule -->
         <section class="section">
           <div class="section-head">
             <h2>Schedule</h2>
-            <span class="meta" id="routineScheduleMeta">—</span>
           </div>
-          <div class="routine-prompt" id="routinePromptPreview">(empty)</div>
+          <p class="routine-schedule-text" id="routineScheduleMeta">—</p>
         </section>
 
-        <!-- Recent fires — the equivalent of "Recent moments" on sources -->
+        <!-- Prompt body — parsed into Needs / Steps / Ending when the
+             body matches the documented schema. Routines that don't
+             conform fall back to a single "Prompt" section. -->
+        <section class="section" data-prompt-section="needs" hidden>
+          <div class="section-head"><h2>Needs</h2></div>
+          <div class="routine-prompt-body" id="routineSectionNeeds"></div>
+        </section>
+        <section class="section" data-prompt-section="steps" hidden>
+          <div class="section-head"><h2>Steps</h2></div>
+          <div class="routine-prompt-body" id="routineSectionSteps"></div>
+        </section>
+        <section class="section" data-prompt-section="ending" hidden>
+          <div class="section-head"><h2>Ending</h2></div>
+          <div class="routine-prompt-body" id="routineSectionEnding"></div>
+        </section>
+        <section class="section" data-prompt-section="raw" hidden>
+          <div class="section-head"><h2>Prompt</h2></div>
+          <div class="routine-prompt-body" id="routineSectionRaw"></div>
+        </section>
+
+        <!-- Delete — tombstone-only (history stays in the lake). -->
+        <section class="section">
+          <div class="section-head">
+            <h2>Delete</h2>
+          </div>
+          <p style="font-size: 14px; color: var(--ink-soft); line-height: 1.55; margin: 0 0 10px;">
+            Deleting writes a tombstone delta. Past fires and summaries stay in the lake; the scheduler just stops firing.
+          </p>
+          <button class="btn danger" id="routineDeleteBtn">Delete routine</button>
+        </section>
+      </div>
+
+      <!-- ═══ RECENT PANEL ═════════════════════════ -->
+      <div class="settings-panel" data-routine-panel="recent" hidden>
         <section class="section">
           <div class="section-head">
             <h2>Recent fires</h2>
@@ -4494,22 +4532,6 @@
           <div class="delta-list" id="routineFires">
             <!-- Populated by loadRoutineDetail() -->
           </div>
-        </section>
-
-        <!-- Manage — secondary actions. Migrate-to-schema is a one-shot
-             rewrite assist that lands as a proposal card; delete is
-             tombstone-only (history stays in the lake). -->
-        <section class="section">
-          <div class="section-head">
-            <h2>Manage</h2>
-          </div>
-          <div class="section-head" style="margin-top: 12px;">
-            <h3 style="font-size: 14px; margin: 0;">Delete</h3>
-          </div>
-          <p style="font-size: 13px; color: var(--ink-soft); line-height: 1.55; margin: 0 0 10px;">
-            Deleting writes a tombstone delta. Past fires and summaries stay in the lake; the scheduler just stops firing.
-          </p>
-          <button class="btn danger" id="routineDeleteBtn">Delete routine</button>
         </section>
       </div>
 
@@ -5923,6 +5945,45 @@
     }
     function cronShapeOk(s) { return /^(\S+\s+){4}\S+$/.test((s || '').trim()); }
 
+    // Inverse of computeCron: render a cron string the same shape the
+    // edit-form dropdowns build into ("daily at 1:00 AM", "weekly on
+    // Monday at 9:00 AM", etc.). Falls back to the raw cron for shapes
+    // outside the preset set.
+    const _DAY_NAMES = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+    const _MONTH_NAMES = ['', 'January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+    function _fmtTime12(h, m) {
+      const period = h >= 12 ? 'PM' : 'AM';
+      const hh = (h % 12) || 12;
+      return `${hh}:${String(m).padStart(2, '0')} ${period}`;
+    }
+    const _SHORT_TZ = (() => {
+      try {
+        const parts = new Intl.DateTimeFormat('en-US', { timeZoneName: 'short' }).formatToParts(new Date());
+        const p = parts.find(x => x.type === 'timeZoneName');
+        return p ? p.value : '';
+      } catch (_e) { return ''; }
+    })();
+    const _withTz = s => _SHORT_TZ ? `${s} ${_SHORT_TZ}` : s;
+    function _describeSchedule(cron, single_fire) {
+      const norm = (cron || '').trim();
+      if (!norm) return '—';
+      const preset = inferPreset(norm, single_fire);
+      let out = norm;
+      if (preset === 'once') {
+        const m = norm.match(/^(\d+)\s+(\d+)\s+(\d+)\s+(\d+)\s+\*$/);
+        if (m) out = _withTz(`once on ${_MONTH_NAMES[+m[4]]} ${+m[3]} at ${_fmtTime12(+m[2], +m[1])}`);
+      } else if (preset === 'daily') {
+        const m = norm.match(/^(\d+)\s+(\d+)\s+\*\s+\*\s+\*$/);
+        if (m) out = _withTz(`daily at ${_fmtTime12(+m[2], +m[1])}`);
+      } else if (preset === 'weekly') {
+        const m = norm.match(/^(\d+)\s+(\d+)\s+\*\s+\*\s+(\d)$/);
+        if (m) out = _withTz(`weekly on ${_DAY_NAMES[+m[3]]} at ${_fmtTime12(+m[2], +m[1])}`);
+      } else if (PRESET_LABELS[preset]) {
+        out = PRESET_LABELS[preset];
+      }
+      return out.charAt(0).toUpperCase() + out.slice(1);
+    }
+
     // ── Scaffold-mode parsers ─────────────────────
     // Split a prompt body into the four sections (Purpose / Needs /
     // Steps / Ending) when written in the documented schema. Returns
@@ -7157,20 +7218,60 @@
     const viewRoutineDetail = document.getElementById('viewRoutineDetail');
     const routineBackBtn = document.getElementById('routineBackBtn');
 
+    // Splits the prompt into Needs / Steps / Ending sections when the
+    // body matches the documented schema, hides those and shows a
+    // single "Prompt" fallback section otherwise.
+    function _renderRoutinePromptSections(prompt) {
+      const setBody = (name, text) => {
+        const sec = document.querySelector(`[data-prompt-section="${name}"]`);
+        if (!sec) return;
+        const body = sec.querySelector('.routine-prompt-body');
+        const trimmed = (text || '').trim();
+        body.innerHTML = trimmed ? renderMd(trimmed) : '';
+        sec.hidden = !trimmed;
+      };
+      const parsed = _parseScaffoldSections(prompt);
+      if (parsed) {
+        setBody('needs', parsed.needs);
+        setBody('steps', parsed.steps);
+        setBody('ending', parsed.ending);
+        setBody('raw', '');
+      } else {
+        setBody('needs', '');
+        setBody('steps', '');
+        setBody('ending', '');
+        setBody('raw', prompt);
+      }
+    }
+
+    // Pulls the text under a "Purpose" header out of the prompt body.
+    // Handles markdown-style (`# Purpose`, `## Purpose`) and bare
+    // ALL-CAPS (`PURPOSE`); stops at the next header of the same kind.
+    function _extractRoutinePurpose(prompt) {
+      if (!prompt) return '';
+      let m = prompt.match(
+        /(?:^|\n)#+\s*purpose\s*:?\s*\n([\s\S]*?)(?=\n#+\s|$)/i
+      );
+      if (m) return m[1].trim();
+      m = prompt.match(
+        /(?:^|\n)\s*PURPOSE\s*:?\s*\n([\s\S]*?)(?=\n\s*[A-Z][A-Z0-9_ -]{2,}\s*:?\s*(?:\n|$)|$)/
+      );
+      return m ? m[1].trim() : '';
+    }
+
     function openRoutineDetail(routineId) {
       const r = _routineCache.find(x => x.id === routineId);
       if (!r) return;
       closeSidebar();
       viewRoutineDetail.dataset.routine = routineId;
-      document.getElementById('routineDetailTitle').textContent = r.name || r.id;
       document.getElementById('routineDetailName').textContent = r.name || r.id;
-      document.getElementById('routineDetailLogo').textContent = ((r.name || r.id)[0] || 'R').toUpperCase();
-      document.getElementById('routineScheduleMeta').textContent = r.schedule || '—';
-      document.getElementById('routinePromptPreview').textContent = r.prompt || '(empty)';
+      document.getElementById('routineScheduleMeta').textContent = _describeSchedule(r.schedule, r.single_fire);
+      const descEl = document.getElementById('routineDescription');
+      const purpose = _extractRoutinePurpose(r.prompt || '');
+      descEl.innerHTML = purpose ? renderMd(purpose) : '';
+      descEl.hidden = !purpose;
+      _renderRoutinePromptSections(r.prompt || '');
       document.getElementById('routineStatusText').textContent = _nextFireText(r);
-      document.getElementById('routineLastSeen').textContent = r.last_fire
-        ? 'Last fired · ' + relTimeFromIso(r.last_fire.timestamp)
-        : 'Never fired';
 
       const paused = !r.enabled;
       document.getElementById('routineStatusLine').classList.toggle('paused', paused);
@@ -7234,22 +7335,21 @@
 
     async function loadRoutineDetail(routineId) {
       const list = document.getElementById('routineFires');
-      const count24h = document.getElementById('routineCount24h');
-      const count7d = document.getElementById('routineCount7d');
-      const countAll = document.getElementById('routineCountAll');
-      count24h.textContent = '—'; count7d.textContent = '—'; countAll.textContent = '—';
       list.innerHTML = '';
 
       try {
-        const r = await fetch(API_BASE + '/v1/deltas?limit=50&tags_include=' + encodeURIComponent('routine-fire,routine-id:' + routineId), { headers: authHeaders() });
+        // Every fire writes a `routine-tick` lake delta tagged with
+        // `routine-id:<id>` and `fired-at:<ts>`. Older code also expected
+        // a bare `routine-fire` tag, which the current scheduler doesn't
+        // produce — querying for both required AND'd tags came back empty.
+        // Query by `routine-id:<id>` alone, then drop the spec row (the
+        // routine definition itself shares the same id tag).
+        const r = await fetch(API_BASE + '/v1/deltas?limit=50&tags_include=' + encodeURIComponent('routine-id:' + routineId), { headers: authHeaders() });
         if (!r.ok) throw new Error(r.status + ' ' + r.statusText);
         const data = await r.json();
-        const deltas = (data.deltas || data || []).filter(d => (d.tags || []).includes('routine-id:' + routineId));
-        const now = Date.now();
-        const within = (d, ms) => (now - new Date(d.timestamp).getTime()) <= ms;
-        count24h.textContent = _fmtCount(deltas.filter(d => within(d, 86400e3)).length);
-        count7d.textContent = _fmtCount(deltas.filter(d => within(d, 7 * 86400e3)).length);
-        countAll.textContent = _fmtCount(deltas.length);
+        const deltas = (data.deltas || data || [])
+          .filter(d => (d.tags || []).includes('routine-id:' + routineId))
+          .filter(d => !(d.tags || []).includes('spec'));
 
         list.innerHTML = deltas.slice(0, 20).map(_deltaRowHTML).join('')
           || '<div style="color: var(--ink-faint); padding: 16px 0;">No fires yet.</div>';
@@ -7722,7 +7822,31 @@
     });
 
     // Load on startup
-    loadRoutines();
+    loadRoutines().then(_applyDevRoute);
+
+    // ── Dev quick-route (temporary, for routines polish pass) ──
+    //   ?routine=<id>  opens that routine's detail/edit view directly
+    //   ?routines      opens the sidebar with the Routines section in view
+    function _applyDevRoute() {
+      const params = new URLSearchParams(location.search);
+      const id = params.get('routine');
+      if (id) {
+        if (!_routineCache.find(r => r.id === id)) {
+          console.warn('[dev-route] no routine with id', id,
+            '\n  available:', _routineCache.map(r => r.id));
+          return;
+        }
+        openRoutineDetail(id);
+        return;
+      }
+      if (params.has('routines')) {
+        if (typeof openSidebar === 'function') openSidebar();
+        setTimeout(() => {
+          document.getElementById('routinesSection')
+            ?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }, 200);
+      }
+    }
 
     // ── Settings ─────────────────────────────────
     const viewSettings = document.getElementById('viewSettings');
