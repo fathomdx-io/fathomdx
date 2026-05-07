@@ -58,46 +58,59 @@ carry the agent's main thinking.
 
 ## The Grand Loop
 
-A loop tick is a parliamentary deliberation feeding a single witness
-output. The shape:
+A loop tick is a single agentic harness fire. The model elects its own
+deliberation via tool calls, integrates the result, and writes a card.
+The convener+parliament+witness pipeline (`process.py`, `metric.py`,
+`recall.py`, `telepathy.py`) was retired in the harness migration; the
+harness's `deliberate` tool covers the antagonism case when needed.
+
+The shape:
 
 1. **Pressure / intents** — `api/loop/pressure.py` watches substrate
    pressure (`api/feed_pressure.py`); when it crosses, `intents.py`
    drops one intent per pass-kind into the puddle. User questions and
    other surface-driven asks also land as intent deltas.
-2. **Recall** — `api/loop/recall.py` runs two searcher ticks:
-   `run_intent_searcher_tick` fires once per pending intent (grounds
-   round-0 voices on the user's literal words); `run_voice_followup_tick`
-   fires once per voice per round (each voice refines its own thread).
-   Both write `recall-result` deltas into the puddle.
-3. **Resonance** — `api/loop/resonance.py` ranks puddle items by
-   semantic similarity to whatever a consumer is considering. Voices
-   and the witness pull resonance-ranked substrate, not whatever's
-   most recent.
-4. **Parliament** — `api/loop/process.py` is one process = one voice
-   take. Voices iterate in rotation; `api/loop/metric.py` computes
-   cross-voice convergence after each tick. When the rolling-window
-   spread tightens below `SETTLE_SPREAD_MAX`, the parliament has
-   settled.
-5. **Witness** — `api/loop/witness.py` reads voice thoughts, threads
-   pending intents, asks for one integrated body + a route +
-   addressed-intent ids, runs an independent judge for salience /
-   novelty / resonance / confidence / comfort. Dual-writes to puddle
-   (with `lake-id:<full>` cross-pointer) and lake (TTL'd by default;
-   judge axes auto-author when worth keeping).
-6. **Telepathy** — `api/loop/telepathy.py` keeps the puddle aware of
-   the lake: pulls latest crystal facets, latest mood, mirrors recent
-   non-loop activity into the puddle as `lake-delta` items. The
-   `recalled-id:<24chars>` tag is the shared dedupe key across
-   recall, witness dual-writes, and telepathy mirrors.
-7. **Mood + drift + feed-orient** — `api/mood.py`, `api/drift.py`,
-   `api/loop/feed_orient*.py` regenerate periodically from accumulated
-   substrate. Each lands as a lake delta that telepathy surfaces back
-   into the puddle on the next refresh.
+2. **Harness** — `api/loop/harness/loop.py:run_harness` is a multi-turn
+   tool-calling loop. Each turn the model emits either a tool call or a
+   final card. Tools cover recall (`semantic`, `expand`, `ascend`),
+   structured lenses (`state`, `pattern`, `time`, `relate`), synthesis
+   (`plan`, `deliberate`, `introspect`), and action
+   (`dispatch_helper`, `mint_routine`, `orient_shift`,
+   `propose_provenance`). The fire ends when the model emits `respond`.
+   A post-response review pass runs once after the response, with
+   `propose_provenance` / `skip` as the only outcomes.
+3. **Self-constituting writes** — every fire that produces output
+   writes attestation, mood-shift, citation engagement, a Q/A marker
+   (level-0 provenance), and judge-axes. The next fire's standpoint is
+   partly authored by what the previous fire claimed about itself.
+4. **Mood + drift + feed-orient** — `api/mood.py`, `api/drift.py`,
+   `api/loop/feed_orient.py` regenerate periodically from accumulated
+   substrate. Each lands as a lake delta the next fire's standpoint
+   loader picks up.
 
-The supervisor (`api/loop/worker.py`) ties it together — polls the
-puddle for pending intents, runs a parliament round when any are
-present, fires the witness, repeats.
+The puddle still exists — it carries pending intents and the
+working-set substrate the harness reads at fire-start. It's no longer
+the "deliberation arena" the parliament wrote into; the harness reads
+it once at fire start (via `standpoint.current()`) and works from
+there. The `recalled-id:<24chars>` tag still dedupes recall results
+across surfaces.
+
+### Two harness flavors
+
+| Flavor | Module | Activation | What it is |
+|---|---|---|---|
+| **Legacy** | `api/loop/harness/loop.py` | default (`FATHOM_THREADED_HARNESS` unset / `=0`) | Renders the entire fire context (standpoint, conversation, tool history) into one giant user prompt each turn. Model emits JSON envelopes the loop parses and dispatches. Drives `api/loop/worker.py:_run_one_fire`. |
+| **Threaded** | `api/loop/harness/threaded.py` | `FATHOM_THREADED_HARNESS=1` | Native chat-completions: real `role:user` / `role:assistant` / `role:tool` turns with native `tool_calls`. Prompt-cache friendly. Driven by `api/loop/threaded_supervisor.py`, which polls `thread.unaddressed` instead of `puddle.pending_intents`. Adds `engage_feed`, `see_image`, `mark_addressed`, and self-continuation via `next_prompt`. |
+
+When `FATHOM_THREADED_HARNESS=1`, the legacy supervisor stays dormant
+(`worker.py:_supervisor` checks the flag each tick). Flip the flag,
+restart the api, and the active path swaps — no other config change
+needed. This is the cutover sequence; threaded is the future, legacy
+is the documented fallback while the cutover bakes.
+
+`api/loop/witness.py` survives as a utility module
+(`_dispatch_card`, `_available_helper_hosts`, `_render_hosts_block`).
+`run_witness` itself is unused.
 
 ## Search
 
@@ -144,16 +157,18 @@ the cloud-aware sediment prompt.
 
 These get conflated. They aren't the same thing:
 
-  * **Search** pulls candidates *into* the puddle from the lake. It's
-    intent-anchored, per-voice, and goes through the full plan + rerank
-    pipeline. The loop's recall ticks are searches.
-  * **Resonance** ranks candidates already in the puddle against a
-    signal, returning the top-k. It's a local cosine over already-
-    fetched embeddings. Voices and the witness use it to filter their
-    substrate; they don't compose queries through it.
+  * **Search** pulls candidates *into* the puddle from the lake. It
+    goes through the full plan + rerank pipeline. The harness's
+    `semantic` tool calls into this; so do MCP `remember`, the CLI,
+    and any other NL recall surface.
+  * **Resonance** (`api/loop/resonance.py`) ranks candidates already
+    in the puddle against a signal, returning the top-k. It's a local
+    cosine over already-fetched embeddings. The harness uses it to
+    rank substrate for prompt rendering; it does not compose queries
+    through resonance.
 
-Retrieval is not synthesis. Parliament does synthesis. Search and
-resonance both feed parliament; neither does the integrating.
+Retrieval is not synthesis. The harness does synthesis. Search and
+resonance both feed the harness; neither does the integrating.
 
 ## Tag conventions
 
@@ -165,13 +180,17 @@ resonance both feed parliament; neither does the integrating.
 | `engages:<id>` / `reply-to:<id>` | Neutral attention pointers. |
 | `engagement:more` / `engagement:less` | Feed +/- markers. |
 | `kind:routine-fire` / `routine-id:<id>` | Scheduled-prompt fire and its summary pairing key. |
-| `voice:<name>` | Loop voice attribution (creator / preserver / destroyer). |
+| `voice:<name>` | Voice attribution on `deliberate` tool calls (creator / preserver / destroyer). |
 | `chat:<slug>` / `fathom-chat` | Web-chat surface session and source. |
-| `recalled-id:<24chars>` | Dedupe key shared across recall, telepathy mirrors, witness dual-writes. |
-| `lake-id:<full>` | Puddle → lake cross-pointer on dual-written witness cards. |
-| `addresses:<intent-id>` | Witness output marking an intent as resolved. |
+| `session:<id>` | Per-fire session tag — every harness fire gets one; tools, traces, and writes within the fire share it. |
+| `recalled-id:<24chars>` | Dedupe key shared across recall, the harness's working set, and dual-writes. |
+| `lake-id:<full>` | Puddle → lake cross-pointer on dual-written cards. |
+| `addresses:<intent-id>` | Card output marking an intent as resolved. |
+| `kind:harness-turn` / `tool:<name>` / `turn:<n>` / `harness-source:legacy\|threaded` | Per-tool-call trace deltas the dashboard's thinking accordion renders. |
+| `kind:provenance` / `provenance-level:<n>` / `from:<id>` | Named stretches above base moments — Q/A marker (L0), episode (L1), topic (L2), era (L3+). |
+| `kind:proposal` / `tool:<provenance\|routine\|...>` | Pending operator decision; auto-approves at L1/L2 for `tool:provenance`. |
 | `feeling:<state>` / `kind:mood` | Mood deltas. |
-| `crystal:identity` / `crystal:feed-orient` | The two crystals telepathy surfaces. |
+| `crystal:identity` / `crystal:feed-orient` | The two crystals the standpoint loader surfaces. |
 
 `api/reserved_tags.py` is the authority — anything authority-bearing
 passes a gate before write.
@@ -188,7 +207,9 @@ routine instructs; the dashboard pairs the fire to its summary by
 To see what a routine produced, look at the routines page or search
 the lake by `routine-id:<id>`.
 
-> Open follow-up: the witness can mint routines from intent deltas
-> directly. The OpenAI-shape schema for routine creation lives in
-> `api/_tool_schema.py` (`CHAT_ONLY_TOOLS` / `routines` entry); reuse
-> it when wiring the witness's routine-fire route.
+The harness can mint routines mid-fire via the `mint_routine` tool
+(see `api/loop/harness/tools.py:tool_mint_routine`). It lands as a
+`kind:proposal tool:routines` delta awaiting operator approval rather
+than an immediate routine write — same approval flow as
+`dispatch_helper`. The OpenAI-shape schema lives in
+`api/_tool_schema.py` (`CHAT_ONLY_TOOLS` / `routines` entry).

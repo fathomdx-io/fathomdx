@@ -1,13 +1,13 @@
 # Routine Spec
 
-A routine is a prompt + a schedule. The cron tick fires it INTO the River (the witness), which decides what to do — dispatch claude-code, write a feed card, fire an alert, propose a state change, or stay silent. The routine spec doesn't pre-pick a route.
+A routine is a prompt + a schedule. The cron tick fires it INTO the River (the harness), which decides what to do — dispatch claude-code, write a feed card, fire an alert, propose a state change, or stay silent. The routine spec doesn't pre-pick a route.
 
 ## Anatomy
 
 A routine is a **spec delta** with three things:
 
 1. **Tags** — `spec`, `routine`, and `routine-id:<stable-id>`, plus an optional `workspace:<name>`.
-2. **Content** — YAML frontmatter + a prompt body (the text the witness reads as the user-given instruction).
+2. **Content** — YAML frontmatter + a prompt body (the text the harness reads as the user-given instruction).
 3. **Source** — `consumer-dashboard` (when created via the UI), `claude-code:<workspace>` (when hand-written), or `routine-scheduler` for internal writes.
 
 Example:
@@ -48,7 +48,7 @@ The four-section body (Purpose / Needs / Steps / Ending) is convention, not enfo
 
 ## Writing the prompt
 
-The witness reads the prompt body as the user-given instruction. Routines that follow a four-section convention give the witness clearer signal than freeform prose — same reason a good email has a subject line, body, and call-to-action.
+The harness reads the prompt body as the user-given instruction. Routines that follow a four-section convention give the harness clearer signal than freeform prose — same reason a good email has a subject line, body, and call-to-action.
 
 ### The four sections
 
@@ -66,18 +66,18 @@ a strong hint when picking a route.]
 Numbered or prose, whichever fits.]
 
 # Ending
-[How you want to know it ran. Plain language. The witness reads this to pick
+[How you want to know it ran. Plain language. The harness reads this to pick
 the route — feed card, chat reply, alert, silent, or something else.
 Examples below.]
 ```
 
-The witness still reads the *whole* body, so prose outside these sections is fine. But the headers are load-bearing: Fathom looks at `# Ending` to decide what to deliver back to you.
+The harness still reads the *whole* body, so prose outside these sections is fine. But the headers are load-bearing: Fathom looks at `# Ending` to decide what to deliver back to you.
 
 ### `# Ending` — how you want to be notified
 
-This is where you express the route preference in language. The witness translates to its actual route. Common patterns:
+This is where you express the route preference in language. The harness translates to its actual route. Common patterns:
 
-| What you write under `# Ending` | Witness picks |
+| What you write under `# Ending` | Harness picks |
 |---|---|
 | "Send me a card with the result." | `feed-card` |
 | "DM me a quick line." | `chat-reply` to your active surface |
@@ -93,9 +93,9 @@ You don't have to use any of these phrasings exactly. Write it however you'd des
 
 We considered it. The reason we landed on prose under `# Ending` instead:
 
-- **The witness is an LLM.** Asking it to read "Card most days, alert if X" as a directive is exactly what it's good at. Pushing that into structured fields forces precision the user doesn't have to want.
+- **The harness is an LLM.** Asking it to read "Card most days, alert if X" as a directive is exactly what it's good at. Pushing that into structured fields forces precision the user doesn't have to want.
 - **The Ending section is where edge-case conditions live.** "Card unless gold-to-mac ratio drops below 1.0" is a real preference; encoding the predicate as YAML would be lossy.
-- **Routine writers are the user, not other code.** The schema should match how the user thinks, not how the witness parses.
+- **Routine writers are the user, not other code.** The schema should match how the user thinks, not how the harness parses.
 
 Keep frontmatter for **routine identity and scheduling** (id, name, schedule, host, permission). Keep prose for **everything about what to do and how to deliver it**.
 
@@ -205,35 +205,35 @@ Send me a card. Three sections, one paragraph each.
 | `schedule` | cron | — | 5-field cron string. Evaluated in the api container's local TZ. |
 | `interval_minutes` | int | — | Legacy. Parsed for back-compat but ignored by the scheduler. Use `schedule`. |
 | `enabled` | bool | `true` | When false, scheduler skips. Dashboard greys it out. |
-| `workspace` | string | `""` | Path under `~/Dropbox/Work/`. Only used when the witness routes to claude-code; the kitty plugin `cd`s there before launching claude. |
-| `host` | string | `""` | If set, only the agent whose `host` matches will spawn claude-code (when the witness picks that route). Empty = fleet-wide. Informational for non-claude-code routes. |
+| `workspace` | string | `""` | Path under `~/Dropbox/Work/`. Only used when the harness routes to claude-code; the kitty plugin `cd`s there before launching claude. |
+| `host` | string | `""` | If set, only the agent whose `host` matches will spawn claude-code (when the harness picks that route). Empty = fleet-wide. Informational for non-claude-code routes. |
 | `permission_mode` | `auto` \| `normal` | `auto` | Only meaningful for claude-code-routed fires. See "Per-host kill switch" in [set-up-a-routine.md](../how-to/set-up-a-routine.md). |
 | `single_fire` | bool | `false` | When true, the scheduler soft-deletes the spec after firing once (writes a tombstone with `deleted: true`). |
 | `deleted` | bool | `false` | Tombstone — scheduler and dashboard skip. History stays in the lake. |
 
 ## Lifecycle
 
-Every fire flows through the River. Cron, Fire Now, chat-tool `fire`, and the witness's own `routine-fire:<id>` route all converge on the same shape.
+Every fire flows through the River. Cron, Fire Now, chat-tool `fire`, and the harness's own `routine-fire:<id>` route all converge on the same shape.
 
 ```
-spec delta             routine-due intent       witness output           (downstream)
+spec delta             routine-due intent       harness output           (downstream)
 (edited by you)        (puddle, kind:           (one or more cards;     (e.g. claude-code
                         routine-due, body =      varies by route)         closure → next
-                        prompt)                                           witness tick)
+                        prompt)                                           harness tick)
 ─────────────          ──────────────────       ────────────────         ────────────────
 [spec, routine,        intent + tags carry      route can be             whatever the route's
  routine-id:X]   ──▶   routine-id, host pin,    feed-card, chat-reply,   downstream is —
                        permission_mode          claude-code:<host>,      claude-code spawns
                                                 alert:<level>, tool:..., a kitty window;
                                                 or no card (silent)      feed-card lands
-(any fire trigger)     (witness deliberates)    (witness emits)          (consumer reads)
+(any fire trigger)     (harness elects tools)   (harness emits)          (consumer reads)
 
 In parallel, every fire also writes a `routine-tick` marker delta
 into the lake — durable receipt for hydration on restart and as the
 visible "routine fired" breadcrumb in the dashboard feed.
 ```
 
-The witness's pick depends on the prompt. "Check the news, synthesize an update" → claude-code dispatch + a follow-up synthesis tick. "Summarize this week from the lake" → one feed-card. "Stay silent unless X moved" → no card emitted on quiet days. See [set-up-a-routine.md](../how-to/set-up-a-routine.md#what-a-routine-can-touch) for the full route table.
+The harness's pick depends on the prompt. "Check the news, synthesize an update" → claude-code dispatch + a follow-up synthesis tick. "Summarize this week from the lake" → one feed-card. "Stay silent unless X moved" → no card emitted on quiet days. See [set-up-a-routine.md](../how-to/set-up-a-routine.md#what-a-routine-can-touch) for the full route table.
 
 The legacy direct-to-kitty path (`routine-fire` lake delta consumed by the kitty plugin) was retired 2026-04-30. There's no longer a "skip the River" override — routines are a scheduled "Hey Fathom, handle this," and Fathom always decides.
 
@@ -245,7 +245,7 @@ The legacy direct-to-kitty path (`routine-fire` lake delta consumed by the kitty
 | **routine-due intent** | `intent`, `kind:routine-due`, `routine-id:<id>` | `host:<x>`, `permission-mode:<mode>` | `routine-scheduler` |
 | **routine-tick** | `routine-tick`, `routine-id:<id>` | `host:<x>`, `fired-at:<iso>` | `routine-scheduler` |
 
-Downstream artifacts (witness cards, claude-code closures) carry their own tag families and aren't routine-specific — they look the same as anything else the witness emits, just stamped with `addresses:<intent-id>` pointing back at the `routine-due` intent.
+Downstream artifacts (harness cards, claude-code closures) carry their own tag families and aren't routine-specific — they look the same as anything else the harness emits, just stamped with `addresses:<intent-id>` pointing back at the `routine-due` intent.
 
 The legacy `routine-fire` and `routine-summary` shapes still appear in the lake from history but no new producers write them. Old fires render in the feed via the same accordion as new ones.
 
@@ -263,8 +263,8 @@ The dashboard's Routines page does all of this through `/v1/routines`, `/v1/rout
 
 - **`api/routine_scheduler.py`** — reads spec deltas every 60s, writes `routine-due` intents into the puddle on cron-elapsed AND a `routine-tick` marker into the lake. Honors `single_fire` by soft-deleting the spec after firing once.
 - **`api/routines.py`** — CRUD over spec deltas. `fire()` is the legacy direct-to-kitty path (Path B); used by Fire Now and the chat tool.
-- **`api/loop/witness.py`** — reads `routine-due` intents alongside other intents, deliberates, picks a route. Output cards stamp `addresses:<intent-id>` to close the intent. Also has its own `routine-fire:<id>` route (Phase 2) for proactively firing routines based on substrate.
-- **`addons/agent/plugins/kitty.js`** — polls for `routine-fire` deltas (Path B) AND `route:claude-code` deltas (Path A → witness dispatched claude-code). Spawns kitty + claude in either case.
+- **`api/loop/harness/`** — `worker.py:_run_one_fire` reads `routine-due` intents alongside other intents and hands them to `run_harness`, which elects tool calls and produces a card. The card stamps `addresses:<intent-id>` to close the intent. (`api/loop/witness.py` survives as a card-dispatch helper module — `_dispatch_card`, `_available_helper_hosts`, `_render_hosts_block` — but `run_witness` is unused.)
+- **`addons/agent/plugins/kitty.js`** — polls for `routine-fire` deltas (Path B) AND `route:claude-code` deltas (Path A → harness-dispatched claude-code). Spawns kitty + claude in either case.
 - **`api/routes/routines.py`** — HTTP CRUD for the dashboard.
 - **Dashboard `RoutinesPage`** — renders, and POSTs back to `/v1/routines` for CRUD.
 
@@ -274,5 +274,5 @@ The dashboard's Routines page does all of this through `/v1/routines`, `/v1/rout
 - **Soft-delete != gone from search.** Tombstones still match `fathom delta search`. Filter with `--not-tags deleted` if you want to hide them. (Or filter client-side on `meta.deleted`.)
 - **Schedule TZ.** Cron is evaluated in the api container's local TZ (see `TZ` in `.env`). If you're away from home, your routines still fire on container time.
 - **`interval_minutes` is dead.** Parser accepts it but the scheduler ignores it. Use `schedule`.
-- **Path A doesn't write `routine-fire` deltas.** If you're scripting against the lake and waiting for those to detect activity, switch to `routine-tick` or to the witness's `addresses:<intent-id>` outputs.
-- **The witness might emit nothing.** A prompt like "stay silent unless X" can produce zero cards on quiet days. That's not a bug. The `routine-due` intent times out after the kind's TTL (48h by default for routine-due) and falls off the queue.
+- **Path A doesn't write `routine-fire` deltas.** If you're scripting against the lake and waiting for those to detect activity, switch to `routine-tick` or to the harness's `addresses:<intent-id>` outputs.
+- **The harness might emit nothing.** A prompt like "stay silent unless X" can produce zero cards on quiet days. That's not a bug. The `routine-due` intent times out after the kind's TTL (48h by default for routine-due) and falls off the queue.

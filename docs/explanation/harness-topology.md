@@ -1,7 +1,12 @@
 # Harness Topology
 
-A snapshot of the agent harness, its retrieval stack, the provenance
-hierarchy, and the producer architecture as of `feat/agent-harness`.
+A snapshot of the agent harness in production: the agentic deliberation
+pass that replaces the convener+parliament+witness pipeline, the
+retrieval stack underneath, the provenance hierarchy that grows out of
+fires, and the producer architecture around it. Migrated into fathomdx
+in early May 2026 and now driving every fire — the legacy pipeline's
+core modules (`process.py`, `metric.py`, `recall.py`, `telepathy.py`)
+are deleted; `witness.py` survives only as a card-dispatch utility.
 
 ## The three modes
 
@@ -25,16 +30,16 @@ plan that emerges from a sit is the artifact, not noise.
 
 ## What the harness is
 
-A drop-in replacement for `witness.run_witness` that turns the
-convener+parliament+witness pipeline (deterministic, every fire) into
-an agentic tool-calling loop (elective, every fire). The model emits
-a JSON envelope each turn — either a tool call or a final response —
-and the loop continues until the model elects to respond.
+The deliberation pass: an agentic tool-calling loop (elective, every
+fire) where the model emits either a tool call or a final response
+each turn, and the loop continues until the model elects `respond`.
+Replaces the deterministic convener+parliament+witness pipeline.
 
-Three entry points:
+Three entry points (legacy harness; threaded mirrors them):
 
-- `run_harness(session_tag, pending, ...)` — reactive mode. Same
-  return shape as `run_witness`. Drop-in replacement.
+- `run_harness(session_tag, pending, ...)` — reactive mode. Called
+  from `api/loop/worker.py:_run_one_fire` for every pending intent
+  group.
 - `run_introspection(focus, session_tag, ...)` — single-fire
   reflection. Multi-turn substrate walk → one `kind:reflection` delta
   written to the lake. No card, no user.
@@ -45,6 +50,36 @@ Three entry points:
   just the existing harness with prior reply as new intent.
 
 Lives at `api/loop/harness/`.
+
+### Two flavors: legacy and threaded
+
+Two parallel harness implementations share the same module tree:
+
+| Flavor | Module | Activation | Protocol |
+|---|---|---|---|
+| **Legacy** | `loop.py` (+ `tools.py`, `prompts.py`) | default | One giant rendered user prompt per turn; model emits a JSON envelope the loop parses; tools dispatched via `TOOL_HANDLERS`. |
+| **Threaded** | `threaded.py` (+ `tool_schemas.py`) | `FATHOM_THREADED_HARNESS=1` | Native chat-completions: `role:user` / `role:assistant` / `role:tool` turns with native `tool_calls`; prompt-cache friendly. Driven by `threaded_supervisor.py`, which polls `thread.unaddressed` instead of `puddle.pending_intents`. |
+
+When the threaded flag is set, the legacy `worker.py:_supervisor`
+goes dormant (it checks the flag each tick) and `threaded_supervisor`
+takes over. Surfaces shadow-write both substrates during the cutover
+window (puddle intent + `kind:thread-msg` thread message) so either
+supervisor can pick up incoming work; only one fires.
+
+Threaded adds three operator-facing tools the legacy doesn't:
+
+- **`mark_addressed`** — the model ticks each user message off the
+  unaddressed list. Anything left in the rolling window re-fires the
+  harness on the next tick, so intent never silently vanishes.
+- **`see_image`** — load an image into context by `media_hash`.
+  Search results mark images inline; this call actually opens them.
+- **`engage_feed`** — write `engagement:more` / `engagement:less`
+  deltas when the operator expresses preference about feed content.
+
+Threaded `respond` also accepts `next_prompt`: the model can hand
+itself a follow-up prompt to fire next, enabling self-continuation
+(the dashboard's Sit pass uses this — Fathom keeps reflecting until
+it omits `next_prompt`).
 
 ## The retrieval stack
 
@@ -104,9 +139,14 @@ the model recognizes them as named stretches, not base moments.
 ## The harness's tools
 
 ```
-plan        semantic    expand    ascend    deliberate
-state       pattern     time      relate    propose_provenance
+plan         semantic     expand      ascend      deliberate
+state        pattern      time        relate      introspect
+dispatch_helper           mint_routine            orient_shift
+propose_provenance        respond
 ```
+
+Threaded adds: `mark_addressed`, `see_image`, `engage_feed` (and
+`next_prompt` is a field on `respond`, not a separate tool).
 
 | tool | shape | what it's for |
 |---|---|---|
@@ -115,16 +155,24 @@ state       pattern     time      relate    propose_provenance
 | `expand` | `(delta_id)` | walks DOWN: pull a provenance's `from:` children |
 | `ascend` | `(delta_id)` | walks UP: find provenance containing a delta |
 | `deliberate` | `(question)` | parliament voices on a question; expensive |
+| `introspect` | `(question)` | spawn a child harness fire that answers with full toolset. Depth-1 cap. |
 | `state` | `(action, ...)` | current attention — pending_intents, proposals, mood, crystal, recent |
 | `pattern` | `(action, ...)` | aggregations — tagged, count_by, salient_recent, dormant |
 | `time` | `(action, ...)` | temporal-window — between, bucket_by, **around** |
 | `relate` | `(action, ...)` | engagement/relational — with_contact, engagement, dropped_around, cited_by |
-| `propose_provenance` | `(level, title, summary, from_ids, rationale, test_questions)` | draft a `kind:proposal` for review (or auto-approval at L1/L2). **Only available in the post-response review pass, not the main loop.** |
+| `dispatch_helper` | `(host, task, title)` | propose a claude-code dispatch to a host machine. Lands as `kind:proposal tool:helper-dispatch`; operator approves before execution. |
+| `mint_routine` | `(name, schedule, prompt, workspace, route_to, title)` | propose a scheduled (cron) routine. Lands as `kind:proposal tool:routines`. |
+| `orient_shift` | `(reason)` | kick the feed-orient regen pass when the conversation reveals a broader directional shift in the operator's interests. Async — crystal updates shortly. |
+| `propose_provenance` | `(level, title, summary, from_ids, rationale, test_questions)` | draft a `kind:proposal tool:provenance` for review (or auto-approval at L1/L2). **Only available in the post-response review pass, not the main loop.** |
+| `mark_addressed` *(threaded only)* | `(user_message_id, note)` | tick a user message off the unaddressed list. |
+| `see_image` *(threaded only)* | `(media_hash)` | load an image into context by hash. |
+| `engage_feed` *(threaded only)* | `(kind, target_ids, reason)` | record `engagement:more` / `engagement:less` against feed cards or constituents. |
+| `respond` | `(body \| cards, attestation, mood_shift, cited_ids, dropped_ids, [next_prompt])` | close the fire. Threaded `next_prompt` enables self-continuation. |
 
 Lens tools (`state`/`pattern`/`time`/`relate`) accept `action="help"`
 to enumerate sub-actions. Every tool returns full untruncated content;
-the prompt-budget cap is in `render_tool_history`, not in the tool
-returns.
+the prompt-budget cap is in render-time history compaction, not in
+the tool returns.
 
 ## Two-phase fire shape
 
@@ -217,21 +265,32 @@ plus a top-level `kind:dialogue` summary delta linking them all by
 
 ## How the harness is told to work
 
-The system prompt (`api/loop/harness/prompts.py`) carries explicit
+The system prompts (`api/loop/harness/prompts.py` for legacy,
+inline-built blocks in `threaded.py` for threaded) carry explicit
 guidance the model reads each turn:
 
 - **Visible-everything**: full standpoint, full conversation feed,
-  full tool results — no silent truncation
+  full tool results — no silent truncation.
 - **Synthesis guard**: comparison/connection/synthesis questions ("X
   and Y", "compare", "connections between") should call `plan(question)`
   on turn 1, then work through the steps with `plan_step:<n>`.
 - **Provenance is NOT in this loop** — main-loop prompt explicitly
   tells the model that consolidation happens in a separate review
   pass. Forces single-purpose attention.
-- **Lean chat-reply**: `{kind: "respond", body: "..."}` is the
-  high-frequency case.
+- **Lean chat-reply** (legacy): `{kind: "respond", body: "..."}` is
+  the high-frequency case.
+- **Image discipline** (threaded): never describe an image without
+  having called `see_image` first this fire.
+- **Capture preferences** (threaded): when the user expresses a feed
+  preference, `engage_feed` records it — don't only acknowledge in
+  prose.
+- **Self-continuation** (threaded): set `next_prompt` on `respond`
+  when one layer has been surfaced and another wants attention. Most
+  fires omit it; Sit chains terminate by omission.
 
 ## Output format
+
+**Legacy** harness — JSON envelope per turn:
 
 ```jsonc
 // Lean (chat-reply only — high-frequency case):
@@ -245,26 +304,38 @@ guidance the model reads each turn:
  "cited_ids": [...],
  "dropped_ids": [...]
 }
+
+// Tool call:
+{"kind": "tool_call", "tool": "<name>", "args": {...},
+ "thinking": "<one sentence>", "plan_step": <n or omit>}
 ```
 
-Tool calls:
-
-```jsonc
-{"kind": "tool_call", "tool": "<name>", "args": {...}, "thinking": "<one sentence>", "plan_step": <n or omit>}
-```
+**Threaded** harness — native chat-completions tool calls. The
+`respond` tool's args carry the same payload (`body` / `cards` /
+`attestation` / `mood_shift` / `cited_ids` / `dropped_ids` /
+`next_prompt`). Tool intermediates live in `role:assistant`
+(`tool_calls`) and `role:tool` turns; the loop driver surfaces
+`respond` and stops.
 
 Introspection emits `{"kind": "reflect", body, from_ids, shape}` or
 `{"kind": "skip", reason}`.
 
+Each tool call (both flavors) writes a `kind:harness-turn` trace
+delta tagged with `tool:<name>`, `turn:<n>`, and
+`harness-source:legacy|threaded`. The dashboard's thinking accordion
+renders both paths uniformly off this single tag shape.
+
 ## Visualization surfaces
 
-| URL | what it shows |
+The harness-test scratchpad (`/ui/harness-test.html`) was retired
+when the harness moved into production. Everything is now on the
+main dashboard.
+
+| Surface | what it shows |
 |---|---|
-| `/ui/harness-test.html` | Chat-shape harness page. Fire button runs reactive mode (user → Fathom). Sit button runs self-dialogue (Fathom ↔ Fathom in rounds). Each round renders as a normal user/assistant pair; the orange-stripe self-tag distinguishes self-utterances. Live stage labels in the "thinking…" placeholder. Plan board renders inline when `plan()` is called, with ○ ⟳ ✓ glyphs and live progress. Side panel polls every 4s for harness/reflective/topical proposals. Approve/deny buttons inline on pending rows. |
-| `/ui/harness-test.html` Lake tab | Per-fire visualization. Horizontal timeline (BIRTH ← TIME → NOW). Resonant deltas above the line, colored by their containing provenance. Provenance bands below the line. Empty until a fire surfaces something. |
-| `/ui/lake-topology.html` | Standalone analytical topology view of all provenance. Era / topic / episode / Q-A bands top-to-bottom, nodes positioned at constituent barycenters. |
-| `/ui/lake-sketch.html` | Standalone pencil-on-paper rendering — mirrors the original notebook sketch. |
-| `/ui/index.html` (dashboard) | Normal dashboard — feed includes proposals with Edit/Deny/Approve flow. |
+| `dashboard/index.html` (the main dashboard at `/`) | Feed, proposals, claude-code activity. Each harness fire's tool calls render as a thinking accordion (`kind:harness-turn` trace deltas) — color-banded per tool, expandable for full args/result. Sit rounds visually group as user/assistant pairs with a self-tag stripe. Plan board renders inline. Pass-intents render as user-message bubbles. Approve/deny inline on proposal rows. |
+| `dashboard/loop/index.html` | Standalone loop view — closer-up per-fire substrate visualization. |
+| `dashboard/onboarding.html`, `dashboard/login.html` | First-run / auth surfaces. |
 
 ## Architectural principles
 
@@ -285,13 +356,30 @@ Things we landed on, sometimes accidentally, sometimes by argument:
 
 ## What's left
 
-The work splits into PORTABLE (build well here, moves into fathomdx
-as-is) and PROV-EXPERIMENTAL UX (don't polish — fathomdx will rebuild
-its own surfaces on top of the same backend). The line in the sand:
-if a piece would need to be rebuilt during migration, do it lightly.
-If it's substrate fathomdx will adopt verbatim, build it well.
+The migration into fathomdx is done — the harness drives every fire,
+the dashboard renders it natively, and the prov-experimental scratchpad
+is retired. What's left is forward work on top of the shipped substrate.
 
-### Portable — build here
+### Shipped (the migration)
+
+- **Harness wired into `worker.py:_run_one_fire`** — every production
+  fire is a `run_harness` call.
+- **Convener / parliament / metric pipeline deleted** —
+  `process.py`, `metric.py`, `recall.py`, `telepathy.py` removed;
+  `witness.py` survives only as a card-dispatch utility.
+- **Threaded harness shipped behind `FATHOM_THREADED_HARNESS=1`** —
+  parallel implementation using native chat-completions tool calls.
+- **Dashboard integration** — thinking accordion (`kind:harness-turn`
+  traces), sit-round grouping, plan board, pass-intents, proposal
+  approve/deny inline.
+- **`see_image`, `engage_feed`, `orient_shift`, `mark_addressed`,
+  `dispatch_helper`, `mint_routine`** — all wired on the threaded
+  path; the legacy path has the action ones (`orient_shift`,
+  `dispatch_helper`, `mint_routine`).
+- **Self-continuation via `next_prompt`** — Sit reflects until done.
+- **Two-embedding provenance** — see below.
+
+### Forward work
 
 #### Two-embedding provenance — IMPLEMENTED 2026-05-04
 
@@ -362,24 +450,14 @@ deltas, dormant patterns. The pre-pass output IS the seed. Cheap,
 substrate-anchored, makes the autonomous sitting actually about
 something specific.
 
-#### Helper / claude-code as a harness tool
+#### Helper / claude-code as a harness tool — SHIPPED
 
-The harness's tool registry is the right home for ALL of Fathom's
-existing capabilities, not just the lens/recall tools we have now.
-Helper / claude-code in particular fits the **self-acting** slot of
-the three-mode taxonomy: when an introspect or self-dialogue produces
-a directive, the way Fathom acts on it is by spawning a claude-code
-fire from inside a harness tool call. That's the move that closes
-the third mode.
-
-What this needs:
-- A harness tool (e.g. `dispatch_helper(task, host)`) that wraps the
-  existing claude-code dispatch path
-- Probably gated to `route:claude-code:<host>` so the operator
-  approves before execution (since claude-code can do anything on the
-  host machine)
-- Tool metadata describing what helper hosts are available — feed
-  hosts_block into the tool's args validation
+`dispatch_helper(host, task, title)` is wired (legacy + threaded).
+Lands as `kind:proposal tool:helper-dispatch`; operator approves via
+the proposals pane before any execution. Available hosts are
+discovered from claude-code-available host capabilities and rendered
+into the prompt's hosts_block. `mint_routine` shipped alongside it
+with the same approval-gated shape.
 
 #### Plan tool refinements
 
@@ -399,55 +477,42 @@ What this needs:
   multi-domain, trim the standpoint block so the model can't
   paraphrase the recently-committed list.
 
-### Production wiring (do once everything else is tight)
+### Production work still ahead
 
-- **Wire harness into `worker.py:_run_one_fire()`** — replace the
-  convener+parliament+witness pipeline with a single `run_harness()`
-  call. This is the "make it real" move; everything we've built
-  starts firing on actual conversation.
-- **Phase 2 triggers** wire after that — idle detection, schedule,
-  pressure-driven, with an operator switch. Once production is
-  running on the harness, autonomous sittings become a worker
-  scheduling concern, not a separate experiment.
+- **Phase 2 triggers** — idle detection, schedule, pressure-driven
+  autonomous sittings, with an operator switch. Now a worker
+  scheduling concern rather than a separate experiment.
 - **Pressure-based provenance triggering** — reflective and topical
   agents fire automatically when un-provenanced material accumulates.
-- **Delete the old pipeline** — convener / process / metric paths
-  once they're confirmed unused.
+- **Cutover from legacy to threaded as default** — flip the env-flag
+  default once the threaded path has soaked under load. Then collapse
+  the legacy `loop.py` / `tools.py` JSON-envelope path.
 
-### Prov-experimental UX (don't invest)
+### Productized UX (the threaded harness sits behind these)
 
-The harness-test page is a developer scratchpad. Don't build
-production-shaped UX here. The real fathomdx surfaces (chat,
-dashboard, mission-control) will represent the harness in their own
-shapes, designed against actual user needs, not derived from the
-test page's compromises.
-
-What's worth keeping minimally workable on the test page:
-- See a fire run end-to-end
-- See the prompt that was sent
-- See proposals queue with approve/deny
-
-Anything beyond that is decoration.
-
-### UX work that IS portable (worth doing in fathomdx, not here)
-
-When migration happens:
-- Self-direction inbox — surface where Fathom's reflections, dialogue
-  transcripts, and emergent directives land for the operator to see
-  asynchronously
-- "Why this surfaced" trail — when a fathomdx surface shows a card,
-  expose the harness fire that produced it (turns, tool calls,
-  citations) — basically a productized version of the activity panel
-- Pressure model UI — surface the autonomous-trigger pressure level
-  so the operator can sense when Fathom is "tired" enough to want to
-  sit
-- Crystal-of-directives — accumulated self-directives over time become
-  a Fathom-facing surface ("things I've named for myself"), parallel
-  to the existing identity crystal
+- **Self-direction inbox** — surface where Fathom's reflections,
+  dialogue transcripts, and emergent directives land for the operator
+  to see asynchronously.
+- **"Why this surfaced" trail** — when a card lands, expose the
+  harness fire that produced it (turns, tool calls, citations). The
+  thinking accordion is the seed of this; a productized version of
+  the activity panel is the goal.
+- **Pressure model UI** — surface the autonomous-trigger pressure
+  level so the operator can sense when Fathom is "tired" enough to
+  want to sit.
+- **Crystal-of-directives** — accumulated self-directives over time
+  become a Fathom-facing surface ("things I've named for myself"),
+  parallel to the existing identity crystal.
 
 ## Notable commits (chronological, recent on top)
 
 ```
+self-continuation via next_prompt — Sit reflects until done
+see_image / engage_feed / orient_shift surfaced in thinking accordion
+threaded harness — native chat-completions tool calls (env-flag gated)
+structured cards in respond — kicker, title, route, multi-card writes
+mint_routine + dispatch_helper — action tools, approval-gated
+harness wired into worker.py — convener+parliament+witness retired
 self-dialogue: thin-loop run_dialogue, no special prompts
 introspection mode: run_introspection — single-fire reflection
 plan tool: decomposition as first-class structural step + UI checklist
@@ -456,7 +521,5 @@ auto-approve gate: L1/L2 silent, L3+ manual
 renderer: ID slugs on anchor lines, kind:provenance dedicated render
 containers-active block: surface existing provenance in recall output
 proposals pane: approve/deny buttons inline
-chat-shape harness UI + session continuity
-lake tab → horizontal timeline, color-by-provenance
 agentic tool-calling loop scaffold
 ```

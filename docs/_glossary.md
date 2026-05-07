@@ -56,7 +56,7 @@ fathomdx's internal vocabulary. Use these terms in docs, code comments, commit m
 | **plugin** | A host-side extension loaded by `addons/agent`. Each plugin owns a category of deltas (heartbeat, sysinfo, kitty, vault, etc.). |
 | **helper** | A named capability Fathom can invoke to perform a task — fetching weather, drafting text, calling a model, running a routine body. Helpers generate deltas purposefully as a side effect of their work. |
 | **hook** | A shell command fired on a lifecycle event (e.g., claude-code's UserPromptSubmit). Writes deltas for things that otherwise wouldn't be observed. |
-| **routine** | A scheduled prompt fired INTO the River. Cron tick writes a `routine-due` intent; the witness deliberates and routes — claude-code dispatch, feed-card from substrate, alert, chat-reply, tool proposal, or silence. The "Fire Now" button still uses the legacy direct-to-claude-code path (`routine-fire` delta consumed by kitty). Independent of chat sessions — see [`reference/routine-spec.md`](./reference/routine-spec.md). |
+| **routine** | A scheduled prompt fired INTO the River. Cron tick writes a `routine-due` intent; the harness deliberates and routes — claude-code dispatch, feed-card from substrate, alert, chat-reply, tool proposal, or silence. The "Fire Now" button still uses the legacy direct-to-claude-code path (`routine-fire` delta consumed by kitty). Independent of chat sessions — see [`reference/routine-spec.md`](./reference/routine-spec.md). |
 | **agent** | The `addons/agent` daemon on a host. Runs plugins; executes routines; heartbeats. Not the same as "an LLM agent" in the general AI sense. |
 
 ## Analysis primitives
@@ -68,6 +68,18 @@ fathomdx's internal vocabulary. Use these terms in docs, code comments, commit m
 | **pressure** | A scalar proxy for "how active is this area of the lake right now." Surfaces on the dashboard. |
 | **drift** | Movement of a topic's centroid over time. The metric that flags when a conversation or source changes character. |
 | **crystal** | A compacted self-representation regenerated from the lake at intervals. The identity crystal is injected at SessionStart. Not a delta; a derived artifact. |
+
+## Loop and harness
+
+| Term | Meaning |
+|---|---|
+| **harness** | The agentic tool-calling loop that drives every fire (`api/loop/harness/`). Replaces the retired convener+parliament+witness pipeline. Two flavors: legacy (default) renders the fire context to a single user prompt; threaded (`FATHOM_THREADED_HARNESS=1`) uses native chat-completions tool calls. |
+| **fire** | One harness invocation. Reads pending intent(s), elects tool calls, emits a `respond`, writes self-constituting deltas (attestation, mood-shift, citation engagements, Q/A marker). |
+| **puddle** | The ephemeral now-substrate (`api/loop/puddle.py`). Carries pending intents and short-lived working-set deltas. |
+| **standpoint** | Fathom's self-state snapshot at fire-start (`api/standpoint.py`): posture, affect, endorsements, understanding, recent activity. The harness reads from this consistent snapshot rather than re-fetching mid-fire. |
+| **provenance** | A `kind:provenance` delta naming a stretch of base moments. Levels: 0 (Q/A marker, auto-written every fire), 1 (episode), 2 (topic), 3+ (era). L1/L2 auto-approve; L3+ requires operator approval. |
+| **proposal** | A `kind:proposal` delta awaiting operator decision. Tools that propose: `propose_provenance`, `dispatch_helper`, `mint_routine`. |
+| **Sit** | Self-dialogue or self-continuation pass. The threaded harness can chain its own fires by setting `next_prompt` on `respond`; the dashboard's Sit pass uses this to keep reflecting until Fathom omits `next_prompt`. |
 
 ## Contact and identity
 

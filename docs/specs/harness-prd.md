@@ -1,9 +1,23 @@
 # Harness — Product Requirements Document
 
-**Status:** draft, prov-experimental implementation feature-complete; awaiting migration into fathomdx
+**Status:** shipped — migrated into fathomdx; legacy harness drives every fire on the default path; threaded harness shipped behind `FATHOM_THREADED_HARNESS=1` and is the cutover target
 **Owner:** Myra
-**Last updated:** 2026-05-04
+**Last updated:** 2026-05-07
 
+---
+
+> **Migration complete (2026-05-07).** The convener+parliament+witness
+> pipeline is retired. `api/loop/worker.py:_run_one_fire` calls
+> `run_harness` directly. `api/loop/process.py`, `metric.py`,
+> `recall.py`, and `telepathy.py` are deleted; `witness.py` survives
+> only as a card-dispatch helper module. A second harness flavor
+> (`api/loop/harness/threaded.py` + `api/loop/threaded_supervisor.py`)
+> ships behind the `FATHOM_THREADED_HARNESS=1` env flag and uses
+> native chat-completions tool calls instead of the legacy
+> render-everything-as-one-prompt approach. The dashboard renders
+> harness fires natively (thinking accordion, sit-round grouping,
+> plan board, structured cards). What's left is forward work — see
+> [harness-topology.md § What's left](../explanation/harness-topology.md#whats-left).
 ---
 
 ## 1. Problem
@@ -49,7 +63,7 @@ Three modes sharing one machinery (turn loop, tool dispatch, prompt scaffolding)
 - Self-constituting writes per fire: attestation, mood-shift, citation-attests, Q/A marker
 
 **Self-directing mode**
-- `Sit` button on the harness-test surface (later: idle / scheduled / pressure-driven)
+- `Sit` button on the dashboard (originally specified for the harness-test surface, since retired; later: idle / scheduled / pressure-driven)
 - Each round of self-dialogue is a full reactive harness fire whose response feeds the next round's input
 - Default 4 rounds, configurable via `max_rounds`
 - Each utterance writes a `kind:dialogue-utterance` delta; the full session writes a `kind:dialogue` summary delta
@@ -148,9 +162,18 @@ Before flipping `worker.py:_run_one_fire` from witness to harness:
 
 - Architecture explanation: [`docs/explanation/harness-topology.md`](../explanation/harness-topology.md)
 - Memory entries (private to working sessions): see `MEMORY.md` index
-- Branch: `feat/agent-harness`
-- Prov stack: separate compose project at `Work/Fathom/fathomdx-provenance-maker-experiment/`
+- Code: `api/loop/harness/` (legacy) + `api/loop/harness/threaded.py` + `api/loop/threaded_supervisor.py`
 
 ## 9. Changelog
 
+- **2026-05-07** — migration shipped. Harness wired into production
+  `worker.py`; legacy pipeline files removed; threaded harness shipped
+  behind env flag. Helper/claude-code tool (`dispatch_helper`) and
+  routine-minting tool (`mint_routine`) wired with proposal-gated
+  approval. `engage_feed`, `see_image`, `orient_shift`,
+  `mark_addressed`, and self-continuation via `next_prompt` shipped on
+  the threaded path. Dashboard integration (thinking accordion, sit
+  rounds, plan board, structured cards) complete. Remaining work:
+  Phase 2 autonomous triggers, pressure-driven provenance, and the
+  cutover from legacy to threaded as default.
 - **2026-05-04** — initial draft. Covers everything shipped on `feat/agent-harness` through commit `fc7a7fd`. Pending: helper/claude-code tool, autonomous triggers, full multi-vector facets (deferred), migration into fathomdx.

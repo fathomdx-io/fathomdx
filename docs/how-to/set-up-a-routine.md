@@ -1,15 +1,15 @@
 ---
 title: How to set up a routine
-description: Schedule a prompt to run on a cadence. The witness decides whether to dispatch claude-code, write a feed card from substrate, fire an alert, or do nothing — depending on what the prompt actually asks for.
+description: Schedule a prompt to run on a cadence. The harness decides whether to dispatch claude-code, write a feed card from substrate, fire an alert, or do nothing — depending on what the prompt actually asks for.
 audience: developer
 quadrant: how-to
-last_verified: 2026-04-30
-owners: [api/routine_scheduler.py, api/loop/witness.py, addons/agent/plugins/kitty.js, reference/routine-spec.md]
+last_verified: 2026-05-07
+owners: [api/routine_scheduler.py, api/loop/harness/, api/loop/worker.py, addons/agent/plugins/kitty.js, reference/routine-spec.md]
 ---
 
 # How to set up a routine
 
-A routine is **a prompt + a schedule**. When the time comes, Fathom's River (the witness) reads it like any other intent and decides what to do — fetch data with claude-code, synthesize a feed card from the lake, fire an alert, reply in chat, call a tool, stay silent. The route is a routing decision, not part of the routine spec.
+A routine is **a prompt + a schedule**. When the time comes, Fathom's River (the harness) reads it like any other intent and decides what to do — fetch data with claude-code, synthesize a feed card from the lake, fire an alert, reply in chat, call a tool, stay silent. The route is a routing decision, not part of the routine spec.
 
 This is a recent shift. Routines used to be a direct claude-code trigger; now they fire INTO the River and the River dispatches. See [What a routine can touch](#what-a-routine-can-touch) below for what changed.
 
@@ -17,7 +17,7 @@ This page covers two paths: ask Fathom to draft a routine for you in chat, or bu
 
 ## Prerequisites
 
-The prerequisites depend on what your routine asks for. The minimum is **none beyond a running Fathom**: a routine that says "summarize this week's lake activity into a feed card" needs no agent, no kitty, no claude-code — the witness handles it from substrate.
+The prerequisites depend on what your routine asks for. The minimum is **none beyond a running Fathom**: a routine that says "summarize this week's lake activity into a feed card" needs no agent, no kitty, no claude-code — the harness handles it from substrate.
 
 You only need the agent stack when the routine asks for fresh data, file work, or anything outside the lake:
 
@@ -25,15 +25,15 @@ You only need the agent stack when the routine asks for fresh data, file work, o
 - kitty installed and on the agent's `PATH`.
 - Claude Code installed and authenticated on the same machine.
 
-Without an agent, "check the news" routines won't fetch anything — the witness will see no claude-code-capable host available and write a feed card from whatever's already in the lake (probably "I don't have fresh news; the last update I have was…").
+Without an agent, "check the news" routines won't fetch anything — the harness will see no claude-code-capable host available and write a feed card from whatever's already in the lake (probably "I don't have fresh news; the last update I have was…").
 
 ## What a routine can touch
 
-The witness reads a `routine-due` intent and picks a route the same way it does for a user-typed message. Available routes:
+The harness reads a `routine-due` intent and picks a route the same way it does for a user-typed message. Available routes:
 
-| Route | When the witness picks it | Side effects |
+| Route | When the harness picks it | Side effects |
 |---|---|---|
-| `claude-code:<host>` | The prompt asks for fresh data, file edits, shell commands, or anything outside the lake. Trigger phrases: "check", "fetch", "look up", "go get", "what's new", "run X". | Spawns a claude-code session on the named host. Closure feeds back into the witness for synthesis. |
+| `claude-code:<host>` | The prompt asks for fresh data, file edits, shell commands, or anything outside the lake. Trigger phrases: "check", "fetch", "look up", "go get", "what's new", "run X". | Spawns a claude-code session on the named host. Closure feeds back into the harness for synthesis. |
 | `feed-card` | The prompt asks for a synthesis from substrate already in the lake. "Summarize this week", "what changed since Monday", "remind me of yesterday's wins". | One feed card lands. No external work. |
 | `chat-reply` | The prompt is conversational, the answer is in memory. "Daily check-in: how's the mood?" | Renders as a chat-style message. |
 | `alert:<level>` | The prompt asks Fathom to flag something if a condition is met. "If a research thread has been quiet 3+ days, surface it." | Pinned alert at top of feed. |
@@ -41,11 +41,11 @@ The witness reads a `routine-due` intent and picks a route the same way it does 
 
 Some implications:
 
-- **A routine doesn't need an agent or claude-code.** If the work is "synthesize from the lake," the witness handles it directly.
-- **A routine prompt that mixes fetch + synthesis splits naturally.** Tick 1: witness dispatches claude-code for the fetch. Tick 2 (when claude returns): witness synthesizes the user-facing card. The "synthesize into a concise update" instruction in your prompt is honored on Tick 2, in Fathom's voice — not as part of the claude-code session.
-- **You don't pick the route.** The witness does, based on the prompt. Write the prompt as a request to Fathom, not as instructions for claude-code.
+- **A routine doesn't need an agent or claude-code.** If the work is "synthesize from the lake," the harness handles it directly.
+- **A routine prompt that mixes fetch + synthesis splits naturally.** Tick 1: harness dispatches claude-code for the fetch. Tick 2 (when claude returns): harness synthesizes the user-facing card. The "synthesize into a concise update" instruction in your prompt is honored on Tick 2, in Fathom's voice — not as part of the claude-code session.
+- **You don't pick the route.** The harness does, based on the prompt. Write the prompt as a request to Fathom, not as instructions for claude-code.
 
-## Trust model: what claude-code can actually do (when the witness picks it)
+## Trust model: what claude-code can actually do (when the harness picks it)
 
 If your routine routes through `claude-code:<host>`, that's **a full Claude Code session running as you** on the agent's host. Same shell environment, same `~/.claude/` config, same MCP servers, same authenticated tokens. Same filesystem. Same git and SSH credentials. The kitty window is not a sandbox.
 
@@ -55,7 +55,7 @@ Implications worth seeing clearly before writing one that runs unattended:
 - If your authenticated `gh` CLI can push to a repo, the routine can. If your `kubectl` context points at production, the routine has it.
 - Helpers, MCP tools, and any API key the agent host has access to are all in scope.
 
-If the witness picks `feed-card` or `chat-reply`, none of this applies — the work happens inside the api process and only writes feed deltas.
+If the harness picks `feed-card` or `chat-reply`, none of this applies — the work happens inside the api process and only writes feed deltas.
 
 ### `auto` vs `normal` (claude-code path only)
 
@@ -76,7 +76,7 @@ The agent on each machine has an `allowed_permission_modes` config (defaults to 
 
 ### Host pinning
 
-A routine spec can include a `host: <agent-name>` field. When set, only the agent whose `host` matches will spawn the claude-code window — other agents silently ignore the dispatch. Without it, the routine is fleet-wide and the witness picks any available host.
+A routine spec can include a `host: <agent-name>` field. When set, only the agent whose `host` matches will spawn the claude-code window — other agents silently ignore the dispatch. Without it, the routine is fleet-wide and the harness picks any available host.
 
 Pin a routine to a host when the work is host-specific ("clean up `~/Downloads` on my laptop"), the host has tools or credentials others do not, or you want it on a specific machine for reliability.
 
@@ -84,7 +84,7 @@ For non-claude-code routes (`feed-card`, `chat-reply`, etc.), `host` is informat
 
 ## Writing the prompt
 
-Routines follow a four-section schema. Each section has a header (`# Purpose`, `# Needs`, etc.); the witness reads them as conventions. Freeform prose works too, but structured prompts give cleaner signal — same reason a good email has a subject and body.
+Routines follow a four-section schema. Each section has a header (`# Purpose`, `# Needs`, etc.); the harness reads them as conventions. Freeform prose works too, but structured prompts give cleaner signal — same reason a good email has a subject and body.
 
 ```
 # Purpose
@@ -98,7 +98,7 @@ or "substrate only" if the lake already has the data.]
 [The instructions — what to look for, what to filter, what to compare.]
 
 # Ending
-[How you want to be notified. Plain language. Witness reads this to
+[How you want to be notified. Plain language. Harness reads this to
 pick the route — card, DM, alert, silent, or something else.]
 ```
 
@@ -114,7 +114,7 @@ When you create a routine in the dashboard, you'll see:
 > ◯ Do something else: ____________________
 > ◯ Do nothing
 
-Each maps cleanly to a witness route. Pick one and the form fills `# Ending` for you. Add a free-text refinement underneath to layer on conditions ("but escalate to soft alert if anything major lands").
+Each maps cleanly to a harness route. Pick one and the form fills `# Ending` for you. Add a free-text refinement underneath to layer on conditions ("but escalate to soft alert if anything major lands").
 
 ### Pattern 1 — recurring fetch + alert on threshold (Gold-to-Mac)
 
@@ -135,7 +135,7 @@ Stay silent on quiet days. If the ratio drops to 1.0 or lower (gold has
 caught up to a Mac), send me a hard alert. Lead with the ratio + delta.
 ```
 
-What happens: cron tick → `routine-due` intent. Witness reads `# Needs` and picks `claude-code:<host>` for the fetch. Claude-code returns prices. Next witness tick reads `# Ending`, evaluates the ratio condition, picks `silent` if not crossed or `alert:hard` if crossed.
+What happens: cron tick → `routine-due` intent. Harness reads `# Needs` and picks `claude-code:<host>` for the fetch. Claude-code returns prices. Next harness tick reads `# Ending`, evaluates the ratio condition, picks `silent` if not crossed or `alert:hard` if crossed.
 
 ### Pattern 2 — fetch + synthesize into a card (News briefing)
 
@@ -157,7 +157,7 @@ health change, AI breakthrough, STL emergency). Stay silent if literally
 nothing new.
 ```
 
-The synthesis instruction lives under `# Ending` but is executed by the *witness*, not claude-code. That's the key change from the old architecture: claude-code fetches the data, the witness writes the card.
+The synthesis instruction lives under `# Ending` but is executed by the *harness*, not claude-code. That's the key change from the old architecture: claude-code fetches the data, the harness writes the card.
 
 ### Pattern 3 — pure substrate synthesis (Weekly retro)
 
@@ -177,7 +177,7 @@ Substrate only — no claude-code needed.
 Send me a card. Three sections, one paragraph each.
 ```
 
-No claude-code spawned. No agent needed. The lake already has the data; the witness composes the card directly.
+No claude-code spawned. No agent needed. The lake already has the data; the harness composes the card directly.
 
 ### Pattern 4 — proposal cards (Routine cleanup)
 
@@ -197,11 +197,11 @@ For each candidate, propose disabling it. Show me the routine name and
 why you flagged it. I'll approve or deny each.
 ```
 
-Witness writes `tool:routines` proposal cards (one per candidate) with `action:update` `enabled:false`. Edit/Deny/Approve in the feed. Nothing changes until you approve.
+Harness writes `tool:routines` proposal cards (one per candidate) with `action:update` `enabled:false`. Edit/Deny/Approve in the feed. Nothing changes until you approve.
 
 ### What to put under `# Steps`
 
-Write the steps as if you're asking Fathom to do something — first person, conversational. Don't pre-script claude-code's tool calls; the witness will compose those if it picks claude-code.
+Write the steps as if you're asking Fathom to do something — first person, conversational. Don't pre-script claude-code's tool calls; the harness will compose those if it picks claude-code.
 
 Good:
 
@@ -220,7 +220,7 @@ Then run `curl https://...` for BTC. Call `fathom delta write` with
 tags `[market, daily]`. Then exit.
 ```
 
-The witness needs your *intent*, not your implementation. Tool calls and lake writes are downstream of the route choice — Fathom composes them based on what `# Needs` says it has access to.
+The harness needs your *intent*, not your implementation. Tool calls and lake writes are downstream of the route choice — Fathom composes them based on what `# Needs` says it has access to.
 
 ### The four-beat structure (still applies)
 
@@ -253,9 +253,9 @@ Open the dashboard's **Routines** page. Click **New routine**. Fill in:
 |---|---|
 | **Name** | Human-readable label. Shown in the dashboard. |
 | **Schedule** | A 5-field cron string. See cron examples below. |
-| **Workspace** | Path to a directory on the agent host. Only used if the witness picks claude-code. Use `~/Dropbox/Work/your-project` or similar. |
+| **Workspace** | Path to a directory on the agent host. Only used if the harness picks claude-code. Use `~/Dropbox/Work/your-project` or similar. |
 | **Host** | Pin to a specific agent (or leave blank for fleet-wide). |
-| **Permission mode** | `auto` or `normal`. Only used if the witness picks claude-code. |
+| **Permission mode** | `auto` or `normal`. Only used if the harness picks claude-code. |
 | **Single fire** | If true, the spec is tombstoned after the first fire. |
 | **Prompt** | What you want Fathom to do. Written conversationally. |
 
@@ -275,23 +275,23 @@ Cron is evaluated in the API container's local timezone (see `TZ` in `.env`).
 
 ## Test the fire manually
 
-Click **Fire Now** on the routine's detail page. The routine fires into the River (writes a `routine-due` intent + a `routine-tick` marker), the witness deliberates on the next tick, and you'll see whatever it decided to do — a feed card, a claude-code dispatch, an alert, a chat-reply, or silence — appear in the dashboard feed within a few seconds.
+Click **Fire Now** on the routine's detail page. The routine fires into the River (writes a `routine-due` intent + a `routine-tick` marker), the harness deliberates on the next tick, and you'll see whatever it decided to do — a feed card, a claude-code dispatch, an alert, a chat-reply, or silence — appear in the dashboard feed within a few seconds.
 
 There's no "skip the River" override. Routines fire into Fathom; Fathom decides what to do with them.
 
 ## What gets captured into the lake
 
-A routine writes durable artifacts on every fire (cron, Fire Now, or witness-initiated — they're the same path now):
+A routine writes durable artifacts on every fire (cron, Fire Now, or harness-initiated — they're the same path now):
 
 **Always**:
-- `routine-due` intent in the puddle (kind:routine-due, body = your prompt). The witness reads this on its next tick.
+- `routine-due` intent in the puddle (kind:routine-due, body = your prompt). The harness reads this on its next tick.
 - `routine-tick` marker in the lake (durable receipt; hydration only).
-- Witness output — the feed card / chat-reply / claude-code dispatch / alert / proposal that the witness produced.
+- Harness output — the feed card / chat-reply / claude-code dispatch / alert / proposal that the harness produced.
 
-**When the witness picks claude-code**:
+**When the harness picks claude-code**:
 - A claude-code dispatch card (the kitty plugin spawns the session).
 - The closure delta when claude returns (`task-complete`).
-- A second witness tick that synthesizes the user-facing card.
+- A second harness tick that synthesizes the user-facing card.
 - Anything fathom-connect captures inside the session (prompts, replies, tool calls — all auto-captured if `~/.claude/settings.json` has the hooks installed).
 
 ## Edit a routine
@@ -331,6 +331,6 @@ Set `deleted: true` on the spec. The dashboard hides it. The scheduler skips it.
 
 - **Routines don't write to chat sessions.** Cron-driven activity goes to `routine-id:<id>`, not `chat:<slug>`. To see results, look at the Routines page or search the lake by `routine-id`.
 - **One spec per routine, immutable history.** Past activity persists forever. The "current" routine is always the latest spec delta with that id.
-- **The agent host runs claude-code (when the witness picks it).** If your only agent is on a desktop you turn off at night, a 7am routine routed through claude-code won't fetch until the desktop wakes. Substrate-only routines (feed-card, chat-reply, alert) don't need an agent.
+- **The agent host runs claude-code (when the harness picks it).** If your only agent is on a desktop you turn off at night, a 7am routine routed through claude-code won't fetch until the desktop wakes. Substrate-only routines (feed-card, chat-reply, alert) don't need an agent.
 - **`single_fire` is honored.** The scheduler tombstones the spec after the first cron tick fires.
 - **`interval_minutes` is dead.** Use `schedule` (cron). The field is parsed for back-compat but ignored by the scheduler.

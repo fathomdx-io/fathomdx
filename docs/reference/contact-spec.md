@@ -91,7 +91,7 @@ This matters for migration: **existing deltas stay untagged by default**. They'r
 
 ## Channel resolution
 
-Every surface that talks to Fathom must resolve the speaker to a contact *before* invoking `fathom_think`. If it can't, it doesn't invoke.
+Every surface that talks to Fathom must resolve the speaker to a contact *before* writing an intent into the loop. If it can't, it doesn't invoke.
 
 - **Dashboard / mobile app** — session cookie → contact. No contact, no access.
 - **Telegram / Teams / email** — look up the `(channel, identifier)` pair in the registry. No match → prompt the admin with a one-time "who is this?" flow; on accept, the handle is attached to an existing or new contact.
