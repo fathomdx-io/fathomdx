@@ -7,9 +7,10 @@ happens in SQL via pgvector.
 
 from __future__ import annotations
 
+import re
 import uuid
 from collections.abc import AsyncIterator
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 import asyncpg
 import numpy as np
@@ -23,10 +24,41 @@ def now_iso() -> str:
     return datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z"
 
 
+_REL_TIME_RE = re.compile(
+    r"^\s*(\d+)\s*(s|sec|secs|second|seconds|m|min|mins|minute|minutes|"
+    r"h|hr|hrs|hour|hours|d|day|days|w|wk|wks|week|weeks)\s*ago\s*$",
+    re.IGNORECASE,
+)
+_REL_UNIT_SECONDS = {
+    "s": 1, "sec": 1, "secs": 1, "second": 1, "seconds": 1,
+    "m": 60, "min": 60, "mins": 60, "minute": 60, "minutes": 60,
+    "h": 3600, "hr": 3600, "hrs": 3600, "hour": 3600, "hours": 3600,
+    "d": 86400, "day": 86400, "days": 86400,
+    "w": 604800, "wk": 604800, "wks": 604800, "week": 604800, "weeks": 604800,
+}
+
+
 def _parse_ts(ts: str) -> datetime:
-    """Parse an ISO timestamp string to a timezone-aware datetime."""
-    ts = ts.replace("Z", "+00:00")
-    return datetime.fromisoformat(ts).replace(tzinfo=UTC)
+    """Parse a timestamp string to a timezone-aware datetime.
+
+    Accepts:
+      · ISO 8601 (`2026-05-07T18:00:00Z`, `2026-05-07T18:00:00+00:00`)
+      · natural-language relative ("6 hours ago", "10 minutes ago",
+        "1 day ago"). Helpers / agents often emit these from instruction
+        text without round-tripping through a date library; treat them
+        as first-class to avoid 500s on the read path.
+
+    Anything else raises ValueError (caller surfaces 400, not 500).
+    """
+    ts = (ts or "").strip()
+    rel = _REL_TIME_RE.match(ts)
+    if rel:
+        n = int(rel.group(1))
+        unit = rel.group(2).lower()
+        seconds = n * _REL_UNIT_SECONDS[unit]
+        return datetime.now(UTC) - timedelta(seconds=seconds)
+    iso = ts.replace("Z", "+00:00")
+    return datetime.fromisoformat(iso).replace(tzinfo=UTC)
 
 
 def _format_ts(dt: datetime) -> str:
