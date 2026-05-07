@@ -407,6 +407,58 @@ Optional when relevant:
   · `dropped_ids` — delta ids you actively rejected as wrong or
     misleading. Each becomes a `refutes:<id>`. Leave empty if
     nothing was rejected.
+
+══ SEEING IT THROUGH — `next_prompt` ══
+
+Each fire ends with one `respond`. But sometimes one respond
+isn't enough — you've made a beginning, not an ending. Three
+signals tell you whether the inquiry is done; check them
+explicitly before you respond:
+
+  1. PLAN: did all your plan steps resolve? If you have unchecked
+     steps and didn't either complete them or consciously drop
+     them, you're not done.
+  2. TALLY: did you fully address each pending user message?
+     A half-answer + mark_addressed is a debt, not a resolution.
+  3. INQUIRY: are there questions you opened but didn't close?
+     A semantic search that surfaced a thread you haven't pulled
+     on. A helper-dispatch you're waiting on. A contradiction
+     you noticed and set aside.
+
+If any of those say "not yet," set `next_prompt` on respond. The
+dashboard sees `body` now (the artifact for the operator); the
+next fire reads your reply + your next_prompt as the next user-
+role turn and keeps going. Termination is the absence of
+next_prompt — most fires terminate.
+
+`next_prompt` is a seed for next-you, not for the operator.
+Phrase it like a prompt you'd want yourself to receive: the
+question or directive that picks up where this fire left off.
+Short. Specific. Adversarial when useful — push back on what
+you just said, name what you smoothed over, follow the loosest
+thread. The framework doesn't add friction for you; you write
+your own.
+
+Use it when:
+  · you've named a thread but haven't pulled on it yet
+  · you've delegated to a helper and want to come back when
+    results land
+  · a Sit pass: you've surfaced one layer; another wants
+    attention
+  · mid-investigation and about to hit token budget
+  · you noticed a tension you smoothed over and want to revisit
+
+Skip it when:
+  · the inquiry resolved — you've answered, named the next
+    move, or hit a real terminus
+  · the user asked a simple question (continuation is for
+    ongoing work, not chitchat)
+  · you don't have a sharper follow-up than restating
+
+Safety cap: chains auto-terminate at chain-depth 10. Hitting it
+means you've been padding "more to think about" without real
+progress. When in doubt, terminate cleanly — the next thing can
+seed itself.
 """
 
 
@@ -750,6 +802,11 @@ async def run_threaded_fire(
                     "mood_shift": args.get("mood_shift"),
                     "cited_ids": args.get("cited_ids") or [],
                     "dropped_ids": args.get("dropped_ids") or [],
+                    # Self-continuation: when set, the inquiry isn't
+                    # done. The supervisor seeds the next fire with
+                    # this prompt as a synthetic user-role thread
+                    # message. Empty / absent terminates the chain.
+                    "next_prompt": (args.get("next_prompt") or "").strip(),
                 }
                 tool_result = "respond received; fire terminating."
             elif tool_name == "mark_addressed":
@@ -972,20 +1029,22 @@ async def run_threaded_fire(
         except Exception as e:
             print(f"[threaded-fire] review pass crashed: {type(e).__name__}: {e}")
 
-    # Multi-round Sit continuation. If a `pressure-reflection` or
-    # `pressure-drift` seed activated this fire and its round counter
-    # is below max-rounds, append the assistant's response back as the
-    # next user message in the thread. The supervisor picks it up on
-    # the next tick and fires another pass. Stops at sit-max-rounds.
+    # Self-continuation. If the model set respond.next_prompt, the
+    # inquiry isn't done — append a synthetic user-role thread message
+    # carrying the prior reply + the model's own next_prompt. The
+    # supervisor picks it up on the next tick. Sit-tier fires inherit
+    # the same path; the chain-depth tag is the safety cap (no fixed
+    # max_rounds — the model self-terminates by omitting next_prompt).
     if final_response and final_response.get("body"):
         try:
-            await _maybe_continue_sit_dialogue(
+            await _maybe_continue_inquiry(
                 pending=pending,
                 addressed=addr_set,
                 body=final_response["body"],
+                next_prompt=final_response.get("next_prompt") or "",
             )
         except Exception as e:
-            print(f"[threaded-fire] sit continuation crashed: {type(e).__name__}: {e}")
+            print(f"[threaded-fire] continuation crashed: {type(e).__name__}: {e}")
 
     return {
         "final_response": final_response,
@@ -1206,135 +1265,118 @@ async def _run_review_pass(
         )
 
 
-def _sit_continuation_prompt(prior_body: str, next_round: int, max_rounds: int) -> str:
-    """Wrap the prior round's response with the right framing for the
-    next round.
-
-    Without wrapping, the assistant's body just gets fed back verbatim,
-    and the model — having no friction — collapses into agreeing with
-    itself by round 2 ("excellent summary, aligns perfectly with my own
-    understanding"). The wrapping breaks the spiral:
-
-      · `friction` (intermediate rounds) — the model is forced to push
-        back on what it just said. Surfaces the strongest counter, the
-        skipped angle, the smoothed-over tension.
-      · `synthesize` (final round) — the model integrates the back-and-
-        forth into a self-directive: "given everything I've explored,
-        what's the next move?"
-
-    Round 1 is the seed (relief watcher wrote it directly — never wrapped).
-    """
-    is_final = next_round >= max_rounds
-    if is_final:
-        return (
-            f"You just said:\n\n{prior_body}\n\n"
-            "──\n\n"
-            "Final round. Integrate everything you've explored across "
-            "this sit — the original seed, your pushback, what survived "
-            "the friction. Don't summarize. Name what this points "
-            "toward: a concrete next move, a directive you give "
-            "yourself, a thing you'll carry forward into the next "
-            "thing you do. One paragraph, in your voice."
-        )
-    return (
-        f"You just said:\n\n{prior_body}\n\n"
-        "──\n\n"
-        "Now push back on that. What's the strongest case against "
-        "this read? What did you skip or smooth over? What would "
-        "you say if you weren't trying to agree with yourself? "
-        "Don't restate — challenge. Pull on the loosest thread."
-    )
+MAX_AUTO_CONTINUE_CHAIN = 10  # safety cap on consecutive self-continuations
 
 
-async def _maybe_continue_sit_dialogue(
+async def _maybe_continue_inquiry(
     *,
     pending: list[dict],
     addressed: list[str],
     body: str,
+    next_prompt: str,
 ) -> None:
-    """If a Sit (reflection/drift) seed activated this fire, queue the
-    next round of the dialogue with appropriate friction or synthesis
-    framing.
+    """Queue the next fire when the inquiry isn't done.
 
-    The relief watcher writes round 1 (the seed) with `sit-round:1` and
-    `sit-max-rounds:N`. After each harness pass, this function looks at
-    the addressed messages, finds the sit seed (if any), reads its
-    round counter, and — if there are rounds left — appends the next
-    user message via `_sit_continuation_prompt()`:
+    Two trigger paths feed into one continuation:
 
-      · intermediate rounds get a friction wrapper (push back on the
-        prior body)
-      · the final round gets a synthesis wrapper (integrate what was
-        explored into a self-directive)
+      1. Model-driven: respond.next_prompt is non-empty. The model
+         decided "I have more to do" — write its self-prompt as the
+         next user-role thread message.
+      2. Legacy sit-tier: a `pressure-tier:reflection|drift` message
+         was addressed this fire AND respond.next_prompt is set. Same
+         continuation path; we just preserve the pressure-tier tag so
+         dashboard rendering keeps grouping the chain visually.
 
-    Without these wrappers, multi-round Sits collapse into self-
-    affirmation by round 2.
+    Termination is the absence of next_prompt. No fixed round cap;
+    the model decides when the inquiry has resolved. A safety ceiling
+    (MAX_AUTO_CONTINUE_CHAIN) prevents runaway chains via the
+    `chain-depth:<N>` tag carried forward from each continuation.
 
     No-op when:
-      · no message in `pending` carries a `pressure-tier:reflection|drift` tag
-      · the sit message wasn't addressed this fire
-      · `sit-round` has already reached `sit-max-rounds`
-      · the response body is empty
+      · next_prompt is empty (inquiry resolved — most fires)
+      · chain-depth has already reached MAX_AUTO_CONTINUE_CHAIN
+      · body is empty
     """
-    if not pending or not body or not addressed:
+    next_prompt = (next_prompt or "").strip()
+    if not next_prompt or not body:
         return
 
     addressed_set = {a for a in addressed if a}
-
+    # Pull tier/correlation off the activating message (if any) so
+    # the continuation inherits dashboard-grouping context. Walk the
+    # pending list addressed by this fire.
+    tier = ""
+    correlation = ""
+    cur_chain_depth = 0
     for d in pending:
         if d.get("id") not in addressed_set:
             continue
         tags = d.get("tags") or []
-        tier = _tag_value(tags, "pressure-tier:")
-        if tier not in ("reflection", "drift"):
-            continue
-
+        d_tier = _tag_value(tags, "pressure-tier:")
+        if d_tier in ("reflection", "drift") and not tier:
+            tier = d_tier
+            correlation = _tag_value(tags, "correlation:") or f"{tier}-followup"
         try:
-            cur_round = int(_tag_value(tags, "sit-round:") or "1")
+            d_depth = int(_tag_value(tags, "chain-depth:") or "0")
         except ValueError:
-            cur_round = 1
-        try:
-            max_rounds = int(_tag_value(tags, "sit-max-rounds:") or "4")
-        except ValueError:
-            max_rounds = 4
+            d_depth = 0
+        if d_depth > cur_chain_depth:
+            cur_chain_depth = d_depth
 
-        if cur_round >= max_rounds:
-            print(
-                f"[threaded-fire] sit/{tier} round {cur_round}/{max_rounds} — done"
-            )
-            return
-
-        next_round = cur_round + 1
-        from datetime import UTC, datetime
-        fired_at = datetime.now(UTC).isoformat(timespec="milliseconds").replace("+00:00", "Z")
-        correlation = _tag_value(tags, "correlation:") or f"{tier}-followup"
-        wrapped_content = _sit_continuation_prompt(body, next_round, max_rounds)
-        try:
-            await thread_mod.append(
-                role="user",
-                msg_kind=f"pressure-{tier}",
-                content=wrapped_content,
-                channel="pressure",
-                correlation=correlation,
-                source="sit-continuation",
-                extra_tags=[
-                    f"pressure-tier:{tier}",
-                    f"sit-round:{next_round}",
-                    f"sit-max-rounds:{max_rounds}",
-                    f"fired-at:{fired_at}",
-                    "sit-continuation",
-                ],
-            )
-            print(
-                f"[threaded-fire] sit/{tier} round {cur_round}/{max_rounds} → "
-                f"queued round {next_round}"
-            )
-        except Exception as e:
-            print(
-                f"[threaded-fire] sit/{tier} continuation append failed: "
-                f"{type(e).__name__}: {e}"
-            )
+    next_depth = cur_chain_depth + 1
+    if next_depth > MAX_AUTO_CONTINUE_CHAIN:
+        print(
+            f"[threaded-fire] continuation chain hit cap "
+            f"({MAX_AUTO_CONTINUE_CHAIN}) — terminating"
+        )
         return
+
+    from datetime import UTC, datetime
+    fired_at = datetime.now(UTC).isoformat(timespec="milliseconds").replace("+00:00", "Z")
+    if tier:
+        msg_kind = f"pressure-{tier}"
+        channel = "pressure"
+        if not correlation:
+            correlation = f"{tier}-followup"
+    else:
+        msg_kind = "self-continue"
+        channel = "self"
+        correlation = correlation or f"self-continue-{fired_at[:19]}"
+
+    extra_tags = [
+        f"chain-depth:{next_depth}",
+        f"fired-at:{fired_at}",
+        "self-continuation",
+    ]
+    if tier:
+        extra_tags.append(f"pressure-tier:{tier}")
+
+    # Carry the prior reply + the model's own next_prompt, so the next
+    # fire has its own thinking visible alongside the seed.
+    wrapped_content = (
+        f"You just said:\n\n{body}\n\n"
+        "──\n\n"
+        f"{next_prompt}"
+    )
+    try:
+        await thread_mod.append(
+            role="user",
+            msg_kind=msg_kind,
+            content=wrapped_content,
+            channel=channel,
+            correlation=correlation,
+            source="self-continuation",
+            extra_tags=extra_tags,
+        )
+        label = f"sit/{tier}" if tier else "self"
+        print(
+            f"[threaded-fire] {label} continuation → chain-depth {next_depth}"
+        )
+    except Exception as e:
+        print(
+            f"[threaded-fire] continuation append failed: "
+            f"{type(e).__name__}: {e}"
+        )
 
 
 async def _bridge_to_puddle_feed(

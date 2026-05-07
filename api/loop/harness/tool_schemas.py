@@ -611,6 +611,22 @@ _RESPOND_SCHEMA: dict[str, Any] = {
                         "rejected."
                     ),
                 },
+                "next_prompt": {
+                    "type": "string",
+                    "description": (
+                        "Optional. Seed the next fire with a prompt "
+                        "from yourself — for when the inquiry isn't "
+                        "done. The dashboard sees `body` now (the "
+                        "artifact); the next fire reads your reply + "
+                        "this seed as the next user-role turn and "
+                        "keeps going. Omit (or empty) to terminate — "
+                        "most fires terminate. Phrase it like a prompt "
+                        "to yourself: the question or directive that "
+                        "picks up where this fire left off. Short and "
+                        "specific. Chain auto-caps at 10 consecutive "
+                        "self-continuations."
+                    ),
+                },
             },
             "required": ["body"],
         },

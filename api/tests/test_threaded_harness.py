@@ -608,15 +608,14 @@ async def test_fire_wake_hook_disabled_by_env_flag(monkeypatch):
     assert drift_calls.await_count == 0
 
 
-# ── multi-round Sit continuation ───────────────────────────────────
+# ── self-continuation via next_prompt ──────────────────────────────
 
 
 def _sit_seed_delta(
     *,
     mid: str,
     tier: str = "reflection",
-    cur_round: int = 1,
-    max_rounds: int = 4,
+    chain_depth: int = 1,
     content: str = "Sit with what you and the user have been doing recently.",
 ):
     return {
@@ -627,49 +626,146 @@ def _sit_seed_delta(
             "msg-kind:pressure-" + tier,
             "channel:pressure",
             f"pressure-tier:{tier}",
-            f"sit-round:{cur_round}",
-            f"sit-max-rounds:{max_rounds}",
+            f"chain-depth:{chain_depth}",
         ],
         "content": content,
     }
 
 
 @pytest.mark.asyncio
-async def test_sit_continuation_queues_next_round_when_under_max():
-    """A reflection seed at round 1/4 — after the assistant responds,
-    the response should be appended back wrapped in a friction prompt
-    (since round 2 is intermediate, not final)."""
-    seed = _sit_seed_delta(mid="seed-r1", tier="reflection", cur_round=1, max_rounds=4)
+async def test_continuation_writes_append_when_next_prompt_set():
+    """Plain (non-Sit) fire with next_prompt — should write a
+    self-continue thread message, not a pressure-tier one."""
+    msg = _user_delta(mid="user-1", content="dig into X")
     appended: list[dict] = []
 
     async def fake_append(**kwargs):
         appended.append(kwargs)
-        return {"id": "queued-r2"}
+        return {"id": "queued"}
 
     with patch.object(threaded.thread_mod, "append", side_effect=fake_append):
-        await threaded._maybe_continue_sit_dialogue(
-            pending=[seed],
-            addressed=["seed-r1"],
-            body="this is the assistant's reflective response",
+        await threaded._maybe_continue_inquiry(
+            pending=[msg],
+            addressed=["user-1"],
+            body="here's what I found so far on X",
+            next_prompt="now examine the Y angle I haven't pulled on",
         )
 
     assert len(appended) == 1
     call = appended[0]
     assert call["role"] == "user"
-    assert call["msg_kind"] == "pressure-reflection"
-    # Body should be wrapped in friction framing, not passed verbatim.
-    assert "this is the assistant's reflective response" in call["content"]
-    assert "push back" in call["content"].lower()
-    assert call["source"] == "sit-continuation"
-    assert "sit-round:2" in (call["extra_tags"] or [])
-    assert "sit-max-rounds:4" in (call["extra_tags"] or [])
-    assert "pressure-tier:reflection" in (call["extra_tags"] or [])
+    assert call["msg_kind"] == "self-continue"
+    assert call["channel"] == "self"
+    assert "here's what I found so far on X" in call["content"]
+    assert "now examine the Y angle I haven't pulled on" in call["content"]
+    tags = call["extra_tags"] or []
+    assert "chain-depth:1" in tags
+    assert "self-continuation" in tags
+    # No pressure-tier tag for non-Sit fires.
+    assert not any(t.startswith("pressure-tier:") for t in tags)
 
 
 @pytest.mark.asyncio
-async def test_sit_continuation_stops_at_max_rounds():
-    """Round N == max_rounds — no further append should fire."""
-    seed = _sit_seed_delta(mid="seed-r4", tier="drift", cur_round=4, max_rounds=4)
+async def test_continuation_skips_when_next_prompt_empty():
+    """Most fires don't continue — empty next_prompt = inquiry resolved."""
+    msg = _user_delta(mid="user-1", content="quick question")
+    appended: list[dict] = []
+
+    async def fake_append(**kwargs):
+        appended.append(kwargs)
+        return {"id": "no"}
+
+    with patch.object(threaded.thread_mod, "append", side_effect=fake_append):
+        await threaded._maybe_continue_inquiry(
+            pending=[msg],
+            addressed=["user-1"],
+            body="here's the answer",
+            next_prompt="",
+        )
+
+    assert appended == []
+
+
+@pytest.mark.asyncio
+async def test_continuation_skips_when_body_empty():
+    msg = _user_delta(mid="user-1", content="anything")
+    appended: list[dict] = []
+
+    async def fake_append(**kwargs):
+        appended.append(kwargs)
+        return {"id": "no"}
+
+    with patch.object(threaded.thread_mod, "append", side_effect=fake_append):
+        await threaded._maybe_continue_inquiry(
+            pending=[msg],
+            addressed=["user-1"],
+            body="",
+            next_prompt="keep going",
+        )
+
+    assert appended == []
+
+
+@pytest.mark.asyncio
+async def test_continuation_inherits_pressure_tier_for_sit_fires():
+    """A reflection seed in pending + next_prompt set — the continuation
+    msg-kind keeps `pressure-reflection` and tags carry pressure-tier so
+    dashboard rendering keeps grouping the chain."""
+    seed = _sit_seed_delta(mid="seed-1", tier="reflection", chain_depth=1)
+    appended: list[dict] = []
+
+    async def fake_append(**kwargs):
+        appended.append(kwargs)
+        return {"id": "queued"}
+
+    with patch.object(threaded.thread_mod, "append", side_effect=fake_append):
+        await threaded._maybe_continue_inquiry(
+            pending=[seed],
+            addressed=["seed-1"],
+            body="reflection round 1 body",
+            next_prompt="push back: what did I smooth over?",
+        )
+
+    assert len(appended) == 1
+    call = appended[0]
+    assert call["msg_kind"] == "pressure-reflection"
+    assert call["channel"] == "pressure"
+    tags = call["extra_tags"] or []
+    assert "pressure-tier:reflection" in tags
+    assert "chain-depth:2" in tags
+    # No fixed sit-max-rounds anymore.
+    assert not any(t.startswith("sit-max-rounds:") for t in tags)
+
+
+@pytest.mark.asyncio
+async def test_continuation_increments_chain_depth():
+    """A continuation msg with chain-depth:3 → next chain-depth:4."""
+    seed = _sit_seed_delta(mid="seed-3", tier="drift", chain_depth=3)
+    appended: list[dict] = []
+
+    async def fake_append(**kwargs):
+        appended.append(kwargs)
+        return {"id": "queued"}
+
+    with patch.object(threaded.thread_mod, "append", side_effect=fake_append):
+        await threaded._maybe_continue_inquiry(
+            pending=[seed],
+            addressed=["seed-3"],
+            body="round 3 body",
+            next_prompt="dig deeper on Y",
+        )
+
+    assert len(appended) == 1
+    assert "chain-depth:4" in (appended[0]["extra_tags"] or [])
+
+
+@pytest.mark.asyncio
+async def test_continuation_caps_at_max_chain_depth():
+    """Chain-depth 10 → no further continuation (safety cap)."""
+    seed = _sit_seed_delta(
+        mid="seed-deep", tier="reflection",
+        chain_depth=threaded.MAX_AUTO_CONTINUE_CHAIN,
+    )
     appended: list[dict] = []
 
     async def fake_append(**kwargs):
@@ -677,157 +773,11 @@ async def test_sit_continuation_stops_at_max_rounds():
         return {"id": "shouldnt-happen"}
 
     with patch.object(threaded.thread_mod, "append", side_effect=fake_append):
-        await threaded._maybe_continue_sit_dialogue(
+        await threaded._maybe_continue_inquiry(
             pending=[seed],
-            addressed=["seed-r4"],
-            body="final round response",
+            addressed=["seed-deep"],
+            body="going strong",
+            next_prompt="and another thing",
         )
 
     assert appended == []
-
-
-@pytest.mark.asyncio
-async def test_sit_continuation_skips_when_seed_not_addressed():
-    """Sit seed in pending but the model didn't address it (perhaps
-    addressed something else) — no continuation."""
-    seed = _sit_seed_delta(mid="seed-r1", tier="reflection")
-    other = _user_delta(mid="user-msg", content="actual user message")
-    appended: list[dict] = []
-
-    async def fake_append(**kwargs):
-        appended.append(kwargs)
-        return {"id": "no"}
-
-    with patch.object(threaded.thread_mod, "append", side_effect=fake_append):
-        await threaded._maybe_continue_sit_dialogue(
-            pending=[seed, other],
-            addressed=["user-msg"],  # seed NOT addressed
-            body="response to user",
-        )
-
-    assert appended == []
-
-
-@pytest.mark.asyncio
-async def test_sit_continuation_ignores_non_sit_messages():
-    """Pending contains only normal user messages, no sit-tier tags —
-    continuation is a no-op."""
-    msg = _user_delta(mid="user-x", content="hi")
-    appended: list[dict] = []
-
-    async def fake_append(**kwargs):
-        appended.append(kwargs)
-        return {"id": "no"}
-
-    with patch.object(threaded.thread_mod, "append", side_effect=fake_append):
-        await threaded._maybe_continue_sit_dialogue(
-            pending=[msg],
-            addressed=["user-x"],
-            body="response",
-        )
-
-    assert appended == []
-
-
-@pytest.mark.asyncio
-async def test_sit_continuation_skips_when_body_empty():
-    seed = _sit_seed_delta(mid="seed-r1", tier="reflection")
-    appended: list[dict] = []
-
-    async def fake_append(**kwargs):
-        appended.append(kwargs)
-        return {"id": "no"}
-
-    with patch.object(threaded.thread_mod, "append", side_effect=fake_append):
-        await threaded._maybe_continue_sit_dialogue(
-            pending=[seed],
-            addressed=["seed-r1"],
-            body="",
-        )
-
-    assert appended == []
-
-
-@pytest.mark.asyncio
-async def test_sit_continuation_increments_round_correctly_at_round_2():
-    """Mid-dialogue: round 2/4 → queue round 3 (intermediate → friction)."""
-    seed = _sit_seed_delta(mid="seed-r2", tier="drift", cur_round=2, max_rounds=4)
-    appended: list[dict] = []
-
-    async def fake_append(**kwargs):
-        appended.append(kwargs)
-        return {"id": "queued-r3"}
-
-    with patch.object(threaded.thread_mod, "append", side_effect=fake_append):
-        await threaded._maybe_continue_sit_dialogue(
-            pending=[seed],
-            addressed=["seed-r2"],
-            body="round 2 response",
-        )
-
-    assert len(appended) == 1
-    assert "sit-round:3" in (appended[0]["extra_tags"] or [])
-    assert appended[0]["msg_kind"] == "pressure-drift"
-    # Round 3 is still intermediate (max=4) → friction prompt.
-    assert "push back" in appended[0]["content"].lower()
-
-
-# ── _sit_continuation_prompt ──────────────────────────────────────
-
-
-def test_sit_continuation_prompt_intermediate_rounds_use_friction():
-    out = threaded._sit_continuation_prompt(
-        prior_body="I think coherence is the dominant axis right now.",
-        next_round=2, max_rounds=4,
-    )
-    assert "I think coherence is the dominant axis right now." in out
-    assert "push back" in out.lower()
-    assert "challenge" in out.lower()
-    # Friction shouldn't trigger synthesis framing.
-    assert "integrate" not in out.lower()
-
-
-def test_sit_continuation_prompt_final_round_uses_synthesis():
-    out = threaded._sit_continuation_prompt(
-        prior_body="The week's work has been cohering.",
-        next_round=4, max_rounds=4,
-    )
-    assert "The week's work has been cohering." in out
-    assert "integrate" in out.lower()
-    assert "directive" in out.lower() or "carry forward" in out.lower()
-    # Synthesis shouldn't carry the friction "push back" language.
-    assert "push back" not in out.lower()
-
-
-def test_sit_continuation_prompt_handles_2round_sit():
-    """If max_rounds=2, round 2 is BOTH next_round and final → synthesize."""
-    out = threaded._sit_continuation_prompt(
-        prior_body="Some prior body.",
-        next_round=2, max_rounds=2,
-    )
-    assert "integrate" in out.lower()
-
-
-@pytest.mark.asyncio
-async def test_sit_continuation_final_round_uses_synthesis_wrapper():
-    """A reflection seed at round 3/4 — when round 4 (the final round)
-    gets queued, it should use the synthesis prompt, not friction."""
-    seed = _sit_seed_delta(mid="seed-r3", tier="reflection", cur_round=3, max_rounds=4)
-    appended: list[dict] = []
-
-    async def fake_append(**kwargs):
-        appended.append(kwargs)
-        return {"id": "queued-r4"}
-
-    with patch.object(threaded.thread_mod, "append", side_effect=fake_append):
-        await threaded._maybe_continue_sit_dialogue(
-            pending=[seed],
-            addressed=["seed-r3"],
-            body="round 3 response",
-        )
-
-    assert len(appended) == 1
-    assert "sit-round:4" in (appended[0]["extra_tags"] or [])
-    # Round 4 is the final round → synthesis, not friction.
-    assert "integrate" in appended[0]["content"].lower()
-    assert "push back" not in appended[0]["content"].lower()

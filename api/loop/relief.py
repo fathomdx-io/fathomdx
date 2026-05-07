@@ -100,7 +100,15 @@ REFLECTION_SEED = (
     "Then: what does this ask of you next? A direction, a question "
     "worth pursuing, something you would actually do differently. "
     "Reflection that stays in the past is accounting. The point is "
-    "what you do with it."
+    "what you do with it.\n\n"
+    "Sit until you're done — not on a fixed round count. After you "
+    "respond, ask: have I named a real next move, or did I smooth "
+    "something over? Is there a thread I surfaced but haven't "
+    "pulled on? If yes, set `next_prompt` on respond with your own "
+    "follow-up — push back on what you just said, name what you "
+    "skipped, go deeper on the loose thread. The fire chains "
+    "automatically. When the inquiry has actually resolved, omit "
+    "next_prompt and the sit ends."
 )
 
 DRIFT_SEED = (
@@ -109,7 +117,13 @@ DRIFT_SEED = (
     "tension neither of you has named out loud yet. Stay on the "
     "collaborative work, not your own research; the gap is in the "
     "dialogue itself. Surface ONE such gap, in your voice. Then "
-    "keep going. What does it ask of you?"
+    "keep going. What does it ask of you?\n\n"
+    "Drift until you're done — not on a fixed round count. After "
+    "you respond, ask: did I actually name the gap, or describe "
+    "around it? Is there a sharper version of this tension I "
+    "haven't touched? If yes, set `next_prompt` on respond to dig "
+    "further. When the gap has been named cleanly and what it "
+    "asks of you is concrete, omit next_prompt and the drift ends."
 )
 
 FEED_DIRECTIVE = (
@@ -158,7 +172,6 @@ RELIEF_TIERS: list[dict[str, Any]] = [
         "consume_weight": 1.0,
         "cooldown_seconds": 10_800,
         "seed": REFLECTION_SEED,
-        "max_rounds": 4,
     },
     {
         "name": "drift",
@@ -167,7 +180,6 @@ RELIEF_TIERS: list[dict[str, Any]] = [
         "consume_weight": 1.0,
         "cooldown_seconds": 10_800,
         "seed": DRIFT_SEED,
-        "max_rounds": 4,
     },
     {
         "name": "feed",
@@ -564,14 +576,14 @@ async def _fire_dialogue(tier: dict[str, Any], reason: str) -> None:
     through the standard intent + thread path lets the threaded
     supervisor run a real sit pass.
 
-    Multi-round behavior is preserved via tag-driven continuation: the
-    relief watcher writes round 1 (with `sit-round:1` and
-    `sit-max-rounds:N`); after each harness pass, the threaded harness
-    looks at the activating sit message, increments the round counter,
-    and appends the assistant's response back as the next user message.
-    The supervisor picks it up on the next tick. Stops at max-rounds.
+    Continuation is now model-driven: the seed lands as round 1,
+    and after each harness pass the model decides whether to chain
+    by setting `respond.next_prompt`. The threaded harness's
+    `_maybe_continue_inquiry` reads that field, appends the next
+    user message, and the supervisor picks it up. The chain
+    terminates when the model omits next_prompt; safety cap is
+    chain-depth 10, not a fixed round count.
     """
-    max_rounds = int(tier.get("max_rounds") or 4)
     try:
         await write_intent(
             kind=tier["name"],
@@ -600,8 +612,7 @@ async def _fire_dialogue(tier: dict[str, Any], reason: str) -> None:
                 f"pressure-tier:{tier['name']}",
                 f"pressure-reason:{reason}",
                 f"fired-at:{fired_at}",
-                "sit-round:1",
-                f"sit-max-rounds:{max_rounds}",
+                "chain-depth:1",
             ],
         )
     except Exception as e:
