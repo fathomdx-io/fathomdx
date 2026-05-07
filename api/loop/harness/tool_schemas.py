@@ -148,6 +148,37 @@ _EXPAND_SCHEMA: dict[str, Any] = {
 }
 
 
+_SEE_IMAGE_SCHEMA: dict[str, Any] = {
+    "type": "function",
+    "function": {
+        "name": "see_image",
+        "description": (
+            "Load an image into your context by its media_hash. Search "
+            "results mark images inline as `[Image attached: "
+            "media_hash=<hash>]` next to any delta that has one — pass "
+            "that hash here to actually see the pixels. Without this "
+            "call you only know an image exists, not what it depicts. "
+            "Use when the image is relevant to your answer (the user "
+            "references it, or the surrounding text alone doesn't tell "
+            "you enough)."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "media_hash": {
+                    "type": "string",
+                    "description": (
+                        "16-char hex media_hash from a search result or "
+                        "chat attachment (e.g. `66b1c685e3fd6ffa`)."
+                    ),
+                },
+            },
+            "required": ["media_hash"],
+        },
+    },
+}
+
+
 _ASCEND_SCHEMA: dict[str, Any] = {
     "type": "function",
     "function": {
@@ -417,6 +448,7 @@ _ALL_SCHEMAS: list[dict[str, Any]] = [
     _MARK_ADDRESSED_SCHEMA,
     _SEARCH_SCHEMA,
     _EXPAND_SCHEMA,
+    _SEE_IMAGE_SCHEMA,
     _ASCEND_SCHEMA,
     _DISPATCH_HELPER_SCHEMA,
     _MINT_ROUTINE_SCHEMA,
@@ -478,6 +510,17 @@ async def dispatch(
             "ERROR: 'respond' is the final-turn tool — the loop "
             "driver should be handling it. Emit content with the "
             "body and addresses fields and stop calling tools."
+        )
+    if name == "see_image":
+        # Returns the IMAGE_RESULT_PREFIX sentinel; the threaded loop
+        # detects it and reshapes the message into a multimodal pair
+        # (placeholder tool result + follow-up user message with the
+        # image), since most providers don't accept image content
+        # inside a role:tool message.
+        from ...tools import _fetch_image_as_tool_result
+
+        return await _fetch_image_as_tool_result(
+            str(args.get("media_hash") or "")
         )
     # Bridge to the legacy handler registry for everything else.
     from . import tools as legacy_tools
