@@ -4076,6 +4076,14 @@
         <button id="chatReplyContextClear" class="reply-context-clear" type="button" aria-label="Clear reply target">✕</button>
       </div>
       <div class="composer">
+        <input type="file" id="chatFileInput" accept="image/*" hidden />
+        <button class="attach" id="chatAttachBtn" aria-label="Attach">
+          <svg viewBox="0 0 256 256" fill="currentColor" width="18" height="18"><path d="M209.66,122.34a8,8,0,0,1,0,11.32l-82.05,82a56,56,0,0,1-79.2-79.21L147.67,35.73a40,40,0,1,1,56.61,56.55L105,193A24,24,0,1,1,71,159L154.3,74.38A8,8,0,1,1,165.7,85.6L82.39,170.31a8,8,0,1,0,11.27,11.36L192.93,81A24,24,0,1,0,159,47L59.76,147.68a40,40,0,1,0,56.53,56.62l82.06-82A8,8,0,0,1,209.66,122.34Z"/></svg>
+        </button>
+        <div class="attach-preview" id="chatAttachPreview">
+          <img id="chatAttachThumb" />
+          <button class="attach-remove" id="chatAttachRemove" type="button">×</button>
+        </div>
         <textarea rows="1" id="chatComposerTa" placeholder="Ask Fathom…"></textarea>
         <div class="tools">
           <button class="send" id="chatComposerSend" aria-label="Send">
@@ -4829,10 +4837,7 @@
     </div>
     <div class="composer">
       <input type="file" id="fileInput" accept="image/*" hidden />
-      <!-- Attach hidden post-cutover: the puddle's seed shape is
-           text-only; image flow comes back when the loop knows how to
-           render media in witness output. -->
-      <button class="attach" id="attachBtn" aria-label="Attach" hidden>
+      <button class="attach" id="attachBtn" aria-label="Attach">
         <svg viewBox="0 0 256 256" fill="currentColor" width="18" height="18"><path d="M209.66,122.34a8,8,0,0,1,0,11.32l-82.05,82a56,56,0,0,1-79.2-79.21L147.67,35.73a40,40,0,1,1,56.61,56.55L105,193A24,24,0,1,1,71,159L154.3,74.38A8,8,0,1,1,165.7,85.6L82.39,170.31a8,8,0,1,0,11.27,11.36L192.93,81A24,24,0,1,0,159,47L59.76,147.68a40,40,0,1,0,56.53,56.62l82.06-82A8,8,0,0,1,209.66,122.34Z"/></svg>
       </button>
       <div class="attach-preview" id="attachPreview">
@@ -9486,7 +9491,8 @@ GET  /v1/usage               Usage stats`,
     async function sendFromComposer(ta) {
       const activeTa = ta || (isChatOpen() ? chatComposerTa : composerTa);
       const text = activeTa.value.trim();
-      if (!text) return;
+      const hasFile = !!pendingFile;
+      if (!text && !hasFile) return;
       activeTa.value = '';
       activeTa.style.height = 'auto';
 
@@ -9500,7 +9506,16 @@ GET  /v1/usage               Usage stats`,
       // If _replyTarget is armed, we tag the seed `reply-to:<delta_id>`
       // so the witness can thread the answer to whatever feed item the
       // user tapped.
+      let mediaHash = null;
+      if (hasFile) {
+        // Upload bytes first; the seed itself carries media_hash so the
+        // image rides on the user-message delta rather than spawning a
+        // second image-only delta.
+        const upload = await uploadPendingImage('', '');
+        mediaHash = upload && upload.media_hash || null;
+      }
       const body = { content: text };
+      if (mediaHash) body.media_hash = mediaHash;
       if (_replyTarget && _replyTarget.id) {
         body.extra_tags = [`reply-to:${_replyTarget.id}`];
       }
@@ -9539,6 +9554,7 @@ GET  /v1/usage               Usage stats`,
               timestamp: intent.timestamp,
               source: intent.source || 'composer',
               kind: 'user-message',
+              media_hash: intent.media_hash || mediaHash || '',
             };
             _renderItemsClustered([item], 'prepend');
             refreshLightbox();
@@ -9582,27 +9598,53 @@ GET  /v1/usage               Usage stats`,
 
 
     // ── Image attachment ─────────────────────────
+    // Two composers (main + chat sidebar) share one pendingFile and one
+    // hidden file input; whichever attach button is clicked routes
+    // through the same picker, and both previews mirror the same file.
     const fileInput = document.getElementById('fileInput');
     const attachBtn = document.getElementById('attachBtn');
     const attachPreview = document.getElementById('attachPreview');
     const attachThumb = document.getElementById('attachThumb');
     const attachRemove = document.getElementById('attachRemove');
+    const chatFileInput = document.getElementById('chatFileInput');
+    const chatAttachBtn = document.getElementById('chatAttachBtn');
+    const chatAttachPreview = document.getElementById('chatAttachPreview');
+    const chatAttachThumb = document.getElementById('chatAttachThumb');
+    const chatAttachRemove = document.getElementById('chatAttachRemove');
     let pendingFile = null;
+
+    function _setPendingFile(file) {
+      pendingFile = file;
+      const url = file ? URL.createObjectURL(file) : '';
+      [[attachThumb, attachPreview], [chatAttachThumb, chatAttachPreview]].forEach(([thumb, prev]) => {
+        if (thumb.src.startsWith('blob:')) URL.revokeObjectURL(thumb.src);
+        if (file) {
+          thumb.src = url;
+          prev.classList.add('visible');
+        } else {
+          thumb.removeAttribute('src');
+          prev.classList.remove('visible');
+        }
+      });
+    }
+    function _clearPendingFile() {
+      _setPendingFile(null);
+      fileInput.value = '';
+      chatFileInput.value = '';
+    }
 
     attachBtn.addEventListener('click', () => fileInput.click());
     fileInput.addEventListener('change', () => {
       const file = fileInput.files[0];
-      if (!file) return;
-      pendingFile = file;
-      attachThumb.src = URL.createObjectURL(file);
-      attachPreview.classList.add('visible');
+      if (file) _setPendingFile(file);
     });
-    attachRemove.addEventListener('click', () => {
-      pendingFile = null;
-      fileInput.value = '';
-      attachPreview.classList.remove('visible');
-      if (attachThumb.src.startsWith('blob:')) URL.revokeObjectURL(attachThumb.src);
+    attachRemove.addEventListener('click', _clearPendingFile);
+    chatAttachBtn.addEventListener('click', () => chatFileInput.click());
+    chatFileInput.addEventListener('change', () => {
+      const file = chatFileInput.files[0];
+      if (file) _setPendingFile(file);
     });
+    chatAttachRemove.addEventListener('click', _clearPendingFile);
 
     async function uploadPendingImage(sessionSlug, captionText) {
       if (!pendingFile) return null;
@@ -9617,11 +9659,7 @@ GET  /v1/usage               Usage stats`,
       const r = await fetch(API_BASE + '/v1/media/upload', { method: 'POST', body: form, headers: _authToken ? { 'Authorization': 'Bearer ' + _authToken } : {} });
       if (!r.ok) return null;
       const data = await r.json();
-      // Clear attachment
-      pendingFile = null;
-      fileInput.value = '';
-      attachPreview.classList.remove('visible');
-      if (attachThumb.src.startsWith('blob:')) URL.revokeObjectURL(attachThumb.src);
+      _clearPendingFile();
       return data; // {id, media_hash}
     }
 
