@@ -305,6 +305,60 @@ _PROPOSE_PROVENANCE_SCHEMA: dict[str, Any] = {
 }
 
 
+_ENGAGE_FEED_SCHEMA: dict[str, Any] = {
+    "type": "function",
+    "function": {
+        "name": "engage_feed",
+        "description": (
+            "Stamp a feed-engagement signal on one or more lake deltas. "
+            "Same shape as the dashboard's 👍/👎 buttons — writes a "
+            "`feed-engagement engagement:<kind> engages:<id>` delta per "
+            "target. The feed-orient crystal regen reads these to decide "
+            "what to surface next. Use when the user expresses a feed "
+            "preference in chat ('show me more visual content', 'less "
+            "system status please') and you can name specific deltas it "
+            "applies to — search first, then engage on the actual hits. "
+            "DON'T fabricate target ids; only pass real lake delta ids "
+            "you've seen in this fire's substrate, recall, or thread. "
+            "Fire-and-forget; auto-triggers a crystal regen if the "
+            "thumb-threshold tips."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "kind": {
+                    "type": "string",
+                    "enum": ["more", "less"],
+                    "description": (
+                        "more = surface things like this; less = surface "
+                        "things like this less often."
+                    ),
+                },
+                "target_ids": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": (
+                        "Lake delta ids to stamp the signal on. Usually "
+                        "1–4 cards or items the user's preference clearly "
+                        "applies to. One delta is fine if that's the only "
+                        "concrete reference."
+                    ),
+                },
+                "reason": {
+                    "type": "string",
+                    "description": (
+                        "One short clause naming the user's stated "
+                        "preference (surfaces in the engagement delta's "
+                        "body so the next crystal regen has context)."
+                    ),
+                },
+            },
+            "required": ["kind", "target_ids"],
+        },
+    },
+}
+
+
 _ORIENT_SHIFT_SCHEMA: dict[str, Any] = {
     "type": "function",
     "function": {
@@ -744,6 +798,7 @@ _ALL_SCHEMAS: list[dict[str, Any]] = [
     _INTROSPECT_SCHEMA,
     _DISPATCH_HELPER_SCHEMA,
     _MINT_ROUTINE_SCHEMA,
+    _ENGAGE_FEED_SCHEMA,
     _ORIENT_SHIFT_SCHEMA,
     _MARK_ADDRESSED_SCHEMA,
     _RESPOND_SCHEMA,
@@ -803,6 +858,46 @@ async def dispatch(
             "ERROR: 'respond' is the final-turn tool — the loop "
             "driver should be handling it. Emit content with the "
             "body and addresses fields and stop calling tools."
+        )
+    if name == "engage_feed":
+        kind = (args.get("kind") or "").strip().lower()
+        if kind not in ("more", "less"):
+            return f"ERROR: kind must be 'more' or 'less', got {kind!r}"
+        raw_targets = args.get("target_ids") or []
+        if not isinstance(raw_targets, list):
+            return "ERROR: target_ids must be a list"
+        targets = [str(t).strip() for t in raw_targets if str(t).strip()]
+        if not targets:
+            return "ERROR: target_ids must contain at least one delta id"
+        reason = (args.get("reason") or "").strip()
+        from ... import delta_client as _lake
+        from .. import feed_orient as _feed_orient
+        import asyncio as _asyncio
+        written: list[str] = []
+        for tid in targets:
+            tags = [
+                "feed-engagement",
+                f"engagement:{kind}",
+                f"engages:{tid}",
+                "via:harness",
+            ]
+            try:
+                d = await _lake.write(
+                    content=reason or f"harness engagement:{kind} on {tid[:12]}",
+                    tags=tags,
+                    source="harness-engagement",
+                )
+                if isinstance(d, dict) and d.get("id"):
+                    written.append(d["id"])
+            except Exception as e:
+                return f"ERROR: engage_feed write failed on {tid[:12]} — {type(e).__name__}: {e}"
+        try:
+            _asyncio.create_task(_feed_orient.on_engagement_written())
+        except Exception:
+            pass
+        return (
+            f"engage_feed wrote {len(written)} engagement:{kind} delta(s) "
+            f"on {len(targets)} target(s); regen check fired."
         )
     if name == "see_image":
         # Returns the IMAGE_RESULT_PREFIX sentinel; the threaded loop
