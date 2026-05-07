@@ -38,6 +38,7 @@ from ... import drift as drift_mod
 from ... import mood as mood_mod
 from ... import standpoint as standpoint_mod
 from ... import thread as thread_mod
+from ...tools import IMAGE_RESULT_PREFIX
 from ..intents import CONVO_TAG
 from ..llm import loop_generate_chat
 from ..puddle import puddle as _puddle
@@ -664,11 +665,36 @@ async def run_threaded_fire(
                     session_tag=session_tag,
                 )
 
-            chat_msgs.append({
-                "role": "tool",
-                "tool_call_id": tcid,
-                "content": tool_result,
-            })
+            # Image tool results need a multimodal split: tool message
+            # gets a short placeholder, the image rides as a follow-up
+            # user content block. Most providers reject image_url
+            # inside role:tool, so this shape works everywhere.
+            if isinstance(tool_result, str) and tool_result.startswith(IMAGE_RESULT_PREFIX):
+                data_uri = tool_result[len(IMAGE_RESULT_PREFIX):]
+                mh = str(args.get("media_hash") or "?")
+                chat_msgs.append({
+                    "role": "tool",
+                    "tool_call_id": tcid,
+                    "content": f"Image loaded (media_hash: {mh}). See the next message.",
+                })
+                chat_msgs.append({
+                    "role": "user",
+                    "content": [
+                        {
+                            "type": "text",
+                            "text": f"[System: image from delta lake, media_hash={mh}]",
+                        },
+                        {"type": "image_url", "image_url": {"url": data_uri}},
+                    ],
+                })
+                trace_result = f"Image loaded: media_hash={mh}"
+            else:
+                chat_msgs.append({
+                    "role": "tool",
+                    "tool_call_id": tcid,
+                    "content": tool_result,
+                })
+                trace_result = tool_result
 
             # Trace this tool call so the dashboard's thinking
             # accordion lights up. Same shape as legacy harness.
@@ -678,7 +704,7 @@ async def run_threaded_fire(
                 tool=tool_name,
                 thinking=thinking_text,
                 args=args,
-                result=tool_result,
+                result=trace_result,
             )
             # Only attribute the model's pre-tool-call thinking text
             # to the FIRST tool call this turn — subsequent calls in
