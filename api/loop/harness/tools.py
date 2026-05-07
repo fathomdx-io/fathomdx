@@ -220,7 +220,9 @@ def _render_delta_brief(d: dict) -> str:
     kind_tags = [t for t in tags if isinstance(t, str) and t.startswith("kind:")]
     if kind_tags:
         tag_summary = f" [{', '.join(kind_tags)}]"
-    return f"  · {did} {src} {ts}{tag_summary}\n      {content}"
+    media = (d.get("media_hash") or "").strip()
+    media_line = f"\n      [Image attached: media_hash={media}]" if media else ""
+    return f"  · {did} {src} {ts}{tag_summary}\n      {content}{media_line}"
 
 
 # ─── lens tools: state / pattern / time / relate ──────────────────────
@@ -246,7 +248,9 @@ def _short(d: dict, *, max_chars: int | None = None) -> str:
         if isinstance(t, str) and (t.startswith("kind:") or t.startswith("provenance-level:"))
     ]
     tag_part = f" [{', '.join(salient)}]" if salient else ""
-    return f"  · {did} {src} {ts}{tag_part}\n      {content}"
+    media = (d.get("media_hash") or "").strip()
+    media_line = f"\n      [Image attached: media_hash={media}]" if media else ""
+    return f"  · {did} {src} {ts}{tag_part}\n      {content}{media_line}"
 
 
 def _now_iso() -> str:
