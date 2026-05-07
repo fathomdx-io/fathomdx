@@ -9962,6 +9962,16 @@ GET  /v1/usage               Usage stats`,
         case 'relate': return `Relate · ${a.action || 'help'}`;
         case 'propose_provenance': return 'Proposing provenance';
         case 'mint_routine': return `Minting routine · ${a.name || ''}`;
+        case 'see_image': {
+          const h = (a.media_hash || '').slice(0, 12);
+          return h ? `Looked at image · ${h}` : 'Looked at image';
+        }
+        case 'engage_feed': {
+          const kind = (a.kind || '').trim();
+          const n = Array.isArray(a.target_ids) ? a.target_ids.length : 0;
+          return kind ? `Engaging feed · ${kind}${n ? ` (${n})` : ''}` : 'Engaging feed';
+        }
+        case 'orient_shift': return 'Shifting feed orientation';
         case 'respond': return 'Responding';
         // Internal plumbing — not user-facing in chat
         case 'dispatch_helper':
