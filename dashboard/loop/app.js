@@ -62,6 +62,93 @@ const $seedInput  = document.getElementById("seed-input");
 const $btnStop    = document.getElementById("btn-stop");
 const $btnFire    = document.getElementById("btn-fire");
 
+// Attachment plumbing — mirrors the main dashboard composer's pattern:
+// file picker, paste handler, thumbnail preview, FormData upload to
+// /v1/media/upload before posting the seed. The seed lake delta then
+// carries the media_hash so the harness's rolling-window projection
+// surfaces `[Image attached: …]` and the model can call see_image.
+const $fileInput     = document.getElementById("file-input");
+const $btnAttach     = document.getElementById("btn-attach");
+const $attachPreview = document.getElementById("attach-preview");
+const $attachThumb   = document.getElementById("attach-thumb");
+const $attachRemove  = document.getElementById("attach-remove");
+let pendingFile = null;
+
+function setPendingFile(file) {
+  if (!file || !file.type.startsWith("image/")) return;
+  if ($attachThumb.src.startsWith("blob:")) URL.revokeObjectURL($attachThumb.src);
+  pendingFile = file;
+  $attachThumb.src = URL.createObjectURL(file);
+  $attachPreview.hidden = false;
+}
+
+function clearPendingFile() {
+  pendingFile = null;
+  if ($fileInput) $fileInput.value = "";
+  if ($attachThumb.src.startsWith("blob:")) URL.revokeObjectURL($attachThumb.src);
+  $attachThumb.removeAttribute("src");
+  $attachPreview.hidden = true;
+}
+
+if ($btnAttach) $btnAttach.addEventListener("click", () => $fileInput.click());
+if ($fileInput) $fileInput.addEventListener("change", () => setPendingFile($fileInput.files[0]));
+if ($attachRemove) $attachRemove.addEventListener("click", clearPendingFile);
+
+// Paste an image directly into the input → attach it.
+$seedInput.addEventListener("paste", (e) => {
+  const items = e.clipboardData?.items || [];
+  for (const it of items) {
+    if (it.type && it.type.startsWith("image/")) {
+      const file = it.getAsFile();
+      if (file) {
+        e.preventDefault();
+        setPendingFile(file);
+        return;
+      }
+    }
+  }
+});
+
+// Drag-drop onto the form.
+["dragenter", "dragover"].forEach((ev) => {
+  $seedForm.addEventListener(ev, (e) => {
+    if ([...e.dataTransfer?.types || []].includes("Files")) {
+      e.preventDefault();
+      $seedForm.classList.add("drag-over");
+    }
+  });
+});
+["dragleave", "drop"].forEach((ev) => {
+  $seedForm.addEventListener(ev, () => $seedForm.classList.remove("drag-over"));
+});
+$seedForm.addEventListener("drop", (e) => {
+  const f = e.dataTransfer?.files?.[0];
+  if (f && f.type.startsWith("image/")) {
+    e.preventDefault();
+    setPendingFile(f);
+  }
+});
+
+async function uploadPendingImage(captionText) {
+  if (!pendingFile) return null;
+  const form = new FormData();
+  form.append("file", pendingFile);
+  form.append("content", (captionText || "").trim());
+  // The seed itself writes a `composer` source delta with the seed
+  // content; let upload_media use its `chat`/`participant:user`
+  // defaults — the bytes get the chat-tag framing and the seed is
+  // what carries the media_hash forward into the loop.
+  const r = await fetch(`${API_BASE}/v1/media/upload`, {
+    method: "POST",
+    body: form,
+    headers: _authHeaders(),
+  });
+  if (!r.ok) throw new Error(`/v1/media/upload POST ${r.status}: ${await r.text()}`);
+  const data = await r.json();
+  clearPendingFile();
+  return data; // {id, media_hash}
+}
+
 function newSessionId() {
   // 8 hex chars, matches what the controller's uuid4().hex[:8] produces
   const arr = new Uint8Array(4);
@@ -72,11 +159,13 @@ function newSessionId() {
 // Drop a seed via the api's /v1/puddle/seed endpoint. The experiment's
 // viz used to write tagged deltas directly to delta-store; fathomdx
 // routes seeds through the api so the puddle module owns intent-shape.
-async function postSeed(content) {
+async function postSeed(content, mediaHash) {
+  const body = { content, kind: "question" };
+  if (mediaHash) body.media_hash = mediaHash;
   const r = await fetch(`${API_BASE}/v1/puddle/seed`, {
     method: "POST",
     headers: { "Content-Type": "application/json", ..._authHeaders() },
-    body: JSON.stringify({ content, kind: "question" }),
+    body: JSON.stringify(body),
   });
   if (!r.ok) throw new Error(`/v1/puddle/seed POST ${r.status}: ${await r.text()}`);
   return r.json();
@@ -85,9 +174,16 @@ async function postSeed(content) {
 $seedForm.addEventListener("submit", async (e) => {
   e.preventDefault();
   const seed = $seedInput.value.trim();
-  if (!seed) { $seedInput.focus(); return; }
+  // Allow image-only sends (no text) — the model can still see_image
+  // and respond. Empty text + no attachment is the only no-op.
+  if (!seed && !pendingFile) { $seedInput.focus(); return; }
+  let mediaHash = null;
   try {
-    await postSeed(seed);
+    if (pendingFile) {
+      const upload = await uploadPendingImage(seed);
+      mediaHash = upload?.media_hash || null;
+    }
+    await postSeed(seed, mediaHash);
   } catch (err) {
     alert("Failed to send: " + err.message);
     return;
