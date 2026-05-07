@@ -610,18 +610,21 @@ async def run_threaded_fire(
                     addresses_clean = [str(a) for a in resp_addresses if a]
                 else:
                     addresses_clean = list(addressed)
-                # Route default: chat-reply, regardless of card shape.
-                # Cards in chat render with title chrome inline; cards
-                # in the feed publish as standalone takes. The choice is
-                # about WHERE the answer belongs (chat vs feed), not
-                # HOW it's shaped. Pressure-feed fires override below
-                # in the bridge call. Model can opt into feed-card with
-                # explicit `route` when the answer is a published take.
+                # Route default reads Fathom's intent from card shape:
+                # if ANY card has kicker OR title populated, the model
+                # was authoring a published take → feed-card. Bare body
+                # (or cards with empty kicker/title) → chat-reply, the
+                # conversational default. Model can override with
+                # explicit `route`. Pressure-feed fires override below.
                 explicit_route = (args.get("route") or "").strip()
                 if explicit_route in ("chat-reply", "feed-card", "alert"):
                     chosen_route = explicit_route
                 else:
-                    chosen_route = "chat-reply"
+                    has_titled_card = any(
+                        c.get("kicker") or c.get("title")
+                        for c in cards_clean
+                    )
+                    chosen_route = "feed-card" if has_titled_card else "chat-reply"
                 final_response = {
                     "body": joined_body,
                     "cards": cards_clean,

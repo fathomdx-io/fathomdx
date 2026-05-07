@@ -405,17 +405,18 @@ _RESPOND_SCHEMA: dict[str, Any] = {
                     "type": "string",
                     "enum": ["chat-reply", "feed-card", "alert"],
                     "description": (
-                        "Where the output lands. Default is `chat-reply` "
-                        "— the answer lives in the conversation chat "
-                        "panel (cards there render with title chrome "
-                        "inline). Set `feed-card` ONLY when the answer "
-                        "is a published take that stands on its own "
-                        "under \"What I noticed\" — a headline that "
-                        "would mean something to a reader without "
-                        "the conversational context. `alert` is for "
-                        "time-sensitive notices. Cards vs body is "
-                        "about shape; route is about WHERE the answer "
-                        "belongs."
+                        "Where the output lands. Default is inferred "
+                        "from card shape: if any card has `kicker` or "
+                        "`title` populated → `feed-card` (a published "
+                        "take under \"What I noticed\"); otherwise → "
+                        "`chat-reply` (lives in the chat panel). The "
+                        "rule reads your authoring intent: titled cards "
+                        "are headlines someone would read out of "
+                        "context; bare-body responses are "
+                        "conversational. Set `route` explicitly to "
+                        "override — e.g. a titled card you DON'T want "
+                        "to publish, or a chat exchange you DO. "
+                        "`alert` is for time-sensitive notices."
                     ),
                 },
                 "addresses": {
