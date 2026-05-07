@@ -1546,7 +1546,7 @@
        (Reach, Stats, etc.). Applied to the first section of that block
        so the whole tail reads as one grouping. */
     #reachSection {
-      margin-top: 52px; padding-top: 32px;
+      margin-top: 18px; padding-top: 32px;
       border-top: 1px solid var(--rule-soft);
     }
     .ecg-head {
@@ -2241,7 +2241,6 @@
       body { padding-right: 540px; }
       /* Main composer is always hidden on desktop — composer lives in chat sidebar */
       .composer-wrap { display: none; }
-      #rightSidebarToggleBtn { display: none; }
     }
 
     /* ── Views: main + drill-down ─────────── */
@@ -4109,9 +4108,6 @@
       <div class="brand">fathom<span class="brand-mark"><svg class="ph-triangle" viewBox="0 0 340 256" fill="currentColor"><g transform="rotate(20.4 128 150)" opacity="0.28"><path d="M236.8,188.09,149.35,36.22a24.76,24.76,0,0,0-42.7,0L19.2,188.09a23.51,23.51,0,0,0,0,23.72A24.35,24.35,0,0,0,40.55,224h174.9a24.35,24.35,0,0,0,21.33-12.19A23.51,23.51,0,0,0,236.8,188.09ZM222.93,203.8a8.5,8.5,0,0,1-7.48,4.2H40.55a8.5,8.5,0,0,1-7.48-4.2,7.59,7.59,0,0,1,0-7.72L120.52,44.21a8.75,8.75,0,0,1,15,0l87.45,151.87A7.59,7.59,0,0,1,222.93,203.8Z"/></g><g transform="translate(41 0) rotate(-17.2 128 150)" opacity="0.58"><path d="M236.8,188.09,149.35,36.22a24.76,24.76,0,0,0-42.7,0L19.2,188.09a23.51,23.51,0,0,0,0,23.72A24.35,24.35,0,0,0,40.55,224h174.9a24.35,24.35,0,0,0,21.33-12.19A23.51,23.51,0,0,0,236.8,188.09ZM222.93,203.8a8.5,8.5,0,0,1-7.48,4.2H40.55a8.5,8.5,0,0,1-7.48-4.2,7.59,7.59,0,0,1,0-7.72L120.52,44.21a8.75,8.75,0,0,1,15,0l87.45,151.87A7.59,7.59,0,0,1,222.93,203.8Z"/></g><g transform="translate(82 0) rotate(0.4 128 150)"><path d="M149.35,36.22a24.76,24.76,0,0,0-42.7,0L19.2,188.09a23.51,23.51,0,0,0,0,23.72A24.35,24.35,0,0,0,40.55,224h174.9a24.35,24.35,0,0,0,21.33-12.19,23.51,23.51,0,0,0,0-23.72Z"/></g></svg></span></div>
     </div>
     <div class="topbar-right">
-      <button class="icon-btn" id="rightSidebarToggleBtn" aria-label="Open chat">
-        <svg viewBox="0 0 256 256" fill="currentColor" width="16" height="16"><path d="M216,40H40A16,16,0,0,0,24,56V200a16,16,0,0,0,16,16H216a16,16,0,0,0,16-16V56A16,16,0,0,0,216,40ZM40,56H96V200H40ZM216,200H112V56H216Z"/></svg>
-      </button>
       <span class="convergence-bars" id="convergenceBars" aria-hidden="true" hidden>
         <span class="conv-bar voice-creator"><span></span></span>
         <span class="conv-bar voice-preserver"><span></span></span>
@@ -9072,7 +9068,6 @@ GET  /v1/usage               Usage stats`,
     // ── Right sidebar (Chat) ────────────────────
     const rightSidebar = document.getElementById('rightSidebar');
     const rightSidebarBackdrop = document.getElementById('rightSidebarBackdrop');
-    const rightSidebarToggleBtn = document.getElementById('rightSidebarToggleBtn');
     const chatComposerTa = document.getElementById('chatComposerTa');
     const chatComposerSend = document.getElementById('chatComposerSend');
 
@@ -9110,7 +9105,6 @@ GET  /v1/usage               Usage stats`,
       document.body.classList.remove('chat-open');
       syncComposer();
     }
-    rightSidebarToggleBtn.addEventListener('click', openRightSidebar);
     rightSidebarBackdrop.addEventListener('click', closeRightSidebar);
     document.getElementById('rightSidebarCloseBtn').addEventListener('click', closeRightSidebar);
 
@@ -10442,7 +10436,7 @@ GET  /v1/usage               Usage stats`,
         <h3>${_esc(title)}</h3>
         ${body ? `<div class="card-body-text">${renderMd(body)}</div>` : ''}
         ${extraLinksHtml}
-        <div class="tail">${cardTimeStr ? `<span>${_esc(cardTimeStr)}</span>` : ''}<span>${_esc(tail)}</span>${linkHtml}<span class="action">Explore →</span>${engagementHtml}</div>
+        <div class="tail">${cardTimeStr ? `<span>${_esc(cardTimeStr)}</span>` : ''}<span>${_esc(tail)}</span>${linkHtml}${engagementHtml}</div>
       </div>`;
 
       // Fallback cascade: if the primary image errors (expired signed URL,
@@ -11984,10 +11978,8 @@ GET  /v1/usage               Usage stats`,
               meta.textContent = '';
             } else {
               const newest = items[0] || {};
-              const ts = newest.timestamp;
-              const rel = _relTime(ts);
-              const stamp = rel ? ` · ${rel}` : '';
-              meta.textContent = `${total} ${total === 1 ? 'item' : 'items'}${stamp}`;
+              const rel = _relTime(newest.timestamp);
+              meta.textContent = rel || '';
             }
           }
           if (typeof _updateFeedMetaSep === 'function') _updateFeedMetaSep();
