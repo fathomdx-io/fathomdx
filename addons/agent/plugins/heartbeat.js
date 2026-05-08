@@ -109,11 +109,12 @@ async function buildPluginMetaMap() {
         const mod = await import(pathToFileURL(full).href);
         const name = mod.default && mod.default.name;
         if (!name) continue;
-        map.set(name.toLowerCase(), {
-          capabilities: mod.SOURCE_CAPABILITIES || null,
-          category: (mod.default && mod.default.category) || null,
-          helperRoles: (mod.default && mod.default.helperRoles) || null,
-        });
+        // Cache the module reference (not snapshotted fields) so
+        // dynamic per-instance fields like helperRoles — which the
+        // acp plugin populates from agent.json's targets at start()
+        // time — are read live each heartbeat instead of frozen at
+        // first-build time.
+        map.set(name.toLowerCase(), { mod });
       } catch (e) {
         console.error(`  heartbeat: failed to read meta for ${file}: ${e.message}`);
       }
@@ -124,7 +125,14 @@ async function buildPluginMetaMap() {
 }
 async function readPluginMeta(name) {
   const map = await buildPluginMetaMap();
-  return map.get(name) || { capabilities: null, category: null, helperRoles: null };
+  const entry = map.get(name);
+  if (!entry) return { capabilities: null, category: null, helperRoles: null };
+  const def = entry.mod && entry.mod.default;
+  return {
+    capabilities: entry.mod.SOURCE_CAPABILITIES || null,
+    category: (def && def.category) || null,
+    helperRoles: (def && def.helperRoles) || null,
+  };
 }
 
 async function summarizePlugins() {

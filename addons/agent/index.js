@@ -49,7 +49,12 @@ function saveConfig(config) {
 async function discoverPlugins() {
   const plugins = new Map();
 
-  // Built-in plugins
+  // Built-in plugins. Mutate in place rather than spread — plugins
+  // whose `start()` mutates `this.helperRoles` (the acp plugin
+  // populates roles dynamically from agent.json's targets) need that
+  // change visible to the heartbeat plugin's meta walk, which re-
+  // imports the same module file. Spreading would produce a separate
+  // copy and the mutation would never reach the heartbeat.
   if (existsSync(BUILTIN_PLUGINS)) {
     for (const file of readdirSync(BUILTIN_PLUGINS)) {
       if (!file.endsWith(".js")) continue;
@@ -57,7 +62,8 @@ async function discoverPlugins() {
         const mod = await import(join(BUILTIN_PLUGINS, file));
         const plugin = mod.default;
         if (plugin?.name && plugin?.start) {
-          plugins.set(plugin.name.toLowerCase(), { ...plugin, source: "built-in" });
+          plugin.source = "built-in";
+          plugins.set(plugin.name.toLowerCase(), plugin);
         }
       } catch (e) {
         console.error(`  Failed to load built-in plugin ${file}: ${e.message}`);
@@ -73,7 +79,8 @@ async function discoverPlugins() {
         const mod = await import(join(CUSTOM_PLUGINS, file));
         const plugin = mod.default;
         if (plugin?.name && plugin?.start) {
-          plugins.set(plugin.name.toLowerCase(), { ...plugin, source: "custom" });
+          plugin.source = "custom";
+          plugins.set(plugin.name.toLowerCase(), plugin);
         }
       } catch (e) {
         console.error(`  Failed to load custom plugin ${file}: ${e.message}`);

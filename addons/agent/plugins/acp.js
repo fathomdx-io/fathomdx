@@ -54,6 +54,15 @@ import { AcpClient } from "../acp_client.js";
 // on every poll until it finishes).
 const inFlight = new Map();
 
+// Set<corr> — dispatches that just completed but whose helper-complete
+// delta may not yet be durable in the lake (a few-second indexing
+// window). The inbox endpoint hides corrs whose complete is in the
+// lake; this set covers the gap before that filter starts taking
+// effect. Bounded by COMPLETED_GRACE_MS — entries auto-evict via
+// setTimeout.
+const recentlyCompleted = new Set();
+const COMPLETED_GRACE_MS = 30 * 1000;
+
 function buildHelperRoles(targets) {
   if (!Array.isArray(targets)) return [];
   return targets
@@ -76,6 +85,7 @@ async function dispatchOne(item, target, inbox, _config) {
   const corr = item.corr || "";
   if (!corr) return;
   if (inFlight.has(corr)) return;
+  if (recentlyCompleted.has(corr)) return;
 
   if (!target.command) {
     console.error(`  acp: target ${target.role} missing command — skipping ${corr.slice(0, 12)}`);
@@ -144,6 +154,8 @@ async function dispatchOne(item, target, inbox, _config) {
     }
   } finally {
     inFlight.delete(corr);
+    recentlyCompleted.add(corr);
+    setTimeout(() => recentlyCompleted.delete(corr), COMPLETED_GRACE_MS).unref?.();
     try {
       await client.close();
     } catch {}

@@ -211,8 +211,35 @@ async def get_inbox(
             time_start=time_start,
             limit=max(limit * 2, 50),
         )
+        # Pull completion markers in the same window so we can hide
+        # already-finished corrs from the inbox. Without this, helper
+        # plugins would re-dispatch every completed task on every poll
+        # — the lake query is time-cursor based and a delta at exactly
+        # `since` would re-appear. Using corr-set filtering is more
+        # robust than tightening the cursor's > vs >= semantics.
+        completes = await delta_client.query(
+            tags_include=[f"host:{host}"],
+            time_start=cutoff_iso,
+            limit=500,
+        )
     except Exception as e:
         raise HTTPException(502, f"lake query failed: {type(e).__name__}: {e}") from e
+
+    completed_corrs: set[str] = set()
+    for d in completes:
+        tags = d.get("tags") or []
+        is_done = (
+            "task-complete" in tags
+            or "task-abandoned" in tags
+            or "kind:helper-complete" in tags
+            or "kind:helper-error" in tags
+        )
+        if not is_done:
+            continue
+        for t in tags:
+            if t.startswith("task-corr:"):
+                completed_corrs.add(t[len("task-corr:"):])
+                break
 
     items: list[dict] = []
     latest_ts = since or ""
@@ -222,6 +249,13 @@ async def get_inbox(
         if slim is None:
             continue
         if role and slim["role"] != role:
+            continue
+        if slim["corr"] in completed_corrs:
+            # Already finished — advance the cursor past it but don't
+            # surface it as a fresh dispatch.
+            ts = slim.get("ts") or ""
+            if ts > latest_ts:
+                latest_ts = ts
             continue
         items.append(slim)
         ts = slim.get("ts") or ""
