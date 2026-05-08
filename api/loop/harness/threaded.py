@@ -670,6 +670,23 @@ async def run_threaded_fire(
     # gets around to mark_addressed (which only fires near the end of
     # the fire, leaving no visibility window).
     pending_ids = [p.get("id") for p in pending if p.get("id")]
+    # Routing tags carried by user-side pending rows that the assistant
+    # reply should inherit so the response surfaces alongside its
+    # source — the routine's Recent tab queries `routine-id:<id>`,
+    # the channel layer queries `correlation:<id>`, etc. Without
+    # propagation, replies to a routine-fire don't show up on that
+    # routine's page.
+    pending_routing_tags: list[str] = []
+    _seen_routing: set[str] = set()
+    for _p in pending:
+        for _t in _p.get("tags") or []:
+            if not isinstance(_t, str):
+                continue
+            if _t in _seen_routing:
+                continue
+            if _t.startswith("routine-id:") or _t.startswith("correlation:"):
+                _seen_routing.add(_t)
+                pending_routing_tags.append(_t)
     if pending_ids:
         await _write_threaded_turn_trace(
             session_tag=session_tag,
@@ -741,6 +758,7 @@ async def run_threaded_fire(
                         "system-error",
                         f"system-error-class:{err_summary['class']}",
                         f"system-error-tier:hard",
+                        *pending_routing_tags,
                     ],
                 )
                 error_lake_id = (d or {}).get("id") or ""
@@ -993,6 +1011,7 @@ async def run_threaded_fire(
                 addresses=addr_set,
                 source="harness-threaded",
                 media_hash=thread_media_hash,
+                extra_tags=pending_routing_tags or None,
             )
             lake_id = (d or {}).get("id") or ""
         except Exception as e:
