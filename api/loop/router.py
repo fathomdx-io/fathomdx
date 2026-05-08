@@ -141,7 +141,7 @@ async def validate_route(
     route_hint: str,
     *,
     tags: list[str] | None = None,
-    available_hosts: list[str] | None = None,
+    available_helpers: list[dict] | None = None,
     has_title: bool = True,
 ) -> str:
     """Apply routing rules and return the final route string.
@@ -152,12 +152,16 @@ async def validate_route(
 
     Rules applied in order:
       1. Unknown / suppress → "unknown"
-      2. helper → only if the named host is in available_hosts;
-         otherwise fall through to chat-reply.
+      2. helper → only if the named host (or host+role pair) is
+         in available_helpers; otherwise fall through to chat-reply.
       3. feed-card → requires a real title; untitled downgrades to
          chat-reply.
       4. alert: → passes through; bust-through is respected.
       5. Everything else → as-is.
+
+    Two helper hint shapes are accepted:
+      `helper:<host>`            — host alone; downstream picks a role
+      `helper:<role>:<host>`     — explicit role on host
     """
     hint = (route_hint or "chat-reply").strip()
 
@@ -165,14 +169,34 @@ async def validate_route(
         return "unknown"
 
     if hint.startswith("helper:") or hint == "helper":
-        target = hint.split(":", 1)[1].strip() if ":" in hint else ""
-        hosts = set(available_hosts or [])
-        if target and target not in hosts:
-            print(
-                f"[router] helper:{target} not in available hosts {sorted(hosts)} "
-                f"— falling back to chat-reply"
+        rest = hint[len("helper:"):].strip() if ":" in hint else ""
+        helpers = available_helpers or []
+        if not rest:
+            return hint
+        if ":" in rest:
+            role, _, target_host = rest.partition(":")
+            role = role.strip()
+            target_host = target_host.strip()
+            ok = any(
+                h["host"] == target_host and h["role"] == role
+                for h in helpers
             )
-            return "chat-reply"
+            if not ok:
+                pretty = sorted(f"{h['role']}@{h['host']}" for h in helpers)
+                print(
+                    f"[router] helper:{role}:{target_host} not in available "
+                    f"helpers {pretty} — falling back to chat-reply"
+                )
+                return "chat-reply"
+        else:
+            target_host = rest
+            host_set = {h["host"] for h in helpers}
+            if target_host not in host_set:
+                print(
+                    f"[router] helper:{target_host} not in available hosts "
+                    f"{sorted(host_set)} — falling back to chat-reply"
+                )
+                return "chat-reply"
         return hint
 
     if hint == "feed-card" and not has_title:

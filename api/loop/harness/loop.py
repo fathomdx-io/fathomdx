@@ -275,9 +275,9 @@ async def run_harness(
     # telepathy refreshes (anchors) or new conversation feed entries
     # land mid-loop, but cheap enough that we don't cache.
     intent_block, short_to_full = _render_intent_block(pending)
-    available_hosts = await witness_mod._available_helper_hosts()
-    hosts_block = witness_mod._render_hosts_block(available_hosts)
-    routines_block = await witness_mod._render_routines_block(available_hosts)
+    available_helpers = await witness_mod._available_helpers()
+    helpers_block = witness_mod._render_helpers_block(available_helpers)
+    routines_block = await witness_mod._render_routines_block(available_helpers)
     # The harness's design principle: the model sees everything that's
     # available. The shared render_for_prompt has internal per-item
     # caps (identity [:600], endorsement excerpts [:80], understanding
@@ -302,7 +302,7 @@ async def run_harness(
         {
             "intent_block": intent_block,
             "standpoint_block": standpoint_block,
-            "hosts_block": hosts_block,
+            "helpers_block": helpers_block,
             "routines_block": routines_block,
         },
     )
@@ -320,7 +320,7 @@ async def run_harness(
             anchors_block=anchors_block,
             feed_block=feed_block,
             intent_block=intent_block,
-            hosts_block=hosts_block,
+            helpers_block=helpers_block,
             routines_block=routines_block,
             plan_block=_render_plan_block(current_plan),
             tool_history=render_tool_history(tool_history),
@@ -1398,7 +1398,7 @@ async def _dispatch_response(
         {"kind": "respond", "cards": [...], "attestation": "...", ...}
     """
     cards_raw = response.get("cards")
-    available_hosts = await witness_mod._available_helper_hosts()
+    available_helpers = await witness_mod._available_helpers()
     primary_intent = (pending[0].get("content") or "").strip() if pending else ""
 
     # All pending intent ids in short form — the witness expects shorts.
@@ -1468,7 +1468,7 @@ async def _dispatch_response(
             card=card,
             pending=pending,
             short_to_full=short_to_full,
-            available_hosts=available_hosts,
+            available_helpers=available_helpers,
             session_tag=session_tag,
             primary_intent=primary_intent,
             voice_order=voice_order,

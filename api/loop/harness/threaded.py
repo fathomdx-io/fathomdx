@@ -257,8 +257,9 @@ Pattern:
   · "could you check if URL Z is up?" → dispatch_helper(...)
   · "write some code to do W" → dispatch_helper(...)
 
-Use `available_hosts` from your standpoint to pick a target. Don't
-fabricate a hostname.
+Use the AVAILABLE HELPERS list in your standpoint to pick a target —
+each entry is `<role> @ <host>` with a one-line capability blurb. Pass
+both `host` and `role` to dispatch_helper. Don't fabricate either.
 
 ══ REACH FOR YOUR EYES — IMAGES ARE FIRST-CLASS ══
 
@@ -499,7 +500,7 @@ def _build_system_message(
     *,
     standpoint_text: str,
     unaddressed: list[dict],
-    available_hosts: list[str] | None = None,
+    available_helpers: list[dict] | None = None,
 ) -> dict:
     """Assemble the role:system message for a fire."""
     parts: list[str] = [_SYSTEM_PREAMBLE.strip(), ""]
@@ -507,13 +508,14 @@ def _build_system_message(
         parts.append("WHO YOU ARE")
         parts.append(standpoint_text)
         parts.append("")
-    if available_hosts:
-        parts.append("AVAILABLE HELPER HOSTS (for dispatch_helper)")
-        for h in available_hosts:
-            parts.append(f"  · {h}")
+    if available_helpers:
+        parts.append("AVAILABLE HELPERS (pass `host` and `role` to dispatch_helper)")
+        for h in available_helpers:
+            desc = f" — {h['description']}" if h.get("description") else ""
+            parts.append(f"  · {h['role']} @ {h['host']}{desc}")
         parts.append("")
-    elif available_hosts is not None:
-        parts.append("AVAILABLE HELPER HOSTS")
+    elif available_helpers is not None:
+        parts.append("AVAILABLE HELPERS")
         parts.append("  (none online — dispatch_helper proposals will queue but no host will pick them up right now)")
         parts.append("")
     parts.append("USER MESSAGES AWAITING RESPONSE")
@@ -629,22 +631,21 @@ async def run_threaded_fire(
 
     if standpoint_text_override is not None:
         standpoint_text = standpoint_text_override
-        available_hosts: list[str] | None = None
+        available_helpers: list[dict] | None = None
     else:
         sp = await standpoint_mod.current(session_tag=session_tag)
         standpoint_text = standpoint_mod.render_for_prompt(sp, char_budget=2400)
         try:
-            from . import loop as legacy_harness  # for _available_helper_hosts
             from . import tools as legacy_tools  # noqa  (force module init)
             from .. import witness as witness_mod
-            available_hosts = await witness_mod._available_helper_hosts()
+            available_helpers = await witness_mod._available_helpers()
         except Exception:
-            available_hosts = None
+            available_helpers = None
 
     system_msg = _build_system_message(
         standpoint_text=standpoint_text,
         unaddressed=pending,
-        available_hosts=available_hosts,
+        available_helpers=available_helpers,
     )
 
     chat_msgs: list[dict[str, Any]] = [system_msg]

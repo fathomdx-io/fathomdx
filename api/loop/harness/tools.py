@@ -1451,24 +1451,29 @@ async def tool_plan(*, question: str) -> str:
 async def tool_dispatch_helper(
     *,
     host: str,
+    role: str,
     task: str,
     title: str = "",
     session_tag: str = "",
 ) -> str:
-    """Propose a claude-code dispatch on a connected helper host.
+    """Propose a helper dispatch on a connected (host, role) target.
 
-    Use when the work needs to happen on a host machine — file edits,
-    shell commands, anything outside the lake. The dispatch is
-    operator-gated: this tool drafts a `kind:proposal tool:helper-dispatch`
-    proposal that surfaces in the header bell. On approve, a real
-    `route:helper` delta lands; the helper watcher picks it up
-    and runs the task on the named host via kitty.
+    Use when the work needs to happen outside the lake — file edits,
+    shell commands, web research with a different model, anything a
+    helper plugin can do. The dispatch is operator-gated: this tool
+    drafts a `kind:proposal tool:helper-dispatch` proposal that
+    surfaces in the header bell. On approve, a real
+    `route:helper:<role>` delta lands; the host's plugin for that role
+    picks it up and runs the task.
 
     Args:
       host: slug of a connected host (visible to the model in the
-        hosts block — e.g. `<host-slug>`). Validates against
-        the live host list.
-      task: the prompt to hand claude-code. Be specific.
+        HELPERS block). Validates against the live (host, role) list.
+      role: helper role on that host — `claude-code` for kitty-spawned
+        claude sessions, `openclaw` for the openclaw HTTP client, or
+        any custom role a plugin advertises. Each row in the HELPERS
+        block is one (host, role) pair.
+      task: the prompt to hand the helper. Be specific.
       title: short label for the bell preview (defaults to the first
         line of `task`).
       session_tag: harness-injected; ignored by the model.
@@ -1479,43 +1484,48 @@ async def tool_dispatch_helper(
     from ..puddle import puddle as _puddle
 
     host = (host or "").strip()
+    role = (role or "").strip()
     task = (task or "").strip()
     if not host:
         return "ERROR: host is required"
+    if not role:
+        return "ERROR: role is required"
     if not task:
         return "ERROR: task is required"
 
-    # _available_helper_hosts returns list[str] of host slugs that
-    # have a recent heartbeat AND advertise dispatch capability. Empty
-    # list means nothing dispatch-capable is online — refuse the call
-    # rather than draft a proposal for a host that won't pick it up.
-    available = await witness_mod._available_helper_hosts() or []
-    available_names = set(available)
-    if not available_names:
+    # _available_helpers returns list[dict] of {host, role, description}
+    # pairs from recent heartbeats. Empty list means nothing
+    # dispatch-capable is online — refuse the call rather than draft a
+    # proposal for a target that won't pick it up.
+    available = await witness_mod._available_helpers() or []
+    if not available:
         return (
-            "ERROR: no helper hosts are currently dispatch-capable "
-            "(no recent heartbeats with kitty plugin). Wait for a "
-            "host to come online or check the helpers panel."
+            "ERROR: no helpers are currently dispatch-capable "
+            "(no recent heartbeats advertising a helper role). "
+            "Wait for a host to come online or check the helpers panel."
         )
-    if host not in available_names:
+    pair_set = {(h["host"], h["role"]) for h in available}
+    if (host, role) not in pair_set:
+        pretty = sorted(f"{r}@{h}" for h, r in pair_set)
         return (
-            f"ERROR: host {host!r} is not in the connected helper list. "
-            f"Available: {sorted(available_names)}"
+            f"ERROR: ({host!r}, {role!r}) is not a connected helper. "
+            f"Available: {pretty}"
         )
 
     if not title:
         title = task.split("\n", 1)[0][:80].strip() or "helper task"
 
     payload = {
-        "kicker": f"helper · {host}",
+        "kicker": f"helper · {role} @ {host}",
         "title": title,
         "body": task,
-        "tail": f"Dispatch to claude-code on {host}",
+        "tail": f"Dispatch to {role} on {host}",
         "route": "tool:helper-dispatch",
         "tool": "helper-dispatch",
         "tool_args": {
             "action": "run",
             "host": host,
+            "role": role,
             "task": task,
         },
     }
@@ -1528,6 +1538,7 @@ async def tool_dispatch_helper(
         "action:run",
         "route:tool:helper-dispatch",
         f"helper-host:{host}",
+        f"helper-role:{role}",
         "produced-by:harness",
     ]
 
@@ -1558,9 +1569,10 @@ async def tool_dispatch_helper(
         print(f"[dispatch_helper] puddle echo failed: {type(e).__name__}: {e}")
 
     return (
-        f"Helper-dispatch proposal {lake_id[:12]} drafted for host={host}. "
-        f"Pending operator approval — visible in the header bell. On "
-        f"approve, claude-code will run on {host} with the given task."
+        f"Helper-dispatch proposal {lake_id[:12]} drafted for "
+        f"role={role} host={host}. Pending operator approval — visible "
+        f"in the header bell. On approve, the {role} helper on {host} "
+        f"will run the given task."
     )
 
 
@@ -1807,7 +1819,7 @@ TOOL_MODEL_ARGS = {
     },
     "relate": {"action", "slug", "limit", "direction", "hours", "delta_id"},
     "propose_provenance": {"level", "title", "summary", "from_ids", "rationale", "test_questions"},
-    "dispatch_helper": {"host", "task", "title"},
+    "dispatch_helper": {"host", "role", "task", "title"},
     "mint_routine": {
         "name", "schedule",
         "purpose", "needs", "steps", "ending",

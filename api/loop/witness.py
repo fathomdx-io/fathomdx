@@ -199,27 +199,25 @@ def _render_conversation_feed(items: list[dict]) -> str:
     return "\n\n".join(blocks) if blocks else "  (no prior turns in this conversation — first fire)"
 
 
-DISPATCH_CAPABILITY_TAG = "plugin:kitty"
+async def _available_helpers() -> list[dict]:
+    """Distinct (host, role) pairs that have heartbeated in the last 5
+    minutes AND advertise that role — these are the agents that can
+    actually receive a `route:helper:<role>` dispatch and run it.
 
+    Each plugin self-registers its helper role(s) via the heartbeat
+    tags `helper-role:<role>` and `helper-desc:<role>:<text>`. The
+    kitty plugin advertises `claude-code`; the openclaw plugin
+    advertises `openclaw`. A host without any helper-role tags has no
+    dispatch-capable plugin enabled, so it's excluded.
 
-async def _available_helper_hosts() -> list[str]:
-    """Distinct hosts that have heartbeated in the last 5 minutes AND
-    self-report the kitty plugin — these are the agents that can
-    actually receive a `helper:<host>` dispatch and spawn the task.
+    Latest-heartbeat-per-host wins: a host that just disabled a plugin
+    drops the corresponding role immediately on its next beat, even if
+    older beats in the 5-minute window still carried it.
 
-    Heartbeating alone is not enough: hosts without kitty (e.g. a
-    headless server) still show up in the lake as alive, but a dispatch
-    to them no-ops because the kitty plugin is what reads the
-    `route:helper` deltas and spawns claude. Filtering here keeps
-    the witness's MACHINES block honest — it lists only hosts capable
-    of carrying out the task.
-
-    Latest-heartbeat-per-host wins: a host that just disabled kitty is
-    excluded immediately on its next beat, even if older beats in the
-    5-minute window still showed the plugin enabled.
-
-    Empty list means nothing dispatch-capable is online and the
-    witness shouldn't pick the helper route this tick.
+    Returns a list of `{host, role, description}` dicts sorted
+    alphabetically by `(role, host)` — claude-code lands near the top
+    so the model's natural left-to-right reading prefers it when roles
+    overlap. Empty list means nothing dispatch-capable is online.
     """
     cutoff = (datetime.now(UTC) - timedelta(minutes=5)).isoformat()
     try:
@@ -243,30 +241,56 @@ async def _available_helper_hosts() -> list[str]:
         if not host or host in seen_host:
             continue
         seen_host[host] = b.get("tags") or []
-    capable = [
-        host
-        for host, tags in seen_host.items()
-        if DISPATCH_CAPABILITY_TAG in tags
-    ]
-    return sorted(capable)
+
+    helpers: list[dict] = []
+    for host, tags in seen_host.items():
+        roles: set[str] = set()
+        descs: dict[str, str] = {}
+        for t in tags:
+            if t.startswith("helper-role:"):
+                roles.add(t.split(":", 1)[1])
+            elif t.startswith("helper-desc:"):
+                # Format: helper-desc:<role>:<text>. The text itself
+                # may contain colons, so split twice and rejoin.
+                rest = t[len("helper-desc:"):]
+                role, _, desc = rest.partition(":")
+                if role:
+                    descs[role] = desc
+        for role in roles:
+            helpers.append({
+                "host": host,
+                "role": role,
+                "description": descs.get(role, ""),
+            })
+    helpers.sort(key=lambda h: (h["role"], h["host"]))
+    return helpers
 
 
-def _render_hosts_block(hosts: list[str]) -> str:
-    """Format the available-hosts list for injection into the witness
+def _render_helpers_block(helpers: list[dict]) -> str:
+    """Format the available-helpers list for injection into the witness
     prompt. Empty when nothing is online — the prompt then has no
-    `helper:<host>` option from the model's POV, since picking
-    a host that doesn't exist would just no-op anyway."""
-    if not hosts:
+    helper option from the model's POV, since picking a target that
+    doesn't exist would just no-op anyway.
+
+    Sorted alphabetically by (role, host) — claude-code lands near the
+    top so when roles overlap, the natural reading order prefers it.
+    The model picks both host AND role when calling `dispatch_helper`.
+    """
+    if not helpers:
         return ""
-    lines = "\n".join(f"  · {h}" for h in hosts)
+    lines = []
+    for h in helpers:
+        desc = f" — {h['description']}" if h["description"] else ""
+        lines.append(f"  · {h['role']} @ {h['host']}{desc}")
     return (
-        "MACHINES — agents currently online that can receive a "
-        "`helper:<host>` dispatch:\n"
-        f"{lines}\n\n"
+        "HELPERS — agents currently online that can receive a "
+        "`dispatch_helper` task. Pass both `host` and `role`:\n"
+        + "\n".join(lines)
+        + "\n\n"
     )
 
 
-async def _render_routines_block(available_hosts: list[str]) -> str:
+async def _render_routines_block(available_helpers: list[dict]) -> str:
     """List enabled routines the witness can fire this tick.
 
     Filters to routines whose pinned host is online (or fleet-wide,
@@ -274,7 +298,7 @@ async def _render_routines_block(available_hosts: list[str]) -> str:
     whose host is dark and the fire delta would just sit unconsumed.
 
     Empty string when no routines are available — the prompt then has
-    no `routine-fire:<id>` option in practice, mirroring the hosts_block
+    no `routine-fire:<id>` option in practice, mirroring the helpers_block
     treatment.
     """
     try:
@@ -286,7 +310,7 @@ async def _render_routines_block(available_hosts: list[str]) -> str:
         return ""
     if not all_routines:
         return ""
-    available_set = set(available_hosts)
+    available_set = {h["host"] for h in available_helpers}
     eligible: list[dict] = []
     for r in all_routines:
         if not r.get("enabled"):
@@ -679,7 +703,7 @@ async def _dispatch_card(
     card: dict,
     pending: list[dict],
     short_to_full: dict[str, str],
-    available_hosts: list[str],
+    available_helpers: list[dict],
     session_tag: str,
     primary_intent: str,
     voice_order: list[str] | None,
@@ -749,7 +773,7 @@ async def _dispatch_card(
     route_value = await _validate_route(
         raw_route,
         tags=None,
-        available_hosts=available_hosts,
+        available_helpers=available_helpers,
         has_title=has_title,
     )
 
@@ -842,15 +866,39 @@ async def _dispatch_card(
             break
 
     # Proactive helper dispatch — router already validated the host is
-    # available; just mint a fresh correlation so kitty picks it up via
-    # (route:helper AND host:<me>).
+    # available. Mint a fresh correlation and pick a role for the
+    # dispatch tag. Two route-hint shapes are accepted:
+    #   helper:<host>            — pick the host's first available
+    #                              role (alphabetical, so claude-code
+    #                              wins ties when multiple are online)
+    #   helper:<role>:<host>     — explicit role + host
+    # The receiving plugin filters on `route:helper:<role>` AND `host:<me>`
+    # so each host-side plugin only sees dispatches for its own role.
+    helper_role_for_dispatch = ""
     if route_value.startswith("helper:"):
-        target = route_value.split(":", 1)[1].strip()
+        rest = route_value[len("helper:"):].strip()
+        target_host = ""
+        if ":" in rest:
+            # Explicit `helper:<role>:<host>` form.
+            helper_role_for_dispatch, target_host = rest.split(":", 1)
+            helper_role_for_dispatch = helper_role_for_dispatch.strip()
+            target_host = target_host.strip()
+        else:
+            target_host = rest
+        if not helper_role_for_dispatch:
+            # Resolve from available_helpers — pick alphabetically first
+            # role for this host. available_helpers is already sorted by
+            # (role, host), so the first match wins.
+            for h in available_helpers:
+                if h["host"] == target_host:
+                    helper_role_for_dispatch = h["role"]
+                    break
         channel = "helper"
         correlation = uuid.uuid4().hex[:12]
-        host_for_channel = target
+        host_for_channel = target_host
         print(
-            f"[witness] proactive helper dispatch → host={target} "
+            f"[witness] proactive helper dispatch → "
+            f"role={helper_role_for_dispatch} host={target_host} "
             f"corr={correlation}"
         )
 
@@ -906,8 +954,19 @@ async def _dispatch_card(
     about_corr = ""
     about_host = ""
     if channel == "helper" and not is_closure_followup:
-        route_value = "helper"
-        payload["route"] = "helper"
+        # Role-namespaced route tag — kitty (claude-code), openclaw, and
+        # any future helper plugin each watch their own
+        # `route:helper:<role>` tag. Fallback to bare `helper` if for
+        # some reason no role was resolved (shouldn't happen — router
+        # validates the host is in available_helpers — but a missing
+        # role at write time is preferable to silently dispatching
+        # nowhere).
+        route_value = (
+            f"helper:{helper_role_for_dispatch}"
+            if helper_role_for_dispatch
+            else "helper"
+        )
+        payload["route"] = route_value
         payload_json = json.dumps(payload, ensure_ascii=False)
     elif channel == "helper" and is_closure_followup:
         route_value = "chat-reply"
@@ -949,6 +1008,14 @@ async def _dispatch_card(
         "feed-card", "synthesis", "addressing-output",
         f"route:{route_value}",
     ]
+    # Role-aware helper routes (helper:<role>) carry an additional bare
+    # `route:helper` umbrella tag so role-agnostic consumers — the
+    # OpenAI endpoint's pending-turn check, claude_code_watcher's corr
+    # lookup, etc. — can find ANY helper dispatch without enumerating
+    # every role. Role-specific consumers (kitty, openclaw plugin) keep
+    # filtering on `route:helper:<role>`.
+    if route_value.startswith("helper:") and "route:helper" not in lake_tags:
+        lake_tags.append("route:helper")
     if is_tool_proposal:
         lake_tags.extend([
             "kind:proposal",
@@ -966,6 +1033,10 @@ async def _dispatch_card(
             lake_tags.append(f"host:{host_for_channel}")
         if correlation:
             lake_tags.append(f"task-corr:{correlation}")
+        if helper_role_for_dispatch:
+            # Also tag the role explicitly so dashboards / searches can
+            # filter by role independently of the route tag.
+            lake_tags.append(f"helper-role:{helper_role_for_dispatch}")
         # Forward the originating chat surface onto the dispatch card so
         # the watcher can read it directly when minting the closure
         # intent. Without this, the closure-followup chat-reply never

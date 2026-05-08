@@ -223,19 +223,34 @@ _DISPATCH_HELPER_SCHEMA: dict[str, Any] = {
     "function": {
         "name": "dispatch_helper",
         "description": (
-            "Propose dispatching a claude-code task to a host machine. "
-            "Lands as kind:proposal awaiting operator approval — does "
-            "NOT immediately run anything. Use when the operator asks "
-            "for code or filesystem work that requires a host."
+            "Propose dispatching a task to a connected helper. Lands "
+            "as kind:proposal awaiting operator approval — does NOT "
+            "immediately run anything. Use when the work needs a "
+            "helper (code/filesystem on claude-code, chat-synthesis "
+            "or web reach on openclaw, etc.). Pass both `host` and "
+            "`role` — each row in the HELPERS block is a (host, role) "
+            "pair."
         ),
         "parameters": {
             "type": "object",
             "properties": {
-                "host": {"type": "string", "description": "Target host (must be claude-code-available)."},
+                "host": {
+                    "type": "string",
+                    "description": "Target host slug (must appear in HELPERS).",
+                },
+                "role": {
+                    "type": "string",
+                    "description": (
+                        "Helper role on that host — e.g. 'claude-code' "
+                        "for kitty-spawned claude sessions, 'openclaw' "
+                        "for the OpenClaw / Pi HTTP client. Must match "
+                        "a (host, role) pair in HELPERS."
+                    ),
+                },
                 "task": {"type": "string", "description": "What the helper should do — full prompt body."},
                 "title": {"type": "string", "description": "Short one-line title for the proposal card."},
             },
-            "required": ["host", "task", "title"],
+            "required": ["host", "role", "task", "title"],
         },
     },
 }

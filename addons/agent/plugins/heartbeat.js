@@ -112,6 +112,7 @@ async function buildPluginMetaMap() {
         map.set(name.toLowerCase(), {
           capabilities: mod.SOURCE_CAPABILITIES || null,
           category: (mod.default && mod.default.category) || null,
+          helperRoles: (mod.default && mod.default.helperRoles) || null,
         });
       } catch (e) {
         console.error(`  heartbeat: failed to read meta for ${file}: ${e.message}`);
@@ -123,7 +124,7 @@ async function buildPluginMetaMap() {
 }
 async function readPluginMeta(name) {
   const map = await buildPluginMetaMap();
-  return map.get(name) || { capabilities: null, category: null };
+  return map.get(name) || { capabilities: null, category: null, helperRoles: null };
 }
 
 async function summarizePlugins() {
@@ -160,6 +161,18 @@ async function summarizePlugins() {
     const meta = await readPluginMeta(name);
     if (meta.capabilities) slim.capabilities = meta.capabilities;
     if (meta.category) slim.category = meta.category;
+    // Helper roles — what this plugin can do as a helper. Each entry is
+    // { role, description }. Multiple plugins on a host can share a role
+    // (rare); usually each plugin owns one role. Witness reads these to
+    // build the HELPERS block.
+    if (Array.isArray(meta.helperRoles) && meta.helperRoles.length) {
+      slim.helperRoles = meta.helperRoles
+        .filter((r) => r && typeof r.role === "string" && r.role.trim())
+        .map((r) => ({
+          role: r.role.trim(),
+          description: typeof r.description === "string" ? r.description.trim() : "",
+        }));
+    }
 
     out[name] = slim;
   }
@@ -215,10 +228,26 @@ async function emitHeartbeat(config, pusher, startedAt) {
 
   // Tags: one per enabled plugin so queries like
   //   tags_include=[agent-heartbeat, plugin:kitty]
-  // can find agents that currently have kitty on.
+  // can find agents that currently have kitty on. Helper roles also
+  // get their own tags so the witness can find dispatch-capable agents
+  // by role rather than by plugin name (`helper-role:claude-code` vs
+  // `plugin:kitty`). Descriptions ride alongside as `helper-desc:<role>:<text>`
+  // so a single tag query gets both axes.
   const tags = ["agent-heartbeat", "fathom-agent", `host:${host}`, `version:${AGENT_VERSION}`];
   for (const [name, p] of Object.entries(payload.plugins)) {
-    if (p.enabled) tags.push(`plugin:${name}`);
+    if (!p.enabled) continue;
+    tags.push(`plugin:${name}`);
+    if (Array.isArray(p.helperRoles)) {
+      for (const r of p.helperRoles) {
+        tags.push(`helper-role:${r.role}`);
+        if (r.description) {
+          // Descriptions are display-only — truncate hard so a verbose
+          // plugin can't bloat the heartbeat tag list.
+          const desc = r.description.slice(0, 200);
+          tags.push(`helper-desc:${r.role}:${desc}`);
+        }
+      }
+    }
   }
 
   const expires_at = new Date(Date.now() + expiryMs).toISOString();

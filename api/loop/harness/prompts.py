@@ -29,7 +29,7 @@ Turns labeled `you` are from the user. Turns labeled `me` are your own prior out
 ══ THE INTENTS ══
 {intent_block}
 
-{hosts_block}{routines_block}{plan_block}══ HOW TO WORK ══
+{helpers_block}{routines_block}{plan_block}══ HOW TO WORK ══
 
 Most questions deserve more than one tool call. The standpoint block
 shows you what's been COMMITTED lately, not what's structurally true.

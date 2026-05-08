@@ -333,33 +333,36 @@ async def approve_proposal(delta_id: str, body: dict | None = None):
             import uuid as _uuid
 
             host = (args.get("host") or "").strip()
+            role = (args.get("role") or "").strip()
             task = (args.get("task") or "").strip()
             if not host:
                 raise HTTPException(status_code=400, detail="host required")
+            if not role:
+                raise HTTPException(status_code=400, detail="role required")
             if not task:
                 raise HTTPException(status_code=400, detail="task required")
-            # Approval materializes the dispatch as a feed-card delta with
-            # the same tag shape the witness uses for proactive helper
-            # dispatches: bare `route:helper` plus separate `host:<host>`
-            # and `task-corr:<corr>` tags.
-            #
-            # The host-side kitty plugin polls
-            # `tags_include=route:helper,host:<myhost>` (AND semantics,
-            # exact-match on tag strings) and only matches when both bare
-            # tags are present. Without this exact shape, the dispatch
-            # lands in the lake but the host never picks it up.
+            # Approval materializes the dispatch as a feed-card delta
+            # with the role-namespaced route tag. Each helper plugin
+            # (kitty for claude-code, openclaw for openclaw, etc.)
+            # filters on `tags_include=route:helper:<role>,host:<myhost>`
+            # so a dispatch only reaches the plugin that owns its role.
+            # The bare `route:helper` umbrella tag rides alongside so
+            # role-agnostic consumers (the OpenAI endpoint's pending-
+            # turn check, claude_code_watcher's corr lookup) can still
+            # find ANY helper dispatch.
             corr = _uuid.uuid4().hex[:12]
-            # `to:helper:<corr>` is the addressing tag the host's kitty
-            # plugin requires (see addons/agent/plugins/kitty.js). Without
-            # it the dispatch is logged "missing to:helper:<corr>" and
-            # skipped. The witness's _dispatch_card also writes this via
-            # channels.address_tag().
+            # `to:helper:<corr>` is the addressing tag the host's plugin
+            # requires (see addons/agent/plugins/kitty.js, openclaw.js).
+            # Without it the dispatch is logged "missing to:helper:<corr>"
+            # and skipped.
             dispatch = await delta_client.write(
                 content=task,
                 tags=[
                     "feed-card",
+                    f"route:helper:{role}",
                     "route:helper",
                     f"host:{host}",
+                    f"helper-role:{role}",
                     "channel:helper",
                     f"to:helper:{corr}",
                     f"task-corr:{corr}",
@@ -372,6 +375,7 @@ async def approve_proposal(delta_id: str, body: dict | None = None):
             result = {
                 "dispatched": True,
                 "host": host,
+                "role": role,
                 "task_corr": corr,
                 "task_chars": len(task),
                 "dispatch_delta_id": (dispatch or {}).get("id"),

@@ -1,24 +1,30 @@
 /**
  * Kitty — claude-code dispatch surface.
  *
- * Polls the delta lake for `route:claude-code` cards (witness dispatches)
- * targeted at this host. For each new dispatch, spawns a standalone kitty
- * window with `claude` and injects the prompt via kitty's remote-control
- * protocol. The user sees the work running on their desktop as a real
- * interactive terminal — they can intervene at any time.
+ * Polls the delta lake for `route:helper:claude-code` cards (witness
+ * dispatches) targeted at this host. For each new dispatch, spawns a
+ * standalone kitty window with `claude` and injects the prompt via
+ * kitty's remote-control protocol. The user sees the work running on
+ * their desktop as a real interactive terminal — they can intervene at
+ * any time.
+ *
+ * This plugin advertises `helper-role:claude-code` via the heartbeat;
+ * other helper roles (openclaw, etc.) live in their own plugins and
+ * watch their own `route:helper:<role>` tags.
  *
  * Dispatch delta shape:
- *   Tags:    [feed-card, route:claude-code, host:<myhost>, task-corr:<id>]
+ *   Tags:    [feed-card, route:helper:claude-code, host:<myhost>,
+ *             to:helper:<corr>]
  *   Source:  witness
  *   Content: JSON payload whose body is the prompt
  *
  * Routines flow through this same path. The cron scheduler (or Fire Now,
  * or the witness's `routine-fire:<id>` route) writes a `routine-due`
  * intent into the puddle; the witness reads it, deliberates, and — when
- * fresh data is needed — emits a `route:claude-code` dispatch card. So
- * routines that need claude-code arrive HERE, just via one extra River
- * tick. The legacy `routine-fire` direct-to-kitty consumer was retired
- * 2026-04-30 — there's no longer a "skip the River" path.
+ * fresh data is needed — emits a `route:helper:claude-code` dispatch
+ * card. So routines that need claude-code arrive HERE, just via one
+ * extra River tick. The legacy `routine-fire` direct-to-kitty consumer
+ * was retired 2026-04-30 — there's no longer a "skip the River" path.
  *
  * State file (~/.fathom/kitty-state.json) tracks the last-processed delta
  * timestamp so restarts don't re-fire historical events.
@@ -265,11 +271,13 @@ async function pollOnce(config, pusher, state) {
   try {
     [taskDispatches, taskCloses, handshakeCandidates] = await Promise.all([
       // Claude-code-channel dispatches — witness cards routed at this
-      // host. AND-semantics on tags_include (route:claude-code AND
-      // host:<myhost>) means each agent only ever sees fires for itself,
-      // even before the per-delta veto runs.
+      // host for this role. AND-semantics on tags_include
+      // (route:helper:claude-code AND host:<myhost>) means each agent
+      // only ever sees fires meant for its claude-code role, even before
+      // the per-delta veto runs. Other helper roles (e.g. openclaw) have
+      // their own plugins watching their own route:helper:<role> tags.
       pusher.query({
-        tags_include: `route:helper,host:${myHost}`,
+        tags_include: `route:helper:claude-code,host:${myHost}`,
         time_start: state.task_seen_at,
         limit: 50,
       }),
@@ -804,6 +812,12 @@ export default {
   category: "runtime",
   icon: "🐈",
   description: "Spawn kitty windows with claude when routines fire.",
+  helperRoles: [
+    {
+      role: "claude-code",
+      description: "shell, file edits, git, web via headed browser",
+    },
+  ],
   defaults: {
     workspace_root: join(homedir(), "Dropbox", "Work"),
     // Directory claude opens in when a routine fires without a pinned
@@ -836,7 +850,7 @@ export default {
   start(config, pusher) {
     const state = loadState();
     const allowed = config.allowed_permission_modes || ["auto", "normal"];
-    console.log(`  kitty: polling lake for route:helper dispatches (last seen: ${state.task_seen_at || state.last_seen})`);
+    console.log(`  kitty: polling lake for route:helper:claude-code dispatches (last seen: ${state.task_seen_at || state.last_seen})`);
     console.log(`  kitty: allowed permission modes = [${allowed.join(", ")}]`);
 
     const tick = () => pollOnce(config, pusher, state);
