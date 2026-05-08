@@ -70,9 +70,15 @@ def test_create_token_returns_raw_token_and_record() -> None:
     assert result["prefix"].endswith("…")
 
 
-def test_create_token_defaults_to_all_scopes() -> None:
+def test_create_token_defaults_to_all_non_helper_scopes() -> None:
+    """`helper` is opt-in via /v1/admin/helpers/<host>/tokens because it
+    only makes sense bound to a host. Default-minted tokens must NOT
+    grant it; otherwise an admin token could pass require_helper_host
+    on any host with a forged path parameter."""
     result = auth.create_token()
-    assert set(result["scopes"]) == set(auth.ALL_SCOPES.keys())
+    expected = {s for s in auth.ALL_SCOPES if s != "helper"}
+    assert set(result["scopes"]) == expected
+    assert "helper" not in result["scopes"]
 
 
 def test_create_token_filters_unknown_scope_strings() -> None:
@@ -86,7 +92,9 @@ def test_create_token_empty_scopes_falls_back_to_defaults() -> None:
     """Empty list after filtering means the caller didn't name any real
     scope. Better to grant defaults than mint a useless token."""
     result = auth.create_token(scopes=["nope"])
-    assert set(result["scopes"]) == set(auth.ALL_SCOPES.keys())
+    assert set(result["scopes"]) == set(auth.DEFAULT_SCOPES)
+    # Helper is opt-in only — defaults must not include it.
+    assert "helper" not in result["scopes"]
 
 
 def test_validate_accepts_created_token() -> None:

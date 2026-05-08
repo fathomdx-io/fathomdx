@@ -228,6 +228,7 @@ from .routes import agents as _agents_routes  # noqa: E402
 from .routes import alerts as _alerts_routes  # noqa: E402
 from .routes import auth as _auth_routes  # noqa: E402
 from .routes import contacts as _contacts_routes  # noqa: E402
+from .routes import helpers as _helpers_routes  # noqa: E402
 from .routes import lake as _lake_routes  # noqa: E402
 from .routes import media as _media_routes  # noqa: E402
 from .routes import messages as _messages_routes  # noqa: E402
@@ -243,6 +244,7 @@ app.include_router(_agents_routes.router)
 app.include_router(_alerts_routes.router)
 app.include_router(_auth_routes.router)
 app.include_router(_contacts_routes.router)
+app.include_router(_helpers_routes.router)
 app.include_router(_lake_routes.router)
 app.include_router(_media_routes.router)
 app.include_router(_messages_routes.router)

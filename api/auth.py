@@ -41,9 +41,13 @@ ALL_SCOPES = {
     "sources:manage": "Add, remove, and configure sources",
     "tokens:manage": "Create and revoke API tokens",
     "chat": "Use chat completions",
+    "helper": "Pull this host's helper inbox and post replies (host-bound)",
 }
 
-DEFAULT_SCOPES = list(ALL_SCOPES.keys())  # new tokens get everything
+# Tokens minted from the dashboard admin path get all scopes EXCEPT
+# `helper`. Helper tokens are issued via /v1/helpers/<host>/tokens and
+# are bound to a specific host — they shouldn't be granted by accident.
+DEFAULT_SCOPES = [s for s in ALL_SCOPES if s != "helper"]
 
 # Map route patterns → required scope
 ROUTE_SCOPES: list[tuple[str, str, str]] = [
@@ -86,6 +90,18 @@ ROUTE_SCOPES: list[tuple[str, str, str]] = [
     ("DELETE", "/v1/routines", "lake:write"),
     ("POST", "/v1/dispatch-helper", "lake:write"),
     ("POST", "/v1/mint-routine", "lake:write"),
+    # Admin: minting/revoking helper-scoped tokens for a host. Lives under
+    # /v1/admin/helpers/... so the broader /v1/helpers match below can't
+    # steal it (an admin needs tokens:manage, not helper).
+    ("GET", "/v1/admin/helpers", "tokens:manage"),
+    ("POST", "/v1/admin/helpers", "tokens:manage"),
+    ("DELETE", "/v1/admin/helpers", "tokens:manage"),
+    # Helper inbox — scoped to the `helper` permission. The route also
+    # enforces `helper_host == path_host` server-side via
+    # require_helper_host so a token issued for host A can't read host
+    # B's inbox even with the right scope.
+    ("GET", "/v1/helpers", "helper"),
+    ("POST", "/v1/helpers", "helper"),
 ]
 
 # Endpoints that don't require auth
@@ -190,8 +206,15 @@ def create_token(
     name: str = "",
     scopes: list[str] | None = None,
     contact_slug: str = "",
+    helper_host: str = "",
 ) -> dict:
-    """Create a new token bound to a contact. Raw token only visible here."""
+    """Create a new token bound to a contact. Raw token only visible here.
+
+    `helper_host` binds a `helper`-scoped token to one specific host. The
+    auth middleware refuses helper-scoped requests whose path host
+    doesn't match this binding, so a leaked helper token can only act
+    on the inbox it was issued for.
+    """
     raw = TOKEN_PREFIX + "".join(secrets.choice(ALPHABET) for _ in range(TOKEN_RAND_LEN))
     token_hash = _hash(raw)
     now = datetime.now(UTC).isoformat()
@@ -202,6 +225,13 @@ def create_token(
     if not granted:
         granted = DEFAULT_SCOPES
 
+    # `helper` scope is only meaningful with a host binding. If the
+    # caller asked for `helper` without naming a host, refuse — better
+    # to fail loudly than mint a token that grants the scope but can
+    # never satisfy the path-host check.
+    if "helper" in granted and not helper_host:
+        raise ValueError("helper_host is required when granting `helper` scope")
+
     record = {
         "id": token_hash[:12],
         "name": name or "Unnamed token",
@@ -209,6 +239,7 @@ def create_token(
         "prefix": raw[:8] + "…",
         "scopes": granted,
         "contact_slug": contact_slug,
+        "helper_host": helper_host,
         "created_at": now,
         "last_used_at": None,
     }
@@ -319,6 +350,35 @@ def require_admin(request: Request) -> dict:
             detail="Admin role required for this action",
         )
     return contact
+
+
+def require_helper_host(host: str, request: Request) -> str:
+    """Enforce that the caller's helper token is bound to `host`.
+
+    Used as a FastAPI dependency on every helper-scoped route — the host
+    comes from the path parameter, the binding from the validated token.
+    Returns the host string for the handler's convenience.
+
+    Mismatch is a 403 rather than 404 so the caller doesn't get a probe
+    oracle for which hosts have helper tokens issued. The auth middleware
+    has already verified the `helper` scope; this gate is the second
+    factor (path host == token host).
+    """
+    token = getattr(request.state, "token", None)
+    if not token:
+        raise HTTPException(status_code=401, detail="Authentication required")
+    bound_host = (token.get("helper_host") or "").strip()
+    if not bound_host:
+        raise HTTPException(
+            status_code=403,
+            detail="Token is not bound to a helper host",
+        )
+    if bound_host != host:
+        raise HTTPException(
+            status_code=403,
+            detail="Token is not authorized for this helper host",
+        )
+    return host
 
 
 # ── Middleware ─────────────────────────────────────
