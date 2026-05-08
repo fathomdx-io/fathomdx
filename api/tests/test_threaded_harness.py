@@ -497,22 +497,57 @@ async def test_fire_bridge_failure_does_not_break_thread_persistence():
 @pytest.mark.asyncio
 async def test_fire_handles_llm_exception():
     """A provider error doesn't blow up the fire — it returns a clean
-    no-response result with the error captured."""
+    no-response result with the error captured, drains the queue
+    (tally-marks per pending id), and bridges the error chat-reply
+    into the puddle so the dashboard renders it."""
+    pending = [_user_delta(mid="u-1", content="hi"), _user_delta(mid="u-2", content="more")]
+
     async def fake_build_window(**kwargs):
-        return {"messages": [], "unaddressed": []}
+        return {"messages": pending, "unaddressed": list(pending)}
 
     fake_chat = AsyncMock(side_effect=RuntimeError("provider down"))
+    fake_append = AsyncMock(return_value={"id": "err-row-1"})
+    fake_mark = AsyncMock(return_value={"id": "mark-1"})
+    fake_bridge = AsyncMock(return_value=None)
 
     with patch.object(threaded.thread_mod, "build_window", fake_build_window), \
-         patch.object(threaded.thread_mod, "append", AsyncMock(return_value={"id": "x"})), \
+         patch.object(threaded.thread_mod, "append", fake_append), \
+         patch.object(threaded.thread_mod, "mark_addressed", fake_mark), \
+         patch.object(threaded, "_bridge_to_puddle_feed", fake_bridge), \
          patch.object(threaded, "loop_generate_chat", fake_chat):
         result = await threaded.run_threaded_fire(standpoint_text_override="")
 
+    # Result shape
     assert result["final_response"] is None
     err = result.get("error") or {}
     assert err.get("class") == "RuntimeError"
     assert err.get("role") == "Standard tasks model"
     assert "provider down" in err.get("message", "")
+    assert result.get("lake_id") == "err-row-1"
+    assert result.get("addressed") == ["u-1", "u-2"]
+
+    # Error chat-reply written with system-error tags + addresses
+    error_appends = [c for c in fake_append.call_args_list
+                     if "system-error" in (c.kwargs.get("extra_tags") or [])]
+    assert len(error_appends) == 1, f"expected 1 system-error append, got {len(error_appends)}"
+    args = error_appends[0].kwargs
+    assert args["role"] == "assistant"
+    assert args["msg_kind"] == "chat-reply"
+    assert args["addresses"] == ["u-1", "u-2"]
+    assert "Standard tasks model" in args["content"]
+    assert "provider down" in args["content"]
+
+    # Tally-marks stamped per pending id (drains thread.unaddressed)
+    marked_ids = sorted(c.kwargs.get("user_message_id") for c in fake_mark.call_args_list)
+    assert marked_ids == ["u-1", "u-2"]
+    assert all(c.kwargs.get("by") == "harness-error" for c in fake_mark.call_args_list)
+
+    # Puddle bridge mirrored the error so the dashboard can render it
+    assert fake_bridge.call_count == 1
+    bridge_kwargs = fake_bridge.call_args.kwargs
+    assert bridge_kwargs["lake_id"] == "err-row-1"
+    assert bridge_kwargs["addresses"] == ["u-1", "u-2"]
+    assert "Standard tasks model" in bridge_kwargs["body"]
 
 
 # ── fire: wake hook (mood + drift coupling) ──────────────────────
