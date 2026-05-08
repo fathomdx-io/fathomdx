@@ -2167,9 +2167,12 @@
     }
     .sidebar-backdrop.visible { opacity: 1; pointer-events: auto; }
 
-    /* ── Right sidebar ─────────────────────── */
+    /* ── Right sidebar ───────────────────────
+       Top-edge sits below the topbar (≈65px) on every breakpoint so
+       the page header stays visible whether the chat is anchored
+       (desktop) or slid in as a drawer (mobile). */
     .right-sidebar {
-      position: fixed; top: 0; right: 0; bottom: 0;
+      position: fixed; top: 65px; right: 0; bottom: 0;
       width: 540px; max-width: 100vw;
       background: var(--bg-deep);
       border-left: 1px solid var(--rule-soft);
@@ -2181,7 +2184,8 @@
     .right-sidebar.open { transform: translateX(0); }
 
     .right-sidebar-backdrop {
-      position: fixed; inset: 0; background: rgba(0, 0, 0, 0.5);
+      position: fixed; top: 65px; right: 0; bottom: 0; left: 0;
+      background: rgba(0, 0, 0, 0.5);
       opacity: 0; pointer-events: none;
       transition: opacity 220ms;
       z-index: 35;
@@ -2200,8 +2204,11 @@
       padding: 0 4px;
     }
 
-    /* Chat column — items render oldest-at-top, newest-at-bottom */
-    #rightSidebarBody { padding: 0; }
+    /* Chat column — items render oldest-at-top, newest-at-bottom.
+       overscroll-behavior:contain prevents scroll chaining: when the
+       chat hits its top or bottom edge, the wheel/touch event stops
+       there instead of propagating to the main feed underneath. */
+    #rightSidebarBody { padding: 0; overscroll-behavior: contain; }
     .chat-feed {
       display: flex; flex-direction: column;
       padding: 20px 20px 210px;
@@ -2238,6 +2245,11 @@
     }
     .chat-composer-foot .composer { max-width: none; margin: 0; }
 
+    /* Right-sidebar close button: only meaningful on mobile while the
+       chat drawer is open. Hidden when closed; hidden on desktop where
+       the chat column is anchored and can't be dismissed. */
+    body:not(.chat-open) #rightSidebarCloseBtn { display: none; }
+
     /* Desktop: right sidebar always visible, left sidebar stays a drawer.
        Breakpoint = sidebar width (540px) + a usable content column. */
     @media (min-width: 1100px) {
@@ -2246,6 +2258,13 @@
       body { padding-right: 540px; }
       /* Main composer is always hidden on desktop — composer lives in chat sidebar */
       .composer-wrap { display: none; }
+      /* Header spans the full viewport width and floats above the chat
+         column. Each view's .topbar lives inside view-main (which is
+         squeezed left by body's padding-right:540px), so bleed it back
+         out with negative margin and lift its z-index above the
+         right-sidebar's 40 so the chat column tucks beneath it. */
+      .view > .topbar { margin-right: -540px; z-index: 50; }
+      #rightSidebarCloseBtn { display: none !important; }
     }
 
     /* ── Views: main + drill-down ─────────── */
@@ -4040,28 +4059,6 @@
 
   <!-- ═══ RIGHT SIDEBAR ═══════════════════════════ -->
   <aside class="right-sidebar" id="rightSidebar">
-    <div class="sidebar-head">
-      <div class="sidebar-brand">
-        <div class="sidebar-brand-left" style="flex:1; justify-content:center;">
-          <span style="font-family: var(--serif); font-size: 18px; color: var(--ink-soft);">Chat</span>
-          <span class="feed-filter" id="feedFilter" data-open="false" style="margin-left: 10px;">
-            <button type="button" class="feed-filter-toggle" id="feedFilterToggle" aria-haspopup="true" aria-expanded="false" aria-controls="feedFilterPanel" title="Filter chat activity">
-              <span id="feedFilterToggleLabel">Filter</span>
-              <span class="feed-filter-caret" aria-hidden="true">▾</span>
-            </button>
-            <div class="feed-filter-panel" id="feedFilterPanel" role="group" aria-label="Filter what shows in chat">
-              <label><input type="checkbox" data-category="helper" checked> Helper</label>
-              <label><input type="checkbox" data-category="prompts"> Prompts</label>
-              <label><input type="checkbox" data-category="thinking"> Thinking</label>
-              <label><input type="checkbox" data-category="routine"> Routines</label>
-            </div>
-          </span>
-        </div>
-        <button class="icon-btn" id="rightSidebarCloseBtn" aria-label="Close panel">
-          <svg viewBox="0 0 256 256" fill="currentColor" width="16" height="16"><path d="M205.66,194.34a8,8,0,0,1-11.32,11.32L128,139.31,61.66,205.66a8,8,0,0,1-11.32-11.32L116.69,128,50.34,61.66A8,8,0,0,1,61.66,50.34L128,116.69l66.34-66.35a8,8,0,0,1,11.32,11.32L139.31,128Z"/></svg>
-        </button>
-      </div>
-    </div>
     <div class="sidebar-body" id="rightSidebarBody">
       <div class="chat-feed feed" id="chatFeed"></div>
     </div>
@@ -4109,6 +4106,11 @@
         <span class="conv-bar voice-preserver"><span></span></span>
         <span class="conv-bar voice-destroyer"><span></span></span>
       </span>
+      <button class="icon-btn" id="rightSidebarCloseBtn" aria-label="Hide chat" title="Hide chat">
+        <!-- Phosphor: Sidebar (regular), mirrored so the rail sits on
+             the right edge — matches the chat column it controls. -->
+        <svg viewBox="0 0 256 256" fill="currentColor" width="16" height="16" style="transform: scaleX(-1);"><path d="M216,40H40A16,16,0,0,0,24,56V200a16,16,0,0,0,16,16H216a16,16,0,0,0,16-16V56A16,16,0,0,0,216,40ZM40,56H88V200H40ZM216,200H104V56H216V200Z"/></svg>
+      </button>
       <button class="stack-version-chip" id="stackVersionChip" type="button" hidden>
         <span class="sha" id="stackVersionSha">—</span>
         <span class="behind" id="stackVersionBehind" hidden></span>
