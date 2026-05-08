@@ -189,11 +189,18 @@ dispatch_helper(host: str, task: str, title: str = "")
   commands, anything that needs to happen on a machine outside your mind.
   `host` must match a connected helper from the hosts block above.
 
-mint_routine(name: str, schedule: str, prompt: str, workspace: str = "fathom",
-             route_to: str = "feed", title: str = "")
+mint_routine(name: str, schedule: str, purpose: str = "", needs: str = "",
+             steps: str = "", ending: str = "", single_fire: bool = False,
+             title: str = "")
   Self-acting — propose a new scheduled routine. Operator-gated; on
   approve, the routine starts firing on its cron. `schedule` is a
-  cron expression (`0 9 * * *` = daily at 09:00).
+  cron expression (`0 9 * * *` = daily at 09:00). The body uses the
+  four-section scaffold the dashboard form expects: pass `purpose`
+  (one sentence), `needs` (what to reach for — claude-code on a
+  host, a tool, or "substrate only"), `steps` (what to look for /
+  filter / compare), and `ending` (how to surface — "card in the
+  feed", "DM me", "stay silent unless X"). At least one section
+  is required.
 
 orient_shift(reason: str)
   Signal that this fire updated your model of what to surface in the

@@ -345,6 +345,30 @@
       background: var(--surface-2, rgba(127,127,127,0.06));
       font-family: var(--mono); font-size: 12px; line-height: 1.5;
     }
+    /* Routine proposals borrow the detail-page layout: section heads
+       above schedule + parsed prompt blocks, with a small mono meta
+       strip for workspace/host/permission. The container removes the
+       boxed key/value treatment that wraps the generic proposal — for
+       routines, the structured sections ARE the summary. */
+    .card-proposal .proposal-summary:has(.proposal-routine-section),
+    .card-proposal .proposal-summary:has(.proposal-routine-meta) {
+      background: transparent; padding: 0; margin: 12px 0 4px;
+      font-family: var(--sans); font-size: 14px; line-height: 1.55;
+    }
+    .card-proposal .proposal-routine-section { margin: 14px 0; }
+    .card-proposal .proposal-routine-section:first-child { margin-top: 0; }
+    .card-proposal .proposal-routine-section h4 {
+      font-family: var(--serif); font-weight: 400;
+      font-size: 16px; margin: 0 0 6px; color: var(--ink);
+    }
+    .card-proposal .proposal-routine-meta {
+      display: flex; flex-wrap: wrap; gap: 14px;
+      font-family: var(--mono); font-size: 11px; letter-spacing: 0.05em;
+      color: var(--ink-faint); margin: 4px 0 14px;
+    }
+    .card-proposal .proposal-routine-meta .k {
+      text-transform: uppercase; color: var(--ink-soft);
+    }
     .card-proposal .proposal-row {
       display: grid; grid-template-columns: 110px 1fr; gap: 8px; padding: 2px 0;
     }
@@ -10963,7 +10987,12 @@ GET  /v1/usage               Usage stats`,
       // include the full # Purpose / # Steps prompt). Render through
       // renderMd so headers, bold, and lists land as styled HTML
       // instead of literal `#` / `**` characters in plain text.
-      const bodyHtml = body ? `<div class="proposal-body-md">${renderMd(body)}</div>` : '';
+      // For routine proposals we skip this — the structured Schedule /
+      // Purpose / Needs / Steps / Ending blocks below already cover
+      // everything in the body, and showing both reads as duplicate.
+      const bodyHtml = (body && it.tool !== 'routines')
+        ? `<div class="proposal-body-md">${renderMd(body)}</div>`
+        : '';
       card.innerHTML = `
         <div class="card-body">
           <div class="kicker">${_esc(kicker)}</div>
@@ -11015,26 +11044,7 @@ GET  /v1/usage               Usage stats`,
 
     function _proposalSummaryHtml(tool, args) {
       if (tool === 'routines') {
-        // Routine prompts arrive as markdown — `# Purpose`, `**bold**`,
-        // numbered lists. Render the prompt field through renderMd so
-        // headers/bold/lists land as styled HTML; everything else stays
-        // plain-escaped key/value.
-        const rows = [];
-        if (args.id) rows.push(['id', args.id, 'plain']);
-        if (args.name) rows.push(['name', args.name, 'plain']);
-        if (args.schedule) rows.push(['schedule', args.schedule, 'plain']);
-        if (args.host) rows.push(['host', args.host, 'plain']);
-        if (args.workspace) rows.push(['workspace', args.workspace, 'plain']);
-        if (args.permission_mode) rows.push(['permission mode', args.permission_mode, 'plain']);
-        if (typeof args.single_fire === 'boolean') rows.push(['single fire', args.single_fire ? 'yes' : 'no', 'plain']);
-        if (typeof args.enabled === 'boolean') rows.push(['enabled', args.enabled ? 'yes' : 'no', 'plain']);
-        if (args.prompt) rows.push(['prompt', args.prompt, 'md']);
-        return rows.map(([k, v, fmt]) => {
-          const valHtml = fmt === 'md'
-            ? `<div class="proposal-row-md">${renderMd(String(v))}</div>`
-            : _esc(String(v));
-          return `<div class="proposal-row${fmt === 'md' ? ' proposal-row-block' : ''}"><span class="proposal-row-key">${_esc(k)}</span><span class="proposal-row-val">${valHtml}</span></div>`;
-        }).join('');
+        return _proposalRoutineSummaryHtml(args);
       }
       if (tool === 'provenance') {
         const rows = [];
@@ -11051,6 +11061,64 @@ GET  /v1/usage               Usage stats`,
         ).join('');
       }
       return `<pre class="proposal-args-json">${_esc(JSON.stringify(args, null, 2))}</pre>`;
+    }
+
+    // Routine proposals borrow the detail-page layout: a Schedule
+    // line, an optional Purpose paragraph, parsed Needs/Steps/Ending
+    // sections (or a single Prompt block when the body isn't a
+    // scaffold), plus a mono meta strip for workspace/host/permission.
+    // Mirrors openRoutineDetail() so the proposal reads like a
+    // preview of the routine it's about to mint.
+    function _proposalRoutineSummaryHtml(args) {
+      const parts = [];
+      // The harness mint_routine tool now passes purpose/needs/steps/
+      // ending as their own scaffold fields. Prefer those when present;
+      // fall back to parsing args.prompt for older proposals that
+      // carried a freeform body.
+      const haveScaffold = ('purpose' in args) || ('needs' in args)
+        || ('steps' in args) || ('ending' in args);
+      let sections;
+      if (haveScaffold) {
+        sections = {
+          purpose: (args.purpose || '').trim(),
+          needs:   (args.needs   || '').trim(),
+          steps:   (args.steps   || '').trim(),
+          ending:  (args.ending  || '').trim(),
+        };
+      } else {
+        const prompt = args.prompt || '';
+        const parsed = prompt ? _parseScaffoldSections(prompt) : null;
+        sections = parsed || { purpose: '', needs: '', steps: prompt.trim(), ending: '' };
+      }
+      if (sections.purpose) {
+        parts.push(`<p class="routine-description">${renderMd(sections.purpose)}</p>`);
+      }
+      if (args.schedule) {
+        const desc = _describeSchedule(args.schedule, !!args.single_fire);
+        parts.push(`
+          <section class="proposal-routine-section">
+            <h4>Schedule</h4>
+            <p class="routine-schedule-text">${_esc(desc)}</p>
+          </section>`);
+      }
+      const metaBits = [];
+      if (typeof args.single_fire === 'boolean' && args.single_fire) metaBits.push(['fires', 'once']);
+      if (typeof args.enabled === 'boolean' && !args.enabled) metaBits.push(['enabled', 'no']);
+      if (metaBits.length) {
+        const metaHtml = metaBits.map(([k, v]) =>
+          `<span><span class="k">${_esc(k)}</span> · ${_esc(String(v))}</span>`
+        ).join('');
+        parts.push(`<div class="proposal-routine-meta">${metaHtml}</div>`);
+      }
+      const promptSection = (label, body) => `
+        <section class="proposal-routine-section">
+          <h4>${_esc(label)}</h4>
+          <div class="routine-prompt-body">${renderMd(body)}</div>
+        </section>`;
+      if (sections.needs)  parts.push(promptSection('Needs',  sections.needs));
+      if (sections.steps)  parts.push(promptSection('Steps',  sections.steps));
+      if (sections.ending) parts.push(promptSection('Ending', sections.ending));
+      return parts.join('');
     }
 
     function _proposalEnterEdit(card, it, args) {

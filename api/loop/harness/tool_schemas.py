@@ -248,23 +248,66 @@ _MINT_ROUTINE_SCHEMA: dict[str, Any] = {
         "description": (
             "Propose creating a scheduled (cron) routine. Lands as "
             "kind:proposal awaiting operator approval. Use when the "
-            "operator asks for something to recur on a schedule."
+            "operator asks for something to recur on a schedule. "
+            "The body uses the dashboard's four-section scaffold — "
+            "pass purpose / needs / steps / ending as their own args; "
+            "the tool joins them into the saved prompt server-side."
         ),
         "parameters": {
             "type": "object",
             "properties": {
-                "name": {"type": "string", "description": "Routine identifier (slug)."},
-                "schedule": {"type": "string", "description": "Cron expression."},
-                "prompt": {"type": "string", "description": "What the routine should do when it fires."},
-                "workspace": {"type": "string", "description": "Optional workspace name for routing."},
-                "route_to": {
+                "name": {
                     "type": "string",
-                    "enum": ["river", "helper"],
-                    "description": "Where the routine fires — 'river' (default) or 'helper' on a host.",
+                    "description": "Human-readable routine name (slug derived from this).",
                 },
-                "title": {"type": "string", "description": "Short title for the proposal card."},
+                "schedule": {
+                    "type": "string",
+                    "description": "5-field cron — '0 9 * * *' is daily at 09:00.",
+                },
+                "purpose": {
+                    "type": "string",
+                    "description": (
+                        "One sentence — what should Fathom accomplish "
+                        "on this routine? Plain language, not steps."
+                    ),
+                },
+                "needs": {
+                    "type": "string",
+                    "description": (
+                        "What this routine needs to actually run — "
+                        "claude-code on a host, a specific tool, or "
+                        "'substrate only' if the lake already holds the data."
+                    ),
+                },
+                "steps": {
+                    "type": "string",
+                    "description": (
+                        "What to look for, filter, compare. Numbered or "
+                        "prose. Written first-person to Fathom; don't "
+                        "pre-script tool calls."
+                    ),
+                },
+                "ending": {
+                    "type": "string",
+                    "description": (
+                        "How the user should be notified — 'card in the "
+                        "feed', 'DM me', 'stay silent unless X'. The "
+                        "witness reads this as a route directive at fire time."
+                    ),
+                },
+                "single_fire": {
+                    "type": "boolean",
+                    "description": (
+                        "True for a one-shot routine that tombstones "
+                        "after the single cron match. Defaults to false."
+                    ),
+                },
+                "title": {
+                    "type": "string",
+                    "description": "Short title for the proposal card. Defaults to name.",
+                },
             },
-            "required": ["name", "schedule", "prompt"],
+            "required": ["name", "schedule", "purpose", "steps"],
         },
     },
 }

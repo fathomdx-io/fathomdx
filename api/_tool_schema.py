@@ -14,8 +14,9 @@ Note (Grand Loop migration): the `routines` tool's create-action schema
 is the canonical shape for routine creation and should be re-used when
 the Grand Loop's witness gains the ability to mint routines from intent
 deltas. Don't drop the schema even if /n is later retired — it captures
-the contract (id, name, schedule, prompt, host, workspace) that the
-agent's kitty plugin already reads from `routine-fire` deltas.
+the contract (id, name, schedule, plus the four-section prompt scaffold
+purpose / needs / steps / ending) that the dashboard form and the
+harness `mint_routine` tool both produce.
 
 The final exported `TOOLS` list is the union, filtered to the chat
 surface. One source of truth; chat and MCP/CLI no longer drift because
@@ -179,10 +180,6 @@ CHAT_ONLY_TOOLS: list[dict] = [
                             "auto: classifier auto-approves safe actions. "
                             "normal: claude prompts for each tool (user approves)."
                         ),
-                    },
-                    "workspace": {
-                        "type": "string",
-                        "description": "directory under ~/Dropbox/Work/ where the kitty session opens",
                     },
                     "host": {
                         "type": "string",

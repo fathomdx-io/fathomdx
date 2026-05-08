@@ -508,7 +508,9 @@ LAKE_TOOLS = [
             "on approve, the routine starts firing on its cron. Use "
             "when something should happen on a recurring clock "
             "(periodic checks, daily summaries, conditional alerts). "
-            "Schedule is a cron expression (`0 9 * * *` = daily at 09:00)."
+            "Schedule is a cron expression (`0 9 * * *` = daily at 09:00). "
+            "The body uses the dashboard form's four-section scaffold — "
+            "purpose / needs / steps / ending — as separate args."
         ),
         "parameters": {
             "type": "object",
@@ -525,21 +527,40 @@ LAKE_TOOLS = [
                         "Cron expression — five fields. Validated before draft."
                     ),
                 },
-                "prompt": {
+                "purpose": {
                     "type": "string",
                     "description": (
-                        "Prompt the routine fires when its cron trips."
+                        "One sentence — what should Fathom accomplish on "
+                        "this routine?"
                     ),
                 },
-                "workspace": {
-                    "type": "string",
-                    "description": "Workspace tag for the routine. Defaults to fathom.",
-                },
-                "route_to": {
+                "needs": {
                     "type": "string",
                     "description": (
-                        "Where the routine's output should land — feed, "
-                        "alert, or a contact slug. Defaults to feed."
+                        "What this routine needs to actually run — "
+                        "claude-code on a host, a specific tool, or "
+                        "'substrate only'."
+                    ),
+                },
+                "steps": {
+                    "type": "string",
+                    "description": (
+                        "What to look for, filter, compare. Numbered or "
+                        "prose. Written first-person to Fathom."
+                    ),
+                },
+                "ending": {
+                    "type": "string",
+                    "description": (
+                        "How the user should be notified — 'card in the "
+                        "feed', 'DM me', 'stay silent unless X'."
+                    ),
+                },
+                "single_fire": {
+                    "type": "boolean",
+                    "description": (
+                        "True for a one-shot routine that tombstones "
+                        "after the single cron match."
                     ),
                 },
                 "title": {
@@ -549,7 +570,7 @@ LAKE_TOOLS = [
                     ),
                 },
             },
-            "required": ["name", "schedule", "prompt"],
+            "required": ["name", "schedule", "purpose", "steps"],
         },
         "endpoint": {"method": "POST", "path": "/v1/mint-routine"},
         "scope": "lake:write",
@@ -819,21 +840,30 @@ async def mint_routine_endpoint(body: dict):
 
     name = (body.get("name") or "").strip()
     schedule = (body.get("schedule") or "").strip()
-    prompt = (body.get("prompt") or "").strip()
-    workspace = (body.get("workspace") or "fathom").strip()
-    route_to = (body.get("route_to") or "feed").strip()
+    purpose = (body.get("purpose") or "").strip()
+    needs = (body.get("needs") or "").strip()
+    steps = (body.get("steps") or "").strip()
+    ending = (body.get("ending") or "").strip()
+    single_fire = bool(body.get("single_fire"))
     title = (body.get("title") or "").strip()
-    if not name or not schedule or not prompt:
+    if not name or not schedule:
         raise HTTPException(
             status_code=400,
-            detail="name, schedule, and prompt are required",
+            detail="name and schedule are required",
+        )
+    if not (purpose or needs or steps or ending):
+        raise HTTPException(
+            status_code=400,
+            detail="at least one prompt section (purpose / needs / steps / ending) is required",
         )
     result = await tool_mint_routine(
         name=name,
         schedule=schedule,
-        prompt=prompt,
-        workspace=workspace,
-        route_to=route_to,
+        purpose=purpose,
+        needs=needs,
+        steps=steps,
+        ending=ending,
+        single_fire=single_fire,
         title=title,
     )
     return {"result": result}

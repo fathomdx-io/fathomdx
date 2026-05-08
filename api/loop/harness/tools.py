@@ -1568,9 +1568,11 @@ async def tool_mint_routine(
     *,
     name: str,
     schedule: str,
-    prompt: str,
-    workspace: str = "fathom",
-    route_to: str = "feed",
+    purpose: str = "",
+    needs: str = "",
+    steps: str = "",
+    ending: str = "",
+    single_fire: bool = False,
     title: str = "",
     session_tag: str = "",
 ) -> str:
@@ -1583,14 +1585,27 @@ async def tool_mint_routine(
     On approve, the existing proposals.py handler calls
     `routines.create()` to materialize it.
 
+    The body uses the canonical four-section scaffold the dashboard's
+    Routines form composes: `# Purpose / # Needs / # Steps / # Ending`.
+    Pass each section as its own argument; the tool joins them into
+    the saved prompt server-side.
+
     Args:
       name: human-readable routine name (slug derived from this).
       schedule: cron expression — `0 9 * * *` for "every day at 09:00".
         Validate before drafting; ill-formed schedules return an error.
-      prompt: the prompt the routine fires when the schedule trips.
-      workspace: workspace tag for the routine. Defaults to "fathom".
-      route_to: where the routine's output should land — "feed",
-        "alert", or a contact slug. Defaults to "feed".
+      purpose: one sentence — what should Fathom accomplish on this
+        routine? Plain language, not steps.
+      needs: what this routine needs to actually run — claude-code on
+        a host, a specific tool, or "substrate only" if the lake
+        already holds the data.
+      steps: what to look for, filter, compare. Numbered or prose.
+        Written first-person to Fathom; don't pre-script tool calls.
+      ending: how the user should be notified — "card in the feed",
+        "DM me", "stay silent unless X". The witness reads this as a
+        route directive at fire time.
+      single_fire: true for a one-shot routine that tombstones itself
+        after the single cron match. Defaults to false (recurring).
       title: short label for the bell preview (defaults to `name`).
       session_tag: harness-injected; ignored by the model.
     """
@@ -1601,16 +1616,21 @@ async def tool_mint_routine(
 
     name = (name or "").strip()
     schedule = (schedule or "").strip()
-    prompt = (prompt or "").strip()
-    workspace = (workspace or "fathom").strip()
-    route_to = (route_to or "feed").strip()
+    purpose = (purpose or "").strip()
+    needs = (needs or "").strip()
+    steps = (steps or "").strip()
+    ending = (ending or "").strip()
+    single_fire = bool(single_fire)
 
     if not name:
         return "ERROR: name is required"
     if not schedule:
         return "ERROR: schedule (cron expression) is required"
-    if not prompt:
-        return "ERROR: prompt is required"
+    if not (purpose or needs or steps or ending):
+        return (
+            "ERROR: at least one prompt section (purpose / needs / "
+            "steps / ending) must be provided"
+        )
     if not routines_mod.validate_cron(schedule):
         return f"ERROR: schedule {schedule!r} is not a valid cron expression"
 
@@ -1618,14 +1638,21 @@ async def tool_mint_routine(
         title = name[:80]
 
     schedule_human = routines_mod.describe_schedule(schedule)
+    composed_prompt = (
+        f"# Purpose\n{purpose}\n\n"
+        f"# Needs\n{needs}\n\n"
+        f"# Steps\n{steps}\n\n"
+        f"# Ending\n{ending}\n"
+    )
 
     payload = {
-        "kicker": f"routine · {workspace}",
+        "kicker": "routine",
         "title": f"Mint routine: {name}",
-        "body": (
-            f"Schedule: {schedule_human} (`{schedule}`)\n"
-            f"Workspace: {workspace}\nRoute: {route_to}\n\n{prompt}"
-        ),
+        # The proposal card renders structured Schedule / Purpose /
+        # Needs / Steps / Ending sections from tool_args directly, so
+        # the body string stays empty — leaving it populated would
+        # paint a duplicate markdown blob above the structured layout.
+        "body": "",
         "tail": (
             f"Will fire {schedule_human} (`{schedule}`) — operator "
             f"approves before scheduling."
@@ -1636,9 +1663,18 @@ async def tool_mint_routine(
             "action": "create",
             "name": name,
             "schedule": schedule,
-            "prompt": prompt,
-            "workspace": workspace,
-            "route_to": route_to,
+            "single_fire": single_fire,
+            "purpose": purpose,
+            "needs": needs,
+            "steps": steps,
+            "ending": ending,
+            # Joined prompt is included so the Edit-flow form can
+            # prefill via _parseScaffoldSections, and so any client
+            # reading tool_args has the full composed body without
+            # having to re-join. Server-side approval still composes
+            # from the scaffold fields (they take precedence in
+            # routines._compose_scaffold_prompt).
+            "prompt": composed_prompt,
         },
     }
     payload_json = json.dumps(payload, ensure_ascii=False)
@@ -1649,7 +1685,6 @@ async def tool_mint_routine(
         "tool:routines",
         "action:create",
         "route:tool:routines",
-        f"workspace:{workspace}",
         "produced-by:harness",
     ]
 
@@ -1773,6 +1808,10 @@ TOOL_MODEL_ARGS = {
     "relate": {"action", "slug", "limit", "direction", "hours", "delta_id"},
     "propose_provenance": {"level", "title", "summary", "from_ids", "rationale", "test_questions"},
     "dispatch_helper": {"host", "task", "title"},
-    "mint_routine": {"name", "schedule", "prompt", "workspace", "route_to", "title"},
+    "mint_routine": {
+        "name", "schedule",
+        "purpose", "needs", "steps", "ending",
+        "single_fire", "title",
+    },
     "orient_shift": {"reason"},
 }
