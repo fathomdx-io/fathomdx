@@ -552,8 +552,22 @@ async def synthesize_mood(session_slug: str | None = None) -> dict | None:
             ],
             temperature=0.7,
         )
-    except Exception:
+    except Exception as e:
         log.exception("mood synthesis LLM call failed")
+        # Write a small error marker so the dashboard's mood surface
+        # can render "(provider error — stale)" alongside the prior
+        # mood. The mood itself stays at its previous value (caller
+        # gets None and skips the write).
+        try:
+            from .loop.llm_errors import summarize as _summarize_llm_error
+            err = _summarize_llm_error(tier="medium", exc=e, role="Mood synthesis")
+            await delta_client.write(
+                content=json.dumps(err),
+                tags=["mood-regen-error", f"system-error-class:{err['class']}"],
+                source=MOOD_SOURCE,
+            )
+        except Exception:
+            log.exception("failed to write mood-regen-error delta")
         return None
 
     text = resp.choices[0].message.content if resp.choices else ""

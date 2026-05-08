@@ -1355,6 +1355,11 @@
       animation: surface 0.8s cubic-bezier(0.16, 1, 0.3, 1) both;
     }
 
+    .mood-stale {
+      margin-top: 8px; font-size: 12px; line-height: 1.45;
+      color: var(--ink-faint); font-style: italic;
+    }
+
     /* Hero headline / subtext use the same surface animation when mood loads */
     .opener .surfacing {
       animation: surface 1s cubic-bezier(0.16, 1, 0.3, 1) both;
@@ -10018,10 +10023,35 @@ GET  /v1/usage               Usage stats`,
           _surface(subtext, true);
           changed = true;
         }
+        _renderMoodStaleIndicator(data && data.regen_error);
         return changed;
       } catch (err) {
         // Network down — leave greeting in place
       }
+    }
+
+    // When the most recent mood-regen crashed (LLM provider error), the
+    // mood card stays at the prior value and an inline indicator notes
+    // why it's stale: "(Mood synthesis: prepayment credits depleted —
+    // mood is stale)". Cleared once a successful regen lands.
+    function _renderMoodStaleIndicator(regenError) {
+      const subtext = document.getElementById('heroSubtext');
+      if (!subtext) return;
+      const parent = subtext.parentNode;
+      let el = document.getElementById('heroMoodStale');
+      if (!regenError) {
+        if (el) el.remove();
+        return;
+      }
+      if (!el) {
+        el = document.createElement('div');
+        el.id = 'heroMoodStale';
+        el.className = 'mood-stale';
+        parent.insertBefore(el, subtext.nextSibling);
+      }
+      const role = regenError.role || 'Mood synthesis';
+      const msg = regenError.message || 'provider error';
+      el.textContent = `${role}: ${msg} — mood is stale.`;
     }
 
     // Kind filter — feed cards carry kind: and level: tags set by the

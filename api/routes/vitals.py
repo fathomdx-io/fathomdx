@@ -25,7 +25,10 @@ async def get_latest_mood():
     """Return the most recent mood (carrier wave) plus current pressure state.
 
     The UI surfaces this as a feed-style card so the user can see what
-    Fathom is carrying right now.
+    Fathom is carrying right now. When the most recent mood-regen
+    crashed (LLM provider error), the prior mood stays in place and a
+    `regen_error` envelope is attached so the UI can render a stale
+    indicator.
     """
     latest = await mood.latest_mood()
     pressure_state = await pressure.read_pressure()
@@ -44,7 +47,39 @@ async def get_latest_mood():
         ),
         "time_since_synthesis_seconds": pressure_state["time_since_synthesis_seconds"],
     }
-    return {"mood": latest, "pressure": pressure_view}
+    regen_error = await _latest_mood_regen_error(latest)
+    return {"mood": latest, "pressure": pressure_view, "regen_error": regen_error}
+
+
+async def _latest_mood_regen_error(latest_mood: dict | None) -> dict | None:
+    """Return the most recent mood-regen-error if it's newer than the
+    latest successful mood — meaning the operator should see "(stale)".
+    Returns None when the most recent regen succeeded (or no errors yet).
+    """
+    try:
+        rows = await delta_client.query(
+            tags_include=["mood-regen-error"], limit=1,
+        )
+    except Exception:
+        return None
+    if not rows:
+        return None
+    err = rows[0]
+    err_ts = err.get("timestamp") or ""
+    mood_ts = (latest_mood or {}).get("timestamp") or ""
+    if mood_ts and err_ts <= mood_ts:
+        return None
+    import json as _json
+    try:
+        payload = _json.loads(err.get("content") or "{}")
+    except Exception:
+        payload = {}
+    return {
+        "timestamp": err_ts,
+        "role": payload.get("role") or "Mood synthesis",
+        "class": payload.get("class") or "",
+        "message": payload.get("message") or "",
+    }
 
 
 @router.post("/v1/moods/synthesize")
