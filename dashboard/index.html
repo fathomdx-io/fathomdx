@@ -1355,11 +1355,6 @@
       animation: surface 0.8s cubic-bezier(0.16, 1, 0.3, 1) both;
     }
 
-    .mood-stale {
-      margin-top: 8px; font-size: 12px; line-height: 1.45;
-      color: var(--ink-faint); font-style: italic;
-    }
-
     /* Hero headline / subtext use the same surface animation when mood loads */
     .opener .surfacing {
       animation: surface 1s cubic-bezier(0.16, 1, 0.3, 1) both;
@@ -3462,6 +3457,26 @@
       font-family: var(--mono); font-size: 12px;
       background: var(--surface-2); padding: 1px 5px; border-radius: 4px;
     }
+    /* LLM status banner — same shell as .config-warning, with a Retry
+       affordance on the right. The retry POSTs to /v1/moods/synthesize
+       so the user can clear the banner immediately after topping up
+       tokens, instead of waiting for the next scheduled mood fire. */
+    .llm-status-warning .llm-status-retry {
+      flex: 0 0 auto; align-self: center;
+      font-family: var(--mono); font-size: 11px;
+      letter-spacing: 0.04em; text-transform: uppercase;
+      padding: 6px 12px; border-radius: 999px;
+      border: 1px solid rgba(220,120,40,0.45);
+      background: transparent; color: var(--ink);
+      cursor: pointer; transition: background 120ms, border-color 120ms;
+    }
+    .llm-status-warning .llm-status-retry:hover {
+      background: rgba(220,120,40,0.12);
+      border-color: rgba(220,120,40,0.7);
+    }
+    .llm-status-warning .llm-status-retry[disabled] {
+      opacity: 0.5; cursor: progress;
+    }
 
     /* ── Agent section ──────────────────────────── */
     /* Install callout — banner shape, shown when no agent is registered.
@@ -4138,6 +4153,19 @@
         <p class="title" id="configWarningTitle">You're almost there! But your LLM is not configured.</p>
         <p class="detail" id="configWarningDetail"></p>
       </div>
+    </div>
+
+    <!-- LLM status banner — visible when the most recent LLM call
+         failed (rate limit, depleted credits, provider error). Polls
+         /v1/llm/status; clears automatically when a successful call
+         lands, or via the Retry button which forces a mood synthesis. -->
+    <div class="config-warning llm-status-warning" id="llmStatusBanner" hidden>
+      <span class="ico">⚠</span>
+      <div class="body">
+        <p class="title" id="llmStatusTitle">LLM unreachable</p>
+        <p class="detail" id="llmStatusDetail"></p>
+      </div>
+      <button class="llm-status-retry" id="llmStatusRetry" type="button">Retry</button>
     </div>
 
     <!-- Opener: title + subtext both render dynamically at runtime -->
@@ -5600,6 +5628,50 @@
       }
     }
     loadHealth();
+
+    // ── LLM live status banner ───────────────────
+    // Polls /v1/llm/status — independent of the mood card, so a stale
+    // mood doesn't drag a "credits depleted" warning along behind a
+    // successful refill. The banner self-clears as soon as ANY
+    // LLM-using producer (mood, harness, sediment) lands a write
+    // newer than the latest error envelope. Retry button forces a
+    // mood synthesis to short-circuit the wait.
+    async function refreshLlmStatus() {
+      const banner = document.getElementById('llmStatusBanner');
+      if (!banner) return;
+      try {
+        const r = await fetch(API_BASE + '/v1/llm/status', { headers: authHeaders() });
+        if (!r.ok) return;
+        const data = await r.json();
+        if (data && data.ok) {
+          banner.hidden = true;
+          return;
+        }
+        const err = (data && data.error) || {};
+        const role = err.role || 'LLM';
+        const message = err.message || 'provider error';
+        document.getElementById('llmStatusTitle').textContent =
+          `${role} is failing`;
+        document.getElementById('llmStatusDetail').textContent =
+          `${message}. Top up tokens or check your provider, then click Retry.`;
+        banner.hidden = false;
+      } catch (e) {
+        // network blip — leave the banner in whatever state it was
+      }
+    }
+    document.getElementById('llmStatusRetry')?.addEventListener('click', async (ev) => {
+      const btn = ev.currentTarget;
+      btn.disabled = true;
+      try {
+        await fetch(API_BASE + '/v1/moods/synthesize', {
+          method: 'POST', headers: authHeaders(),
+        });
+      } catch (e) { /* surfaced via the next status poll */ }
+      await refreshLlmStatus();
+      btn.disabled = false;
+    });
+    refreshLlmStatus();
+    setInterval(refreshLlmStatus, 60_000);
 
     // ── Routines ────────────────────────────────────
     // Routines are spec deltas in the lake. CRUD = write a new spec with the
@@ -10025,34 +10097,10 @@ GET  /v1/usage               Usage stats`,
           _surface(subtext, true);
           changed = true;
         }
-        _renderMoodStaleIndicator(data && data.regen_error);
         return changed;
       } catch (err) {
         // Network down — leave greeting in place
       }
-    }
-
-    // When the most recent mood-regen crashed (LLM provider error), the
-    // mood card stays at the prior value and an inline indicator notes
-    // why it's stale: "(Mood synthesis: prepayment credits depleted —
-    // mood is stale)". Cleared once a successful regen lands.
-    function _renderMoodStaleIndicator(regenError) {
-      const subtext = document.getElementById('heroSubtext');
-      if (!subtext) return;
-      const parent = subtext.parentNode;
-      let el = document.getElementById('heroMoodStale');
-      if (!regenError) {
-        if (el) el.remove();
-        return;
-      }
-      if (!el) {
-        el = document.createElement('div');
-        el.id = 'heroMoodStale';
-        el.className = 'mood-stale';
-        parent.insertBefore(el, subtext.nextSibling);
-      }
-      const msg = regenError.message || 'provider error';
-      el.textContent = `${msg} — mood is stale.`;
     }
 
     // Kind filter — feed cards carry kind: and level: tags set by the

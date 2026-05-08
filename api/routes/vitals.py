@@ -91,6 +91,72 @@ async def force_mood_synthesis():
     return fresh
 
 
+@router.get("/v1/llm/status")
+async def get_llm_status():
+    """Return whether the LLM is currently failing.
+
+    Compares the most recent error envelope across known LLM-error tag
+    families (`system-error` from the harness, `mood-regen-error` from
+    mood synth) against the most recent successful LLM-using producer
+    write (`mood-delta`, `kind:harness-turn`, `kind:sediment`). If a
+    success is newer than the latest error, the LLM is back; otherwise
+    the error is still live.
+
+    Replaces the inline mood-stale indicator with a top-of-page banner
+    that auto-clears as soon as any LLM-using process succeeds — so the
+    moment the user adds tokens and the next mood/harness fire lands,
+    the warning disappears on its own.
+    """
+    err_ts = ""
+    err_payload: dict = {}
+    for tag in ("system-error", "mood-regen-error"):
+        try:
+            rows = await delta_client.query(tags_include=[tag], limit=1)
+        except Exception:
+            continue
+        if not rows:
+            continue
+        row = rows[0]
+        ts = row.get("timestamp") or ""
+        if ts > err_ts:
+            err_ts = ts
+            import json as _json
+            try:
+                err_payload = _json.loads(row.get("content") or "{}")
+            except Exception:
+                err_payload = {"message": row.get("content") or ""}
+
+    if not err_ts:
+        return {"ok": True, "error": None}
+
+    # Any LLM-using producer success newer than the error clears it.
+    success_ts = ""
+    for tag in ("mood-delta", "kind:harness-turn", "kind:sediment"):
+        try:
+            rows = await delta_client.query(
+                tags_include=[tag], time_start=err_ts, limit=1,
+            )
+        except Exception:
+            continue
+        if not rows:
+            continue
+        ts = rows[0].get("timestamp") or ""
+        if ts > success_ts:
+            success_ts = ts
+    if success_ts and success_ts > err_ts:
+        return {"ok": True, "error": None}
+
+    return {
+        "ok": False,
+        "error": {
+            "timestamp": err_ts,
+            "role": err_payload.get("role") or "LLM",
+            "class": err_payload.get("class") or "",
+            "message": err_payload.get("message") or "",
+        },
+    }
+
+
 @router.get("/v1/moods/history")
 async def get_mood_history(limit: int = 200):
     """Mood timeline for the ECG colored band + state-change events."""
