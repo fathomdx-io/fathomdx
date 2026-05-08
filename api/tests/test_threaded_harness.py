@@ -509,7 +509,10 @@ async def test_fire_handles_llm_exception():
         result = await threaded.run_threaded_fire(standpoint_text_override="")
 
     assert result["final_response"] is None
-    assert "RuntimeError" in result.get("error", "")
+    err = result.get("error") or {}
+    assert err.get("class") == "RuntimeError"
+    assert err.get("role") == "Standard tasks model"
+    assert "provider down" in err.get("message", "")
 
 
 # ── fire: wake hook (mood + drift coupling) ──────────────────────

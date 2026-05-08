@@ -707,19 +707,24 @@ async def run_threaded_fire(
                 max_tokens=8192,
             )
         except Exception as e:
-            print(f"[threaded-fire] LLM call crashed turn {turn}: {type(e).__name__}: {e}")
+            from ..llm_errors import summarize as _summarize_llm_error
+            err_summary = _summarize_llm_error(tier="hard", exc=e)
+            print(
+                f"[threaded-fire] LLM call crashed turn {turn}: "
+                f"{err_summary['class']}: {err_summary['message']}"
+            )
             await _write_threaded_turn_trace(
                 session_tag=session_tag,
                 turn=turn,
                 tool="(llm-error)",
-                error=f"{type(e).__name__}: {e}",
+                error=f"{err_summary['class']}: {err_summary['message']}",
             )
             return {
                 "final_response": None,
                 "turns": turns_used,
                 "addressed": addressed,
                 "lake_id": "",
-                "error": f"{type(e).__name__}: {e}",
+                "error": err_summary,
             }
 
         chat_msgs.append(asst)
