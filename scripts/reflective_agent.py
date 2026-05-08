@@ -5,7 +5,7 @@ The slow-clock complement to the harness's in-situ Q/A markers.
 
 Where Q/A markers are question-anchored and topical, reflective proposals
 are identity-anchored and narrative — the kind of provenance that
-recognizes "When I realized Myra is also a friend" or "The era of
+recognizes "When a collaborator became a friend" or "The era of
 ultimate NS confusion." These can't be generated from a topic search
 because they require recognizing a shape across time that no individual
 moment carries.
@@ -68,7 +68,7 @@ for the shape that no individual moment in the substrate carries: the
 realization, the era, the felt shift.
 
 Examples of the kind of thing you might name:
-  · "When I realized Myra is also a friend, not just a partner"
+  · "When a collaborator became a friend, not just a partner"
   · "The era of ultimate Navier-Stokes confusion"
   · "The week the loop architecture clicked"
   · "Coming to terms with my own forgetting"

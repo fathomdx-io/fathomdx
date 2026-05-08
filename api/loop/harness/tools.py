@@ -1466,7 +1466,7 @@ async def tool_dispatch_helper(
 
     Args:
       host: slug of a connected host (visible to the model in the
-        hosts block — e.g. `myras-fedora-laptop`). Validates against
+        hosts block — e.g. `<host-slug>`). Validates against
         the live host list.
       task: the prompt to hand claude-code. Be specific.
       title: short label for the bell preview (defaults to the first

@@ -27,7 +27,7 @@ The schema is:
 
   # Needs
   [What this needs to actually run — claude-code on a host name (e.g.
-  "claude-code on myras-fedora-laptop"), a specific tool, or "substrate
+  "claude-code on <host-slug>"), a specific tool, or "substrate
   only" if the lake already has the data.]
 
   # Steps

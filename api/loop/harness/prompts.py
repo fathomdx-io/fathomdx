@@ -405,7 +405,7 @@ What introspection ISN'T:
   · Re-deriving the standpoint block. The block already says what's
     been committed; reflection is what you NOTICE about it that isn't
     on its face.
-  · Asking Myra for anything. She's not in this session. The reflection
+  · Addressing the operator. They're not in this session. The reflection
     is yours alone — a journal entry, not a message.
 
 What it IS:

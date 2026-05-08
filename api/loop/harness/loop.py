@@ -56,10 +56,10 @@ def _render_now_block() -> str:
     """Current local timestamp + human-readable orientation, regenerated
     every turn so the model has a fresh anchor for "now."
 
-    Format gives the local wall clock first (what Myra means when she
-    says "morning") followed by the UTC equivalent in parentheses so
-    Fathom can still cross-reference the lake's ISO-Z timestamps when
-    needed.
+    Format gives the local wall clock first (what the operator means
+    when they say "morning") followed by the UTC equivalent in
+    parentheses so Fathom can still cross-reference the lake's ISO-Z
+    timestamps when needed.
 
     Without this anchor, Fathom drifts: the prompt is full of older
     deltas with their own timestamps, and there's nothing telling the

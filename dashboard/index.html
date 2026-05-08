@@ -11510,7 +11510,7 @@ GET  /v1/usage               Usage stats`,
         const html = `${kickerHtml}${titleHtml}${bodyHtml}${tailHtml}`;
         // Addressing — `for:<slug>` names the recipient; the channel/
         // correlation pair is the wire. Renders as
-        // "Fathom > Myra · openai:greedy-clumsy-salamander".
+        // "Fathom > <name> · openai:greedy-clumsy-salamander".
         const aTags = it.tags || [];
         const forTag = aTags.find(t => t.startsWith('for:'));
         const toName = forTag ? forTag.slice('for:'.length) : '';

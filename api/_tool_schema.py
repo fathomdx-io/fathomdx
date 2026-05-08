@@ -138,7 +138,7 @@ CHAT_ONLY_TOOLS: list[dict] = [
                         "description": (
                             "What this routine needs to actually run — "
                             "claude-code on a host (e.g. 'claude-code on "
-                            "myras-fedora-laptop'), a specific tool, or "
+                            "<host-slug>'), a specific tool, or "
                             "'substrate only' if the lake already has the data. "
                             "Goes under `# Needs`."
                         ),
