@@ -3291,20 +3291,24 @@
     .routine-editor {
       display: flex; flex-direction: column; gap: 16px;
     }
+    .routine-editor .form-group { margin-bottom: 0; }
+    .routine-editor .prompt-heading {
+      font-family: var(--serif); font-weight: 400;
+      font-size: 20px; line-height: 1.2;
+      margin: 8px 0 4px; color: var(--ink);
+    }
     .scaffold-grid {
       display: flex; flex-direction: column; gap: 14px;
     }
     .scaffold-field { display: flex; flex-direction: column; }
     .scaffold-field label {
-      font-family: var(--mono); font-size: 11px;
-      text-transform: uppercase; letter-spacing: 0.06em;
-      color: var(--ink-faint); margin-bottom: 4px;
+      font-family: var(--sans); font-size: 13px;
+      color: var(--ink-faint); margin-bottom: 6px;
     }
     .routine-editor .scaffold-input { min-height: auto; }
     .routine-editor .field-row { display: flex; gap: 8px; flex-wrap: wrap; }
-    .routine-editor label { font-family: var(--mono); font-size: 11px;
-      text-transform: uppercase; letter-spacing: 0.06em; color: var(--ink-faint);
-      margin-bottom: 4px; display: block;
+    .routine-editor label { font-family: var(--sans); font-size: 13px;
+      color: var(--ink-faint); margin-bottom: 6px; display: block;
     }
     .routine-editor .form-input, .routine-editor .form-textarea {
       width: 100%; background: var(--surface-2); border: 1px solid var(--rule);
@@ -3317,7 +3321,7 @@
     .routine-editor .form-textarea {
       font-family: var(--mono); font-size: 12px; min-height: 120px; resize: vertical;
     }
-    .routine-editor .form-group { flex: 1 1 200px; min-width: 0; }
+    .routine-editor .field-row .form-group { flex: 1 1 200px; min-width: 0; }
     .routine-editor .form-hint {
       font-size: 11px; color: var(--ink-faint); line-height: 1.5; margin-top: 4px;
     }
@@ -6503,6 +6507,24 @@
       return (agent && agent.plugins && agent.plugins.kitty && agent.plugins.kitty.default_workspace) || '';
     }
 
+    // Ending radio choices in the editor map to canned phrases that get
+    // composed into the prompt's `# Ending` section on save. Anything that
+    // doesn't match one of these on load gets routed into the "other"
+    // textarea so the original prose survives a round-trip.
+    const ENDING_PHRASES = {
+      card: 'Send me a card with the result.',
+      dm: 'DM me a quick line.',
+      silent: 'Stay silent — just write the result back to the lake.',
+    };
+    function _classifyEnding(text) {
+      const t = (text || '').trim();
+      if (!t) return { choice: '', other: '' };
+      for (const [key, phrase] of Object.entries(ENDING_PHRASES)) {
+        if (t === phrase) return { choice: key, other: '' };
+      }
+      return { choice: 'other', other: t };
+    }
+
     function renderEditorHtml(existing) {
       const isEdit = !!existing;
       const r = existing || {
@@ -6523,6 +6545,7 @@
         steps: (r.prompt || '').trim(),
         ending: '',
       };
+      const endingState = _classifyEnding(sections.ending);
       const onceDate = preset === 'once' ? extractOnceDate(r.schedule) : { date: '', time: '09:00' };
       // Schedule visibility: time/date pickers shown only for the
       // preset that needs them. Cron preview is hidden unless preset
@@ -6535,18 +6558,12 @@
       const showCustom = preset === 'custom';
       return `
         <div class="routine-editor" data-editing="${_esc(isEdit ? r.id : '__new__')}">
-          <div class="field-row">
-            <div class="form-group">
-              <label>routine-id</label>
-              <input class="form-input" data-f="id" type="text" value="${_esc(r.id)}" placeholder="stable-identifier" ${isEdit ? 'disabled' : ''} />
-            </div>
-            <div class="form-group">
-              <label>name</label>
-              <input class="form-input" data-f="name" type="text" value="${_esc(r.name)}" placeholder="Human-readable" />
-            </div>
+          <div class="form-group">
+            <label>Name</label>
+            <input class="form-input" data-f="name" type="text" value="${_esc(r.name || r.id || '')}" placeholder="What is this routine called?" />
           </div>
           <div>
-            <label>schedule</label>
+            <label>Schedule</label>
             <div class="cron-picker" data-cron-picker>
               <div class="picker-row">
                 <select class="form-input" data-cron-preset style="width: auto; min-width: 140px;">
@@ -6563,7 +6580,7 @@
             </div>
           </div>
           <div>
-            <label>prompt</label>
+            <h4 class="prompt-heading">Prompt</h4>
             <div data-prompt-scaffold class="scaffold-grid">
               <div class="scaffold-field">
                 <label>Purpose</label>
@@ -6582,34 +6599,15 @@
               </div>
               <div class="scaffold-field">
                 <label>Ending</label>
-                <textarea class="form-textarea scaffold-input" data-scaffold="ending" rows="3" placeholder='e.g. "Send me a card" · "DM me a quick line" · "Card most days, soft alert if X breaks" · "Stay silent unless Y"'>${_esc(sections.ending)}</textarea>
-                <div class="form-hint">How do you want to be notified? The witness reads this as a route directive — feed-card, chat-reply, alert, silent, or something else.</div>
+                <div class="ending-choices" data-ending-choices>
+                  <label class="ending-choice"><input type="radio" name="ending-${_esc(isEdit ? r.id : '__new__')}" data-ending="card" ${endingState.choice === 'card' ? 'checked' : ''} /> A card in the feed</label>
+                  <label class="ending-choice"><input type="radio" name="ending-${_esc(isEdit ? r.id : '__new__')}" data-ending="dm" ${endingState.choice === 'dm' ? 'checked' : ''} /> Direct message to me</label>
+                  <label class="ending-choice"><input type="radio" name="ending-${_esc(isEdit ? r.id : '__new__')}" data-ending="silent" ${endingState.choice === 'silent' ? 'checked' : ''} /> Do nothing on screen — just write to the lake</label>
+                  <label class="ending-choice"><input type="radio" name="ending-${_esc(isEdit ? r.id : '__new__')}" data-ending="other" ${endingState.choice === 'other' ? 'checked' : ''} /> Do something else:</label>
+                  <textarea class="form-textarea" data-ending-other rows="3" placeholder='e.g. "Card most days; soft alert if X breaks" · "Stay silent unless Y"' style="margin-left: 24px; display: ${endingState.choice === 'other' ? 'block' : 'none'};">${_esc(endingState.other)}</textarea>
+                </div>
               </div>
             </div>
-            <div class="form-hint" style="margin-top: 8px;">
-              Routines fire INTO Fathom — the witness picks the route (card, alert, chat-reply, claude-code dispatch, silent). See <a href="https://github.com/fathomdx-io/fathomdx/blob/main/docs/reference/routine-spec.md#writing-the-prompt" target="_blank" rel="noopener noreferrer">routine-spec.md</a>.
-            </div>
-            <label style="margin-top: 12px;">How would you like to be notified when this is done?</label>
-            <div class="ending-choices" data-ending-choices>
-              <label class="ending-choice"><input type="radio" name="ending-${_esc(isEdit ? r.id : '__new__')}" data-ending="card" /> A card in the feed</label>
-              <label class="ending-choice"><input type="radio" name="ending-${_esc(isEdit ? r.id : '__new__')}" data-ending="dm" /> Direct message to me</label>
-              <label class="ending-choice"><input type="radio" name="ending-${_esc(isEdit ? r.id : '__new__')}" data-ending="other" /> Do something else:</label>
-              <input class="form-input" data-ending-other type="text" placeholder="e.g. card most days; alert if X" style="margin-left: 24px; max-width: 420px;" />
-              <label class="ending-choice"><input type="radio" name="ending-${_esc(isEdit ? r.id : '__new__')}" data-ending="silent" /> Do nothing on screen — just write to the lake</label>
-            </div>
-            <div class="form-hint">Picking one fills the <code># Ending</code> section of your prompt. You can edit the prose directly afterward.</div>
-          </div>
-          <div class="field-row" style="align-items: center;">
-            <div>
-              <label>permission mode</label>
-              <div class="segmented" data-perm-mode>
-                <button type="button" data-mode="auto" data-active="${r.permission_mode === 'auto'}">auto</button>
-                <button type="button" data-mode="normal" data-active="${r.permission_mode === 'normal'}">normal</button>
-              </div>
-            </div>
-            <label style="font-size: 12px; align-self: flex-end;">
-              <input type="checkbox" data-f="enabled" ${r.enabled ? 'checked' : ''} /> enabled
-            </label>
           </div>
           <div class="err" data-err hidden></div>
           <div style="display: flex; gap: 6px; justify-content: flex-end;">
@@ -6693,7 +6691,10 @@
       const has = (f) => !!editor.querySelector(`[data-f="${f}"]`);
       const get = (f) => (editor.querySelector(`[data-f="${f}"]`) || {}).value || '';
       const check = (f) => (editor.querySelector(`[data-f="${f}"]`) || {}).checked;
-      const mode = (editor.querySelector('[data-perm-mode] [data-active="true"]') || {}).dataset?.mode || 'auto';
+      // permission_mode was a kitty-plugin / claude-code dispatch concept;
+      // removed from the form. New routines bake in 'auto' (existing default
+      // for substrate-only routines and the kitty plugin's allow-list).
+      const mode = 'auto';
       // host and workspace were removed from the form — they aren't routine
       // concepts any more. For existing routines that already have these
       // set, preserve the value rather than nulling it on save (back-compat
@@ -6708,11 +6709,17 @@
       // the textarea contents under each header, even when sections
       // are empty (the headers are how we detect scaffold shape on
       // the next open).
+      const checkedEnding = editor.querySelector('[data-ending]:checked');
+      const endingChoice = checkedEnding ? checkedEnding.dataset.ending : '';
+      const endingOther = (editor.querySelector('[data-ending-other]') || {}).value || '';
+      const endingText = endingChoice === 'other'
+        ? endingOther.trim()
+        : (ENDING_PHRASES[endingChoice] || '');
       const sections = {
         purpose: (editor.querySelector('[data-scaffold="purpose"]') || {}).value || '',
         needs:   (editor.querySelector('[data-scaffold="needs"]')   || {}).value || '',
         steps:   (editor.querySelector('[data-scaffold="steps"]')   || {}).value || '',
-        ending:  (editor.querySelector('[data-scaffold="ending"]')  || {}).value || '',
+        ending:  endingText,
       };
       const prompt = _joinScaffoldSections(sections);
 
@@ -6721,13 +6728,26 @@
       const presetEl = editor.querySelector('[data-cron-preset]');
       const scheduledOnce = presetEl && presetEl.value === 'once';
 
+      // Single Name input drives both `name` and `id`. For new routines
+      // the id is the slugified name (lowercase, hyphenated). For edits
+      // the id is fixed (renaming would orphan past fires + provenance),
+      // so we keep the original id from data-editing.
+      const name = get('name').trim();
+      const slug = name
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, '-')
+        .replace(/^-+|-+$/g, '');
+      const id = (editingId && editingId !== '__new__') ? editingId : slug;
+      // `enabled` is intentionally NOT in the body — the hero's Pause
+      // button is the single control for it, so omitting from edit-form
+      // saves preserves the existing flag (server's _merge_meta only
+      // touches keys you send).
       const body = {
-        id: get('id').trim(),
-        name: get('name').trim(),
+        id,
+        name,
         schedule: computeCron(editor),
         prompt,
         permission_mode: mode,
-        enabled: !!check('enabled'),
         single_fire: scheduledOnce,
       };
       if (has('host') || existing.host) {
@@ -6774,68 +6794,37 @@
       // Only refresh preview now if the field is visible — saves an api call.
       if (preset.value === 'custom') refreshCronPreview(editor);
 
-      editor.querySelectorAll('[data-perm-mode] button').forEach(btn => {
-        btn.addEventListener('click', () => {
-          editor.querySelectorAll('[data-perm-mode] button').forEach(b => b.setAttribute('data-active', 'false'));
-          btn.setAttribute('data-active', 'true');
-        });
-      });
-
       // Scaffold-only editor: four named textareas are the single
       // source of truth. The toggle between "scaffold" and "regular"
       // modes was retired — older freeform routines slot their prompt
       // into Steps when opened, and saving rewrites them in scaffold
       // shape. _parseScaffoldSections + _joinScaffoldSections still
       // do the heavy lifting on load and save respectively.
-      const scaffoldEls = {
-        purpose: editor.querySelector('[data-scaffold="purpose"]'),
-        needs:   editor.querySelector('[data-scaffold="needs"]'),
-        steps:   editor.querySelector('[data-scaffold="steps"]'),
-        ending:  editor.querySelector('[data-scaffold="ending"]'),
-      };
-
-      // Notification radio cluster — quick-pick that fills the `# Ending`
-      // section. In scaffold mode it overwrites the Ending textarea; in
-      // regular mode it replaces (or inserts) the `# Ending` section in
-      // the prompt textarea. The "other" choice reads from the adjacent
-      // text input so users can express conditional endings ("card most
-      // days; alert if X") without leaving the cluster.
-      const ENDING_PHRASES = {
-        card: 'Send me a card with the result.',
-        dm: 'DM me a quick line.',
-        silent: 'Stay silent — just write the result back to the lake.',
-      };
+      // Ending radio cluster — IS the `# Ending` section. Picking
+      // card/dm/silent saves the canned phrase; "other" reveals a
+      // textarea whose contents are saved verbatim. No mirroring back
+      // to a separate textarea — the radio + textarea are the source
+      // of truth, read directly in collectEditor.
       const otherInput = editor.querySelector('[data-ending-other]');
-      const applyEnding = (phrase) => {
-        if (scaffoldEls.ending) scaffoldEls.ending.value = phrase;
-      };
-      const currentEndingPhrase = () => {
+      const syncOtherVisibility = () => {
+        if (!otherInput) return;
         const checked = editor.querySelector('[data-ending]:checked');
-        if (!checked) return null;
-        const choice = checked.dataset.ending;
-        if (choice === 'other') return (otherInput && otherInput.value.trim()) || '';
-        return ENDING_PHRASES[choice] || null;
+        const isOther = !!(checked && checked.dataset.ending === 'other');
+        otherInput.style.display = isOther ? 'block' : 'none';
       };
       editor.querySelectorAll('[data-ending]').forEach(radio => {
         radio.addEventListener('change', () => {
           if (!radio.checked) return;
-          const phrase = currentEndingPhrase();
-          if (phrase != null) applyEnding(phrase);
+          syncOtherVisibility();
           if (radio.dataset.ending === 'other' && otherInput) otherInput.focus();
         });
       });
       if (otherInput) {
-        otherInput.addEventListener('input', () => {
-          const checked = editor.querySelector('[data-ending]:checked');
-          if (checked && checked.dataset.ending === 'other') {
-            applyEnding(otherInput.value);
-          }
-        });
         otherInput.addEventListener('focus', () => {
           const otherRadio = editor.querySelector('[data-ending="other"]');
           if (otherRadio && !otherRadio.checked) {
             otherRadio.checked = true;
-            applyEnding(otherInput.value);
+            syncOtherVisibility();
           }
         });
       }
