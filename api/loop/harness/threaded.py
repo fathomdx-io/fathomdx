@@ -719,11 +719,41 @@ async def run_threaded_fire(
                 tool="(llm-error)",
                 error=f"{err_summary['class']}: {err_summary['message']}",
             )
+            # Surface the failure inline at the chat — write an
+            # assistant thread row carrying the friendly error message
+            # so the user sees what happened where the answer would
+            # have been. Mark the unaddressed user messages as
+            # addressed-by-this-error so the supervisor doesn't spin
+            # firing the same broken call repeatedly; the next fresh
+            # user message will trigger a new fire (in case the
+            # provider has recovered).
+            err_addr_set = [pid for pid in pending_ids if pid]
+            err_body = f"{err_summary['role']}: {err_summary['message']}"
+            error_lake_id = ""
+            try:
+                d = await thread_mod.append(
+                    role="assistant",
+                    msg_kind="chat-reply",
+                    content=err_body,
+                    addresses=err_addr_set,
+                    source="harness-threaded",
+                    extra_tags=[
+                        "system-error",
+                        f"system-error-class:{err_summary['class']}",
+                        f"system-error-tier:hard",
+                    ],
+                )
+                error_lake_id = (d or {}).get("id") or ""
+            except Exception as ae:
+                print(
+                    f"[threaded-fire] error-row append failed: "
+                    f"{type(ae).__name__}: {ae}"
+                )
             return {
                 "final_response": None,
                 "turns": turns_used,
-                "addressed": addressed,
-                "lake_id": "",
+                "addressed": err_addr_set,
+                "lake_id": error_lake_id,
                 "error": err_summary,
             }
 
