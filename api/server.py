@@ -16,7 +16,7 @@ from pathlib import Path
 
 from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, StreamingResponse
+from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
@@ -784,13 +784,18 @@ async def _poll_thread_assistant(
     user_msg_id: str,
     after_iso: str,
     seen_ids: set[str],
-) -> list[tuple[str, str]]:
+) -> list[tuple[str, str, list[str]]]:
     """Poll the thread for assistant messages addressing this user msg.
 
-    Returns a list of (timestamp, content) tuples for any newly-seen
-    assistant thread-msg deltas. The threaded harness writes its
-    reply as `kind:thread-msg, role:assistant, addresses:<user_msg_id>`,
+    Returns a list of (timestamp, content, tags) tuples for any
+    newly-seen assistant thread-msg deltas. The threaded harness writes
+    its reply as `kind:thread-msg, role:assistant, addresses:<user_msg_id>`,
     so this is the symmetric counterpart to the legacy witness poll.
+
+    The tags pass-through lets callers detect special rows (e.g.
+    `system-error`) and switch response shape — the OpenAI endpoint
+    uses it to map an upstream provider failure to HTTP 503 with the
+    OpenAI error envelope.
 
     Mutates `seen_ids` to track what we've already returned across
     poll iterations.
@@ -810,7 +815,7 @@ async def _poll_thread_assistant(
     except Exception as e:
         log.warning("openai-compat: thread poll failed: %s", e)
         return []
-    out: list[tuple[str, str]] = []
+    out: list[tuple[str, str, list[str]]] = []
     for d in rows:
         did = d.get("id") or ""
         if not did or did in seen_ids:
@@ -822,7 +827,8 @@ async def _poll_thread_assistant(
         if not body:
             continue
         seen_ids.add(did)
-        out.append((ts, body))
+        tags = [t for t in (d.get("tags") or []) if isinstance(t, str)]
+        out.append((ts, body, tags))
     return out
 
 
@@ -834,7 +840,7 @@ async def _await_witness_reply(
     *,
     request: Request | None = None,
     thread_user_msg_id: str = "",
-) -> tuple[str, str]:
+) -> tuple[str, str, dict | None]:
     """Poll the lake for witness card(s) AND threaded-harness assistant
     messages addressing this request.
 
@@ -868,6 +874,7 @@ async def _await_witness_reply(
     seen_legacy_ids: set[str] = set()
     seen_thread_ids: set[str] = set()
     parts: list[tuple[str, str]] = []  # (timestamp, content)
+    system_error: dict | None = None  # set if a harness system-error row was seen
     while time.monotonic() < deadline:
         # Bail if the client closed the connection — no point polling
         # for a card to deliver into a dead pipe. The supervisors
@@ -878,7 +885,7 @@ async def _await_witness_reply(
                 "openai-compat: client disconnected during wait "
                 "(session=%s intent=%s)", session_id, intent_id,
             )
-            return ("stop" if parts else "timeout"), _join_chronological(parts)
+            return ("stop" if parts else "timeout"), _join_chronological(parts), system_error
 
         # Legacy witness poll.
         try:
@@ -903,12 +910,14 @@ async def _await_witness_reply(
                 parts.append((ts, text))
 
         # Threaded harness poll.
-        for ts, body in await _poll_thread_assistant(
+        for ts, body, tags in await _poll_thread_assistant(
             user_msg_id=thread_user_msg_id,
             after_iso=after_iso,
             seen_ids=seen_thread_ids,
         ):
             parts.append((ts, body))
+            if system_error is None and "system-error" in tags:
+                system_error = _parse_system_error_tags(tags)
 
         # Done when at least one part landed AND no claude-code
         # dispatch is still working on the legacy intent. Threaded
@@ -917,19 +926,57 @@ async def _await_witness_reply(
         if parts:
             if seen_thread_ids and not seen_legacy_ids:
                 # Pure-threaded path — no legacy-side work to wait on.
-                return "stop", _join_chronological(parts)
+                return "stop", _join_chronological(parts), system_error
             if not await _openai_turn_pending(intent_id):
-                return "stop", _join_chronological(parts)
+                return "stop", _join_chronological(parts), system_error
         await asyncio.sleep(_OPENAI_REPLY_POLL_S)
     if parts:
-        return "stop", _join_chronological(parts)
-    return "timeout", ""
+        return "stop", _join_chronological(parts), system_error
+    return "timeout", "", system_error
+
+
+def _parse_system_error_tags(tags: list[str]) -> dict:
+    """Project `system-error-class:X` and `system-error-tier:Y` tags into
+    a dict shape mirroring `llm_errors.summarize`."""
+    out: dict[str, str] = {}
+    for t in tags:
+        if t.startswith("system-error-class:"):
+            out["class"] = t.split(":", 1)[1]
+        elif t.startswith("system-error-tier:"):
+            out["tier"] = t.split(":", 1)[1]
+    return out
 
 
 def _join_chronological(parts: list[tuple[str, str]]) -> str:
     """Join timestamped reply parts oldest-first, blank-line separated."""
     parts_sorted = sorted(parts, key=lambda p: p[0])
     return "\n\n".join(p[1] for p in parts_sorted if p[1])
+
+
+def _openai_error_response(
+    *,
+    session_id: str,
+    model: str,
+    content: str,
+    error_class: str,
+) -> JSONResponse:
+    """503 with the OpenAI-shape error envelope.
+
+    `content` is the friendly one-liner from the harness's error row
+    (e.g. "Standard tasks model: prepayment credits depleted"). SDKs
+    surface it via the exception's `body['error']['message']` path.
+    """
+    payload = {
+        "error": {
+            "message": content or "Upstream model call failed.",
+            "type": "upstream_error",
+            "code": error_class,
+            "param": None,
+        },
+        "session_id": session_id,
+        "model": model,
+    }
+    return JSONResponse(status_code=503, content=payload)
 
 
 def _openai_completion_response(
@@ -1043,8 +1090,12 @@ async def _openai_stream(
                 yield _chunk({"content": "\n\n"})
             yield _chunk({"content": text})
             sent_any = True
-        # Threaded harness poll.
-        for ts, body in await _poll_thread_assistant(
+        # Threaded harness poll. SSE has no native error frame — we
+        # emit the friendly error text as the streamed body and close
+        # with finish_reason="error" so SDKs that inspect that field
+        # know it wasn't a normal answer.
+        saw_system_error = False
+        for ts, body, tags in await _poll_thread_assistant(
             user_msg_id=thread_user_msg_id,
             after_iso=after_iso,
             seen_ids=seen_thread_ids,
@@ -1053,6 +1104,11 @@ async def _openai_stream(
                 yield _chunk({"content": "\n\n"})
             yield _chunk({"content": body})
             sent_any = True
+            if "system-error" in tags:
+                saw_system_error = True
+        if saw_system_error:
+            finish_reason = "error"
+            break
         if sent_any:
             # Threaded path is point-in-time; if any thread reply arrived,
             # there's no further dispatch to wait on (no claude-code
@@ -1254,11 +1310,22 @@ async def chat_completions(req: ChatRequest, request: Request):
             media_type="text/event-stream",
         )
 
-    finish_reason, reply_text = await _await_witness_reply(
+    finish_reason, reply_text, system_error = await _await_witness_reply(
         session_id, intent_id, request_start_iso,
         request=request,
         thread_user_msg_id=thread_user_msg_id,
     )
+    if system_error:
+        # Upstream LLM provider failed (rate limit, depleted credits,
+        # etc). Surface as a proper OpenAI-shape error so SDKs handle
+        # it natively instead of treating the failure text as a
+        # successful answer.
+        return _openai_error_response(
+            session_id=session_id,
+            model=model_label,
+            content=reply_text,
+            error_class=system_error.get("class") or "UpstreamError",
+        )
     return _openai_completion_response(reply_text, session_id, model_label, finish_reason)
 
 
