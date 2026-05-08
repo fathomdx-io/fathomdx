@@ -2,11 +2,18 @@
  * ACP — generic Agent Client Protocol dispatcher.
  *
  * One plugin, many target roles. Each target is an ACP adapter the
- * helper can spawn (claude-code-acp, openclaw-acp-bridge, codex-acp,
- * gemini-cli-acp, mythos-acp once it's a thing). Each target advertises
- * its own helper-role via the heartbeat, polls the inbox for tasks at
- * that role, spawns the adapter on demand, runs the ACP prompt dance,
- * and streams session/update notifications back as helper-update replies.
+ * helper can spawn (openclaw-acp-bridge, codex-acp, gemini-cli-acp,
+ * mythos-acp once it's a thing). Each target advertises its own
+ * helper-role via the heartbeat, polls the inbox for tasks at that
+ * role, spawns the adapter on demand, runs the ACP prompt dance, and
+ * streams session/update notifications back as helper-update replies.
+ *
+ * NOTE: claude-code lives in the kitty plugin, NOT here. Kitty owns
+ * the visible-window UX for terminal-program helpers (claude on Linux
+ * via kitty, the same shape via Warp or another spawner on other
+ * OSes). ACP is reserved for adapters whose value is the structured
+ * protocol — programs without their own native chat window worth
+ * watching, or remote-only agents like Mythos.
  *
  * Configuration (~/.fathom/agent.json under plugins.acp):
  *
@@ -15,16 +22,16 @@
  *     "poll_interval_ms": 3000,
  *     "targets": [
  *       {
- *         "role": "claude-code-acp",
- *         "command": "npx",
- *         "args": ["-y", "@zed-industries/claude-code-acp"],
- *         "description": "shell, file edits, git, web (via ACP)"
- *       },
- *       {
  *         "role": "openclaw",
  *         "command": "npx",
  *         "args": ["-y", "@openclaw/acp-bridge"],
  *         "description": "chat-synthesis, multi-channel routing"
+ *       },
+ *       {
+ *         "role": "codex",
+ *         "command": "npx",
+ *         "args": ["-y", "codex-acp"],
+ *         "description": "OpenAI Codex coding agent"
  *       }
  *     ]
  *   }
@@ -34,7 +41,7 @@
  * are refused with method-not-found. Adapters that need tools to do
  * useful work will return errors; they prove the wire works without
  * yet hooking up tool execution. Tool-call routing is a follow-up
- * slice — visible kitty windows belong there too.
+ * slice.
  */
 
 import { hostname } from "os";
