@@ -692,6 +692,36 @@ async function main() {
     }
   }
 
+  // Helper-role overlap guard — same (host, role) advertised by two
+  // plugins is always wrong: both would pick up the same dispatch from
+  // the inbox. Run after all plugins have started so acp.js has
+  // populated its dynamic helperRoles from config.targets.
+  {
+    const seen = new Map(); // role → owning plugin name
+    const conflicts = [];
+    for (const [pname, plugin] of plugins) {
+      if (!running.has(pname)) continue;
+      const roles = Array.isArray(plugin.helperRoles) ? plugin.helperRoles : [];
+      for (const r of roles) {
+        const role = r && typeof r.role === "string" ? r.role.trim() : "";
+        if (!role) continue;
+        const owner = seen.get(role);
+        if (owner && owner !== pname) {
+          conflicts.push({ role, owners: [owner, pname] });
+        } else {
+          seen.set(role, pname);
+        }
+      }
+    }
+    if (conflicts.length) {
+      console.error(`\n  ⚠ Helper-role overlap detected — dispatches will double-execute:`);
+      for (const c of conflicts) {
+        console.error(`    helper-role:${c.role} claimed by: ${c.owners.join(", ")}`);
+      }
+      console.error(`    Fix: remove the duplicate from one of those plugins' config.\n`);
+    }
+  }
+
   if (!running.size) {
     console.log("\nNo plugins enabled. Try:");
     console.log("  fathom-agent run --vault ~/Documents/notes");

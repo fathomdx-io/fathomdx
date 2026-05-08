@@ -209,6 +209,24 @@ export default {
       return { stop() {} };
     }
 
+    // Reject duplicate role names across targets — two targets sharing
+    // a role would both claim every dispatch for that role, leading to
+    // double-spawn. Better to refuse to start than silently misbehave.
+    const seenRoles = new Set();
+    const dupRoles = [];
+    for (const r of helperRoles) {
+      if (seenRoles.has(r.role)) dupRoles.push(r.role);
+      else seenRoles.add(r.role);
+    }
+    if (dupRoles.length) {
+      console.error(
+        `  acp: duplicate role names in targets — refusing to start: ` +
+          `[${[...new Set(dupRoles)].join(", ")}]. Each role must be ` +
+          `unique within plugins.acp.targets.`,
+      );
+      return { stop() {} };
+    }
+
     // Surface the configured roles for the heartbeat plugin's next
     // meta-map rebuild. Mutating the export's helperRoles is the only
     // way to communicate dynamic roles up to heartbeat without a
