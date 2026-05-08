@@ -78,6 +78,7 @@ Need to pair another machine later? Re-open the same tile and mint a new code. I
 ### What a paired agent unlocks
 
 - **Routines.** Scheduled prompts that fire into a local Claude Code session on that machine. Write a prompt, pick a cron schedule, and the agent runs it. Requires both [kitty](https://sw.kovidgoyal.net/kitty/) (the terminal) and [Claude Code](https://docs.claude.com/en/docs/claude-code) installed and authenticated — the agent spawns a kitty window per fire, runs `claude` inside it, and injects the prompt via kitty's remote-control protocol. Both binaries must be on PATH. No `kitty.conf` setup needed; the agent passes the remote-control flags inline per spawn.
+- **Direct dispatch via `dispatch_helper`.** Same path as routines, but on demand from a chat turn. Fathom drafts a proposal in the bell; on approve, the kitty plugin (or any other helper plugin you configure) picks it up and runs it. See [Wire up helpers](docs/how-to/wire-up-helpers.md) for the helper-token mint and ACP-target config. **Required step after pairing:** mint a `helper_token` and add it to `~/.fathom/agent.json` — without it the helper plugins can't pull their inbox.
 - **Local sources.** Plugins for things only a local process can see: a notes vault, Home Assistant, system health, kitty config, whatever else you wire up.
 - **Presence.** The dashboard now knows when the machine is online, and that signal feeds the lake alongside everything else.
 

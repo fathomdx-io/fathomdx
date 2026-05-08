@@ -32,6 +32,8 @@ An agent is bound to a host. If you have three machines you want in Fathom, you 
 
 Agents don't "do work" in a general sense. They run the plugins and routines you've configured. Think of the agent as the body Fathom has on your laptop: always there, doing the little things it was asked to do, reporting back.
 
+Plugins that *receive dispatched work* (kitty for claude-code, the ACP plugin for any number of stdio adapters) are called **helper plugins**. Each one advertises one or more `(host, role)` pairs via the heartbeat — kitty advertises `helper-role:claude-code`, the ACP plugin advertises whatever roles you configure under its `targets` array. Fathom's harness picks a `(host, role)` pair when it calls the `dispatch_helper` tool; the matching plugin on that host runs the work and replies through the inbox endpoint. See [Wire up helpers](../how-to/wire-up-helpers.md) for the mint-token-and-configure flow.
+
 ## Routine
 
 A routine is a scheduled prompt. You write the prompt in the dashboard, pick a cadence (cron expression, or "daily at 8am," or "Mondays at 6pm"), and save it. When the time comes, the cron tick writes a `routine-due` intent into the puddle — and that's where the routine's job ends. From here, the harness (the River) reads the intent like any other and decides what to do.
