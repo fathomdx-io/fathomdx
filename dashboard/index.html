@@ -10049,9 +10049,8 @@ GET  /v1/usage               Usage stats`,
         el.className = 'mood-stale';
         parent.insertBefore(el, subtext.nextSibling);
       }
-      const role = regenError.role || 'Mood synthesis';
       const msg = regenError.message || 'provider error';
-      el.textContent = `${role}: ${msg} — mood is stale.`;
+      el.textContent = `${msg} — mood is stale.`;
     }
 
     // Kind filter — feed cards carry kind: and level: tags set by the

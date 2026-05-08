@@ -27,12 +27,19 @@ _ROLE_LABELS = {
 def _extract_message(exc: BaseException) -> str:
     """Pull a one-liner out of a provider exception body.
 
-    OpenAI-shape errors carry a nested {error: {message}} body; fall
-    through to str(exc) when that's not available. Caps at 280 chars.
+    Handles two body shapes:
+      OpenAI / Anthropic: `{error: {message}}` dict.
+      Gemini OpenAI-compat: `[{error: {message}}, ...]` list of dicts.
+    Falls through to str(exc) when neither applies. Caps at 280 chars.
     """
     body: Any = getattr(exc, "body", None)
+    candidates: list[dict] = []
     if isinstance(body, dict):
-        err = body.get("error")
+        candidates = [body]
+    elif isinstance(body, list):
+        candidates = [b for b in body if isinstance(b, dict)]
+    for b in candidates:
+        err = b.get("error")
         if isinstance(err, dict):
             msg = err.get("message")
             if isinstance(msg, str) and msg.strip():

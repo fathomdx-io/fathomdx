@@ -767,6 +767,38 @@ async def run_threaded_fire(
                     f"[threaded-fire] error-row append failed: "
                     f"{type(ae).__name__}: {ae}"
                 )
+            # Stamp tally-marks so `thread.unaddressed` drops these
+            # ids — the unaddressed filter looks at kind:tally-mark
+            # deltas, NOT assistant addresses: tags. Without this the
+            # supervisor keeps spinning on the same stuck queue.
+            for uid in err_addr_set:
+                try:
+                    await thread_mod.mark_addressed(
+                        user_message_id=uid,
+                        note=f"addressed by harness error: {err_summary['class']}",
+                        by="harness-error",
+                    )
+                except Exception as ae:
+                    print(
+                        f"[threaded-fire] error mark-addressed failed for "
+                        f"{uid[:12]}: {type(ae).__name__}: {ae}"
+                    )
+            # Mirror into the puddle so the dashboard chat renders the
+            # error inline — same bridge the success path uses.
+            if error_lake_id:
+                try:
+                    await _bridge_to_puddle_feed(
+                        body=err_body,
+                        cards=None,
+                        addresses=err_addr_set,
+                        lake_id=error_lake_id,
+                        route="chat-reply",
+                    )
+                except Exception as ae:
+                    print(
+                        f"[threaded-fire] error puddle-bridge failed: "
+                        f"{type(ae).__name__}: {ae}"
+                    )
             return {
                 "final_response": None,
                 "turns": turns_used,
