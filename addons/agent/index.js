@@ -17,6 +17,7 @@ import { fileURLToPath } from "url";
 import { createInterface } from "readline";
 import { execFileSync } from "child_process";
 import { Pusher } from "./pusher.js";
+import { Inbox } from "./inbox.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const CONFIG_DIR = join(homedir(), ".fathom");
@@ -589,6 +590,27 @@ async function main() {
 
   const pusher = new Pusher(apiUrl, apiKey);
   pusher.start();
+
+  // Inbox client — host-bound, helper-scoped. Plugins that consume
+  // dispatches (kitty, future acp plugin) call inbox.fetch() / .reply()
+  // instead of going through pusher's lake-write authorization. The
+  // helper_token is a separate scoped credential — different blast
+  // radius from the lake-write api_key.
+  const helperToken = config.helper_token || process.env.FATHOM_HELPER_TOKEN || "";
+  const helperHost = config.host || hostname().split(".")[0];
+  const inbox = new Inbox({
+    apiUrl,
+    helperToken,
+    host: helperHost,
+  });
+  if (!helperToken) {
+    console.log(
+      `  inbox: helper_token not configured — kitty/acp dispatches will fail. ` +
+        `Mint one at POST /v1/admin/helpers/${helperHost}/tokens and add it as ` +
+        `\`helper_token\` in agent.json.`,
+    );
+  }
+
   const running = new Map(); // plugin name (lowercase) → start() handle
 
   // CLI overrides: --vault ~/path becomes { vault: { paths: ["~/path"] } }
@@ -642,7 +664,7 @@ async function main() {
         return;
       }
       try {
-        const handle = plugin.start(pc, pusher, context);
+        const handle = plugin.start(pc, pusher, context, inbox);
         if (handle) running.set(nameLower, handle);
         console.log(`  ${plugin.name}: reloaded`);
       } catch (e) {
@@ -663,7 +685,7 @@ async function main() {
     if (hasOverrides && !overrides[name]) continue;
 
     try {
-      const handle = plugin.start(pc, pusher, context);
+      const handle = plugin.start(pc, pusher, context, inbox);
       if (handle) running.set(name, handle);
     } catch (e) {
       console.error(`  ${plugin.name} failed: ${e.message}`);

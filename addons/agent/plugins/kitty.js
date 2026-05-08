@@ -250,7 +250,7 @@ function oldestUnmatchedTaskIso() {
   return oldest;
 }
 
-async function pollOnce(config, pusher, state) {
+async function pollOnce(config, pusher, inbox, state) {
   const myHost = config.host || hostname().split(".")[0];
 
   // Backfill new state fields on first run after upgrade — the saved
@@ -263,24 +263,31 @@ async function pollOnce(config, pusher, state) {
   // tasks awaiting their session id. Skip the round-trip otherwise.
   const handshakeWindowStart = oldestUnmatchedTaskIso();
 
-  // Routine fires no longer flow through this consumer — every routine
-  // (cron, Fire Now, witness `routine-fire:<id>`) goes through the River.
-  // The witness reads the routine-due intent and, when fresh data is
-  // needed, dispatches via `route:claude-code` — the path below.
-  let taskDispatches, taskCloses, handshakeCandidates;
+  // Three reads per tick:
+  //   · inbox.fetch — pending dispatches for our role (helper-scoped,
+  //     host-bound, replaces the lake-query with a proper inbox API).
+  //   · pusher.query — task-complete events from elsewhere (claude_code_watcher
+  //     mints these for closure; we still need to read them broadly).
+  //   · pusher.query — handshake candidates (claude-code source deltas
+  //     across the lake, filtered by our prompt-embedded marker).
+  // The inbox path is the only one that's helper-scoped; the other two
+  // are still lake reads against pusher's api_key. Phase 3 can fold
+  // those into the inbox if we add a "task-events" stream.
+  let inboxResp, taskCloses, handshakeCandidates;
   try {
-    [taskDispatches, taskCloses, handshakeCandidates] = await Promise.all([
-      // Claude-code-channel dispatches — witness cards routed at this
-      // host for this role. AND-semantics on tags_include
-      // (route:helper:claude-code AND host:<myhost>) means each agent
-      // only ever sees fires meant for its claude-code role, even before
-      // the per-delta veto runs. Other helper roles (e.g. openclaw) have
-      // their own plugins watching their own route:helper:<role> tags.
-      pusher.query({
-        tags_include: `route:helper:claude-code,host:${myHost}`,
-        time_start: state.task_seen_at,
-        limit: 50,
-      }),
+    [inboxResp, taskCloses, handshakeCandidates] = await Promise.all([
+      inbox
+        .fetch({
+          since: state.task_seen_at,
+          role: "claude-code",
+          limit: 50,
+        })
+        .catch((e) => {
+          // Don't take the whole tick down if the inbox is misconfigured;
+          // the other two reads are still useful (close-window logic etc).
+          console.error(`  kitty: inbox.fetch failed: ${e.message}`);
+          return { items: [], cursor: state.task_seen_at };
+        }),
       pusher.query({
         tags_include: "task-complete",
         time_start: state.oldest_open_task || state.task_seen_at,
@@ -301,15 +308,21 @@ async function pollOnce(config, pusher, state) {
     console.error(`  kitty: poll failed: ${e.message}`);
     return;
   }
+  const taskDispatches = inboxResp.items || [];
 
   // ── Claude-code-channel ─────────────────────────────────────────────
   taskDispatches.sort((a, b) => (a.timestamp || "").localeCompare(b.timestamp || ""));
 
   for (const d of taskDispatches) {
-    if (d.timestamp <= state.task_seen_at) continue;
+    // Inbox items carry `ts` (not the raw lake delta's `timestamp`);
+    // use it as the cursor advance. Pre-cursor items shouldn't appear
+    // anyway — the server already filters by since — but the guard is
+    // cheap insurance against duplicate processing on a hot reload.
+    if (d.ts && state.task_seen_at && d.ts <= state.task_seen_at) continue;
     dispatchClaudeCodeTask(d, config, pusher, myHost);
-    state.task_seen_at = d.timestamp;
+    if (d.ts) state.task_seen_at = d.ts;
   }
+  if (inboxResp.cursor) state.task_seen_at = inboxResp.cursor;
   if (taskDispatches.length) saveState(state);
 
   // Match handshake candidates against open unmatched tasks. The
@@ -330,17 +343,18 @@ async function pollOnce(config, pusher, state) {
       console.log(`  🐈 handshake ${corr.slice(0, 12)} → claude session ${sid.slice(0, 8)}`);
       // Join delta — the loop's claude-code watcher uses this to know
       // that subsequent `session:<sid>` deltas belong to this task.
-      pusher?.push?.({
-        content: `[task-spawn] task ${corr} → claude session ${sid} on ${myHost}`,
-        tags: [
-          "task-spawn",
-          `task-corr:${corr}`,
-          `helper-session:${sid}`,
-          `host:${myHost}`,
-          ...(projectTag ? [`project:${projectTag}`] : []),
-        ],
-        source: "kitty",
-      });
+      // Goes through the inbox's reply endpoint so the helper-token's
+      // tag allowlist applies (task-spawn, helper-session, project are
+      // all on the allowlist; anything else gets dropped server-side).
+      const extra = [`helper-session:${sid}`, "task-spawn"];
+      if (projectTag) extra.push(`project:${projectTag}`);
+      inbox
+        .reply(corr, {
+          kind: "update",
+          content: `[task-spawn] task ${corr} → claude session ${sid} on ${myHost}`,
+          extra_tags: extra,
+        })
+        .catch((e) => console.error(`  kitty: handshake reply failed: ${e.message}`));
       break;
     }
   }
@@ -374,16 +388,21 @@ async function pollOnce(config, pusher, state) {
     console.log(`  🐈 abandon task ${corr.slice(0, 12)} (window gone, no task-complete)`);
     knownCompletedCorrs.add(corr);
     openTasks.delete(corr);
-    pusher?.push?.({
-      content: `[task-abandoned] task ${corr} closed without writing a completion delta on ${myHost}`,
-      tags: [
-        "task-abandoned",
-        `task-corr:${corr}`,
-        `host:${myHost}`,
-        ...(entry.claude_session_id ? [`claude-code-session:${entry.claude_session_id}`] : []),
-      ],
-      source: "kitty",
-    });
+    // Abandonment is the helper saying "this task is over without a
+    // proper completion." Mark it complete so the dashboard's pending-
+    // tasks strip stops lighting up; the body explains it was abandoned
+    // rather than naturally finished.
+    const abandonExtra = ["task-abandoned"];
+    if (entry.claude_session_id) {
+      abandonExtra.push(`claude-code-session:${entry.claude_session_id}`);
+    }
+    inbox
+      .reply(corr, {
+        kind: "complete",
+        content: `[task-abandoned] task ${corr} closed without writing a completion delta on ${myHost}`,
+        extra_tags: abandonExtra,
+      })
+      .catch((e) => console.error(`  kitty: abandon reply failed: ${e.message}`));
   }
 
   // Prune stale entries whose summary never arrived.
@@ -409,19 +428,15 @@ async function pollOnce(config, pusher, state) {
 // what lets multi-turn back-and-forth between Fathom and a tasked claude
 // session feel like an actual conversation rather than a chain of
 // disconnected one-shots.
-function dispatchClaudeCodeTask(delta, config, pusher, myHost) {
-  // Pull the corr off the `to:helper:<corr>` tag. The witness
-  // stamps this for every claude-code-routed card; without it we have
-  // nothing to track the task by, so skip.
-  let corr = null;
-  for (const t of delta.tags || []) {
-    if (t.startsWith("to:helper:")) {
-      corr = t.slice("to:helper:".length);
-      break;
-    }
-  }
+//
+// `item` is the slim inbox shape from /v1/helpers/<host>/inbox:
+//   { delta_id, corr, role, task, ts, kind }
+// — already corr-scoped and body-extracted server-side, so this
+// function no longer needs to dig through tags.
+function dispatchClaudeCodeTask(item, config, pusher, myHost) {
+  const corr = item.corr || "";
   if (!corr) {
-    console.warn(`  kitty: claude-code dispatch ${delta.id.slice(0, 8)} missing to:helper:<corr>`);
+    console.warn(`  kitty: inbox item ${(item.delta_id || "").slice(0, 8)} missing corr`);
     return;
   }
 
@@ -434,7 +449,7 @@ function dispatchClaudeCodeTask(delta, config, pusher, myHost) {
     return;
   }
 
-  const body = extractTaskBody(delta);
+  const body = (item.task || "").trim();
   if (!body) {
     // Empty body is a meaningful signal at the openai surface (loop
     // chose silence) but a no-op for the kitty surface — there's
@@ -474,7 +489,7 @@ function dispatchClaudeCodeTask(delta, config, pusher, myHost) {
     cwd,
     spawned_at: spawnedAt,
     launched_iso: new Date(spawnedAt).toISOString(),
-    task_delta_id: delta.id,
+    task_delta_id: item.delta_id || "",
   });
 }
 
@@ -847,13 +862,16 @@ export default {
     receipt_expiry_days: DEFAULT_RECEIPT_EXPIRY_DAYS,
   },
 
-  start(config, pusher) {
+  start(config, pusher, _context, inbox) {
     const state = loadState();
     const allowed = config.allowed_permission_modes || ["auto", "normal"];
-    console.log(`  kitty: polling lake for route:helper:claude-code dispatches (last seen: ${state.task_seen_at || state.last_seen})`);
+    console.log(
+      `  kitty: polling /v1/helpers/<host>/inbox for claude-code dispatches ` +
+        `(last seen: ${state.task_seen_at || state.last_seen})`,
+    );
     console.log(`  kitty: allowed permission modes = [${allowed.join(", ")}]`);
 
-    const tick = () => pollOnce(config, pusher, state);
+    const tick = () => pollOnce(config, pusher, inbox, state);
     const timer = setInterval(tick, config.poll_interval_ms || 3000);
     tick(); // fire one immediately
 
