@@ -3248,9 +3248,9 @@
     .routine-card-actions { display: flex; gap: 6px; margin-left: auto; }
     .routine-btn {
       background: transparent; border: 1px solid var(--rule);
-      border-radius: 6px; padding: 4px 10px;
-      font-family: var(--mono); font-size: 11px; letter-spacing: 0.06em;
-      text-transform: uppercase; color: var(--ink-soft); cursor: pointer;
+      border-radius: 6px; padding: 6px 12px;
+      font-family: var(--sans); font-size: 13px;
+      color: var(--ink-soft); cursor: pointer;
       transition: border-color 120ms, color 120ms;
     }
     .routine-btn:hover { border-color: var(--ink-faint); color: var(--ink); }
@@ -3319,7 +3319,7 @@
       outline: none; border-color: var(--accent);
     }
     .routine-editor .form-textarea {
-      font-family: var(--mono); font-size: 12px; min-height: 120px; resize: vertical;
+      min-height: 120px; resize: vertical;
     }
     .routine-editor .field-row .form-group { flex: 1 1 200px; min-width: 0; }
     .routine-editor .form-hint {
@@ -3364,8 +3364,9 @@
       to   { opacity: 1; transform: translateY(0); }
     }
     .prog-moment .prog-q {
+      display: block;
       font-family: var(--sans); font-size: 16px; font-weight: 500;
-      color: var(--ink); margin-bottom: 12px;
+      color: var(--ink); margin-bottom: 20px;
     }
     .prog-moment[data-state="done"] .prog-q {
       font-size: 11px; font-family: var(--mono); color: var(--ink-faint);
@@ -3392,7 +3393,7 @@
       font-family: var(--sans); font-size: 13px; color: var(--ink);
     }
     .routine-progressive .form-textarea {
-      font-family: var(--mono); font-size: 12px; min-height: 96px; resize: vertical;
+      min-height: 96px; resize: vertical;
     }
     .routine-progressive .form-input:focus,
     .routine-progressive .form-textarea:focus {
@@ -4565,7 +4566,6 @@
 
     <main>
       <section class="wizard-step active">
-        <div class="wizard-stamp">New routine</div>
         <h1 class="wizard-title">What should Fathom do on a timer?</h1>
         <p class="wizard-sub">A routine is a prompt that fires into a local claude session on a cron schedule. Give it an id, a schedule, and what you want done.</p>
         <div id="addRoutineMount"><!-- renderEditorHtml(null) swaps in here --></div>
@@ -6611,8 +6611,8 @@
           </div>
           <div class="err" data-err hidden></div>
           <div style="display: flex; gap: 6px; justify-content: flex-end;">
-            <button class="routine-btn" data-act="cancel">cancel</button>
-            <button class="routine-btn primary" data-act="save">${isEdit ? 'save' : 'create'}</button>
+            <button class="routine-btn" data-act="cancel">Cancel</button>
+            <button class="routine-btn primary" data-act="save">${isEdit ? 'Save' : 'Create'}</button>
           </div>
         </div>`;
     }
@@ -6899,8 +6899,7 @@
               <textarea class="form-textarea" data-prog="purpose" rows="4"
                 placeholder="A one-liner is fine, or describe what should happen in detail. The witness reads the whole prompt — feel free to mix the goal and the steps."></textarea>
               <div class="prog-actions">
-                <button type="button" class="routine-btn" data-prog-act="skip">skip</button>
-                <button type="button" class="routine-btn primary" data-prog-act="next">continue</button>
+                <button type="button" class="routine-btn primary" data-prog-act="next" disabled>Continue</button>
               </div>
             </div>
           </div>
@@ -6924,8 +6923,7 @@
                 <div class="cron-preview" data-cron-preview style="display: none;">—</div>
               </div>
               <div class="prog-actions">
-                <button type="button" class="routine-btn" data-prog-act="skip">skip</button>
-                <button type="button" class="routine-btn primary" data-prog-act="next">continue</button>
+                <button type="button" class="routine-btn primary" data-prog-act="next">Continue</button>
               </div>
             </div>
           </div>
@@ -6938,8 +6936,8 @@
                 placeholder='claude-code on a host, a specific tool, or "substrate only" if the lake already has the data.'></textarea>
               <div class="prog-hint">Now that you know what it should do — what's it going to reach for?</div>
               <div class="prog-actions">
-                <button type="button" class="routine-btn" data-prog-act="skip">skip</button>
-                <button type="button" class="routine-btn primary" data-prog-act="next">continue</button>
+                <button type="button" class="routine-btn" data-prog-act="skip">Skip</button>
+                <button type="button" class="routine-btn primary" data-prog-act="next">Continue</button>
               </div>
             </div>
           </div>
@@ -6956,8 +6954,7 @@
                 <label class="ending-choice"><input type="radio" name="prog-ending" data-ending="silent" /> Do nothing on screen — just write to the lake</label>
               </div>
               <div class="prog-actions">
-                <button type="button" class="routine-btn" data-prog-act="skip">skip</button>
-                <button type="button" class="routine-btn primary" data-prog-act="next">continue</button>
+                <button type="button" class="routine-btn primary" data-prog-act="next" disabled>Continue</button>
               </div>
             </div>
           </div>
@@ -6970,14 +6967,13 @@
               <div class="prog-hint">id auto-derived: <code data-prog-id-preview>—</code></div>
               <div class="err" data-prog-err hidden></div>
               <div class="prog-actions">
-                <button type="button" class="routine-btn" data-prog-act="skip">skip</button>
-                <button type="button" class="routine-btn primary" data-prog-act="create">create routine</button>
+                <button type="button" class="routine-btn primary" data-prog-act="create" disabled>Create routine</button>
               </div>
             </div>
           </div>
 
           <div class="prog-actions" style="justify-content: flex-start;">
-            <button type="button" class="routine-btn" data-prog-act="cancel">cancel</button>
+            <button type="button" class="routine-btn" data-prog-act="cancel">Cancel</button>
           </div>
         </div>`;
     }
@@ -7088,8 +7084,20 @@
         });
         const active = moments[idx];
         if (active) {
-          const focusable = active.querySelector('textarea, input[type="text"], input[type="time"], input[type="date"], select');
-          if (focusable) setTimeout(() => focusable.focus(), 60);
+          // Prefer a visible text-entry control so the user can type
+          // immediately. Hidden inputs (display: none cron pickers) are
+          // skipped — focusing them silently no-ops. Selects are skipped
+          // because their focus indicator is subtle and they don't take
+          // typed input. As a fallback we focus the primary action so
+          // there's a clear visual cue the section advanced and Enter
+          // continues to advance.
+          const candidates = active.querySelectorAll(
+            'textarea, input[type="text"], input[type="time"], input[type="date"]'
+          );
+          const textInput = Array.from(candidates).find(el => el.offsetParent !== null);
+          const fallback = active.querySelector('[data-prog-act="next"], [data-prog-act="create"]');
+          const target = textInput || fallback;
+          if (target) setTimeout(() => target.focus(), 60);
           if (active.scrollIntoView) active.scrollIntoView({ behavior: 'smooth', block: 'center' });
         }
       }
@@ -7113,8 +7121,13 @@
       // Click on a "done" moment to re-edit it. Inputs keep their values
       // when the moment goes back to pending, so traversing forward just
       // re-commits the same summary unless the user changes something.
+      // Ignore clicks that originated inside .prog-body — when the user
+      // hits Continue inside an active step, the button's handler flips
+      // the state to "done" before the click finishes bubbling, and we'd
+      // otherwise immediately re-open the step we just left.
       moments.forEach((m, i) => {
         m.addEventListener('click', (e) => {
+          if (e.target.closest('.prog-body')) return;
           if (m.dataset.state !== 'done') return;
           e.stopPropagation();
           setStep(i);
@@ -7180,6 +7193,34 @@
           idPreview.textContent = _progSlugify(nameInput.value) || '—';
         });
       }
+
+      // Required-field gating: Continue/Create stays disabled until the
+      // step's input has a value. Schedule has a default preset so it's
+      // always valid; needs is the only intentionally optional step.
+      const stepValid = {
+        purpose: () => (form.querySelector('[data-prog="purpose"]')?.value || '').trim() !== '',
+        ending:  () => !!form.querySelector('[data-ending]:checked'),
+        name:    () => (form.querySelector('[data-prog="name"]')?.value || '').trim() !== '',
+      };
+      function _syncStepGate(step) {
+        const moment = form.querySelector(`.prog-moment[data-step="${step}"]`);
+        if (!moment) return;
+        const btn = moment.querySelector('[data-prog-act="next"], [data-prog-act="create"]');
+        if (!btn) return;
+        const validator = stepValid[step];
+        if (!validator) return;
+        btn.disabled = !validator();
+      }
+      ['purpose', 'name'].forEach(step => {
+        const input = form.querySelector(`[data-prog="${step}"]`);
+        if (input) input.addEventListener('input', () => _syncStepGate(step));
+      });
+      form.querySelectorAll('[data-ending]').forEach(radio => {
+        radio.addEventListener('change', () => _syncStepGate('ending'));
+      });
+      // Initial pass — buttons render disabled in markup; this re-syncs
+      // in case any field came pre-filled (proposal flow, etc.).
+      ['purpose', 'ending', 'name'].forEach(_syncStepGate);
 
       // Enter advances on single-line inputs (textareas keep newline behavior).
       form.querySelectorAll('input[type="text"], input[type="time"], input[type="date"]').forEach(el => {
@@ -7814,18 +7855,12 @@
     loadRoutines().then(_applyDevRoute);
 
     // ── Dev quick-route (temporary, for routines polish pass) ──
-    //   ?routine=<id>  opens that routine's detail/edit view directly
-    //   ?routines      opens the sidebar with the Routines section in view
+    //   ?new-routine  opens the New routine flow directly
+    //   ?routines     opens the sidebar with the Routines section in view
     function _applyDevRoute() {
       const params = new URLSearchParams(location.search);
-      const id = params.get('routine');
-      if (id) {
-        if (!_routineCache.find(r => r.id === id)) {
-          console.warn('[dev-route] no routine with id', id,
-            '\n  available:', _routineCache.map(r => r.id));
-          return;
-        }
-        openRoutineDetail(id);
+      if (params.has('new-routine')) {
+        if (typeof openAddRoutine === 'function') openAddRoutine();
         return;
       }
       if (params.has('routines')) {
