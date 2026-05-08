@@ -2469,7 +2469,7 @@
       font-weight: 500; margin-bottom: 6px;
     }
     .form-hint { font-size: 12px; color: var(--ink-faint); margin-top: 6px; line-height: 1.4; }
-    .form-input, .form-select {
+    .form-input, .form-select, .form-textarea {
       width: 100%;
       background: var(--surface); border: 1px solid var(--rule);
       border-radius: 10px; padding: 11px 13px;
@@ -2477,8 +2477,8 @@
       outline: none; transition: border-color 120ms;
       box-sizing: border-box;
     }
-    .form-input:focus, .form-select:focus { border-color: var(--accent); }
-    .form-input::placeholder { color: var(--ink-faint); }
+    .form-input:focus, .form-select:focus, .form-textarea:focus { border-color: var(--accent); }
+    .form-input::placeholder, .form-textarea::placeholder { color: var(--ink-faint); }
     .form-select { appearance: none; background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'><path d='M1 1l5 5 5-5' stroke='%239fb0b5' stroke-width='1.5' fill='none' stroke-linecap='round'/></svg>"); background-repeat: no-repeat; background-position: right 12px center; padding-right: 36px; }
 
     /* ── Settings view ─────────────────────── */
@@ -3246,18 +3246,9 @@
     }
     .routine-card .pill[data-mode="auto"] { border-color: var(--accent); color: var(--accent); }
     .routine-card-actions { display: flex; gap: 6px; margin-left: auto; }
-    .routine-btn {
-      background: transparent; border: 1px solid var(--rule);
-      border-radius: 6px; padding: 6px 12px;
-      font-family: var(--sans); font-size: 13px;
-      color: var(--ink-soft); cursor: pointer;
-      transition: border-color 120ms, color 120ms;
-    }
-    .routine-btn:hover { border-color: var(--ink-faint); color: var(--ink); }
-    .routine-btn.primary { border-color: var(--accent); color: var(--accent); }
-    .routine-btn.primary:hover { background: rgba(120,160,200,0.08); }
-    .routine-btn.danger:hover { border-color: #d35; color: #d35; }
-    .routine-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+    .btn:disabled { opacity: 0.4; cursor: not-allowed; }
+    .btn:disabled:hover { background: var(--accent); }
+    .btn.ghost:disabled:hover { border-color: var(--rule); }
     .routine-summary {
       font-size: 12px; color: var(--ink-soft); font-style: italic;
       border-top: 1px dashed var(--rule-soft); padding-top: 8px; margin-top: 2px;
@@ -3302,25 +3293,16 @@
     }
     .scaffold-field { display: flex; flex-direction: column; }
     .scaffold-field label {
-      font-family: var(--sans); font-size: 13px;
-      color: var(--ink-faint); margin-bottom: 6px;
+      display: block; font-size: 13px; color: var(--ink);
+      font-weight: 500; margin-bottom: 6px;
     }
     .routine-editor .scaffold-input { min-height: auto; }
     .routine-editor .field-row { display: flex; gap: 8px; flex-wrap: wrap; }
-    .routine-editor label { font-family: var(--sans); font-size: 13px;
-      color: var(--ink-faint); margin-bottom: 6px; display: block;
+    .routine-editor label {
+      display: block; font-size: 13px; color: var(--ink);
+      font-weight: 500; margin-bottom: 6px;
     }
-    .routine-editor .form-input, .routine-editor .form-textarea {
-      width: 100%; background: var(--surface-2); border: 1px solid var(--rule);
-      border-radius: 6px; padding: 8px 10px;
-      font-family: var(--sans); font-size: 13px; color: var(--ink);
-    }
-    .routine-editor .form-input:focus, .routine-editor .form-textarea:focus {
-      outline: none; border-color: var(--accent);
-    }
-    .routine-editor .form-textarea {
-      min-height: 120px; resize: vertical;
-    }
+    .routine-editor .form-textarea { min-height: 120px; resize: vertical; }
     .routine-editor .field-row .form-group { flex: 1 1 200px; min-width: 0; }
     .routine-editor .form-hint {
       font-size: 11px; color: var(--ink-faint); line-height: 1.5; margin-top: 4px;
@@ -3386,19 +3368,7 @@
     .prog-hint {
       font-size: 11px; color: var(--ink-faint); line-height: 1.5; margin-top: 6px;
     }
-    .routine-progressive .form-input,
-    .routine-progressive .form-textarea {
-      width: 100%; background: var(--surface);
-      border: 1px solid var(--rule); border-radius: 6px; padding: 8px 10px;
-      font-family: var(--sans); font-size: 13px; color: var(--ink);
-    }
-    .routine-progressive .form-textarea {
-      min-height: 96px; resize: vertical;
-    }
-    .routine-progressive .form-input:focus,
-    .routine-progressive .form-textarea:focus {
-      outline: none; border-color: var(--accent);
-    }
+    .routine-progressive .form-textarea { min-height: 96px; resize: vertical; }
     .routine-progressive .ending-choices {
       display: flex; flex-direction: column; gap: 6px; font-size: 12px;
     }
@@ -6611,8 +6581,8 @@
           </div>
           <div class="err" data-err hidden></div>
           <div style="display: flex; gap: 6px; justify-content: flex-end;">
-            <button class="routine-btn" data-act="cancel">Cancel</button>
-            <button class="routine-btn primary" data-act="save">${isEdit ? 'Save' : 'Create'}</button>
+            <button class="btn ghost" data-act="cancel">Cancel</button>
+            <button class="btn" data-act="save">${isEdit ? 'Save' : 'Create'}</button>
           </div>
         </div>`;
     }
@@ -6899,7 +6869,7 @@
               <textarea class="form-textarea" data-prog="purpose" rows="4"
                 placeholder="A one-liner is fine, or describe what should happen in detail. The witness reads the whole prompt — feel free to mix the goal and the steps."></textarea>
               <div class="prog-actions">
-                <button type="button" class="routine-btn primary" data-prog-act="next" disabled>Continue</button>
+                <button type="button" class="btn" data-prog-act="next" disabled>Continue</button>
               </div>
             </div>
           </div>
@@ -6923,7 +6893,7 @@
                 <div class="cron-preview" data-cron-preview style="display: none;">—</div>
               </div>
               <div class="prog-actions">
-                <button type="button" class="routine-btn primary" data-prog-act="next">Continue</button>
+                <button type="button" class="btn" data-prog-act="next">Continue</button>
               </div>
             </div>
           </div>
@@ -6936,8 +6906,8 @@
                 placeholder='claude-code on a host, a specific tool, or "substrate only" if the lake already has the data.'></textarea>
               <div class="prog-hint">Now that you know what it should do — what's it going to reach for?</div>
               <div class="prog-actions">
-                <button type="button" class="routine-btn" data-prog-act="skip">Skip</button>
-                <button type="button" class="routine-btn primary" data-prog-act="next">Continue</button>
+                <button type="button" class="btn ghost" data-prog-act="skip">Skip</button>
+                <button type="button" class="btn" data-prog-act="next">Continue</button>
               </div>
             </div>
           </div>
@@ -6954,7 +6924,7 @@
                 <label class="ending-choice"><input type="radio" name="prog-ending" data-ending="silent" /> Do nothing on screen — just write to the lake</label>
               </div>
               <div class="prog-actions">
-                <button type="button" class="routine-btn primary" data-prog-act="next" disabled>Continue</button>
+                <button type="button" class="btn" data-prog-act="next" disabled>Continue</button>
               </div>
             </div>
           </div>
@@ -6967,13 +6937,13 @@
               <div class="prog-hint">id auto-derived: <code data-prog-id-preview>—</code></div>
               <div class="err" data-prog-err hidden></div>
               <div class="prog-actions">
-                <button type="button" class="routine-btn primary" data-prog-act="create" disabled>Create routine</button>
+                <button type="button" class="btn" data-prog-act="create" disabled>Create routine</button>
               </div>
             </div>
           </div>
 
           <div class="prog-actions" style="justify-content: flex-start;">
-            <button type="button" class="routine-btn" data-prog-act="cancel">Cancel</button>
+            <button type="button" class="btn ghost" data-prog-act="cancel">Cancel</button>
           </div>
         </div>`;
     }
