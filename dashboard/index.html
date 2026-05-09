@@ -239,24 +239,49 @@
       letter-spacing: 0.06em; text-transform: uppercase; color: var(--ink-faint);
     }
 
-    /* Feed cards */
-    .feed { display: flex; flex-direction: column; gap: 12px; }
-    /* Section-based spacing. Default flex gap is 12px; same-section
-       neighbors tighten via negative margin-top, section transitions
-       widen via positive margin-top.
-         chat        — user/fathom messages
-         feed        — editorial cards
-         background  — claude-code, prompts, thinking, identity, routine
-       Background items cluster flush; chat tightens slightly; cards
-       keep the default. Transitions across sections add ~12px. */
-    .feed > [data-section="background"] + [data-section="background"] { margin-top: -12px; }
-    .feed > [data-section="chat"] + [data-section="chat"] { margin-top: -4px; }
-    .feed > [data-section="chat"] + [data-section="feed"],
-    .feed > [data-section="chat"] + [data-section="background"],
-    .feed > [data-section="feed"] + [data-section="chat"],
-    .feed > [data-section="feed"] + [data-section="background"],
-    .feed > [data-section="background"] + [data-section="chat"],
-    .feed > [data-section="background"] + [data-section="feed"] { margin-top: 12px; }
+    /* ── Chat-feed spacing system ──
+       Three tokens drive every gap. No per-element margin-bottom;
+       the flex gap + adjacency rules do all the work.
+
+       Tokens:
+         --chat-gap-tight    same-kind cluster (consecutive user msgs,
+                              two routines, two helper cards in a row)
+         --chat-gap-default  within-lane shift (user → fathom,
+                              routine → helper)
+         --chat-gap-wide     cross-lane breath (conversation ↔ ambient)
+
+       Lanes:
+         conversation: .msg-user, .msg-fathom
+         ambient:      .delta.routine, .delta.helper-dispatch,
+                        .delta.helper-reply, .accordion
+         editorial:    .card (main feed only; default rhythm)
+
+       Applies to both .feed (main column) and .chat-feed (right sidebar).
+    */
+    .feed,
+    .chat-feed {
+      display: flex;
+      flex-direction: column;
+      gap: var(--chat-gap-default);
+    }
+
+    /* Same-kind clusters tighten. */
+    :where(.feed, .chat-feed) > .msg-user + .msg-user,
+    :where(.feed, .chat-feed) > .msg-fathom + .msg-fathom,
+    :where(.feed, .chat-feed) > .delta.routine + .delta.routine,
+    :where(.feed, .chat-feed) > :is(.delta.helper-dispatch, .delta.helper-reply)
+      + :is(.delta.helper-dispatch, .delta.helper-reply),
+    :where(.feed, .chat-feed) > .accordion + .accordion {
+      margin-top: calc(var(--chat-gap-tight) - var(--chat-gap-default));
+    }
+
+    /* Conversation ↔ ambient: wide breath in either direction. */
+    :where(.feed, .chat-feed) > :is(.msg-user, .msg-fathom)
+      + :is(.delta.routine, .delta.helper-dispatch, .delta.helper-reply, .accordion),
+    :where(.feed, .chat-feed) > :is(.delta.routine, .delta.helper-dispatch, .delta.helper-reply, .accordion)
+      + :is(.msg-user, .msg-fathom) {
+      margin-top: calc(var(--chat-gap-wide) - var(--chat-gap-default));
+    }
     .card {
       background: var(--surface); border: 1px solid var(--rule);
       border-radius: var(--radius);
@@ -860,37 +885,25 @@
       border-left-color: #ef4444;
     }
     .feed .delta.intent.intent-alert .d-kind { color: #ef4444; }
-    /* Routine activity — per-item accordion (mirrors claude-code dispatch
-       shape but with its own accent). Each routine fire / summary / due-
-       tick is its own <details>: closed by default, click to expand and
-       see the prompt / summary text. Clicking the routine name itself
-       (the highlighted span) jumps to the routine detail page. */
+    /* Routine activity — flat card (was an accordion). Each routine
+       fire / summary / due-tick is its own <article>: head + body
+       both always visible. The kicker (ROUTINE) is the link target;
+       clicking it jumps to the routine detail page. The name and
+       variant are plain text. */
     /* Routines — "log entry" feel. Orange kicker (ROUTINE) only;
-       everything else white. No left border, no leading icon. */
+       everything else white. No left border, no leading icon, no
+       expand chevron. */
     .feed .delta.routine {
       background: color-mix(in srgb, var(--surface) 92%, var(--signal) 8%);
       border: 1px solid var(--rule-soft);
       border-radius: 4px;
       padding: 0.5rem 0.85rem;
     }
-    .feed .delta.routine > summary.d-head {
-      list-style: none;
-      cursor: pointer;
-      user-select: none;
+    .feed .delta.routine .d-head {
       display: flex;
       align-items: baseline;
       gap: 0.55rem;
     }
-    .feed .delta.routine > summary.d-head::-webkit-details-marker { display: none; }
-    .feed .delta.routine > summary.d-head::before {
-      content: "▸";
-      display: inline-block;
-      width: 0.9rem;
-      color: var(--ink-faint);
-      opacity: 0.6;
-      transition: transform 160ms;
-    }
-    .feed .delta.routine[open] > summary.d-head::before { transform: rotate(90deg); }
     .feed .delta.routine .routine-icon { display: none; }
     /* Header content: white-on-surface, mono kicker prefix in orange. */
     .feed .delta.routine .d-kind {
@@ -908,6 +921,14 @@
       color: var(--signal);
       margin-right: 0.4rem;
     }
+    .feed .delta.routine .routine-kicker.is-link {
+      cursor: pointer;
+      text-decoration-color: transparent;
+    }
+    .feed .delta.routine .routine-kicker.is-link:hover {
+      text-decoration: underline;
+      text-decoration-color: currentColor;
+    }
     .feed .delta.routine .routine-name {
       font-family: var(--serif);
       font-size: 14.5px;
@@ -916,53 +937,11 @@
       text-transform: none;
       letter-spacing: 0;
     }
-    .feed .delta.routine .routine-name.is-link {
-      cursor: pointer;
-      text-decoration-color: transparent;
-    }
-    .feed .delta.routine .routine-name.is-link:hover {
-      color: var(--signal);
-      text-decoration: underline;
-      text-decoration-color: currentColor;
-    }
-    .feed .delta.routine .routine-variant {
-      color: var(--ink);
-      margin-left: 0.4rem;
-    }
     .feed .delta.routine .d-ts {
       color: var(--ink-faint);
       flex-shrink: 0;
       font-size: 10.5px;
       letter-spacing: 0.04em;
-    }
-    /* Body — tight to the header (no big gap), white text. */
-    .feed .delta.routine .d-body {
-      margin-top: 0.45rem;
-      padding-top: 0.4rem;
-      border-top: 1px solid var(--rule-soft);
-      font-family: var(--mono);
-      font-size: 12px;
-      color: var(--ink);
-      line-height: 1.55;
-      white-space: pre-wrap;
-    }
-    .feed .delta.routine .routine-meta {
-      display: grid;
-      grid-template-columns: max-content 1fr;
-      column-gap: 14px;
-      row-gap: 3px;
-    }
-    .feed .delta.routine .routine-meta-key {
-      color: var(--ink);
-      opacity: 0.55;
-      text-transform: uppercase;
-      letter-spacing: 0.06em;
-      font-size: 10.5px;
-      align-self: center;
-    }
-    .feed .delta.routine .routine-meta-val {
-      color: var(--ink);
-      font-size: 12px;
     }
     /* Crystal — purple accent on the surface tint. */
     .feed .delta.crystal {
@@ -1842,6 +1821,11 @@
       --voice-creator:   #f97316;
       --voice-preserver: #06b6d4;
       --voice-destroyer: #dc2626;
+      /* Chat-feed spacing tokens — see "Chat-feed spacing system"
+         block above for the adjacency rules that consume them. */
+      --chat-gap-tight:   8px;
+      --chat-gap-default: 22px;
+      --chat-gap-wide:    40px;
     }
     .convergence-bars {
       display: inline-flex;
@@ -3153,10 +3137,9 @@
     .msg-body a:hover { text-decoration: underline; }
     .msg-body img { max-width: 100%; border-radius: 8px; margin: 8px 0; }
 
-    /* User message: soft surface card */
-    .msg-user { margin-bottom: 1.75rem; }
-    .msg-fathom { margin-bottom: 1.75rem; }
-    .feed .card { margin-bottom: 1.75rem; }
+    /* User message: soft surface card. Spacing handled by the
+       chat-feed spacing system (gap + adjacency rules); no
+       per-element margin-bottom. */
     /* Sub-bar (time/engagement) hidden until hover or tap */
     .feed .msg-user .msg-meta,
     .feed .msg-fathom .tail {
@@ -10863,7 +10846,11 @@ GET  /v1/usage               Usage stats`,
     }
 
     function _renderRoutineAccordion({ variant, routineId, content, puddleId, timeStr }) {
-      const el = document.createElement('details');
+      // Note: function name kept for callsite stability — this is a
+      // single-line bar now, not an accordion. No body. Per-variant
+      // detail (host/permission, narrative, prompt) lives in the
+      // routine's detail page; the kicker links there.
+      const el = document.createElement('article');
       el.className = `delta routine routine-${variant}`;
       el.dataset.kind = variant === 'summary' ? 'routine' : 'routine-due';
       el.dataset.variant = variant;
@@ -10872,55 +10859,17 @@ GET  /v1/usage               Usage stats`,
       if (puddleId) el.dataset.deltaId = puddleId;
       if (routineId) el.dataset.routineId = routineId;
       const name = _routineNameOrId(routineId);
-      // variant tag — the small label that identifies what kind of
-      // routine activity this is. fired = cron tick into the river,
-      // fire = legacy direct-to-kitty, summary = claude's writeup.
-      const variantLabel = (
-        variant === 'fired'   ? 'fired' :
-        variant === 'summary' ? 'summary' :
-        variant === 'fire'    ? 'fire' :
-        variant
-      );
 
-      // Body content varies by variant:
-      //   · routine-due / fired — the raw content is a routine-tick stub
-      //     ("routine-tick: <id>") which has no human value. Pull host +
-      //     permission_mode off the cached routine spec so the expanded
-      //     body shows what's meaningful: where it ran, in what mode.
-      //   · summary — the actual narrative claude-code wrote on closure.
-      //     Render as markdown.
-      //   · fire (legacy) — the raw routine prompt body. Render as
-      //     markdown for readability.
-      const cached = (typeof _routineCache !== 'undefined' && _routineCache)
-        ? _routineCache.find(x => x.id === routineId)
-        : null;
-      let bodyHtml;
-      if (variant === 'fired' && cached) {
-        const host = (cached.host || '').trim() || 'fleet (any host)';
-        const mode = (cached.permission_mode || 'auto').trim();
-        bodyHtml = `
-          <div class="routine-meta">
-            <div class="routine-meta-key">host</div>
-            <div class="routine-meta-val">${_esc(host)}</div>
-            <div class="routine-meta-key">permission</div>
-            <div class="routine-meta-val">${_esc(mode)}</div>
-          </div>`;
-      } else {
-        bodyHtml = renderMd((content || '').toString());
-      }
-
+      const kickerCls = `routine-kicker${routineId ? ' is-link' : ''}`;
       el.innerHTML = `
-        <summary class="d-head">
-          <span class="d-kind"><span class="routine-kicker">routine</span><span class="routine-name${routineId ? ' is-link' : ''}">${_esc(name)}</span><span class="routine-variant">· ${_esc(variantLabel)}</span></span>
+        <div class="d-head">
+          <span class="d-kind"><span class="${kickerCls}">routine</span><span class="routine-name">${_esc(name)}</span></span>
           <span class="d-ts">${timeStr}</span>
-        </summary>
-        <div class="d-body">${bodyHtml}</div>
+        </div>
       `;
-      // Clicking the routine-name span jumps to the routine detail page;
-      // clicking anywhere else on the summary toggles the accordion.
-      const nameEl = el.querySelector('.routine-name');
-      if (nameEl && routineId) {
-        nameEl.addEventListener('click', (e) => {
+      const kickerEl = el.querySelector('.routine-kicker');
+      if (kickerEl && routineId) {
+        kickerEl.addEventListener('click', (e) => {
           e.stopPropagation();
           e.preventDefault();
           if (typeof openRoutineDetail === 'function') openRoutineDetail(routineId);
