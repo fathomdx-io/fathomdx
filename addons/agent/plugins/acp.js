@@ -67,6 +67,7 @@ function buildHelperRoles(targets) {
   if (!Array.isArray(targets)) return [];
   return targets
     .filter((t) => t && typeof t.role === "string" && t.role.trim())
+    .filter((t) => t.enabled !== false)
     .map((t) => ({
       role: t.role.trim(),
       description: typeof t.description === "string" ? t.description.trim() : "",
@@ -272,7 +273,21 @@ export default {
   defaults: {
     enabled: false,
     poll_interval_ms: 3000,
-    targets: [],
+    // Each target has its own `enabled` flag so operators can ship
+    // disabled examples and flip them on individually. Adding a real
+    // target = set enabled:true and fill in command/args. Don't add
+    // a claude-code-acp target — claude-code lives under the kitty
+    // plugin (visible-window UX); ACP is for adapters whose value
+    // is the structured protocol.
+    targets: [
+      {
+        enabled: false,
+        role: "openclaw",
+        command: "podman",
+        args: ["exec", "-i", "openclaw", "openclaw", "acp", "--session", "agent:main:main"],
+        description: "OpenClaw — multi-channel chat-routing agent (ACP bridge over its gateway)",
+      },
+    ],
   },
 
   start(_config_unused, _pusher, _context, inbox) {
@@ -315,7 +330,9 @@ export default {
 
     const targetsByRole = new Map();
     for (const t of targets) {
-      if (t && t.role) targetsByRole.set(t.role, t);
+      if (!t || !t.role) continue;
+      if (t.enabled === false) continue; // shipped-as-example targets
+      targetsByRole.set(t.role, t);
     }
 
     const state = { last_seen: new Date(Date.now() - 60_000).toISOString() };

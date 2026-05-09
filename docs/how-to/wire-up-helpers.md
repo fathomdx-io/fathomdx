@@ -106,7 +106,9 @@ A kitty window should open with claude. The lake will accumulate
 
 ## 4. (Optional) Add ACP targets
 
-Drop an `acp` block into `plugins`. Each entry under `targets`
+A fresh agent install ships an `acp` block already in your
+`agent.json` with the plugin disabled and a couple of example
+`targets` (also disabled). Flip the flags to opt in. Each target
 advertises its own `helper-role`:
 
 ```json
@@ -117,12 +119,14 @@ advertises its own `helper-role`:
     "poll_interval_ms": 3000,
     "targets": [
       {
+        "enabled": true,
         "role": "openclaw",
-        "command": "npx",
-        "args": ["-y", "@openclaw/acp-bridge"],
-        "description": "chat-synthesis, multi-channel routing"
+        "command": "podman",
+        "args": ["exec", "-i", "openclaw", "openclaw", "acp", "--session", "agent:main:main"],
+        "description": "OpenClaw — multi-channel chat-routing agent (ACP bridge over its gateway)"
       },
       {
+        "enabled": false,
         "role": "codex",
         "command": "npx",
         "args": ["-y", "codex-acp"],
@@ -133,16 +137,36 @@ advertises its own `helper-role`:
 }
 ```
 
-Restart the agent. Both new roles show up in the next heartbeat as
-`helper-role:openclaw` and `helper-role:codex`. The harness's HELPERS
-block lists all available `(host, role)` pairs alphabetically:
+Per-target `enabled: false` means the target is config-visible but
+not advertised — handy for shipping examples or temporarily
+silencing a role without deleting its config.
+
+Restart the agent. Enabled roles show up in the next heartbeat as
+`helper-role:<role>`. The harness's HELPERS block lists all available
+`(host, role)` pairs alphabetically:
 
 ```
 HELPERS — agents currently online that can receive a `dispatch_helper` task:
   · claude-code @ myras-fedora-laptop — shell, file edits, git, web via headed browser
-  · codex       @ myras-fedora-laptop — OpenAI Codex coding agent
-  · openclaw    @ myras-fedora-laptop — chat-synthesis, multi-channel routing
+  · openclaw    @ myras-fedora-laptop — OpenClaw — multi-channel chat-routing agent
 ```
+
+### OpenClaw setup notes
+
+The `openclaw acp` bridge connects to the OpenClaw Gateway over
+WebSocket. Two pieces of config inside the OpenClaw container need
+to be set so the bridge can authenticate:
+
+```bash
+podman exec openclaw openclaw config set gateway.remote.url 'ws://127.0.0.1:18789/ws'
+podman exec openclaw openclaw config set gateway.remote.password '<your-gateway-password>'
+```
+
+Without `--session agent:main:main` the bridge mints a fresh
+ACP-only session per dispatch and OpenClaw's main agent never sees
+it (no model invocation). Pin the bridge to the main session so
+both Fathom's ACP traffic and OpenClaw's chat UI share a single
+conversation thread.
 
 > **Don't add `claude-code-acp` as an ACP target.** Claude Code lives
 > under the kitty plugin (or analogous OS-specific terminal-spawner
@@ -158,6 +182,32 @@ requests (`fs/read_text_file`, `terminal/create`,
 `session/request_permission`) with method-not-found. Adapters that
 need filesystem or shell tools to do useful work will get errors back.
 The wire works; tool execution is a follow-up slice.
+
+### Closure-followup chain
+
+When you ask Fathom in chat to "dispatch task X to openclaw and
+bring me the reply," the full chain is:
+
+1. **Harness** drafts a `dispatch_helper` proposal and stamps it
+   with `originating-channel` / `correlation` / `intent` so the
+   chain knows which chat surface to come back to.
+2. **Operator approves** the proposal in the dashboard's bell. The
+   approve flow writes a `route:helper:<role>` dispatch delta with
+   the `originating-*` tags forwarded.
+3. **ACP plugin** picks up the dispatch from its inbox, spawns the
+   adapter subprocess, runs the JSON-RPC dance
+   (`initialize` → `session/new` → `session/prompt`), accumulates
+   `agent_message_chunk` text, and emits a `kind:helper-complete`
+   with `task-complete` carrying the model's reply.
+4. **claude_code_watcher** pairs the corr to the helper session
+   (via the `task-spawn` handshake the ACP plugin emits after
+   `session/new`), sees the closure, and writes a thread row tagged
+   `closure:true` + the inherited `originating-*`.
+5. **Threaded harness** fires on the closure thread row, produces
+   a chat-reply ("OpenClaw replies: …"), routes it back to the
+   originating chat surface.
+
+Same chain for kitty/CC closures.
 
 ## How dispatches are addressed
 
