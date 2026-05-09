@@ -100,6 +100,14 @@ async function dispatchOne(item, target, inbox, _config) {
 
   console.log(`  acp: dispatch ${corr.slice(0, 12)} → ${target.role} (${target.command})`);
 
+  // Accumulate agent_message_chunk text across the turn so we can use
+  // the full assembled reply as the closure delta's content. The
+  // session/prompt response itself doesn't include the assembled text
+  // — it's a stop-reason container — so without this accumulation the
+  // closure delta carries only "[done · end_turn]" and downstream
+  // closure-followup logic (claude_code_watcher → harness) has no
+  // model output to relay.
+  const messageBuffer = [];
   const client = new AcpClient({
     command: target.command,
     args: target.args || [],
@@ -130,6 +138,11 @@ async function dispatchOne(item, target, inbox, _config) {
           .filter(Boolean)
           .join("");
       }
+      // Accumulate real text into messageBuffer for the final closure
+      // body. Skip metadata events.
+      if (content && sub === "agent_message_chunk") {
+        messageBuffer.push(content);
+      }
       if (!content) {
         // Metadata events (session_info_update, usage_update, etc.) —
         // useful to the dashboard for rendering session state, but
@@ -157,15 +170,43 @@ async function dispatchOne(item, target, inbox, _config) {
     if (!sessionId) {
       throw new Error("session/new returned no session id");
     }
+    // Emit a task-spawn handshake delta so claude_code_watcher.py can
+    // pair this corr to the helper session. Without it, closing this
+    // task wouldn't mint a closure-followup chat-reply, and the
+    // user's chat thread would show only the dispatch with no
+    // assistant reply afterward. Mirrors what the kitty plugin does
+    // when its prompt-marker matches a real claude-code session id.
+    inbox
+      .reply(corr, {
+        kind: "update",
+        content: `[task-spawn] task ${corr} → ${target.role} session ${sessionId}`,
+        extra_tags: [`helper-session:${sessionId}`, "task-spawn"],
+      })
+      .catch((e) => console.error(`  acp: task-spawn reply failed: ${e.message}`));
     const promptResp = await client.sessionPrompt({
       sessionId,
       prompt: [{ type: "text", text: item.task || "" }],
     });
     const stop = promptResp?.stopReason || promptResp?.stop_reason || "ok";
-    const finalText =
-      typeof promptResp?.content === "string" ? promptResp.content : `[done · ${stop}]`;
+    // Prefer the accumulated agent_message_chunk text (the actual
+    // model output as it streamed). Fall back to a top-level content
+    // field on the prompt response, then to a marker line. Strip a
+    // common <final>...</final> wrapper that some adapters (openclaw)
+    // emit by convention; downstream consumers don't need to see it.
+    let finalText = messageBuffer.join("").trim();
+    if (!finalText && typeof promptResp?.content === "string") {
+      finalText = promptResp.content;
+    }
+    if (!finalText) {
+      finalText = `[done · ${stop}]`;
+    }
+    finalText = finalText
+      .replace(/^<final>\s*/i, "")
+      .replace(/\s*<\/final>\s*$/i, "");
     await inbox.reply(corr, { kind: "complete", content: finalText });
-    console.log(`  acp: complete ${corr.slice(0, 12)} (stop=${stop})`);
+    console.log(
+      `  acp: complete ${corr.slice(0, 12)} (stop=${stop}, ${finalText.length} chars)`,
+    );
   } catch (e) {
     console.error(`  acp: dispatch ${corr.slice(0, 12)} failed: ${e.message}`);
     try {
