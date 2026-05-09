@@ -19,7 +19,6 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
-
 # ── routines.fire ─────────────────────────────────────────────────
 
 
@@ -51,10 +50,12 @@ async def test_routines_fire_thread_append_includes_fired_at_tag():
     async def fake_lake_write(**kwargs):
         return {"id": "tick-1"}
 
-    with patch.object(r_mod, "get_latest_spec", side_effect=fake_get_spec), \
-         patch("api.loop.intents.write_intent", side_effect=fake_write_intent), \
-         patch.object(r_mod.delta_client, "write", side_effect=fake_lake_write), \
-         patch("api.thread.append", side_effect=fake_thread_append):
+    with (
+        patch.object(r_mod, "get_latest_spec", side_effect=fake_get_spec),
+        patch("api.loop.intents.write_intent", side_effect=fake_write_intent),
+        patch.object(r_mod.delta_client, "write", side_effect=fake_lake_write),
+        patch("api.thread.append", side_effect=fake_thread_append),
+    ):
         await r_mod.fire("test-routine")
 
     assert len(captured) == 1
@@ -85,13 +86,16 @@ async def test_routines_fire_two_consecutive_calls_have_different_fired_at():
     async def fake_get_spec(rid):
         return fake_spec
 
-    with patch.object(r_mod, "get_latest_spec", side_effect=fake_get_spec), \
-         patch("api.loop.intents.write_intent", AsyncMock(return_value={"id": "i"})), \
-         patch.object(r_mod.delta_client, "write", AsyncMock(return_value={"id": "t"})), \
-         patch("api.thread.append", side_effect=fake_thread_append):
+    with (
+        patch.object(r_mod, "get_latest_spec", side_effect=fake_get_spec),
+        patch("api.loop.intents.write_intent", AsyncMock(return_value={"id": "i"})),
+        patch.object(r_mod.delta_client, "write", AsyncMock(return_value={"id": "t"})),
+        patch("api.thread.append", side_effect=fake_thread_append),
+    ):
         await r_mod.fire("test-routine")
         # Tiny sleep to ensure ms-resolution timestamps differ.
         import asyncio
+
         await asyncio.sleep(0.005)
         await r_mod.fire("test-routine")
 
@@ -119,8 +123,10 @@ async def test_relief_fire_single_thread_append_includes_fired_at_tag():
 
     tier = next(t for t in relief.RELIEF_TIERS if t["engine"] == "single-fire")
 
-    with patch("api.loop.relief.write_intent", AsyncMock(return_value={"id": "i"})), \
-         patch("api.thread.append", side_effect=fake_thread_append):
+    with (
+        patch("api.loop.relief.write_intent", AsyncMock(return_value={"id": "i"})),
+        patch("api.thread.append", side_effect=fake_thread_append),
+    ):
         await relief._fire_single(tier, reason="pressure")
 
     assert len(captured) == 1

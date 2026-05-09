@@ -23,13 +23,15 @@ from pydantic import BaseModel
 from . import (
     auth,
     auto_regen,
-    channels as channels_mod,
     crystal,
     crystal_anchor,
     db,
     delta_client,
     drift,
     mood,
+)
+from . import (
+    channels as channels_mod,
 )
 from . import contacts as contacts_mod
 from .loop.intents import write_intent
@@ -185,8 +187,8 @@ async def lifespan(_app: FastAPI):
 
         _spawn_task(_backfill_once(resolved_admin), name="lifespan/contact-backfill")
 
-    from .loop import worker as loop_worker
     from . import routine_scheduler
+    from .loop import worker as loop_worker
 
     # FATHOM_QUIET_MODE — when set, skip every background process that
     # writes to the lake on its own clock. The Grand Loop, routine
@@ -223,6 +225,7 @@ app.add_middleware(
 app.add_middleware(auth.TokenAuthMiddleware)
 
 # ── Routers (one file per resource cluster under api/routes/) ───
+from .loop import routes as _loop_routes  # noqa: E402
 from .routes import agent_instructions as _agent_instructions_routes  # noqa: E402
 from .routes import agents as _agents_routes  # noqa: E402
 from .routes import alerts as _alerts_routes  # noqa: E402
@@ -237,7 +240,6 @@ from .routes import routines as _routines_routes  # noqa: E402
 from .routes import sources as _sources_routes  # noqa: E402
 from .routes import stack as _stack_routes  # noqa: E402
 from .routes import vitals as _vitals_routes  # noqa: E402
-from .loop import routes as _loop_routes  # noqa: E402
 
 app.include_router(_agent_instructions_routes.router)
 app.include_router(_agents_routes.router)
@@ -619,19 +621,22 @@ async def fathom_think(
             messages.insert(-1, inject_msg)
 
         if digest:
-            messages.insert(-1, {
-                "role": "system",
-                "content": (
-                    "Recent activity in the lake (last 12h, noise filtered, "
-                    "grouped by source):\n\n"
-                    f"{digest}\n\n"
-                    "This is your own footprint — what you've been processing "
-                    "across every surface (claude-code work sessions, feed "
-                    "synthesis, agent activity, sensors). When asked about "
-                    "what's been going on or what you've been doing, speak "
-                    "from this directly rather than searching for it."
-                ),
-            })
+            messages.insert(
+                -1,
+                {
+                    "role": "system",
+                    "content": (
+                        "Recent activity in the lake (last 12h, noise filtered, "
+                        "grouped by source):\n\n"
+                        f"{digest}\n\n"
+                        "This is your own footprint — what you've been processing "
+                        "across every surface (claude-code work sessions, feed "
+                        "synthesis, agent activity, sensors). When asked about "
+                        "what's been going on or what you've been doing, speak "
+                        "from this directly rather than searching for it."
+                    ),
+                },
+            )
 
         if on_tool_event:
             on_tool_event("result", "recall", {"count": recalled["total_count"]})
@@ -660,9 +665,7 @@ async def fathom_think(
 # pushes that up by another 30-90s. 300s default gives genuine
 # research room without unbounded hold. Override with
 # `FATHOM_OPENAI_DEADLINE_S` if you regularly hit the cap.
-_OPENAI_REPLY_TIMEOUT_S = float(
-    os.environ.get("FATHOM_OPENAI_DEADLINE_S", "300")
-)
+_OPENAI_REPLY_TIMEOUT_S = float(os.environ.get("FATHOM_OPENAI_DEADLINE_S", "300"))
 _OPENAI_REPLY_POLL_S = 0.5
 
 
@@ -884,8 +887,9 @@ async def _await_witness_reply(
         # lake regardless.
         if request is not None and await request.is_disconnected():
             log.info(
-                "openai-compat: client disconnected during wait "
-                "(session=%s intent=%s)", session_id, intent_id,
+                "openai-compat: client disconnected during wait (session=%s intent=%s)",
+                session_id,
+                intent_id,
             )
             return ("stop" if parts else "timeout"), _join_chronological(parts), system_error
 
@@ -1063,8 +1067,9 @@ async def _openai_stream(
         # lake regardless.
         if request is not None and await request.is_disconnected():
             log.info(
-                "openai-compat stream: client disconnected "
-                "(session=%s intent=%s)", session_id, intent_id,
+                "openai-compat stream: client disconnected (session=%s intent=%s)",
+                session_id,
+                intent_id,
             )
             return
         # Legacy witness poll.
@@ -1097,7 +1102,7 @@ async def _openai_stream(
         # with finish_reason="error" so SDKs that inspect that field
         # know it wasn't a normal answer.
         saw_system_error = False
-        for ts, body, tags in await _poll_thread_assistant(
+        for _ts, body, tags in await _poll_thread_assistant(
             user_msg_id=thread_user_msg_id,
             after_iso=after_iso,
             seen_ids=seen_thread_ids,
@@ -1290,6 +1295,7 @@ async def chat_completions(req: ChatRequest, request: Request):
     thread_user_msg_id = ""
     try:
         from . import thread as thread_mod
+
         thread_msg = await thread_mod.append(
             role="user",
             msg_kind="openai-chat",
@@ -1306,14 +1312,20 @@ async def chat_completions(req: ChatRequest, request: Request):
     if req.stream:
         return StreamingResponse(
             _openai_stream(
-                session_id, intent_id, request_start_iso, model_label, request,
+                session_id,
+                intent_id,
+                request_start_iso,
+                model_label,
+                request,
                 thread_user_msg_id=thread_user_msg_id,
             ),
             media_type="text/event-stream",
         )
 
     finish_reason, reply_text, system_error = await _await_witness_reply(
-        session_id, intent_id, request_start_iso,
+        session_id,
+        intent_id,
+        request_start_iso,
         request=request,
         thread_user_msg_id=thread_user_msg_id,
     )

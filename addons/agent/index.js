@@ -614,7 +614,7 @@ async function main() {
     console.log(
       `  inbox: helper_token not configured — kitty/acp dispatches will fail. ` +
         `Mint one at POST /v1/admin/helpers/${helperHost}/tokens and add it as ` +
-        `\`helper_token\` in agent.json.`,
+        `\`helper_token\` in agent.json.`
     );
   }
 

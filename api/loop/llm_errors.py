@@ -12,14 +12,14 @@ This module is the one place that knows how to:
 
 Callers shouldn't string-format exceptions themselves.
 """
+
 from __future__ import annotations
 
 from typing import Any
 
-
 # Tier → label that lands wherever we render the failure.
 _ROLE_LABELS = {
-    "hard":   "Standard tasks model",
+    "hard": "Standard tasks model",
     "medium": "Light tasks model",
 }
 

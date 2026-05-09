@@ -25,12 +25,22 @@ async def test_l1_accepts_two_constituents():
     # progresses past resolution. We don't actually persist — patching
     # delta_client.write at the end short-circuits the lake side.
     rows = [
-        {"id": "aaaaaaaaaaaa", "tags": ["kind:thread-msg"], "timestamp": "2026-05-05T12:00:00+00:00"},
-        {"id": "bbbbbbbbbbbb", "tags": ["kind:thread-msg"], "timestamp": "2026-05-05T12:00:01+00:00"},
+        {
+            "id": "aaaaaaaaaaaa",
+            "tags": ["kind:thread-msg"],
+            "timestamp": "2026-05-05T12:00:00+00:00",
+        },
+        {
+            "id": "bbbbbbbbbbbb",
+            "tags": ["kind:thread-msg"],
+            "timestamp": "2026-05-05T12:00:01+00:00",
+        },
     ]
-    with patch.object(harness_tools.delta_client, "batch_get", AsyncMock(return_value=rows)), \
-         patch.object(harness_tools.delta_client, "write", AsyncMock(return_value={"id": "prov-1"})), \
-         patch.object(harness_tools.puddle, "write", AsyncMock(return_value={"id": "p"})):
+    with (
+        patch.object(harness_tools.delta_client, "batch_get", AsyncMock(return_value=rows)),
+        patch.object(harness_tools.delta_client, "write", AsyncMock(return_value={"id": "prov-1"})),
+        patch.object(harness_tools.puddle, "write", AsyncMock(return_value={"id": "p"})),
+    ):
         result = await harness_tools.tool_propose_provenance(
             level=1,
             title="Test Pair",
@@ -89,12 +99,22 @@ async def test_unspecified_level_treated_as_l1():
     Otherwise a thin 2-id proposal would get rejected on a benign
     omission."""
     rows = [
-        {"id": "aaaaaaaaaaaa", "tags": ["kind:thread-msg"], "timestamp": "2026-05-05T12:00:00+00:00"},
-        {"id": "bbbbbbbbbbbb", "tags": ["kind:thread-msg"], "timestamp": "2026-05-05T12:00:01+00:00"},
+        {
+            "id": "aaaaaaaaaaaa",
+            "tags": ["kind:thread-msg"],
+            "timestamp": "2026-05-05T12:00:00+00:00",
+        },
+        {
+            "id": "bbbbbbbbbbbb",
+            "tags": ["kind:thread-msg"],
+            "timestamp": "2026-05-05T12:00:01+00:00",
+        },
     ]
-    with patch.object(harness_tools.delta_client, "batch_get", AsyncMock(return_value=rows)), \
-         patch.object(harness_tools.delta_client, "write", AsyncMock(return_value={"id": "prov-1"})), \
-         patch.object(harness_tools.puddle, "write", AsyncMock(return_value={"id": "p"})):
+    with (
+        patch.object(harness_tools.delta_client, "batch_get", AsyncMock(return_value=rows)),
+        patch.object(harness_tools.delta_client, "write", AsyncMock(return_value={"id": "prov-1"})),
+        patch.object(harness_tools.puddle, "write", AsyncMock(return_value={"id": "p"})),
+    ):
         result = await harness_tools.tool_propose_provenance(
             level=None,
             title="Default",

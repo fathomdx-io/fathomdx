@@ -40,10 +40,10 @@ HISTORY_LIMIT: int = 50_000
 #   335d × 1/day  =  335   (daily buckets)
 #                = ~2900 rows for a full year
 _RETENTION_TIERS: tuple[tuple[int, int], ...] = (
-    (24 * 3600,        60),         # last 24h: per-minute
-    (7 * 24 * 3600,    15 * 60),    # 24h-7d:   per-15-min
-    (30 * 24 * 3600,   3600),       # 7d-30d:   per-hour
-    (365 * 24 * 3600,  86400),      # 30d-365d: per-day
+    (24 * 3600, 60),  # last 24h: per-minute
+    (7 * 24 * 3600, 15 * 60),  # 24h-7d:   per-15-min
+    (30 * 24 * 3600, 3600),  # 7d-30d:   per-hour
+    (365 * 24 * 3600, 86400),  # 30d-365d: per-day
 )
 
 _lock = asyncio.Lock()

@@ -517,21 +517,16 @@ LAKE_TOOLS = [
             "properties": {
                 "name": {
                     "type": "string",
-                    "description": (
-                        "Human-readable routine name. Slug derived from this."
-                    ),
+                    "description": ("Human-readable routine name. Slug derived from this."),
                 },
                 "schedule": {
                     "type": "string",
-                    "description": (
-                        "Cron expression — five fields. Validated before draft."
-                    ),
+                    "description": ("Cron expression — five fields. Validated before draft."),
                 },
                 "purpose": {
                     "type": "string",
                     "description": (
-                        "One sentence — what should Fathom accomplish on "
-                        "this routine?"
+                        "One sentence — what should Fathom accomplish on this routine?"
                     ),
                 },
                 "needs": {
@@ -559,15 +554,12 @@ LAKE_TOOLS = [
                 "single_fire": {
                     "type": "boolean",
                     "description": (
-                        "True for a one-shot routine that tombstones "
-                        "after the single cron match."
+                        "True for a one-shot routine that tombstones after the single cron match."
                     ),
                 },
                 "title": {
                     "type": "string",
-                    "description": (
-                        "Short label for the bell preview. Defaults to `name`."
-                    ),
+                    "description": ("Short label for the bell preview. Defaults to `name`."),
                 },
             },
             "required": ["name", "schedule", "purpose", "steps"],

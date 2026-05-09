@@ -11,7 +11,6 @@ from __future__ import annotations
 
 from api import routines
 
-
 # ── _compose_scaffold_prompt ──────────────────────────────────────
 
 
@@ -35,12 +34,14 @@ def test_compose_scaffold_emits_all_four_headers_even_with_empty_sections() -> N
 
 
 def test_compose_scaffold_packs_all_sections() -> None:
-    out = routines._compose_scaffold_prompt({
-        "purpose": "Track mailbox engagement.",
-        "needs":   "claude-code on myras-fedora-laptop",
-        "steps":   "1. Pull mailbox deltas.\n2. Score recency.",
-        "ending":  "Send me a card with the result.",
-    })
+    out = routines._compose_scaffold_prompt(
+        {
+            "purpose": "Track mailbox engagement.",
+            "needs": "claude-code on myras-fedora-laptop",
+            "steps": "1. Pull mailbox deltas.\n2. Score recency.",
+            "ending": "Send me a card with the result.",
+        }
+    )
     assert "# Purpose\nTrack mailbox engagement." in out
     assert "# Needs\nclaude-code on myras-fedora-laptop" in out
     assert "# Steps\n1. Pull mailbox deltas.\n2. Score recency." in out
@@ -50,12 +51,14 @@ def test_compose_scaffold_packs_all_sections() -> None:
 def test_compose_scaffold_strips_per_section_whitespace() -> None:
     """Leading/trailing whitespace in each field is normalized so the
     saved body has predictable shape."""
-    out = routines._compose_scaffold_prompt({
-        "purpose": "   p  ",
-        "needs":   "\n\n n \n",
-        "steps":   " s ",
-        "ending":  " e ",
-    })
+    out = routines._compose_scaffold_prompt(
+        {
+            "purpose": "   p  ",
+            "needs": "\n\n n \n",
+            "steps": " s ",
+            "ending": " e ",
+        }
+    )
     assert "# Purpose\np\n" in out
     assert "# Needs\nn\n" in out
     assert "# Steps\ns\n" in out
@@ -68,9 +71,15 @@ def test_compose_scaffold_round_trips_through_parser_logic() -> None:
     multiline mode). Verifies the headers land at line start with no
     leading whitespace."""
     import re
-    out = routines._compose_scaffold_prompt({
-        "purpose": "p", "needs": "n", "steps": "s", "ending": "e",
-    })
+
+    out = routines._compose_scaffold_prompt(
+        {
+            "purpose": "p",
+            "needs": "n",
+            "steps": "s",
+            "ending": "e",
+        }
+    )
     headers = re.findall(r"^#\s*(Purpose|Needs|Steps|Ending)\b", out, re.MULTILINE)
     assert headers == ["Purpose", "Needs", "Steps", "Ending"]
 
@@ -92,7 +101,7 @@ def test_merge_meta_prefers_scaffold_over_freeform_prompt() -> None:
         "ending": "card",
         "prompt": "this should be ignored",
     }
-    meta, prompt, _ws = routines._merge_meta(body)
+    _meta, prompt, _ws = routines._merge_meta(body)
     assert "# Purpose\ndo x" in prompt
     assert "this should be ignored" not in prompt
 
@@ -107,7 +116,7 @@ def test_merge_meta_uses_freeform_prompt_when_no_scaffold_fields() -> None:
         "schedule": "0 * * * *",
         "prompt": "freeform body without sections",
     }
-    meta, prompt, _ws = routines._merge_meta(body)
+    _meta, prompt, _ws = routines._merge_meta(body)
     assert prompt == "freeform body without sections"
 
 
@@ -115,7 +124,7 @@ def test_merge_meta_empty_body_returns_empty_prompt() -> None:
     """No scaffold fields, no prompt — empty body, empty prompt.
     Doesn't crash; downstream validation elsewhere checks required
     fields like id/name."""
-    meta, prompt, _ws = routines._merge_meta({})
+    _meta, prompt, _ws = routines._merge_meta({})
     assert prompt == ""
 
 
@@ -125,9 +134,11 @@ def test_merge_meta_partial_scaffold_still_composes() -> None:
     editor saves for a freshly-opened legacy routine that's been
     slotted into Steps."""
     body = {
-        "id": "x", "name": "X", "schedule": "0 * * * *",
+        "id": "x",
+        "name": "X",
+        "schedule": "0 * * * *",
         "steps": "this is the legacy prompt body",
     }
-    meta, prompt, _ws = routines._merge_meta(body)
+    _meta, prompt, _ws = routines._merge_meta(body)
     assert "# Purpose\n\n" in prompt
     assert "# Steps\nthis is the legacy prompt body" in prompt

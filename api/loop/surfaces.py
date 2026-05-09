@@ -11,10 +11,10 @@ Priority ladder (most specific → most general):
   CHAT          floor — ambient and conversational, default destination
 """
 
-from enum import Enum
+from enum import StrEnum
 
 
-class Surface(str, Enum):
+class Surface(StrEnum):
     CHAT = "chat"
     FEED = "feed"
     HELPER = "helper"

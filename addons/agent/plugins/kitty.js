@@ -867,7 +867,7 @@ export default {
     const allowed = config.allowed_permission_modes || ["auto", "normal"];
     console.log(
       `  kitty: polling /v1/helpers/<host>/inbox for claude-code dispatches ` +
-        `(last seen: ${state.task_seen_at || state.last_seen})`,
+        `(last seen: ${state.task_seen_at || state.last_seen})`
     );
     console.log(`  kitty: allowed permission modes = [${allowed.join(", ")}]`);
 

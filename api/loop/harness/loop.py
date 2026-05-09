@@ -1407,9 +1407,7 @@ async def _dispatch_response(
     # card response stays pending and the supervisor re-fires it on
     # every tick (the storm bug — same alert turned into a wall of
     # near-duplicate cards every 25s).
-    all_pending_shorts = [
-        (it.get("id") or "")[:24] for it in pending if it.get("id")
-    ]
+    all_pending_shorts = [(it.get("id") or "")[:24] for it in pending if it.get("id")]
 
     # Lean chat-reply path: a top-level `body` with no `cards` array.
     # Synthesize a single chat-reply card from it.

@@ -2,10 +2,6 @@
 
 from __future__ import annotations
 
-import json
-import os
-import tempfile
-from pathlib import Path
 from unittest.mock import AsyncMock, patch
 
 import pytest
@@ -19,7 +15,7 @@ def relief_state_dir(tmp_path, monkeypatch):
     """Point relief's cooldown file + feed_pressure's anchor at a tmp
     dir so each test starts clean and doesn't touch the real LAKE_DIR."""
     state_path = tmp_path / "feed-pressure-state.json"
-    cooldown_path = tmp_path / "relief-cooldowns.json"
+    tmp_path / "relief-cooldowns.json"
     monkeypatch.setattr(
         feed_pressure.settings,
         "feed_pressure_state_path",
@@ -118,7 +114,7 @@ async def test_pick_tier_bypass_floor_still_respects_cooldown(relief_state_dir, 
 @pytest.mark.asyncio
 async def test_first_sit_picks_reflection(relief_state_dir, monkeypatch):
     """No prior sit fired — round-robin starts at reflection."""
-    from datetime import UTC, datetime, timedelta
+    from datetime import UTC, datetime
 
     monkeypatch.setattr(
         relief, "_cooldown_path", lambda: relief_state_dir / "relief-cooldowns.json"
@@ -126,10 +122,12 @@ async def test_first_sit_picks_reflection(relief_state_dir, monkeypatch):
     # Fresh state. Stamp alert + bridging as on-cooldown so the picker
     # has to choose between sit flavors.
     now = datetime.now(UTC)
-    relief._save_cooldowns({
-        "alert": now.isoformat(),
-        "bridging": now.isoformat(),
-    })
+    relief._save_cooldowns(
+        {
+            "alert": now.isoformat(),
+            "bridging": now.isoformat(),
+        }
+    )
     tier = await relief.pick_tier(pressure_ratio=0.8)
     assert tier is not None
     assert tier["name"] == "reflection"
@@ -146,11 +144,13 @@ async def test_after_reflection_round_robin_picks_drift(relief_state_dir, monkey
     # Stamp alert + bridging as just-fired so the picker has to choose
     # among sit tiers. Reflection fired in the past (per _last_sit).
     now_iso = datetime.now(UTC).isoformat()
-    relief._save_cooldowns({
-        "alert": now_iso,
-        "bridging": now_iso,
-        "_last_sit": "reflection",
-    })
+    relief._save_cooldowns(
+        {
+            "alert": now_iso,
+            "bridging": now_iso,
+            "_last_sit": "reflection",
+        }
+    )
     tier = await relief.pick_tier(pressure_ratio=0.8)
     assert tier is not None
     assert tier["name"] == "drift"
@@ -165,11 +165,13 @@ async def test_after_drift_round_robin_picks_reflection(relief_state_dir, monkey
         relief, "_cooldown_path", lambda: relief_state_dir / "relief-cooldowns.json"
     )
     now_iso = datetime.now(UTC).isoformat()
-    relief._save_cooldowns({
-        "alert": now_iso,
-        "bridging": now_iso,
-        "_last_sit": "drift",
-    })
+    relief._save_cooldowns(
+        {
+            "alert": now_iso,
+            "bridging": now_iso,
+            "_last_sit": "drift",
+        }
+    )
     tier = await relief.pick_tier(pressure_ratio=0.8)
     assert tier is not None
     assert tier["name"] == "reflection"
@@ -193,20 +195,24 @@ async def test_round_robin_falls_through_when_chosen_flavor_on_cooldown(
     # reflection so round-robin would point at drift, but drift is
     # locked. Reflection's last fire was 4h ago, so it's available.
     recent_drift = (datetime.now(UTC) - timedelta(minutes=30)).isoformat()
-    relief._save_cooldowns({
-        "alert": long_ago,  # past 10-min cooldown — actually still eligible
-        "bridging": long_ago,
-        "drift": recent_drift,
-        "reflection": long_ago,
-        "_last_sit": "reflection",  # round-robin would point at drift
-    })
+    relief._save_cooldowns(
+        {
+            "alert": long_ago,  # past 10-min cooldown — actually still eligible
+            "bridging": long_ago,
+            "drift": recent_drift,
+            "reflection": long_ago,
+            "_last_sit": "reflection",  # round-robin would point at drift
+        }
+    )
     # Force just-fired alert + bridging so only sit tiers are eligible.
-    relief._save_cooldowns({
-        "alert": now_iso,
-        "bridging": now_iso,
-        "drift": recent_drift,
-        "_last_sit": "reflection",
-    })
+    relief._save_cooldowns(
+        {
+            "alert": now_iso,
+            "bridging": now_iso,
+            "drift": recent_drift,
+            "_last_sit": "reflection",
+        }
+    )
     tier = await relief.pick_tier(pressure_ratio=0.8)
     # Round-robin says drift, but drift is on cooldown — fallback path
     # picks reflection.
@@ -273,10 +279,15 @@ async def test_mark_synthesis_partial_carries_remainder(relief_state_dir):
 async def test_mark_synthesis_clamps_negative_weight(relief_state_dir):
     """weight<0 is clamped to 0 (no consumption — floor = full pressure)."""
     fake_pressure = {
-        "volume": 5.0, "fresh_volume": 5.0, "pressure_floor": 0.0,
-        "last_synthesis_at": None, "last_wake_at": None,
-        "time_since_synthesis_seconds": None, "time_since_wake_seconds": None,
-        "threshold": 1.0, "contrast_wake_seconds": 3600,
+        "volume": 5.0,
+        "fresh_volume": 5.0,
+        "pressure_floor": 0.0,
+        "last_synthesis_at": None,
+        "last_wake_at": None,
+        "time_since_synthesis_seconds": None,
+        "time_since_wake_seconds": None,
+        "threshold": 1.0,
+        "contrast_wake_seconds": 3600,
     }
     with patch.object(feed_pressure, "read_pressure", AsyncMock(return_value=fake_pressure)):
         await feed_pressure.mark_synthesis(weight=-0.5)
@@ -352,8 +363,10 @@ async def test_fire_single_writes_both_puddle_and_thread():
         thread_calls.append(kwargs)
         return {"id": "thread-x"}
 
-    with patch("api.loop.relief.write_intent", side_effect=fake_write_intent), \
-         patch("api.thread.append", side_effect=fake_thread_append):
+    with (
+        patch("api.loop.relief.write_intent", side_effect=fake_write_intent),
+        patch("api.thread.append", side_effect=fake_thread_append),
+    ):
         await relief._fire_single(tier, reason="pressure")
 
     assert len(intent_calls) == 1
@@ -383,8 +396,10 @@ async def test_fire_single_thread_failure_does_not_block_intent_write():
     async def boom(**kwargs):
         raise RuntimeError("lake down")
 
-    with patch("api.loop.relief.write_intent", side_effect=fake_write_intent), \
-         patch("api.thread.append", side_effect=boom):
+    with (
+        patch("api.loop.relief.write_intent", side_effect=fake_write_intent),
+        patch("api.thread.append", side_effect=boom),
+    ):
         # Should not raise.
         await relief._fire_single(tier, reason="pressure")
 
@@ -404,8 +419,10 @@ async def test_fire_single_intent_failure_does_not_block_thread_write():
     async def boom(**kwargs):
         raise RuntimeError("puddle down")
 
-    with patch("api.loop.relief.write_intent", side_effect=boom), \
-         patch("api.thread.append", side_effect=fake_thread_append):
+    with (
+        patch("api.loop.relief.write_intent", side_effect=boom),
+        patch("api.thread.append", side_effect=fake_thread_append),
+    ):
         await relief._fire_single(tier, reason="pressure")
 
     assert len(thread_calls) == 1
@@ -433,8 +450,10 @@ async def test_fire_dialogue_writes_both_puddle_and_thread():
         thread_calls.append(kwargs)
         return {"id": "thread-x"}
 
-    with patch("api.loop.relief.write_intent", side_effect=fake_write_intent), \
-         patch("api.thread.append", side_effect=fake_thread_append):
+    with (
+        patch("api.loop.relief.write_intent", side_effect=fake_write_intent),
+        patch("api.thread.append", side_effect=fake_thread_append),
+    ):
         await relief._fire_dialogue(tier, reason="pressure")
 
     assert len(intent_calls) == 1
@@ -461,8 +480,10 @@ async def test_fire_dialogue_thread_failure_does_not_block_intent_write():
     async def boom(**kwargs):
         raise RuntimeError("lake down")
 
-    with patch("api.loop.relief.write_intent", side_effect=fake_write_intent), \
-         patch("api.thread.append", side_effect=boom):
+    with (
+        patch("api.loop.relief.write_intent", side_effect=fake_write_intent),
+        patch("api.thread.append", side_effect=boom),
+    ):
         await relief._fire_dialogue(tier, reason="pressure")
 
     assert len(intent_calls) == 1
@@ -480,8 +501,10 @@ async def test_fire_dialogue_intent_failure_does_not_block_thread_write():
     async def boom(**kwargs):
         raise RuntimeError("puddle down")
 
-    with patch("api.loop.relief.write_intent", side_effect=boom), \
-         patch("api.thread.append", side_effect=fake_thread_append):
+    with (
+        patch("api.loop.relief.write_intent", side_effect=boom),
+        patch("api.thread.append", side_effect=fake_thread_append),
+    ):
         await relief._fire_dialogue(tier, reason="pressure")
 
     assert len(thread_calls) == 1
@@ -491,7 +514,9 @@ async def test_fire_dialogue_intent_failure_does_not_block_thread_write():
 
 
 @pytest.mark.asyncio
-async def test_fire_relief_force_tier_skips_picker_and_dispatches_directly(relief_state_dir, monkeypatch):
+async def test_fire_relief_force_tier_skips_picker_and_dispatches_directly(
+    relief_state_dir, monkeypatch
+):
     """`force_tier="reflection"` should bypass the cheapest-first picker
     and fire reflection directly even when alert/bridging would normally
     win on a cheapest-first walk."""
@@ -513,13 +538,13 @@ async def test_fire_relief_force_tier_skips_picker_and_dispatches_directly(relie
     async def fake_mark_synthesis(weight=1.0):
         return None
 
-    with patch.object(relief, "_fire_dialogue", side_effect=fake_fire_dialogue), \
-         patch.object(relief, "_fire_single", side_effect=fake_fire_single), \
-         patch.object(relief.feed_pressure, "read_pressure", side_effect=fake_pressure), \
-         patch.object(relief.feed_pressure, "mark_synthesis", side_effect=fake_mark_synthesis):
-        result = await relief.fire_relief(
-            "manual", bypass_floor=True, force_tier="reflection"
-        )
+    with (
+        patch.object(relief, "_fire_dialogue", side_effect=fake_fire_dialogue),
+        patch.object(relief, "_fire_single", side_effect=fake_fire_single),
+        patch.object(relief.feed_pressure, "read_pressure", side_effect=fake_pressure),
+        patch.object(relief.feed_pressure, "mark_synthesis", side_effect=fake_mark_synthesis),
+    ):
+        result = await relief.fire_relief("manual", bypass_floor=True, force_tier="reflection")
 
     assert result["fired"] == "reflection"
     assert len(fired_calls) == 1
@@ -528,7 +553,9 @@ async def test_fire_relief_force_tier_skips_picker_and_dispatches_directly(relie
 
 
 @pytest.mark.asyncio
-async def test_fire_relief_force_tier_returns_on_cooldown_when_locked(relief_state_dir, monkeypatch):
+async def test_fire_relief_force_tier_returns_on_cooldown_when_locked(
+    relief_state_dir, monkeypatch
+):
     """A locked tier returns `on_cooldown` rather than picking another
     tier. Manual buttons should reflect their own state, not redirect."""
     from datetime import UTC, datetime
@@ -547,12 +574,12 @@ async def test_fire_relief_force_tier_returns_on_cooldown_when_locked(relief_sta
     async def fake_pressure():
         return {"volume": 0.0, "threshold": 100.0}
 
-    with patch.object(relief, "_fire_dialogue", side_effect=fake_fire), \
-         patch.object(relief, "_fire_single", side_effect=fake_fire), \
-         patch.object(relief.feed_pressure, "read_pressure", side_effect=fake_pressure):
-        result = await relief.fire_relief(
-            "manual", bypass_floor=True, force_tier="reflection"
-        )
+    with (
+        patch.object(relief, "_fire_dialogue", side_effect=fake_fire),
+        patch.object(relief, "_fire_single", side_effect=fake_fire),
+        patch.object(relief.feed_pressure, "read_pressure", side_effect=fake_pressure),
+    ):
+        result = await relief.fire_relief("manual", bypass_floor=True, force_tier="reflection")
 
     assert result["fired"] is None
     assert result["reason"] == "on_cooldown"
@@ -572,12 +599,12 @@ async def test_fire_relief_force_tier_unknown_returns_unknown_tier(relief_state_
     async def fake_pressure():
         return {"volume": 0.0, "threshold": 100.0}
 
-    with patch.object(relief, "_fire_dialogue", side_effect=fake_fire), \
-         patch.object(relief, "_fire_single", side_effect=fake_fire), \
-         patch.object(relief.feed_pressure, "read_pressure", side_effect=fake_pressure):
-        result = await relief.fire_relief(
-            "manual", force_tier="meditation"
-        )
+    with (
+        patch.object(relief, "_fire_dialogue", side_effect=fake_fire),
+        patch.object(relief, "_fire_single", side_effect=fake_fire),
+        patch.object(relief.feed_pressure, "read_pressure", side_effect=fake_pressure),
+    ):
+        result = await relief.fire_relief("manual", force_tier="meditation")
 
     assert result["fired"] is None
     assert result["reason"] == "unknown_tier"
@@ -586,7 +613,9 @@ async def test_fire_relief_force_tier_unknown_returns_unknown_tier(relief_state_
 
 
 @pytest.mark.asyncio
-async def test_fire_relief_force_tier_bypasses_alert_recency_suppression(relief_state_dir, monkeypatch):
+async def test_fire_relief_force_tier_bypasses_alert_recency_suppression(
+    relief_state_dir, monkeypatch
+):
     """Force-firing alert manually should still go through pick_tier's
     recency check — that's a structural protection, not a floor concern."""
     # Existing recency check only fires inside fire_relief when
@@ -609,13 +638,13 @@ async def test_fire_relief_force_tier_bypasses_alert_recency_suppression(relief_
     async def fake_recent_alert_id():
         return ""  # No recent alert → not suppressed → fires.
 
-    with patch.object(relief, "_fire_single", side_effect=fake_fire_single), \
-         patch.object(relief, "_recent_alert_id", side_effect=fake_recent_alert_id), \
-         patch.object(relief.feed_pressure, "read_pressure", side_effect=fake_pressure), \
-         patch.object(relief.feed_pressure, "mark_synthesis", side_effect=fake_mark_synthesis):
-        result = await relief.fire_relief(
-            "manual", bypass_floor=True, force_tier="alert"
-        )
+    with (
+        patch.object(relief, "_fire_single", side_effect=fake_fire_single),
+        patch.object(relief, "_recent_alert_id", side_effect=fake_recent_alert_id),
+        patch.object(relief.feed_pressure, "read_pressure", side_effect=fake_pressure),
+        patch.object(relief.feed_pressure, "mark_synthesis", side_effect=fake_mark_synthesis),
+    ):
+        result = await relief.fire_relief("manual", bypass_floor=True, force_tier="alert")
 
     assert result["fired"] == "alert"
     assert fired_calls[0]["name"] == "alert"

@@ -369,8 +369,9 @@ async def update_embeddings_endpoint(req: UpdateEmbeddingsIn):
     are written.
     """
     if req.embedding is None and req.provenance_embedding is None:
-        return JSONResponse(status_code=400,
-                            content={"detail": "must provide at least one embedding"})
+        return JSONResponse(
+            status_code=400, content={"detail": "must provide at least one embedding"}
+        )
     if req.embedding is not None and req.provenance_embedding is not None:
         await store.update_embeddings(req.id, req.embedding, req.provenance_embedding)
     elif req.provenance_embedding is not None:

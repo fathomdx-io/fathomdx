@@ -17,7 +17,6 @@ import pytest
 
 from api import server
 
-
 # ── _poll_thread_assistant ────────────────────────────────────────
 
 

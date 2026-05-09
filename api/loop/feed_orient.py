@@ -22,7 +22,7 @@ from __future__ import annotations
 
 import json
 import logging
-from datetime import datetime, timedelta, UTC
+from datetime import UTC, datetime, timedelta
 
 from .. import delta_client
 from ..prompt import FEED_CRYSTAL_DIRECTIVE
@@ -65,9 +65,7 @@ async def _engagements_since(ts_iso: str | None) -> list[dict]:
     lookback window if ts_iso is None). Newest first."""
     since = ts_iso
     if not since:
-        since = (
-            datetime.now(UTC) - timedelta(days=ENGAGEMENT_LOOKBACK_DAYS)
-        ).isoformat()
+        since = (datetime.now(UTC) - timedelta(days=ENGAGEMENT_LOOKBACK_DAYS)).isoformat()
     try:
         return await delta_client.query(
             tags_include=["feed-engagement"],
@@ -81,9 +79,7 @@ async def _engagements_since(ts_iso: str | None) -> list[dict]:
 
 async def _recent_cards() -> list[dict]:
     """feed-card deltas in the last CARD_LOOKBACK_DAYS days."""
-    since = (
-        datetime.now(UTC) - timedelta(days=CARD_LOOKBACK_DAYS)
-    ).isoformat()
+    since = (datetime.now(UTC) - timedelta(days=CARD_LOOKBACK_DAYS)).isoformat()
     try:
         return await delta_client.query(
             tags_include=["feed-card"],
@@ -102,9 +98,9 @@ def _format_engagement_line(d: dict) -> str:
     for t in tags:
         if isinstance(t, str) and t.startswith("engagement:"):
             kind = t.split(":", 1)[1]
-        elif isinstance(t, str) and t.startswith("engages:"):
-            target = t.split(":", 1)[1]
-        elif isinstance(t, str) and not target and t.startswith("card:"):
+        elif (isinstance(t, str) and t.startswith("engages:")) or (
+            isinstance(t, str) and not target and t.startswith("card:")
+        ):
             target = t.split(":", 1)[1]
     body = (d.get("content") or "").strip().split("\n", 1)[0][:160]
     ts = d.get("timestamp") or ""
@@ -211,6 +207,7 @@ async def _run_regen() -> bool:
             return False
 
         import re as _re
+
         m = _re.search(r"\{.*\}", cleaned, _re.DOTALL)
         if m:
             cleaned = m.group(0)
@@ -244,6 +241,7 @@ async def _run_regen() -> bool:
 
         try:
             from .router import invalidate_crystal_cache
+
             invalidate_crystal_cache()
         except Exception:
             pass
@@ -301,8 +299,7 @@ async def force_run_regen() -> dict:
     if prior_ts:
         try:
             elapsed = (
-                datetime.now(UTC)
-                - datetime.fromisoformat(prior_ts.replace("Z", "+00:00"))
+                datetime.now(UTC) - datetime.fromisoformat(prior_ts.replace("Z", "+00:00"))
             ).total_seconds()
         except Exception:
             elapsed = float("inf")

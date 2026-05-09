@@ -52,9 +52,7 @@ class RSSProducer(SourceProducer):
                     md_content, image_urls = convert_html(raw_html)
                     title = getattr(entry, "title", "")
                     media_hash = (
-                        await extract_images(image_urls, http_client=client)
-                        if image_urls
-                        else None
+                        await extract_images(image_urls, http_client=client) if image_urls else None
                     )
                     items.append(
                         RawItem(

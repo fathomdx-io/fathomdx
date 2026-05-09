@@ -58,7 +58,8 @@ async def _latest_mood_regen_error(latest_mood: dict | None) -> dict | None:
     """
     try:
         rows = await delta_client.query(
-            tags_include=["mood-regen-error"], limit=1,
+            tags_include=["mood-regen-error"],
+            limit=1,
         )
     except Exception:
         return None
@@ -70,6 +71,7 @@ async def _latest_mood_regen_error(latest_mood: dict | None) -> dict | None:
     if mood_ts and err_ts <= mood_ts:
         return None
     import json as _json
+
     try:
         payload = _json.loads(err.get("content") or "{}")
     except Exception:
@@ -121,6 +123,7 @@ async def get_llm_status():
         if ts > err_ts:
             err_ts = ts
             import json as _json
+
             try:
                 err_payload = _json.loads(row.get("content") or "{}")
             except Exception:
@@ -134,7 +137,9 @@ async def get_llm_status():
     for tag in ("mood-delta", "kind:harness-turn", "kind:sediment"):
         try:
             rows = await delta_client.query(
-                tags_include=[tag], time_start=err_ts, limit=1,
+                tags_include=[tag],
+                time_start=err_ts,
+                limit=1,
             )
         except Exception:
             continue
@@ -283,6 +288,7 @@ async def get_feed_pressure_history(since_seconds: int | None = None):
     lines (alert / bridging / sit) land on the curve they actually gate.
     """
     from .. import feed_pressure
+
     items = await feed_pressure.history(since_seconds=since_seconds)
     return {"history": items}
 
@@ -332,6 +338,7 @@ async def get_crystal_events(limit: int = 50, since_seconds: int | None = None):
 
 # ── Feed-orient signal ──────────────────────────────────────────────────────
 
+
 @router.post("/v1/feed/regen/fire")
 async def fire_feed_regen():
     """Manual feed-orient regen.
@@ -345,6 +352,7 @@ async def fire_feed_regen():
     delta's timestamp.
     """
     from ..loop import feed_orient
+
     result = await feed_orient.force_run_regen()
     return {"ok": True, **result}
 
@@ -368,9 +376,7 @@ async def get_feed_crystal_events(
 
     time_start: str | None = None
     if since_seconds is not None and since_seconds > 0:
-        time_start = (
-            datetime.now(UTC) - timedelta(seconds=since_seconds)
-        ).isoformat()
+        time_start = (datetime.now(UTC) - timedelta(seconds=since_seconds)).isoformat()
         limit = max(limit, 500)
     try:
         items = await delta_client.query(
@@ -382,15 +388,16 @@ async def get_feed_crystal_events(
         return {"events": []}
     events = []
     for d in items:
-        events.append({
-            "id": d.get("id"),
-            "timestamp": d.get("timestamp"),
-            "source": d.get("source"),
-            "preview": (d.get("content") or "")[:140],
-        })
+        events.append(
+            {
+                "id": d.get("id"),
+                "timestamp": d.get("timestamp"),
+                "source": d.get("source"),
+                "preview": (d.get("content") or "")[:140],
+            }
+        )
     events.sort(key=lambda e: e.get("timestamp") or "")
     return {"events": events}
-
 
 
 @router.get("/v1/usage")

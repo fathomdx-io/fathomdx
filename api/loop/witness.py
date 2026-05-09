@@ -34,7 +34,7 @@ from datetime import UTC, datetime, timedelta
 from .. import delta_client
 from ..channels import address_tag, extract_channel
 from ..settings import settings
-from .intents import CONVO_TAG, intent_kind
+from .intents import CONVO_TAG
 from .llm import loop_generate
 from .prompts import JUDGE_PROMPT
 from .puddle import puddle
@@ -72,7 +72,7 @@ def _group_thoughts_by_voice(
         if "thought" not in (d.get("tags") or []):
             continue
         voice_name = None
-        for t in (d.get("tags") or []):
+        for t in d.get("tags") or []:
             if t.startswith("voice:"):
                 voice_name = t.split(":", 1)[1]
                 break
@@ -111,8 +111,7 @@ def _render_anchors() -> str:
     if facet_lines:
         parts.append(
             "Who you are right now (your identity crystal — let these inflect "
-            "your voice naturally, never quote them verbatim):\n"
-            + "\n".join(facet_lines[:8])
+            "your voice naturally, never quote them verbatim):\n" + "\n".join(facet_lines[:8])
         )
     if mood_line:
         parts.append(
@@ -252,16 +251,18 @@ async def _available_helpers() -> list[dict]:
             elif t.startswith("helper-desc:"):
                 # Format: helper-desc:<role>:<text>. The text itself
                 # may contain colons, so split twice and rejoin.
-                rest = t[len("helper-desc:"):]
+                rest = t[len("helper-desc:") :]
                 role, _, desc = rest.partition(":")
                 if role:
                     descs[role] = desc
         for role in roles:
-            helpers.append({
-                "host": host,
-                "role": role,
-                "description": descs.get(role, ""),
-            })
+            helpers.append(
+                {
+                    "host": host,
+                    "role": role,
+                    "description": descs.get(role, ""),
+                }
+            )
     helpers.sort(key=lambda h: (h["role"], h["host"]))
     return helpers
 
@@ -284,9 +285,7 @@ def _render_helpers_block(helpers: list[dict]) -> str:
         lines.append(f"  · {h['role']} @ {h['host']}{desc}")
     return (
         "HELPERS — agents currently online that can receive a "
-        "`dispatch_helper` task. Pass both `host` and `role`:\n"
-        + "\n".join(lines)
-        + "\n\n"
+        "`dispatch_helper` task. Pass both `host` and `role`:\n" + "\n".join(lines) + "\n\n"
     )
 
 
@@ -334,8 +333,7 @@ async def _render_routines_block(available_helpers: list[dict]) -> str:
         sched = (r.get("schedule") or "").strip()
         sched_part = f" · cron={sched}" if sched else ""
         lines.append(
-            f"  · {rid} ({host}) — {name}{sched_part}"
-            + (f"\n      └ {first}" if first else "")
+            f"  · {rid} ({host}) — {name}{sched_part}" + (f"\n      └ {first}" if first else "")
         )
     return (
         "ROUTINES — known prompts you can hand to the River by id via "
@@ -346,9 +344,7 @@ async def _render_routines_block(available_helpers: list[dict]) -> str:
         "cleanly than a fresh claude-code dispatch (the routine carries "
         "its own framing — including its `# Ending` directive). Card "
         "body is your user-facing acknowledgement; the routine prompt "
-        "itself is what the next tick deliberates over:\n"
-        + "\n".join(lines)
-        + "\n\n"
+        "itself is what the next tick deliberates over:\n" + "\n".join(lines) + "\n\n"
     )
 
 
@@ -421,11 +417,11 @@ def _clean_id_list(raw) -> list[str]:
 
 
 _JUDGE_FALLBACK = {
-    "salience":   0.50,
-    "novelty":    0.50,
-    "resonance":  0.50,
+    "salience": 0.50,
+    "novelty": 0.50,
+    "resonance": 0.50,
     "confidence": 0.30,
-    "comfort":    0.50,
+    "comfort": 0.50,
 }
 
 
@@ -768,6 +764,7 @@ async def _dispatch_card(
     # Centralises: title check (feed-card without title → chat-reply),
     # host-availability check (helper:<host> not online → chat-reply).
     from .router import validate_route as _validate_route
+
     title = (card.get("title") or "").strip().lower()
     has_title = bool(title) and title != "untitled"
     route_value = await _validate_route(
@@ -778,9 +775,7 @@ async def _dispatch_card(
     )
 
     is_responsive_route = (
-        route_value == "chat-reply"
-        or route_value.startswith("helper:")
-        or route_value == "helper"
+        route_value == "chat-reply" or route_value.startswith("helper:") or route_value == "helper"
     )
     if not full_addressed and is_responsive_route:
         full_addressed = [it.get("id") for it in pending if it.get("id")]
@@ -842,23 +837,19 @@ async def _dispatch_card(
         ch, corr = extract_channel(it.get("tags") or [])
         if ch and not channel:
             channel, correlation = ch, corr
-            for t in (it.get("tags") or []):
+            for t in it.get("tags") or []:
                 if t.startswith("host:"):
                     host_for_channel = t.split(":", 1)[1]
                     break
         # Capture the FIRST chat-channel intent in the claim set as the
         # origin. helper-reply intents have channel:helper as their own
         # channel — those are NOT origins, so skip them.
-        if (
-            ch
-            and ch != "helper"
-            and not originating_channel
-        ):
+        if ch and ch != "helper" and not originating_channel:
             originating_channel = ch
             originating_correlation = corr
             originating_intent_id = it.get("id") or ""
         if not addressee:
-            for t in (it.get("tags") or []):
+            for t in it.get("tags") or []:
                 if t.startswith("contact:"):
                     addressee = t.split(":", 1)[1]
                     break
@@ -876,7 +867,7 @@ async def _dispatch_card(
     # so each host-side plugin only sees dispatches for its own role.
     helper_role_for_dispatch = ""
     if route_value.startswith("helper:"):
-        rest = route_value[len("helper:"):].strip()
+        rest = route_value[len("helper:") :].strip()
         target_host = ""
         if ":" in rest:
             # Explicit `helper:<role>:<host>` form.
@@ -924,22 +915,13 @@ async def _dispatch_card(
                 )
                 fired_routine_id = ""
             elif not spec["meta"].get("enabled", True):
-                print(
-                    f"[witness] dropped routine-fire:{fired_routine_id} — "
-                    f"routine disabled"
-                )
+                print(f"[witness] dropped routine-fire:{fired_routine_id} — routine disabled")
                 fired_routine_id = ""
             else:
                 await routines_mod.fire(fired_routine_id)
-                print(
-                    f"[witness] proactive routine-fire → "
-                    f"id={fired_routine_id} (handed to River)"
-                )
+                print(f"[witness] proactive routine-fire → id={fired_routine_id} (handed to River)")
         except Exception as e:
-            print(
-                f"[witness] routine-fire dispatch failed: "
-                f"{type(e).__name__}: {e}"
-            )
+            print(f"[witness] routine-fire dispatch failed: {type(e).__name__}: {e}")
             fired_routine_id = ""
 
     # closure:true on a claimed intent → don't redispatch helper,
@@ -947,9 +929,7 @@ async def _dispatch_card(
     # dashboard can render "Fathom (about task on <host>)" without
     # respawning the closed task.
     is_closure_followup = any(
-        it.get("id") in claim_set
-        and "closure:true" in (it.get("tags") or [])
-        for it in pending
+        it.get("id") in claim_set and "closure:true" in (it.get("tags") or []) for it in pending
     )
     about_corr = ""
     about_host = ""
@@ -961,11 +941,7 @@ async def _dispatch_card(
         # validates the host is in available_helpers — but a missing
         # role at write time is preferable to silently dispatching
         # nowhere).
-        route_value = (
-            f"helper:{helper_role_for_dispatch}"
-            if helper_role_for_dispatch
-            else "helper"
-        )
+        route_value = f"helper:{helper_role_for_dispatch}" if helper_role_for_dispatch else "helper"
         payload["route"] = route_value
         payload_json = json.dumps(payload, ensure_ascii=False)
     elif channel == "helper" and is_closure_followup:
@@ -1005,7 +981,9 @@ async def _dispatch_card(
             full_addressed.append(orig_intent_id)
 
     lake_tags = [
-        "feed-card", "synthesis", "addressing-output",
+        "feed-card",
+        "synthesis",
+        "addressing-output",
         f"route:{route_value}",
     ]
     # Role-aware helper routes (helper:<role>) carry an additional bare
@@ -1017,11 +995,13 @@ async def _dispatch_card(
     if route_value.startswith("helper:") and "route:helper" not in lake_tags:
         lake_tags.append("route:helper")
     if is_tool_proposal:
-        lake_tags.extend([
-            "kind:proposal",
-            "proposal-status:pending",
-            f"tool:{proposal_tool}",
-        ])
+        lake_tags.extend(
+            [
+                "kind:proposal",
+                "proposal-status:pending",
+                f"tool:{proposal_tool}",
+            ]
+        )
         action = (proposal_args.get("action") or "").strip()
         if action:
             lake_tags.append(f"action:{action}")
@@ -1044,9 +1024,7 @@ async def _dispatch_card(
         if originating_channel:
             lake_tags.append(f"originating-channel:{originating_channel}")
         if originating_channel and originating_correlation:
-            lake_tags.append(
-                f"originating-correlation:{originating_correlation}"
-            )
+            lake_tags.append(f"originating-correlation:{originating_correlation}")
         if originating_intent_id:
             lake_tags.append(f"originating-intent:{originating_intent_id}")
     if about_corr:
@@ -1072,18 +1050,12 @@ async def _dispatch_card(
     # the kind:proposal tag set, but that gate looks at route_value;
     # this second gate looks at tool_args directly so a model that
     # picked the wrong route still gets a durable proposal delta.
-    is_proposal_payload = (
-        is_tool_proposal
-        or (isinstance(card.get("tool_args"), dict) and card.get("tool"))
+    is_proposal_payload = is_tool_proposal or (
+        isinstance(card.get("tool_args"), dict) and card.get("tool")
     )
     expires_at_iso: str | None = None
-    if (
-        not is_proposal_payload
-        and (route_value == "feed-card" or route_value.startswith("alert:"))
-    ):
-        expires_at_iso = (
-            datetime.now(UTC) + timedelta(seconds=FEED_CARD_TTL_S)
-        ).isoformat()
+    if not is_proposal_payload and (route_value == "feed-card" or route_value.startswith("alert:")):
+        expires_at_iso = (datetime.now(UTC) + timedelta(seconds=FEED_CARD_TTL_S)).isoformat()
     lake_id = ""
     try:
         lake_delta = await delta_client.write(
@@ -1098,8 +1070,11 @@ async def _dispatch_card(
         print(f"[witness] lake write failed (puddle still writing): {type(e).__name__}: {e}")
 
     puddle_tags = [
-        CONVO_TAG, session_tag,
-        "feed-card", "synthesis", "addressing-output",
+        CONVO_TAG,
+        session_tag,
+        "feed-card",
+        "synthesis",
+        "addressing-output",
         f"route:{route_value}",
     ]
     if is_tool_proposal:
@@ -1108,11 +1083,13 @@ async def _dispatch_card(
         # classify this item as kind:proposal — without these the puddle
         # entry shows up as a plain card and the dashboard never paints
         # the Edit / Deny / Approve buttons.
-        puddle_tags.extend([
-            "kind:proposal",
-            "proposal-status:pending",
-            f"tool:{proposal_tool}",
-        ])
+        puddle_tags.extend(
+            [
+                "kind:proposal",
+                "proposal-status:pending",
+                f"tool:{proposal_tool}",
+            ]
+        )
         action = (proposal_args.get("action") or "").strip()
         if action:
             puddle_tags.append(f"action:{action}")
@@ -1149,15 +1126,24 @@ async def _dispatch_card(
     # what kind of assistant turn this was.
     try:
         from .. import thread as thread_mod
+
         thread_msg_kind = (
-            "chat-reply" if route_value == "chat-reply"
-            else f"alert-{route_value.split(':', 1)[1]}" if route_value.startswith("alert:")
-            else "helper-dispatch" if is_tool_proposal and proposal_tool == "helper-dispatch"
-            else "mint-routine" if is_tool_proposal and proposal_tool == "routines"
-            else "provenance" if is_tool_proposal and proposal_tool == "provenance"
-            else f"tool-proposal-{proposal_tool}" if is_tool_proposal
-            else "helper-dispatch" if route_value == "helper"
-            else f"feed-card-{route_value}" if route_value
+            "chat-reply"
+            if route_value == "chat-reply"
+            else f"alert-{route_value.split(':', 1)[1]}"
+            if route_value.startswith("alert:")
+            else "helper-dispatch"
+            if is_tool_proposal and proposal_tool == "helper-dispatch"
+            else "mint-routine"
+            if is_tool_proposal and proposal_tool == "routines"
+            else "provenance"
+            if is_tool_proposal and proposal_tool == "provenance"
+            else f"tool-proposal-{proposal_tool}"
+            if is_tool_proposal
+            else "helper-dispatch"
+            if route_value == "helper"
+            else f"feed-card-{route_value}"
+            if route_value
             else "feed-card"
         )
         await thread_mod.append(
@@ -1218,8 +1204,13 @@ async def _judge_and_followup(
     Soft-fails independently — the card already exists; this is metadata.
     """
     if route == "unknown":
-        axes = {"salience": 0.3, "novelty": 0.0, "resonance": 0.0,
-                "confidence": 0.0, "comfort": 0.5}
+        axes = {
+            "salience": 0.3,
+            "novelty": 0.0,
+            "resonance": 0.0,
+            "confidence": 0.0,
+            "comfort": 0.5,
+        }
     else:
         try:
             axes = await _call_judge(kicker=kicker, body=body, seed=seed)
@@ -1247,7 +1238,4 @@ async def _judge_and_followup(
             axes=axes,
         )
     except Exception as e:
-        print(
-            f"[witness] voice-affirmation writes failed: "
-            f"{type(e).__name__}: {e}"
-        )
+        print(f"[witness] voice-affirmation writes failed: {type(e).__name__}: {e}")

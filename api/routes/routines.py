@@ -86,10 +86,7 @@ async def rewrite_to_schema(routine_id: str):
     host = meta.get("host") or "(fleet-wide)"
     schedule = meta.get("schedule") or "(none)"
 
-    has_all_sections = all(
-        s in original
-        for s in ("# Purpose", "# Needs", "# Steps", "# Ending")
-    )
+    has_all_sections = all(s in original for s in ("# Purpose", "# Needs", "# Steps", "# Ending"))
     if has_all_sections:
         return {
             "skipped": True,
@@ -113,9 +110,7 @@ async def rewrite_to_schema(routine_id: str):
             temperature=0.4,
         )
     except Exception as e:
-        raise HTTPException(
-            status_code=502, detail=f"LLM rewrite failed: {e}"
-        ) from e
+        raise HTTPException(status_code=502, detail=f"LLM rewrite failed: {e}") from e
 
     rewritten = (rewritten or "").strip()
     if not rewritten or "# Purpose" not in rewritten:
@@ -137,9 +132,9 @@ async def rewrite_to_schema(routine_id: str):
         "kicker": "Rewrite",
         "title": f"Rewrite {name} to schema",
         "body": (
-            f"Drafted a four-section version of this routine's prompt. Edit "
-            f"any field, then approve to save it back. Original prompt is "
-            f"preserved in lake history."
+            "Drafted a four-section version of this routine's prompt. Edit "
+            "any field, then approve to save it back. Original prompt is "
+            "preserved in lake history."
         ),
         "tail": "",
         "body_image": "",

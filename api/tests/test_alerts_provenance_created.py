@@ -15,9 +15,15 @@ import pytest
 from api.routes import alerts
 
 
-def _prov(*, did: str, level: int = 3, ts: str = "2026-05-05T12:00:00+00:00",
-          title: str = "Test Provenance", body: str = "Summary text.",
-          from_count: int = 5):
+def _prov(
+    *,
+    did: str,
+    level: int = 3,
+    ts: str = "2026-05-05T12:00:00+00:00",
+    title: str = "Test Provenance",
+    body: str = "Summary text.",
+    from_count: int = 5,
+):
     tags = ["kind:provenance", f"provenance-level:{level}"]
     for i in range(from_count):
         tags.append(f"from:source-delta-{i}")
@@ -89,7 +95,14 @@ async def test_recent_provenance_handles_lake_failure():
 
 @pytest.mark.asyncio
 async def test_recent_provenance_skips_rows_without_id():
-    rows = [{"id": "", "timestamp": "2026-05-05T12:00:00+00:00", "tags": ["kind:provenance"], "content": "x"}]
+    rows = [
+        {
+            "id": "",
+            "timestamp": "2026-05-05T12:00:00+00:00",
+            "tags": ["kind:provenance"],
+            "content": "x",
+        }
+    ]
     with patch.object(alerts.delta_client, "query", AsyncMock(return_value=rows)):
         out = await alerts._recent_provenance_alerts(viewed_at="")
     assert out == []

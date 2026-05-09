@@ -25,7 +25,7 @@ from .surfaces import Surface
 
 # Cached crystal so the router doesn't hit the lake on every card.
 _CRYSTAL_CACHE: dict = {}
-_CRYSTAL_TTL_S = 300.0   # 5 minutes
+_CRYSTAL_TTL_S = 300.0  # 5 minutes
 _CRYSTAL_LOCK: asyncio.Lock | None = None
 
 
@@ -52,8 +52,10 @@ async def get_engagement_crystal() -> dict:
             return _CRYSTAL_CACHE.get("crystal", {})
         try:
             from .. import delta_client
+
             items = await delta_client.query(
-                tags_include=["crystal:feed-orient"], limit=1,
+                tags_include=["crystal:feed-orient"],
+                limit=1,
             )
             if items:
                 raw = (items[0].get("content") or "").strip()
@@ -89,7 +91,9 @@ def _parse_crystal(raw: str) -> dict:
                 inner = json.loads(narrative_field)
                 return {
                     "narrative": inner.get("narrative") or narrative_field,
-                    "directive_lines": inner.get("directive_lines") or obj.get("directive_lines") or [],
+                    "directive_lines": inner.get("directive_lines")
+                    or obj.get("directive_lines")
+                    or [],
                 }
             except (json.JSONDecodeError, AttributeError):
                 pass
@@ -169,7 +173,7 @@ async def validate_route(
         return "unknown"
 
     if hint.startswith("helper:") or hint == "helper":
-        rest = hint[len("helper:"):].strip() if ":" in hint else ""
+        rest = hint[len("helper:") :].strip() if ":" in hint else ""
         helpers = available_helpers or []
         if not rest:
             return hint
@@ -177,10 +181,7 @@ async def validate_route(
             role, _, target_host = rest.partition(":")
             role = role.strip()
             target_host = target_host.strip()
-            ok = any(
-                h["host"] == target_host and h["role"] == role
-                for h in helpers
-            )
+            ok = any(h["host"] == target_host and h["role"] == role for h in helpers)
             if not ok:
                 pretty = sorted(f"{h['role']}@{h['host']}" for h in helpers)
                 print(

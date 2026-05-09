@@ -20,9 +20,7 @@ def test_parses_utc_z_suffix() -> None:
 
 
 def test_parses_utc_explicit_offset() -> None:
-    assert _parse_ts("2026-04-28T12:00:00+00:00") == datetime(
-        2026, 4, 28, 12, 0, 0, tzinfo=UTC
-    )
+    assert _parse_ts("2026-04-28T12:00:00+00:00") == datetime(2026, 4, 28, 12, 0, 0, tzinfo=UTC)
 
 
 def test_naive_input_is_assumed_utc() -> None:

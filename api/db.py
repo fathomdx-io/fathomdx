@@ -21,7 +21,6 @@ from . import delta_client
 from ._tags import tag_suffix
 from .slug import generate_slug
 
-
 LAKE_CHAT_TAG = "fathom-chat"
 LAKE_CHAT_SOURCE = "fathom-chat"
 

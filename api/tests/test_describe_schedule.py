@@ -57,10 +57,7 @@ def test_yearly():
 
 def test_weekday_range_with_hour_range():
     # The Menya Rui Ramen Alert pattern: Wed–Fri, hourly during dinner
-    assert (
-        describe_schedule("0 17-22 * * 3,4,5")
-        == "Wed, Thu, Fri, 17:00–22:00 hourly"
-    )
+    assert describe_schedule("0 17-22 * * 3,4,5") == "Wed, Thu, Fri, 17:00–22:00 hourly"
 
 
 def test_invalid_input_returns_as_is():

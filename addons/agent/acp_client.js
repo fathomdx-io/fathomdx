@@ -123,7 +123,7 @@ export class AcpClient {
           Object.assign(new Error(msg.error.message || "ACP error"), {
             code: msg.error.code,
             data: msg.error.data,
-          }),
+          })
         );
       } else {
         entry.resolve(msg.result);
@@ -147,7 +147,7 @@ export class AcpClient {
       // capability is unavailable.
       if (msg.id !== undefined) {
         this._handleClientRequest(msg).catch((e) =>
-          console.error(`  [acp] client request handler crashed: ${e.message}`),
+          console.error(`  [acp] client request handler crashed: ${e.message}`)
         );
       }
     }
@@ -208,9 +208,7 @@ export class AcpClient {
       timer = setTimeout(() => {
         if (this.pending.has(id)) {
           this.pending.delete(id);
-          entry.reject(
-            new Error(`acp_client: request ${method} timed out after ${timeoutMs}ms`),
-          );
+          entry.reject(new Error(`acp_client: request ${method} timed out after ${timeoutMs}ms`));
         }
       }, timeoutMs);
       timer.unref?.();
@@ -245,11 +243,7 @@ export class AcpClient {
    * notifications fire onUpdate as they stream in.
    */
   async sessionPrompt({ sessionId, prompt }, { timeoutMs = 600_000 } = {}) {
-    return await this.request(
-      "session/prompt",
-      { sessionId, prompt },
-      { timeoutMs },
-    );
+    return await this.request("session/prompt", { sessionId, prompt }, { timeoutMs });
   }
 
   /** Close stdin to end the subprocess cleanly, then await its exit. */

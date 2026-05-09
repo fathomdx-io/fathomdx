@@ -15,11 +15,16 @@ import pytest
 
 from api.loop.harness import threaded
 
-
 # ── helpers ───────────────────────────────────────────────────────
 
 
-def _user_delta(*, mid: str, content: str = "hi", channel: str = "composer", ts: str = "2026-05-04T12:00:00+00:00"):
+def _user_delta(
+    *,
+    mid: str,
+    content: str = "hi",
+    channel: str = "composer",
+    ts: str = "2026-05-04T12:00:00+00:00",
+):
     return {
         "id": mid,
         "timestamp": ts,
@@ -46,6 +51,7 @@ def _llm_response(*, content: str = "", tool_calls: list[dict] | None = None) ->
 
 def _tool_call(name: str, args: dict, tcid: str = "call_1") -> dict:
     import json as _json
+
     return {
         "id": tcid,
         "type": "function",
@@ -151,13 +157,19 @@ async def test_fire_respond_terminal_persists_assistant_message():
         appended.append(kwargs)
         return {"id": "asst-lake-id"}
 
-    fake_chat = AsyncMock(return_value=_llm_response(
-        tool_calls=[_tool_call("respond", {"body": "hello back", "addresses": ["u123"]}, "call_resp")],
-    ))
+    fake_chat = AsyncMock(
+        return_value=_llm_response(
+            tool_calls=[
+                _tool_call("respond", {"body": "hello back", "addresses": ["u123"]}, "call_resp")
+            ],
+        )
+    )
 
-    with patch.object(threaded.thread_mod, "build_window", fake_build_window), \
-         patch.object(threaded.thread_mod, "append", fake_append), \
-         patch.object(threaded, "loop_generate_chat", fake_chat):
+    with (
+        patch.object(threaded.thread_mod, "build_window", fake_build_window),
+        patch.object(threaded.thread_mod, "append", fake_append),
+        patch.object(threaded, "loop_generate_chat", fake_chat),
+    ):
         result = await threaded.run_threaded_fire(standpoint_text_override="")
 
     assert result["final_response"]["body"] == "hello back"
@@ -198,30 +210,36 @@ async def test_fire_emits_constituting_writes_when_respond_carries_them():
     async def fake_constituting(**kwargs):
         captured.update(kwargs)
 
-    fake_chat = AsyncMock(return_value=_llm_response(
-        tool_calls=[_tool_call(
-            "respond",
-            {
-                "body": "answer",
-                "addresses": ["u1"],
-                "attestation": "I noticed I default to caution when the user asks about state.",
-                "mood_shift": {
-                    "direction": "+",
-                    "axis": "focus",
-                    "magnitude": 0.1,
-                    "reason": "concrete user question pulled me onto one thread",
-                },
-                "cited_ids": ["abc123"],
-                "dropped_ids": ["bad456"],
-            },
-            "call_resp",
-        )],
-    ))
+    fake_chat = AsyncMock(
+        return_value=_llm_response(
+            tool_calls=[
+                _tool_call(
+                    "respond",
+                    {
+                        "body": "answer",
+                        "addresses": ["u1"],
+                        "attestation": "I noticed I default to caution when the user asks about state.",
+                        "mood_shift": {
+                            "direction": "+",
+                            "axis": "focus",
+                            "magnitude": 0.1,
+                            "reason": "concrete user question pulled me onto one thread",
+                        },
+                        "cited_ids": ["abc123"],
+                        "dropped_ids": ["bad456"],
+                    },
+                    "call_resp",
+                )
+            ],
+        )
+    )
 
-    with patch.object(threaded.thread_mod, "build_window", fake_build_window), \
-         patch.object(threaded.thread_mod, "append", fake_append), \
-         patch.object(witness_mod, "_write_constituting_writes", fake_constituting), \
-         patch.object(threaded, "loop_generate_chat", fake_chat):
+    with (
+        patch.object(threaded.thread_mod, "build_window", fake_build_window),
+        patch.object(threaded.thread_mod, "append", fake_append),
+        patch.object(witness_mod, "_write_constituting_writes", fake_constituting),
+        patch.object(threaded, "loop_generate_chat", fake_chat),
+    ):
         await threaded.run_threaded_fire(standpoint_text_override="")
 
     assert captured["lake_card_id"] == "asst-lake-id-xyz"
@@ -259,14 +277,18 @@ async def test_fire_skips_constituting_when_respond_omits_them():
     async def fake_constituting(**kwargs):
         captured.update(kwargs)
 
-    fake_chat = AsyncMock(return_value=_llm_response(
-        tool_calls=[_tool_call("respond", {"body": "ok"}, "call_resp")],
-    ))
+    fake_chat = AsyncMock(
+        return_value=_llm_response(
+            tool_calls=[_tool_call("respond", {"body": "ok"}, "call_resp")],
+        )
+    )
 
-    with patch.object(threaded.thread_mod, "build_window", fake_build_window), \
-         patch.object(threaded.thread_mod, "append", fake_append), \
-         patch.object(witness_mod, "_write_constituting_writes", fake_constituting), \
-         patch.object(threaded, "loop_generate_chat", fake_chat):
+    with (
+        patch.object(threaded.thread_mod, "build_window", fake_build_window),
+        patch.object(threaded.thread_mod, "append", fake_append),
+        patch.object(witness_mod, "_write_constituting_writes", fake_constituting),
+        patch.object(threaded, "loop_generate_chat", fake_chat),
+    ):
         await threaded.run_threaded_fire(standpoint_text_override="")
 
     assert captured["lake_card_id"] == "asst-id"
@@ -301,10 +323,12 @@ async def test_fire_runs_tool_then_responds():
     ]
     fake_chat = AsyncMock(side_effect=chat_responses)
 
-    with patch.object(threaded.thread_mod, "build_window", fake_build_window), \
-         patch.object(threaded.thread_mod, "append", fake_append), \
-         patch.object(threaded.tool_schemas, "dispatch", fake_dispatch), \
-         patch.object(threaded, "loop_generate_chat", fake_chat):
+    with (
+        patch.object(threaded.thread_mod, "build_window", fake_build_window),
+        patch.object(threaded.thread_mod, "append", fake_append),
+        patch.object(threaded.tool_schemas, "dispatch", fake_dispatch),
+        patch.object(threaded, "loop_generate_chat", fake_chat),
+    ):
         result = await threaded.run_threaded_fire(standpoint_text_override="")
 
     assert result["turns"] == 2
@@ -336,16 +360,22 @@ async def test_fire_accumulates_addressed_ids_across_turns():
         return "?"
 
     chat_responses = [
-        _llm_response(tool_calls=[_tool_call("mark_addressed", {"user_message_id": "msg-a"}, "c1")]),
-        _llm_response(tool_calls=[_tool_call("mark_addressed", {"user_message_id": "msg-b"}, "c2")]),
+        _llm_response(
+            tool_calls=[_tool_call("mark_addressed", {"user_message_id": "msg-a"}, "c1")]
+        ),
+        _llm_response(
+            tool_calls=[_tool_call("mark_addressed", {"user_message_id": "msg-b"}, "c2")]
+        ),
         _llm_response(tool_calls=[_tool_call("respond", {"body": "addressed both"}, "c3")]),
     ]
     fake_chat = AsyncMock(side_effect=chat_responses)
 
-    with patch.object(threaded.thread_mod, "build_window", fake_build_window), \
-         patch.object(threaded.thread_mod, "append", fake_append), \
-         patch.object(threaded.tool_schemas, "dispatch", fake_dispatch), \
-         patch.object(threaded, "loop_generate_chat", fake_chat):
+    with (
+        patch.object(threaded.thread_mod, "build_window", fake_build_window),
+        patch.object(threaded.thread_mod, "append", fake_append),
+        patch.object(threaded.tool_schemas, "dispatch", fake_dispatch),
+        patch.object(threaded, "loop_generate_chat", fake_chat),
+    ):
         result = await threaded.run_threaded_fire(standpoint_text_override="")
 
     assert set(result["addressed"]) == {"msg-a", "msg-b"}
@@ -359,6 +389,7 @@ async def test_fire_accumulates_addressed_ids_across_turns():
 @pytest.mark.asyncio
 async def test_fire_treats_plain_content_as_implicit_respond():
     """If the model returns content with no tool_calls, treat as respond."""
+
     async def fake_build_window(**kwargs):
         return {"messages": [], "unaddressed": []}
 
@@ -370,9 +401,11 @@ async def test_fire_treats_plain_content_as_implicit_respond():
 
     fake_chat = AsyncMock(return_value=_llm_response(content="quietly observing"))
 
-    with patch.object(threaded.thread_mod, "build_window", fake_build_window), \
-         patch.object(threaded.thread_mod, "append", fake_append), \
-         patch.object(threaded, "loop_generate_chat", fake_chat):
+    with (
+        patch.object(threaded.thread_mod, "build_window", fake_build_window),
+        patch.object(threaded.thread_mod, "append", fake_append),
+        patch.object(threaded, "loop_generate_chat", fake_chat),
+    ):
         result = await threaded.run_threaded_fire(standpoint_text_override="")
 
     assert result["final_response"]["body"] == "quietly observing"
@@ -386,6 +419,7 @@ async def test_fire_treats_plain_content_as_implicit_respond():
 async def test_fire_caps_runaway_tool_loop():
     """If the model keeps calling tools and never responds, the cap
     fires and the fire ends without a final response."""
+
     async def fake_build_window(**kwargs):
         return {"messages": [], "unaddressed": []}
 
@@ -393,14 +427,18 @@ async def test_fire_caps_runaway_tool_loop():
         return "result"
 
     # Keep returning the same tool_call forever — no respond ever.
-    fake_chat = AsyncMock(return_value=_llm_response(
-        tool_calls=[_tool_call("semantic", {"query": "x"})],
-    ))
+    fake_chat = AsyncMock(
+        return_value=_llm_response(
+            tool_calls=[_tool_call("semantic", {"query": "x"})],
+        )
+    )
 
-    with patch.object(threaded.thread_mod, "build_window", fake_build_window), \
-         patch.object(threaded.thread_mod, "append", AsyncMock(return_value={"id": "x"})), \
-         patch.object(threaded.tool_schemas, "dispatch", fake_dispatch), \
-         patch.object(threaded, "loop_generate_chat", fake_chat):
+    with (
+        patch.object(threaded.thread_mod, "build_window", fake_build_window),
+        patch.object(threaded.thread_mod, "append", AsyncMock(return_value={"id": "x"})),
+        patch.object(threaded.tool_schemas, "dispatch", fake_dispatch),
+        patch.object(threaded, "loop_generate_chat", fake_chat),
+    ):
         result = await threaded.run_threaded_fire(
             standpoint_text_override="",
             max_tool_turns=3,
@@ -431,14 +469,20 @@ async def test_fire_bridges_assistant_reply_to_puddle():
         puddle_calls.append(kwargs)
         return {"id": "puddle-x"}
 
-    fake_chat = AsyncMock(return_value=_llm_response(
-        tool_calls=[_tool_call("respond", {"body": "the threaded reply", "addresses": ["u1"]}, "c")],
-    ))
+    fake_chat = AsyncMock(
+        return_value=_llm_response(
+            tool_calls=[
+                _tool_call("respond", {"body": "the threaded reply", "addresses": ["u1"]}, "c")
+            ],
+        )
+    )
 
-    with patch.object(threaded.thread_mod, "build_window", fake_build_window), \
-         patch.object(threaded.thread_mod, "append", fake_thread_append), \
-         patch.object(threaded, "loop_generate_chat", fake_chat), \
-         patch("api.loop.puddle.puddle.write", side_effect=fake_puddle_write):
+    with (
+        patch.object(threaded.thread_mod, "build_window", fake_build_window),
+        patch.object(threaded.thread_mod, "append", fake_thread_append),
+        patch.object(threaded, "loop_generate_chat", fake_chat),
+        patch("api.loop.puddle.puddle.write", side_effect=fake_puddle_write),
+    ):
         await threaded.run_threaded_fire(standpoint_text_override="")
 
     # Two writes expected: one harness-turn trace + one bridge card.
@@ -447,6 +491,7 @@ async def test_fire_bridges_assistant_reply_to_puddle():
     bridge = bridges[0]
     # JSON content with the body field
     import json as _json
+
     payload = _json.loads(bridge["content"])
     assert payload["body"] == "the threaded reply"
     # Tag shape matches witness chat-reply
@@ -467,6 +512,7 @@ async def test_fire_bridges_assistant_reply_to_puddle():
 async def test_fire_bridge_failure_does_not_break_thread_persistence():
     """The puddle bridge is best-effort — a bridge failure mustn't
     drop the assistant message from the thread."""
+
     async def fake_build_window(**kwargs):
         return {"messages": [], "unaddressed": []}
 
@@ -479,14 +525,18 @@ async def test_fire_bridge_failure_does_not_break_thread_persistence():
     async def boom(**kwargs):
         raise RuntimeError("puddle down")
 
-    fake_chat = AsyncMock(return_value=_llm_response(
-        tool_calls=[_tool_call("respond", {"body": "hi"}, "c")],
-    ))
+    fake_chat = AsyncMock(
+        return_value=_llm_response(
+            tool_calls=[_tool_call("respond", {"body": "hi"}, "c")],
+        )
+    )
 
-    with patch.object(threaded.thread_mod, "build_window", fake_build_window), \
-         patch.object(threaded.thread_mod, "append", fake_thread_append), \
-         patch.object(threaded, "loop_generate_chat", fake_chat), \
-         patch("api.loop.puddle.puddle.write", side_effect=boom):
+    with (
+        patch.object(threaded.thread_mod, "build_window", fake_build_window),
+        patch.object(threaded.thread_mod, "append", fake_thread_append),
+        patch.object(threaded, "loop_generate_chat", fake_chat),
+        patch("api.loop.puddle.puddle.write", side_effect=boom),
+    ):
         result = await threaded.run_threaded_fire(standpoint_text_override="")
 
     # Thread append still happened despite puddle bridge failure.
@@ -510,11 +560,13 @@ async def test_fire_handles_llm_exception():
     fake_mark = AsyncMock(return_value={"id": "mark-1"})
     fake_bridge = AsyncMock(return_value=None)
 
-    with patch.object(threaded.thread_mod, "build_window", fake_build_window), \
-         patch.object(threaded.thread_mod, "append", fake_append), \
-         patch.object(threaded.thread_mod, "mark_addressed", fake_mark), \
-         patch.object(threaded, "_bridge_to_puddle_feed", fake_bridge), \
-         patch.object(threaded, "loop_generate_chat", fake_chat):
+    with (
+        patch.object(threaded.thread_mod, "build_window", fake_build_window),
+        patch.object(threaded.thread_mod, "append", fake_append),
+        patch.object(threaded.thread_mod, "mark_addressed", fake_mark),
+        patch.object(threaded, "_bridge_to_puddle_feed", fake_bridge),
+        patch.object(threaded, "loop_generate_chat", fake_chat),
+    ):
         result = await threaded.run_threaded_fire(standpoint_text_override="")
 
     # Result shape
@@ -527,8 +579,11 @@ async def test_fire_handles_llm_exception():
     assert result.get("addressed") == ["u-1", "u-2"]
 
     # Error chat-reply written with system-error tags + addresses
-    error_appends = [c for c in fake_append.call_args_list
-                     if "system-error" in (c.kwargs.get("extra_tags") or [])]
+    error_appends = [
+        c
+        for c in fake_append.call_args_list
+        if "system-error" in (c.kwargs.get("extra_tags") or [])
+    ]
     assert len(error_appends) == 1, f"expected 1 system-error append, got {len(error_appends)}"
     args = error_appends[0].kwargs
     assert args["role"] == "assistant"
@@ -556,6 +611,7 @@ async def test_fire_handles_llm_exception():
 async def _drain_wake_tasks():
     """Wait for any in-flight wake hooks to finish before assertion."""
     import asyncio as _asyncio
+
     while threaded._WAKE_TASKS:
         await _asyncio.gather(*list(threaded._WAKE_TASKS), return_exceptions=True)
 
@@ -565,21 +621,26 @@ async def test_fire_kicks_mood_and_drift_wake_hooks():
     """Each fire must trigger one mood gate-check and one drift sample
     — that's the threaded-harness replacement for the legacy
     server.py:509 chat-LLM coupling that went dormant at cutover."""
+
     async def fake_build_window(**kwargs):
         return {"messages": [], "unaddressed": []}
 
     mood_calls = AsyncMock(return_value=None)
     drift_calls = AsyncMock(return_value={"drift": 0.0})
 
-    fake_chat = AsyncMock(return_value=_llm_response(
-        tool_calls=[_tool_call("respond", {"body": "ok"}, "c")],
-    ))
+    fake_chat = AsyncMock(
+        return_value=_llm_response(
+            tool_calls=[_tool_call("respond", {"body": "ok"}, "c")],
+        )
+    )
 
-    with patch.object(threaded.thread_mod, "build_window", fake_build_window), \
-         patch.object(threaded.thread_mod, "append", AsyncMock(return_value={"id": "x"})), \
-         patch.object(threaded, "loop_generate_chat", fake_chat), \
-         patch.object(threaded.mood_mod, "maybe_synthesize_on_wake", mood_calls), \
-         patch.object(threaded.drift_mod, "sample", drift_calls):
+    with (
+        patch.object(threaded.thread_mod, "build_window", fake_build_window),
+        patch.object(threaded.thread_mod, "append", AsyncMock(return_value={"id": "x"})),
+        patch.object(threaded, "loop_generate_chat", fake_chat),
+        patch.object(threaded.mood_mod, "maybe_synthesize_on_wake", mood_calls),
+        patch.object(threaded.drift_mod, "sample", drift_calls),
+    ):
         await threaded.run_threaded_fire(standpoint_text_override="")
         await _drain_wake_tasks()
 
@@ -591,6 +652,7 @@ async def test_fire_kicks_mood_and_drift_wake_hooks():
 async def test_fire_wake_hook_failure_does_not_break_fire():
     """Mood synthesis blowing up must not drop the assistant reply —
     wake hook is best-effort decoration, never load-bearing."""
+
     async def fake_build_window(**kwargs):
         return {"messages": [], "unaddressed": []}
 
@@ -600,17 +662,21 @@ async def test_fire_wake_hook_failure_does_not_break_fire():
         appended.append(kwargs)
         return {"id": "asst-x"}
 
-    fake_chat = AsyncMock(return_value=_llm_response(
-        tool_calls=[_tool_call("respond", {"body": "still here"}, "c")],
-    ))
+    fake_chat = AsyncMock(
+        return_value=_llm_response(
+            tool_calls=[_tool_call("respond", {"body": "still here"}, "c")],
+        )
+    )
     boom_mood = AsyncMock(side_effect=RuntimeError("mood synth crashed"))
     boom_drift = AsyncMock(side_effect=RuntimeError("drift centroid down"))
 
-    with patch.object(threaded.thread_mod, "build_window", fake_build_window), \
-         patch.object(threaded.thread_mod, "append", fake_append), \
-         patch.object(threaded, "loop_generate_chat", fake_chat), \
-         patch.object(threaded.mood_mod, "maybe_synthesize_on_wake", boom_mood), \
-         patch.object(threaded.drift_mod, "sample", boom_drift):
+    with (
+        patch.object(threaded.thread_mod, "build_window", fake_build_window),
+        patch.object(threaded.thread_mod, "append", fake_append),
+        patch.object(threaded, "loop_generate_chat", fake_chat),
+        patch.object(threaded.mood_mod, "maybe_synthesize_on_wake", boom_mood),
+        patch.object(threaded.drift_mod, "sample", boom_drift),
+    ):
         result = await threaded.run_threaded_fire(standpoint_text_override="")
         await _drain_wake_tasks()
 
@@ -623,22 +689,27 @@ async def test_fire_wake_hook_failure_does_not_break_fire():
 async def test_fire_wake_hook_disabled_by_env_flag(monkeypatch):
     """FATHOM_THREADED_WAKE_HOOK=0 short-circuits the hook — neither
     mood nor drift get touched. Operator's kill-switch."""
+
     async def fake_build_window(**kwargs):
         return {"messages": [], "unaddressed": []}
 
     mood_calls = AsyncMock(return_value=None)
     drift_calls = AsyncMock(return_value={"drift": 0.0})
 
-    fake_chat = AsyncMock(return_value=_llm_response(
-        tool_calls=[_tool_call("respond", {"body": "ok"}, "c")],
-    ))
+    fake_chat = AsyncMock(
+        return_value=_llm_response(
+            tool_calls=[_tool_call("respond", {"body": "ok"}, "c")],
+        )
+    )
 
     monkeypatch.setenv("FATHOM_THREADED_WAKE_HOOK", "0")
-    with patch.object(threaded.thread_mod, "build_window", fake_build_window), \
-         patch.object(threaded.thread_mod, "append", AsyncMock(return_value={"id": "x"})), \
-         patch.object(threaded, "loop_generate_chat", fake_chat), \
-         patch.object(threaded.mood_mod, "maybe_synthesize_on_wake", mood_calls), \
-         patch.object(threaded.drift_mod, "sample", drift_calls):
+    with (
+        patch.object(threaded.thread_mod, "build_window", fake_build_window),
+        patch.object(threaded.thread_mod, "append", AsyncMock(return_value={"id": "x"})),
+        patch.object(threaded, "loop_generate_chat", fake_chat),
+        patch.object(threaded.mood_mod, "maybe_synthesize_on_wake", mood_calls),
+        patch.object(threaded.drift_mod, "sample", drift_calls),
+    ):
         await threaded.run_threaded_fire(standpoint_text_override="")
         await _drain_wake_tasks()
 
@@ -801,7 +872,8 @@ async def test_continuation_increments_chain_depth():
 async def test_continuation_caps_at_max_chain_depth():
     """Chain-depth 10 → no further continuation (safety cap)."""
     seed = _sit_seed_delta(
-        mid="seed-deep", tier="reflection",
+        mid="seed-deep",
+        tier="reflection",
         chain_depth=threaded.MAX_AUTO_CONTINUE_CHAIN,
     )
     appended: list[dict] = []

@@ -63,10 +63,7 @@ def _is_alert_card(d: dict) -> bool:
     tags = d.get("tags") or []
     if "feed-card" not in tags:
         return False
-    for t in tags:
-        if t.startswith("route:alert:") or t.startswith("route:dm:"):
-            return True
-    return False
+    return any(t.startswith("route:alert:") or t.startswith("route:dm:") for t in tags)
 
 
 def _route_kind(tags: list[str]) -> str:
@@ -155,7 +152,9 @@ def _proposal_preview(
     elif tool == "helper-dispatch":
         host = (args.get("host") or "").strip()
         task = (args.get("task") or "").strip()
-        title_text = f"Helper on {host}: {title or task[:60]}" if host else f"Helper: {title or task[:60]}"
+        title_text = (
+            f"Helper on {host}: {title or task[:60]}" if host else f"Helper: {title or task[:60]}"
+        )
         preview = task or preview
     elif tool == "routines":
         name = (args.get("name") or "").strip()
@@ -277,12 +276,14 @@ async def _recent_provenance_alerts(viewed_at: str) -> list[dict]:
         if level < _PROPOSAL_MIN_LEVEL:
             continue
         # Constituent count from from:<id> tags.
-        from_ids = [t.split(":", 1)[1] for t in tags if isinstance(t, str) and t.startswith("from:")]
+        from_ids = [
+            t.split(":", 1)[1] for t in tags if isinstance(t, str) and t.startswith("from:")
+        ]
         raw = (d.get("content") or "").strip()
         # Provenance content is plain text — title's the first line,
         # body the rest.
         title_line = raw.split("\n", 1)[0].strip() if raw else ""
-        preview = raw[len(title_line):].strip()[:200] if raw else ""
+        preview = raw[len(title_line) :].strip()[:200] if raw else ""
         title = f"L{level} created: {title_line}" if title_line else f"L{level} provenance created"
         if from_ids:
             preview = f"({len(from_ids)} constituents) {preview}"

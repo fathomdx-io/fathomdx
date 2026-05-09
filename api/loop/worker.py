@@ -16,8 +16,8 @@ voices needed but the harness itself doesn't (the harness can call
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import uuid
-
 from datetime import UTC, datetime, timedelta
 
 from .. import delta_client
@@ -28,7 +28,6 @@ from .harness import run_harness
 from .intents import CONVO_TAG, next_intent_group, pending_intents
 from .pressure import pressure_watcher
 from .puddle import puddle
-
 
 # Idle sleep — when there's nothing pending, how long to wait before
 # polling again. Short enough that a freshly-seeded intent fires within
@@ -69,6 +68,7 @@ def cancel_active_fire() -> bool:
 
 def _now_iso() -> str:
     from datetime import UTC, datetime
+
     return datetime.now(UTC).isoformat()
 
 
@@ -327,9 +327,7 @@ def start() -> None:
     _supervisor_task = asyncio.create_task(_supervisor(), name="loop/supervisor")
     _reaper_task = asyncio.create_task(_reaper(), name="loop/reaper")
     _pressure_task = asyncio.create_task(pressure_watcher(), name="loop/pressure")
-    _helper_task = asyncio.create_task(
-        claude_code_watcher_loop(), name="loop/helper-watcher"
-    )
+    _helper_task = asyncio.create_task(claude_code_watcher_loop(), name="loop/helper-watcher")
     feed_orient.start()
 
     # Threaded supervisor — Phase 3 cutover candidate. No-op when
@@ -337,6 +335,7 @@ def start() -> None:
     # supervisor when set so the cutover can be flipped per-deployment
     # without code changes.
     from . import threaded_supervisor
+
     threaded_supervisor.start()
 
 
@@ -346,6 +345,7 @@ async def stop() -> None:
     global _helper_task
     await feed_orient.stop()
     from . import threaded_supervisor
+
     await threaded_supervisor.stop()
     for task in (
         _supervisor_task,
@@ -356,10 +356,8 @@ async def stop() -> None:
         if task is None:
             continue
         task.cancel()
-        try:
+        with contextlib.suppress(asyncio.CancelledError, Exception):
             await task
-        except (asyncio.CancelledError, Exception):
-            pass
     _supervisor_task = None
     _reaper_task = None
     _pressure_task = None

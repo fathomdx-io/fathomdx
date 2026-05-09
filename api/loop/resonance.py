@@ -29,7 +29,6 @@ import time
 
 from .. import delta_client
 
-
 # Content-keyed cache for query-text embeddings, with per-key locks so
 # three voices firing the same signal text on round 0 collapse to one
 # /embed call instead of three serialized ones. Bounded by an LRU-ish
@@ -86,7 +85,7 @@ def _cosine(a: list[float], b: list[float]) -> float:
     dot = 0.0
     na = 0.0
     nb = 0.0
-    for x, y in zip(a, b):
+    for x, y in zip(a, b, strict=False):
         dot += x * y
         na += x * x
         nb += y * y
@@ -142,7 +141,7 @@ async def ensure_embeddings(deltas: list[dict]) -> int:
             deltas[i]["_embedding"] = []
         return 0
 
-    for (i, _), emb in zip(needs, embeddings):
+    for (i, _), emb in zip(needs, embeddings, strict=False):
         deltas[i]["_embedding"] = emb
     return len(embeddings)
 

@@ -22,7 +22,6 @@ from api.standpoint import (
     render_for_prompt,
 )
 
-
 # ── Posture inference ───────────────────────────────────────────────
 
 
@@ -184,7 +183,9 @@ def test_affect_soft_fails_on_mood_exception() -> None:
 # ── Endorsement parsing ─────────────────────────────────────────────
 
 
-def _engagement_delta(tags: list[str], content: str = "yep", ts: str = "2026-04-29T11:00:00Z") -> dict:
+def _engagement_delta(
+    tags: list[str], content: str = "yep", ts: str = "2026-04-29T11:00:00Z"
+) -> dict:
     return {
         "id": "x",
         "tags": tags,
@@ -201,7 +202,7 @@ def test_endorsements_pick_up_affirms_refutes_from_tags() -> None:
         _engagement_delta(["reply-to:jkl22222"]),
         _engagement_delta(["engages:mno33333"]),
         _engagement_delta(["unrelated:tag"]),  # ignored
-        _engagement_delta([]),                  # ignored
+        _engagement_delta([]),  # ignored
     ]
 
     async def _fake_query(*args, **kwargs):
@@ -339,8 +340,9 @@ def test_current_gathers_all_components_in_one_object() -> None:
             ]
         return [_engagement_delta(["affirms:abc11111"])]
 
-    with patch.object(sp_mod, "mood_mod") as mood_mock, patch.object(
-        sp_mod.delta_client, "query", _fake_query
+    with (
+        patch.object(sp_mod, "mood_mod") as mood_mock,
+        patch.object(sp_mod.delta_client, "query", _fake_query),
     ):
         mood_mock.latest_mood = _fake_latest_mood
         out = asyncio.run(sp_mod.current(session_tag="chat:test"))

@@ -78,9 +78,7 @@ class MastodonProducer(SourceProducer):
                     ]
 
                 media_hash = (
-                    await extract_images(image_urls, http_client=client)
-                    if image_urls
-                    else None
+                    await extract_images(image_urls, http_client=client) if image_urls else None
                 )
 
                 items.append(

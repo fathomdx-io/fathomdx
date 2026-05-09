@@ -110,23 +110,14 @@ def test_helper_inbox_path_requires_helper_scope() -> None:
     """GET on the inbox is gated by the `helper` scope (host check is
     a separate gate, applied in the route handler)."""
     assert auth._required_scope("GET", "/v1/helpers/fedora-laptop/inbox") == "helper"
-    assert (
-        auth._required_scope("POST", "/v1/helpers/fedora-laptop/inbox/abc123/reply")
-        == "helper"
-    )
+    assert auth._required_scope("POST", "/v1/helpers/fedora-laptop/inbox/abc123/reply") == "helper"
 
 
 def test_admin_helper_token_paths_require_tokens_manage() -> None:
     """Minting/listing/revoking helper tokens is admin-only — `helper`
     scope on its own MUST NOT mint more `helper` tokens."""
-    assert (
-        auth._required_scope("POST", "/v1/admin/helpers/fedora-laptop/tokens")
-        == "tokens:manage"
-    )
-    assert (
-        auth._required_scope("GET", "/v1/admin/helpers/fedora-laptop/tokens")
-        == "tokens:manage"
-    )
+    assert auth._required_scope("POST", "/v1/admin/helpers/fedora-laptop/tokens") == "tokens:manage"
+    assert auth._required_scope("GET", "/v1/admin/helpers/fedora-laptop/tokens") == "tokens:manage"
     assert (
         auth._required_scope("DELETE", "/v1/admin/helpers/fedora-laptop/tokens/abc12345")
         == "tokens:manage"

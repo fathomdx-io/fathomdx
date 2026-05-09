@@ -29,7 +29,6 @@ from __future__ import annotations
 
 import json
 from datetime import UTC, datetime, timedelta
-from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Path, Request
 from pydantic import BaseModel, Field
@@ -86,10 +85,7 @@ async def create_helper_token(host: str, body: HelperTokenCreate, request: Reque
 async def list_helper_tokens(host: str):
     """List active helper tokens for <host>. Excludes hashes."""
     host = host.strip()
-    return [
-        t for t in auth.list_tokens()
-        if (t.get("helper_host") or "") == host
-    ]
+    return [t for t in auth.list_tokens() if (t.get("helper_host") or "") == host]
 
 
 @router.delete(
@@ -103,7 +99,8 @@ async def revoke_helper_token(host: str, token_id: str):
     # host — otherwise an admin-level GET on the wrong host could lead
     # to confused token deletion. Lookup-then-delete keeps it explicit.
     rows = [
-        t for t in auth.list_tokens()
+        t
+        for t in auth.list_tokens()
         if t.get("id") == token_id and (t.get("helper_host") or "") == host
     ]
     if not rows:
@@ -139,15 +136,15 @@ def _slim_dispatch(d: dict) -> dict | None:
             # also matches startswith("route:helper:") for "route:helper"
             # itself (no trailing colon), so this guards against the
             # umbrella tag stealing the role parse.
-            suffix = t[len("route:helper:"):]
+            suffix = t[len("route:helper:") :]
             if suffix:
                 role = suffix
         elif t.startswith("to:helper:") and not corr:
-            corr = t[len("to:helper:"):]
+            corr = t[len("to:helper:") :]
         elif t.startswith("task-corr:") and not corr:
-            corr = t[len("task-corr:"):]
+            corr = t[len("task-corr:") :]
         elif t.startswith("approved-from-proposal:") and not proposal_id:
-            proposal_id = t[len("approved-from-proposal:"):]
+            proposal_id = t[len("approved-from-proposal:") :]
     if not role or not corr:
         return None
     raw = (d.get("content") or "").strip()
@@ -196,9 +193,7 @@ async def get_inbox(
     if limit <= 0 or limit > 200:
         limit = 50
 
-    cutoff_iso = (
-        datetime.now(UTC) - timedelta(hours=_INBOX_LOOKBACK_HOURS)
-    ).isoformat()
+    cutoff_iso = (datetime.now(UTC) - timedelta(hours=_INBOX_LOOKBACK_HOURS)).isoformat()
     time_start = since or cutoff_iso
 
     try:
@@ -238,7 +233,7 @@ async def get_inbox(
             continue
         for t in tags:
             if t.startswith("task-corr:"):
-                completed_corrs.add(t[len("task-corr:"):])
+                completed_corrs.add(t[len("task-corr:") :])
                 break
 
     items: list[dict] = []
@@ -271,9 +266,9 @@ async def get_inbox(
 # is silently dropped. Anything authority-bearing (engages, affirms,
 # refutes, kind:proposal, etc.) is NOT here on purpose.
 _REPLY_EXTRA_TAG_ALLOWLIST = {
-    "claude-code-session",   # claude-code-session:<sid>
-    "helper-session",        # helper-session:<sid>
-    "project",               # project:<path>
+    "claude-code-session",  # claude-code-session:<sid>
+    "helper-session",  # helper-session:<sid>
+    "project",  # project:<path>
     "task-spawn",
     "task-abandoned",
 }
@@ -344,7 +339,7 @@ async def post_reply(
     for d in dispatches:
         for t in d.get("tags") or []:
             if t.startswith("helper-role:") and not role:
-                role = t[len("helper-role:"):]
+                role = t[len("helper-role:") :]
                 break
         if role:
             break

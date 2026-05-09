@@ -14,7 +14,6 @@ import pytest
 
 from api.loop import witness
 
-
 # ── token extraction ──────────────────────────────────────────────────
 
 
@@ -77,7 +76,7 @@ async def test_no_suppress_when_no_recent_alerts():
 async def test_no_suppress_for_short_body():
     """Bodies with too few tokens can't be reliably compared — let through."""
     with patch.object(witness.delta_client, "query", AsyncMock(return_value=[])):
-        suppress, dup = await witness._should_suppress_alert(body="oh no")
+        suppress, _dup = await witness._should_suppress_alert(body="oh no")
     assert suppress is False
 
 
@@ -133,15 +132,13 @@ async def test_suppress_realworld_rephrasing_storm():
 @pytest.mark.asyncio
 async def test_no_suppress_low_overlap_alert():
     """Different content (overlap < threshold) → let through."""
-    existing = _make_alert_delta(
-        body="the hard-problem heartbeat routine has failed four times"
-    )
+    existing = _make_alert_delta(body="the hard-problem heartbeat routine has failed four times")
     new_body = (
         "memory pressure climbing rapidly across multiple workspaces; "
         "swap thrashing detected on production database server. action urgent."
     )
     with patch.object(witness.delta_client, "query", AsyncMock(return_value=[existing])):
-        suppress, dup = await witness._should_suppress_alert(body=new_body)
+        suppress, _dup = await witness._should_suppress_alert(body=new_body)
     assert suppress is False
 
 
@@ -154,7 +151,7 @@ async def test_only_compares_against_alert_route_cards():
     )
     new_body = "the hard-problem heartbeat routine has failed four consecutive times"
     with patch.object(witness.delta_client, "query", AsyncMock(return_value=[existing_chat])):
-        suppress, dup = await witness._should_suppress_alert(body=new_body)
+        suppress, _dup = await witness._should_suppress_alert(body=new_body)
     assert suppress is False
 
 
@@ -162,10 +159,8 @@ async def test_only_compares_against_alert_route_cards():
 async def test_query_failure_does_not_suppress():
     """If the lake query fails, default to letting the alert through.
     Better to over-alert than to swallow a real piercing condition."""
-    with patch.object(
-        witness.delta_client, "query", AsyncMock(side_effect=Exception("boom"))
-    ):
-        suppress, dup = await witness._should_suppress_alert(
+    with patch.object(witness.delta_client, "query", AsyncMock(side_effect=Exception("boom"))):
+        suppress, _dup = await witness._should_suppress_alert(
             body="something is genuinely broken in the substrate, urgent"
         )
     assert suppress is False

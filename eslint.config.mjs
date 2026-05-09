@@ -26,6 +26,7 @@ export default [
     rules: {
       "no-unused-vars": ["warn", { argsIgnorePattern: "^_", varsIgnorePattern: "^_" }],
       "no-console": "off", // CLIs and agents print to console legitimately
+      "no-empty": ["error", { allowEmptyCatch: true }], // try{}catch{} swallow is intentional
       "prefer-const": "warn",
       eqeqeq: ["error", "smart"],
     },

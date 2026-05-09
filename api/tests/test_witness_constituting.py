@@ -17,7 +17,6 @@ from api.loop.witness import (
     _write_constituting_writes,
 )
 
-
 # ── _parse_mood_shift ──────────────────────────────────────────────
 
 
@@ -235,7 +234,12 @@ def test_constituting_writes_full_act_writes_all_four() -> None:
             _write_constituting_writes(
                 lake_card_id="cardABCDEF123456789012",
                 attestation="I sat with the question instead of fixing.",
-                mood_shift={"direction": "-", "axis": "wired", "magnitude": 0.1, "reason": "settled"},
+                mood_shift={
+                    "direction": "-",
+                    "axis": "wired",
+                    "magnitude": 0.1,
+                    "reason": "settled",
+                },
                 cited_ids=["cite1abc12345678901234"],
                 dropped_ids=["drop1abc12345678901234"],
             )

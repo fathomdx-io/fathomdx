@@ -389,9 +389,7 @@ def _is_pure_noise(
         return True
     if len(text) < LENGTH_DROP_THRESHOLD:
         return True
-    if text.lower() in _NOISE_SEED_NORMALIZED:
-        return True
-    return False
+    return text.lower() in _NOISE_SEED_NORMALIZED
 
 
 def _valence_modifier(cloud: list[dict]) -> float:

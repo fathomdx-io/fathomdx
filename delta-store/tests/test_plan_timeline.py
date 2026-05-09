@@ -22,7 +22,6 @@ from datetime import UTC, datetime, timedelta
 from deltas.models import PlanStep
 from deltas.plan import PlanExecutor
 
-
 # ── _gap_trim ──────────────────────────────────────────────────────────
 
 
@@ -38,9 +37,7 @@ def test_gap_trim_no_gaps_returns_full_range() -> None:
         {"id": "c", "timestamp": _ts(20)},
         {"id": "d", "timestamp": _ts(30)},
     ]
-    trimmed = PlanExecutor._gap_trim(
-        rows, anchor_idx=2, gap_seconds=60, max_per_side=10
-    )
+    trimmed = PlanExecutor._gap_trim(rows, anchor_idx=2, gap_seconds=60, max_per_side=10)
     assert [d["id"] for d in trimmed] == ["a", "b", "c", "d"]
 
 
@@ -51,9 +48,7 @@ def test_gap_trim_stops_at_left_silence() -> None:
         {"id": "c", "timestamp": _ts(130)},  # anchor
         {"id": "d", "timestamp": _ts(140)},
     ]
-    trimmed = PlanExecutor._gap_trim(
-        rows, anchor_idx=2, gap_seconds=60, max_per_side=10
-    )
+    trimmed = PlanExecutor._gap_trim(rows, anchor_idx=2, gap_seconds=60, max_per_side=10)
     # 'a' is past a 120s silence; should be excluded.
     assert [d["id"] for d in trimmed] == ["b", "c", "d"]
 
@@ -65,18 +60,14 @@ def test_gap_trim_stops_at_right_silence() -> None:
         {"id": "c", "timestamp": _ts(20)},
         {"id": "d", "timestamp": _ts(200)},  # 180s gap
     ]
-    trimmed = PlanExecutor._gap_trim(
-        rows, anchor_idx=0, gap_seconds=60, max_per_side=10
-    )
+    trimmed = PlanExecutor._gap_trim(rows, anchor_idx=0, gap_seconds=60, max_per_side=10)
     assert [d["id"] for d in trimmed] == ["a", "b", "c"]
 
 
 def test_gap_trim_max_per_side_independent_of_gap() -> None:
     """Even with no gaps, max_per_side caps how many sit either side."""
     rows = [{"id": str(i), "timestamp": _ts(i * 5)} for i in range(11)]
-    trimmed = PlanExecutor._gap_trim(
-        rows, anchor_idx=5, gap_seconds=120, max_per_side=2
-    )
+    trimmed = PlanExecutor._gap_trim(rows, anchor_idx=5, gap_seconds=120, max_per_side=2)
     assert [d["id"] for d in trimmed] == ["3", "4", "5", "6", "7"]
 
 
@@ -86,9 +77,7 @@ def test_gap_trim_anchor_at_edge() -> None:
         {"id": "b", "timestamp": _ts(5)},
         {"id": "c", "timestamp": _ts(10)},
     ]
-    trimmed = PlanExecutor._gap_trim(
-        rows, anchor_idx=0, gap_seconds=60, max_per_side=10
-    )
+    trimmed = PlanExecutor._gap_trim(rows, anchor_idx=0, gap_seconds=60, max_per_side=10)
     assert [d["id"] for d in trimmed] == ["a", "b", "c"]
 
 
@@ -247,9 +236,7 @@ def test_collapse_runs_skips_runs_containing_anchors() -> None:
         {"id": "anchor", "source": "agent-heartbeat", "timestamp": _ts(2)},
         {"id": "h3", "source": "agent-heartbeat", "timestamp": _ts(4)},
     ]
-    out = PlanExecutor._collapse_runs(
-        rows, {"agent-heartbeat"}, protected_ids={"anchor"}
-    )
+    out = PlanExecutor._collapse_runs(rows, {"agent-heartbeat"}, protected_ids={"anchor"})
     # All three survive — anchor in the middle of a heartbeat run blocks
     # the collapse so the anchor itself isn't lost into a count.
     assert [d.get("id") for d in out] == ["h1", "anchor", "h3"]
@@ -335,8 +322,7 @@ def _row(seed_id: str, did: str, off_s: int, source: str = "claude-code") -> dic
     return {
         "seed_id": seed_id,
         "id": did,
-        "timestamp": datetime(2026, 4, 29, 14, 0, 0, tzinfo=UTC)
-        + timedelta(seconds=off_s),
+        "timestamp": datetime(2026, 4, 29, 14, 0, 0, tzinfo=UTC) + timedelta(seconds=off_s),
         "modality": "text",
         "content": f"line {did}",
         "source": source,
@@ -387,9 +373,7 @@ def test_timeline_builds_window_around_anchor() -> None:
 def test_timeline_collapses_high_freq_sources() -> None:
     import asyncio
 
-    seeds = [
-        {"id": "anchor", "timestamp": "2026-04-29T14:00:30+00:00", "source": "claude-code"}
-    ]
+    seeds = [{"id": "anchor", "timestamp": "2026-04-29T14:00:30+00:00", "source": "claude-code"}]
     rows = [
         _row("anchor", "h1", 10, source="agent-heartbeat"),
         _row("anchor", "h2", 12, source="agent-heartbeat"),

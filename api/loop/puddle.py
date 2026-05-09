@@ -210,12 +210,9 @@ class Puddle:
         async with self._lock:
             before = len(self._deltas)
             self._deltas = [
-                d for d in self._deltas
-                if (
-                    (exp := _parse_iso(d.get("expires_at") or ""))
-                    is None
-                    or exp > now
-                )
+                d
+                for d in self._deltas
+                if ((exp := _parse_iso(d.get("expires_at") or "")) is None or exp > now)
             ]
             return before - len(self._deltas)
 

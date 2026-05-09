@@ -30,11 +30,29 @@ _REL_TIME_RE = re.compile(
     re.IGNORECASE,
 )
 _REL_UNIT_SECONDS = {
-    "s": 1, "sec": 1, "secs": 1, "second": 1, "seconds": 1,
-    "m": 60, "min": 60, "mins": 60, "minute": 60, "minutes": 60,
-    "h": 3600, "hr": 3600, "hrs": 3600, "hour": 3600, "hours": 3600,
-    "d": 86400, "day": 86400, "days": 86400,
-    "w": 604800, "wk": 604800, "wks": 604800, "week": 604800, "weeks": 604800,
+    "s": 1,
+    "sec": 1,
+    "secs": 1,
+    "second": 1,
+    "seconds": 1,
+    "m": 60,
+    "min": 60,
+    "mins": 60,
+    "minute": 60,
+    "minutes": 60,
+    "h": 3600,
+    "hr": 3600,
+    "hrs": 3600,
+    "hour": 3600,
+    "hours": 3600,
+    "d": 86400,
+    "day": 86400,
+    "days": 86400,
+    "w": 604800,
+    "wk": 604800,
+    "wks": 604800,
+    "week": 604800,
+    "weeks": 604800,
 }
 
 
@@ -501,9 +519,7 @@ class DeltaStore:
         )
         return [_row_to_delta(r) for r in rows]
 
-    async def update_text_embedding_only(
-        self, delta_id: str, embedding: list[float]
-    ) -> None:
+    async def update_text_embedding_only(self, delta_id: str, embedding: list[float]) -> None:
         """Update only the content embedding column, leaving
         provenance_embedding untouched. Used by the embed loop for
         kind:provenance deltas whose provenance_embedding is a
@@ -513,7 +529,8 @@ class DeltaStore:
         emb = np.array(embedding, dtype=np.float32)
         await self._pool.execute(
             "UPDATE deltas SET embedding = $1 WHERE id = $2",
-            emb, delta_id,
+            emb,
+            delta_id,
         )
 
     async def update_provenance_embedding_only(
@@ -528,7 +545,8 @@ class DeltaStore:
         prov = np.array(provenance_embedding, dtype=np.float32)
         await self._pool.execute(
             "UPDATE deltas SET provenance_embedding = $1 WHERE id = $2",
-            prov, delta_id,
+            prov,
+            delta_id,
         )
 
     async def update_embeddings(

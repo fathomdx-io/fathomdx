@@ -10,7 +10,6 @@ from __future__ import annotations
 from api import timeline_renderers
 from api.search import _format_strip_header, _render_timelines
 
-
 # ── Renderer dispatch ───────────────────────────────────────────────────
 
 

@@ -529,10 +529,7 @@ async def _fire_single(tier: dict[str, Any], reason: str) -> None:
             source="relief-watcher",
         )
     except Exception as e:
-        print(
-            f"[relief] {tier['name']} intent write failed: "
-            f"{type(e).__name__}: {e}"
-        )
+        print(f"[relief] {tier['name']} intent write failed: {type(e).__name__}: {e}")
 
     # Phase 5c shadow write: thread activation for the threaded
     # supervisor. Soft-fails like other shadow writers.
@@ -544,7 +541,9 @@ async def _fire_single(tier: dict[str, Any], reason: str) -> None:
     # supervisor never sees the activation.
     try:
         from datetime import UTC, datetime
+
         from .. import thread as thread_mod
+
         fired_at = datetime.now(UTC).isoformat(timespec="milliseconds").replace("+00:00", "Z")
         await thread_mod.append(
             role="user",
@@ -560,10 +559,7 @@ async def _fire_single(tier: dict[str, Any], reason: str) -> None:
             ],
         )
     except Exception as e:
-        print(
-            f"[relief] {tier['name']} thread shadow write failed: "
-            f"{type(e).__name__}: {e}"
-        )
+        print(f"[relief] {tier['name']} thread shadow write failed: {type(e).__name__}: {e}")
 
 
 async def _fire_dialogue(tier: dict[str, Any], reason: str) -> None:
@@ -592,14 +588,13 @@ async def _fire_dialogue(tier: dict[str, Any], reason: str) -> None:
             source="relief-watcher",
         )
     except Exception as e:
-        print(
-            f"[relief] {tier['name']} intent write failed: "
-            f"{type(e).__name__}: {e}"
-        )
+        print(f"[relief] {tier['name']} intent write failed: {type(e).__name__}: {e}")
 
     try:
         from datetime import UTC, datetime
+
         from .. import thread as thread_mod
+
         fired_at = datetime.now(UTC).isoformat(timespec="milliseconds").replace("+00:00", "Z")
         await thread_mod.append(
             role="user",
@@ -616,7 +611,4 @@ async def _fire_dialogue(tier: dict[str, Any], reason: str) -> None:
             ],
         )
     except Exception as e:
-        print(
-            f"[relief] {tier['name']} thread shadow write failed: "
-            f"{type(e).__name__}: {e}"
-        )
+        print(f"[relief] {tier['name']} thread shadow write failed: {type(e).__name__}: {e}")

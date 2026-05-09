@@ -178,7 +178,6 @@ def render_judge_history_for_prompt(stats: dict[str, dict]) -> str:
         res = agg["avg_resonance"]
         conf = agg["avg_confidence"]
         lines.append(
-            f"  · {kind} (last {n}): salience {sal:.2f}, "
-            f"resonance {res:.2f}, confidence {conf:.2f}"
+            f"  · {kind} (last {n}): salience {sal:.2f}, resonance {res:.2f}, confidence {conf:.2f}"
         )
     return "\n".join(lines)

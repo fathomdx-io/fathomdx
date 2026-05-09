@@ -13,7 +13,6 @@ import pytest
 
 from api.loop import routes as loop_routes
 
-
 # ── _project_thread_msg ───────────────────────────────────────────
 
 
@@ -85,7 +84,14 @@ def test_project_empty_optional_fields_are_empty_string():
 # ── /v1/thread/window ─────────────────────────────────────────────
 
 
-def _msg(*, mid: str, role: str, content: str = "x", ts: str = "2026-05-04T12:00:00+00:00", extra_tags=None):
+def _msg(
+    *,
+    mid: str,
+    role: str,
+    content: str = "x",
+    ts: str = "2026-05-04T12:00:00+00:00",
+    extra_tags=None,
+):
     tags = ["kind:thread-msg", f"role:{role}", "msg-kind:test"]
     tags.extend(extra_tags or [])
     return {"id": mid, "timestamp": ts, "tags": tags, "content": content}
@@ -145,7 +151,9 @@ async def test_unaddressed_returns_pending_with_preview():
 
 @pytest.mark.asyncio
 async def test_unaddressed_empty_when_queue_empty():
-    with patch("api.thread.build_window", AsyncMock(return_value={"messages": [], "unaddressed": []})):
+    with patch(
+        "api.thread.build_window", AsyncMock(return_value={"messages": [], "unaddressed": []})
+    ):
         out = await loop_routes.get_thread_unaddressed()
     assert out == {"unaddressed": [], "count": 0}
 

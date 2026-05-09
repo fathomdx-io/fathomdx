@@ -20,9 +20,16 @@ from api import delta_client, routine_scheduler
 from api import routines as routines_mod
 
 
-def _spec(rid: str, *, schedule: str = "*/5 * * * *", enabled: bool = True,
-          single_fire: bool = False, ts: str | None = None,
-          host: str = "", prompt: str = "do the thing") -> dict:
+def _spec(
+    rid: str,
+    *,
+    schedule: str = "*/5 * * * *",
+    enabled: bool = True,
+    single_fire: bool = False,
+    ts: str | None = None,
+    host: str = "",
+    prompt: str = "do the thing",
+) -> dict:
     """Build a spec-delta shape matching what _spec_deltas() returns."""
     meta = {
         "id": rid,
@@ -101,6 +108,7 @@ async def test_does_not_fire_when_just_fired(monkeypatch, _capture_fires):
 async def test_skips_disabled(monkeypatch, _capture_fires):
     async def _specs():
         return [_spec("ramen-check", enabled=False)]
+
     monkeypatch.setattr(routines_mod, "_spec_deltas", _specs)
     await routine_scheduler._check_once()
     assert _capture_fires == []
@@ -110,6 +118,7 @@ async def test_skips_disabled(monkeypatch, _capture_fires):
 async def test_skips_when_no_schedule(monkeypatch, _capture_fires):
     async def _specs():
         return [_spec("manual-only", schedule="")]
+
     monkeypatch.setattr(routines_mod, "_spec_deltas", _specs)
     await routine_scheduler._check_once()
     assert _capture_fires == []
@@ -152,6 +161,7 @@ async def test_skips_tombstoned(monkeypatch, _capture_fires):
 
     async def _specs():
         return [spec]
+
     monkeypatch.setattr(routines_mod, "_spec_deltas", _specs)
     await routine_scheduler._check_once()
     assert _capture_fires == []
@@ -175,8 +185,7 @@ async def test_hydrate_seeds_last_fires_from_ticks(monkeypatch, _capture_fires):
     monkeypatch.setattr(routines_mod, "_spec_deltas", _specs)
 
     await routine_scheduler._hydrate_last_fires()
-    assert (routine_scheduler._last_fire_at["ramen-check"]
-            >= just_fired_at.timestamp() - 1)
+    assert routine_scheduler._last_fire_at["ramen-check"] >= just_fired_at.timestamp() - 1
 
     await routine_scheduler._check_once()
     assert _capture_fires == []

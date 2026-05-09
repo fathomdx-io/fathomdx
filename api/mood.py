@@ -116,6 +116,7 @@ def _canonicalize_axis(name: str) -> str:
     n = (name or "").strip().lower()
     return MOOD_AXIS_SYNONYMS.get(n, n)
 
+
 _STATE_RE = re.compile(r"[^a-z]")
 
 
@@ -497,10 +498,8 @@ def _format_topology_for_prompt(topology: dict) -> str:
         net = float(a.get("net") or 0.0)
         sign_str = "+" if net >= 0 else "−"
         n = int(a.get("shifts") or 0)
-        lines.append(
-            f"  {a.get('axis')}: {sign_str}{abs(net):.2f} across {n} shifts"
-        )
-        for r in (a.get("reasons") or []):
+        lines.append(f"  {a.get('axis')}: {sign_str}{abs(net):.2f} across {n} shifts")
+        for r in a.get("reasons") or []:
             lines.append(f"    · {r}")
 
     return "\n".join(lines)
@@ -534,7 +533,9 @@ async def synthesize_mood(session_slug: str | None = None) -> dict | None:
 
     user_payload_parts: list[str] = []
     if topology_summary:
-        user_payload_parts.append(f"=== Mood-shifts since last carrier-wave ===\n{topology_summary}")
+        user_payload_parts.append(
+            f"=== Mood-shifts since last carrier-wave ===\n{topology_summary}"
+        )
     elif recent:
         user_payload_parts.append(f"=== Recent activity ===\n{recent}")
     user_payload_parts.append(f"=== Prior mood ===\n{_format_prior_mood(prior)}")
@@ -560,6 +561,7 @@ async def synthesize_mood(session_slug: str | None = None) -> dict | None:
         # gets None and skips the write).
         try:
             from .loop.llm_errors import summarize as _summarize_llm_error
+
             err = _summarize_llm_error(tier="medium", exc=e, role="Mood synthesis")
             await delta_client.write(
                 content=json.dumps(err),

@@ -9,7 +9,6 @@ rater shape persists because the harness still calls it on every fire.
 
 from __future__ import annotations
 
-
 JUDGE_PROMPT = """You are a separate, independent rater scoring a single feed card produced by Fathom. You did not write the card. You only describe it. Rate it on five axes, each in [0.0, 1.0]:
 
   · salience    — how much this matters to the user RIGHT NOW. (0 = irrelevant; 1 = piercing must-see.)

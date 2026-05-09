@@ -20,14 +20,15 @@ arriving during a fire are handled on the next poll — the in-flight
 fire reads the window snapshot it loaded; the next fire picks up the
 new message.
 """
+
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import os
 
 from .. import thread as thread_mod
 from .harness.threaded import run_threaded_fire
-
 
 # How often to check for unaddressed messages when idle. Short enough
 # that a freshly-landed user message fires within a couple seconds;
@@ -84,7 +85,7 @@ def is_enabled() -> bool:
 async def _supervisor_loop() -> None:
     """One forever-loop: poll, fire if pending, sleep, repeat."""
     global _active_fire_task
-    print("[threaded-supervisor armed] flag=on poll=%.1fs" % IDLE_POLL_S)
+    print(f"[threaded-supervisor armed] flag=on poll={IDLE_POLL_S:.1f}s")
     consecutive_fires = 0
     last_pending_count = -1
     while True:
@@ -129,9 +130,7 @@ async def _supervisor_loop() -> None:
         consecutive_fires += 1
 
         async with _fire_lock:
-            fire_task = asyncio.create_task(
-                run_threaded_fire(), name="loop/threaded-fire"
-            )
+            fire_task = asyncio.create_task(run_threaded_fire(), name="loop/threaded-fire")
             _active_fire_task = fire_task
             try:
                 result = await fire_task
@@ -183,8 +182,6 @@ async def stop() -> None:
     if _supervisor_task is None:
         return
     _supervisor_task.cancel()
-    try:
+    with contextlib.suppress(asyncio.CancelledError):
         await _supervisor_task
-    except asyncio.CancelledError:
-        pass
     _supervisor_task = None

@@ -17,13 +17,14 @@ the others reuse their existing implementations in `tools.py`. As
 the threaded harness becomes the only path, the legacy registry
 can shrink to just what the chat protocol needs.
 """
+
 from __future__ import annotations
 
+import contextlib
 import json
 from typing import Any
 
 from ... import thread
-
 
 # ── mark_addressed — the tally tool ────────────────────────────────
 
@@ -117,8 +118,7 @@ _SEARCH_SCHEMA: dict[str, Any] = {
                     "type": "string",
                     "enum": ["shallow", "deep"],
                     "description": (
-                        "shallow = single semantic pass; deep = "
-                        "compositional plan (default)."
+                        "shallow = single semantic pass; deep = compositional plan (default)."
                     ),
                 },
             },
@@ -247,8 +247,14 @@ _DISPATCH_HELPER_SCHEMA: dict[str, Any] = {
                         "a (host, role) pair in HELPERS."
                     ),
                 },
-                "task": {"type": "string", "description": "What the helper should do — full prompt body."},
-                "title": {"type": "string", "description": "Short one-line title for the proposal card."},
+                "task": {
+                    "type": "string",
+                    "description": "What the helper should do — full prompt body.",
+                },
+                "title": {
+                    "type": "string",
+                    "description": "Short one-line title for the proposal card.",
+                },
             },
             "required": ["host", "role", "task", "title"],
         },
@@ -500,8 +506,8 @@ _RESPOND_SCHEMA: dict[str, Any] = {
                     "type": "string",
                     "description": (
                         "Short label above the title — a category, "
-                        "vibe, or one-word framing (e.g. \"system "
-                        "status\", \"reflection\", \"alert\"). Optional. "
+                        'vibe, or one-word framing (e.g. "system '
+                        'status", "reflection", "alert"). Optional. '
                         "Ignored when `cards` is provided."
                     ),
                 },
@@ -576,7 +582,7 @@ _RESPOND_SCHEMA: dict[str, Any] = {
                         "Where the output lands. Default is inferred "
                         "from card shape: if any card has `kicker` or "
                         "`title` populated → `feed-card` (a published "
-                        "take under \"What I noticed\"); otherwise → "
+                        'take under "What I noticed"); otherwise → '
                         "`chat-reply` (lives in the chat panel). The "
                         "rule reads your authoring intent: titled cards "
                         "are headlines someone would read out of "
@@ -944,9 +950,11 @@ async def dispatch(
         if not targets:
             return "ERROR: target_ids must contain at least one delta id"
         reason = (args.get("reason") or "").strip()
+        import asyncio as _asyncio
+
         from ... import delta_client as _lake
         from .. import feed_orient as _feed_orient
-        import asyncio as _asyncio
+
         written: list[str] = []
         for tid in targets:
             tags = [
@@ -965,10 +973,8 @@ async def dispatch(
                     written.append(d["id"])
             except Exception as e:
                 return f"ERROR: engage_feed write failed on {tid[:12]} — {type(e).__name__}: {e}"
-        try:
+        with contextlib.suppress(Exception):
             _asyncio.create_task(_feed_orient.on_engagement_written())
-        except Exception:
-            pass
         return (
             f"engage_feed wrote {len(written)} engagement:{kind} delta(s) "
             f"on {len(targets)} target(s); regen check fired."
@@ -981,9 +987,7 @@ async def dispatch(
         # inside a role:tool message.
         from ...tools import _fetch_image_as_tool_result
 
-        return await _fetch_image_as_tool_result(
-            str(args.get("media_hash") or "")
-        )
+        return await _fetch_image_as_tool_result(str(args.get("media_hash") or ""))
     # Bridge to the legacy handler registry for everything else.
     from . import tools as legacy_tools
 

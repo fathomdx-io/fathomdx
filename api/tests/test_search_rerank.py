@@ -131,10 +131,7 @@ def test_provenance_modifier_qa_marker_lifts_less() -> None:
     """kind:qa-marker (in-situ Q/A capture from the harness) AND
     provenance-level:0 (the lowest tier of the hierarchy) both get the
     softer qa-marker bonus — they're snapshot-shaped, not narrative."""
-    assert (
-        _provenance_modifier({"tags": ["kind:provenance", "kind:qa-marker"]})
-        == _QA_MARKER_BONUS
-    )
+    assert _provenance_modifier({"tags": ["kind:provenance", "kind:qa-marker"]}) == _QA_MARKER_BONUS
     assert (
         _provenance_modifier({"tags": ["kind:provenance", "provenance-level:0"]})
         == _QA_MARKER_BONUS

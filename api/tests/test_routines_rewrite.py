@@ -38,10 +38,7 @@ def _spec(rid="ramen", body="check ramen hours and tell me if open", **meta_over
 async def test_rewrite_skips_when_already_in_schema(client, monkeypatch):
     from api import routines as routines_mod
 
-    body = (
-        "# Purpose\nx\n\n# Needs\nclaude-code on fedora\n\n"
-        "# Steps\n1. y\n\n# Ending\ncard\n"
-    )
+    body = "# Purpose\nx\n\n# Needs\nclaude-code on fedora\n\n# Steps\n1. y\n\n# Ending\ncard\n"
 
     async def _spec_fn(_rid):
         return _spec(body=body)
@@ -57,7 +54,8 @@ async def test_rewrite_skips_when_already_in_schema(client, monkeypatch):
 
 @pytest.mark.asyncio
 async def test_rewrite_emits_proposal(client, monkeypatch):
-    from api import delta_client, routines as routines_mod
+    from api import delta_client
+    from api import routines as routines_mod
     from api.loop import llm
 
     async def _spec_fn(_rid):
@@ -70,8 +68,9 @@ async def test_rewrite_emits_proposal(client, monkeypatch):
         "# Ending\nSoft alert if open and closing soon.\n"
     )
 
-    async def _llm(*, prompt, tier="medium", max_tokens=200, temperature=0.95,
-                    json_mode=False, max_retries=4):
+    async def _llm(
+        *, prompt, tier="medium", max_tokens=200, temperature=0.95, json_mode=False, max_retries=4
+    ):
         return rewritten
 
     writes: list[dict] = []

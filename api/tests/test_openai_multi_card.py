@@ -23,14 +23,16 @@ import pytest
 
 
 def _witness_card_content(body: str) -> str:
-    return json.dumps({
-        "kicker": "",
-        "title": "",
-        "body": body,
-        "tail": "",
-        "route": "chat-reply",
-        "axes": {},
-    })
+    return json.dumps(
+        {
+            "kicker": "",
+            "title": "",
+            "body": body,
+            "tail": "",
+            "route": "chat-reply",
+            "axes": {},
+        }
+    )
 
 
 @pytest.fixture
@@ -281,7 +283,7 @@ async def test_stream_emits_one_chunk_per_card_with_separators(_staged, client):
     )
     assert r.status_code == 200
     chunks = [
-        json.loads(line[len("data: "):])
+        json.loads(line[len("data: ") :])
         for line in r.text.splitlines()
         if line.startswith("data: ") and line != "data: [DONE]"
     ]
@@ -312,7 +314,7 @@ async def test_stream_no_dispatch_finishes_after_first_card(_staged, client):
         },
     )
     chunks = [
-        json.loads(line[len("data: "):])
+        json.loads(line[len("data: ") :])
         for line in r.text.splitlines()
         if line.startswith("data: ") and line != "data: [DONE]"
     ]

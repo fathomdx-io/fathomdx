@@ -33,14 +33,16 @@ import pytest
 def _witness_card_content(body: str) -> str:
     """Witness writes JSON payloads — match that shape so the renderer
     extracts the body the way it does in production."""
-    return json.dumps({
-        "kicker": "",
-        "title": "",
-        "body": body,
-        "tail": "",
-        "route": "chat-reply",
-        "axes": {},
-    })
+    return json.dumps(
+        {
+            "kicker": "",
+            "title": "",
+            "body": body,
+            "tail": "",
+            "route": "chat-reply",
+            "axes": {},
+        }
+    )
 
 
 @pytest.fixture
@@ -50,13 +52,13 @@ def _patched(monkeypatch):
     Records every intent write and every witness-card poll so tests can
     assert tag shapes and routing scope.
     """
-    from api import delta_client, db
+    from api import db, delta_client
     from api.loop import puddle as puddle_mod
 
     recorded: dict[str, list] = {
-        "intents": [],   # puddle.write calls (write_intent → puddle.write)
-        "queries": [],   # delta_client.query calls
-        "writes": [],    # delta_client.write calls (any direct lake writes)
+        "intents": [],  # puddle.write calls (write_intent → puddle.write)
+        "queries": [],  # delta_client.query calls
+        "writes": [],  # delta_client.write calls (any direct lake writes)
     }
 
     # Session resolution — every test uses a synthetic session.
@@ -212,7 +214,8 @@ async def test_empty_request_returns_empty_completion_without_waiting(_patched, 
     # No intent written; no witness poll fired.
     assert _patched["intents"] == []
     poll_queries = [
-        q for q in _patched["queries"]
+        q
+        for q in _patched["queries"]
         if any(str(t).startswith("to:openai:") for t in (q.get("tags_include") or []))
     ]
     assert poll_queries == []
@@ -227,7 +230,8 @@ async def test_reply_poll_is_scoped_to_intent_id(_patched, client):
         json={"messages": [{"role": "user", "content": "hi"}]},
     )
     poll_queries = [
-        q for q in _patched["queries"]
+        q
+        for q in _patched["queries"]
         if any(str(t).startswith("to:openai:") for t in (q.get("tags_include") or []))
     ]
     assert poll_queries, "expected at least one witness-output poll"
@@ -249,15 +253,11 @@ async def test_stream_returns_sse_with_done_terminator(_patched, client):
     body = r.text
     assert "data: [DONE]" in body
     content_chunks = [
-        line for line in body.splitlines()
-        if line.startswith("data: ") and line != "data: [DONE]"
+        line for line in body.splitlines() if line.startswith("data: ") and line != "data: [DONE]"
     ]
-    parsed = [json.loads(c[len("data: "):]) for c in content_chunks]
+    parsed = [json.loads(c[len("data: ") :]) for c in content_chunks]
     assert parsed[0]["choices"][0]["delta"].get("role") == "assistant"
-    assert any(
-        p["choices"][0]["delta"].get("content") == "hello from fathom"
-        for p in parsed
-    )
+    assert any(p["choices"][0]["delta"].get("content") == "hello from fathom" for p in parsed)
     assert parsed[-1]["choices"][0]["finish_reason"] == "stop"
     assert all(p.get("session_id") == "test-session-slug" for p in parsed)
 
@@ -266,7 +266,6 @@ async def test_concurrent_sessions_get_their_own_replies(_patched, client):
     """Two sessions firing in parallel must each receive their own
     reply, not get cross-pollinated. The to:openai:<sid> address tag is
     the load-bearing scope."""
-    from api import db
 
     # Mint two distinct sessions.
     sessions = {"s-alpha": "alpha-reply", "s-beta": "beta-reply"}
@@ -281,6 +280,7 @@ async def test_concurrent_sessions_get_their_own_replies(_patched, client):
 
     # (Already monkeypatched in the fixture; just shadow create.)
     import api.db as _db_mod
+
     _db_mod.create_session = _create_session
     _db_mod.get_session = _get_session
 

@@ -70,6 +70,11 @@ ignore = [
   "RUF001", # ambiguous unicode in string literal
   "RUF002", # ambiguous unicode in docstring
   "RUF003", # ambiguous unicode in comment
+  # Fire-and-forget asyncio.create_task is an idiom across the loop —
+  # judge followups, feed regen, supervisor lifecycle. Storing a ref
+  # without separate lifecycle tracking doesn't actually fix the GC
+  # concern, so the warning is more noise than signal here.
+  "RUF006",
 ]
 
 [tool.ruff.lint.per-file-ignores]

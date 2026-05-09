@@ -38,7 +38,6 @@ from .intents import (
 )
 from .puddle import puddle
 
-
 router = APIRouter()
 
 
@@ -116,6 +115,7 @@ async def post_seed(req: SeedRequest, request: Request) -> dict:
     # while Phase 2 brings the harness onto the thread.
     try:
         from .. import thread as thread_mod
+
         await thread_mod.append(
             role="user",
             msg_kind=f"composer-{kind}" if kind != "question" else "composer",
@@ -165,12 +165,9 @@ async def get_feed(
     # cards — so paging by time gives a stable rhythm; paging by item
     # count would mean "show more" pulls inconsistent slices when the
     # puddle is dense.
-    from datetime import datetime, timedelta, UTC
+    from datetime import UTC, datetime, timedelta
 
-    until_dt = (
-        datetime.fromisoformat(until.replace("Z", "+00:00"))
-        if until else datetime.now(UTC)
-    )
+    until_dt = datetime.fromisoformat(until.replace("Z", "+00:00")) if until else datetime.now(UTC)
     since_dt = until_dt - timedelta(hours=hours)
     until_iso = until_dt.isoformat()
     since_iso = since_dt.isoformat()
@@ -188,12 +185,15 @@ async def get_feed(
     # get deduped below; for older windows they're the only source.
     lake_cards: list[dict] = []
     try:
-        lake_cards = await delta_client.query(
-            tags_include=["feed-card"],
-            time_start=since_iso,
-            time_end=until_iso,
-            limit=limit,
-        ) or []
+        lake_cards = (
+            await delta_client.query(
+                tags_include=["feed-card"],
+                time_start=since_iso,
+                time_end=until_iso,
+                limit=limit,
+            )
+            or []
+        )
     except Exception as e:
         print(f"[feed] lake feed-card fetch failed: {type(e).__name__}: {e}")
         lake_cards = []
@@ -208,11 +208,14 @@ async def get_feed(
     # query and the puddle mirror tags.
     if until is None:
         try:
-            anchor_cards = await delta_client.query(
-                tags_include=["feed-card"],
-                time_end=since_iso,
-                limit=50,
-            ) or []
+            anchor_cards = (
+                await delta_client.query(
+                    tags_include=["feed-card"],
+                    time_end=since_iso,
+                    limit=50,
+                )
+                or []
+            )
             lake_cards = lake_cards + anchor_cards
         except Exception as e:
             print(f"[feed] lake card-anchor fetch failed: {type(e).__name__}: {e}")
@@ -351,11 +354,13 @@ async def get_feed(
         # may surface the lake shape directly when restoring on cold-
         # start, and the renderer should treat both as the same kind.
         if "kind:question" in tags and ("intent" in tags or "user-seed" in tags):
-            items.append({
-                "kind": "user-message",
-                "content": d.get("content") or "",
-                **common,
-            })
+            items.append(
+                {
+                    "kind": "user-message",
+                    "content": d.get("content") or "",
+                    **common,
+                }
+            )
             continue
 
         # ── A — witness output, split by route ────────────
@@ -443,12 +448,14 @@ async def get_feed(
                     (t.split(":", 1)[1] for t in tags if t.startswith("recalled-id:")),
                     "",
                 )
-                items.append({
-                    "kind": "proposal",
-                    "tool": tool,
-                    "lake_id": lake_id,
-                    **base,
-                })
+                items.append(
+                    {
+                        "kind": "proposal",
+                        "tool": tool,
+                        "lake_id": lake_id,
+                        **base,
+                    }
+                )
             else:
                 items.append({"kind": "card", **base})
             continue
@@ -490,19 +497,21 @@ async def get_feed(
                     envelope = parsed_env
             except Exception:
                 envelope = {"thinking": raw[:200]}
-            items.append({
-                "kind": "harness-turn",
-                "tool": tool,
-                "turn": turn_n,
-                "plan_step": plan_step,
-                "session": session,
-                "thinking": envelope.get("thinking") or "",
-                "args_json": envelope.get("args_json") or "",
-                "result": envelope.get("result") or "",
-                "error": envelope.get("error") or "",
-                "content": raw,  # legacy for any client expecting it
-                **common,
-            })
+            items.append(
+                {
+                    "kind": "harness-turn",
+                    "tool": tool,
+                    "turn": turn_n,
+                    "plan_step": plan_step,
+                    "session": session,
+                    "thinking": envelope.get("thinking") or "",
+                    "args_json": envelope.get("args_json") or "",
+                    "result": envelope.get("result") or "",
+                    "error": envelope.get("error") or "",
+                    "content": raw,  # legacy for any client expecting it
+                    **common,
+                }
+            )
             continue
         # Harness review pass — what the post-response review decided.
         # Same per-fire grouping as turns; rendered inside the same
@@ -524,15 +533,17 @@ async def get_feed(
                     envelope = parsed_env
             except Exception:
                 envelope = {"detail": raw[:200]}
-            items.append({
-                "kind": "harness-review",
-                "review_kind": review_kind,
-                "session": session,
-                "detail": envelope.get("detail") or "",
-                "args_json": envelope.get("args_json") or "",
-                "content": raw,
-                **common,
-            })
+            items.append(
+                {
+                    "kind": "harness-review",
+                    "review_kind": review_kind,
+                    "session": session,
+                    "detail": envelope.get("detail") or "",
+                    "args_json": envelope.get("args_json") or "",
+                    "content": raw,
+                    **common,
+                }
+            )
             continue
         # Voice thoughts — legacy parliament shape, retained for old
         # puddle entries still in TTL window.
@@ -541,12 +552,14 @@ async def get_feed(
                 (t.split(":", 1)[1] for t in tags if t.startswith("voice:")),
                 None,
             )
-            items.append({
-                "kind": "voice-thought",
-                "voice": voice,
-                "content": d.get("content") or "",
-                **common,
-            })
+            items.append(
+                {
+                    "kind": "voice-thought",
+                    "voice": voice,
+                    "content": d.get("content") or "",
+                    **common,
+                }
+            )
             continue
         # Pulse intents (reflection / drift / bridging / alert) — these
         # are pressure-watcher pass intents that haven't been addressed
@@ -557,12 +570,14 @@ async def get_feed(
                 "unknown",
             )
             if kind in ("reflection", "drift", "bridging", "alert", "drop-in", "feed"):
-                items.append({
-                    "kind": "pass-intent",
-                    "pass_kind": kind,
-                    "content": d.get("content") or "",
-                    **common,
-                })
+                items.append(
+                    {
+                        "kind": "pass-intent",
+                        "pass_kind": kind,
+                        "content": d.get("content") or "",
+                        **common,
+                    }
+                )
             elif kind == "routine-due":
                 # Routine cron tick — surfaces as a "routine fired" marker
                 # in the feed so the user sees the trigger that caused
@@ -576,12 +591,14 @@ async def get_feed(
                 _key = (routine_id, _ts_minute)
                 if _key not in _routine_due_seen:
                     _routine_due_seen.add(_key)
-                    items.append({
-                        "kind": "routine-due",
-                        "routine_id": routine_id,
-                        "content": d.get("content") or "",
-                        **common,
-                    })
+                    items.append(
+                        {
+                            "kind": "routine-due",
+                            "routine_id": routine_id,
+                            "content": d.get("content") or "",
+                            **common,
+                        }
+                    )
             continue
         # Crystal facets — identity layer.
         if "crystal" in tags:
@@ -589,12 +606,14 @@ async def get_feed(
                 (t.split(":", 1)[1] for t in tags if t.startswith("facet:")),
                 None,
             )
-            items.append({
-                "kind": "crystal",
-                "facet": facet,
-                "content": d.get("content") or "",
-                **common,
-            })
+            items.append(
+                {
+                    "kind": "crystal",
+                    "facet": facet,
+                    "content": d.get("content") or "",
+                    **common,
+                }
+            )
             continue
         # Mood / felt-sense.
         if "mood" in tags:
@@ -602,12 +621,14 @@ async def get_feed(
                 (t.split(":", 1)[1] for t in tags if t.startswith("feeling:")),
                 None,
             )
-            items.append({
-                "kind": "mood",
-                "feeling": feeling,
-                "content": d.get("content") or "",
-                **common,
-            })
+            items.append(
+                {
+                    "kind": "mood",
+                    "feeling": feeling,
+                    "content": d.get("content") or "",
+                    **common,
+                }
+            )
             continue
         # Routine activity — three shapes:
         #   · routine-tick — cron tick handed the routine to the River
@@ -618,11 +639,7 @@ async def get_feed(
         #   · routine-summary — claude-code's writeup back from a fire
         #     (variant "summary").
         # All carry routine-id so the dashboard renders the routine name.
-        if (
-            "routine-fire" in tags
-            or "routine-summary" in tags
-            or "routine-tick" in tags
-        ):
+        if "routine-fire" in tags or "routine-summary" in tags or "routine-tick" in tags:
             routine_id = next(
                 (t.split(":", 1)[1] for t in tags if t.startswith("routine-id:")),
                 None,
@@ -632,20 +649,24 @@ async def get_feed(
                 _key = (routine_id or "", _ts_minute)
                 if _key not in _routine_due_seen:
                     _routine_due_seen.add(_key)
-                    items.append({
-                        "kind": "routine-due",
+                    items.append(
+                        {
+                            "kind": "routine-due",
+                            "routine_id": routine_id,
+                            "content": d.get("content") or "",
+                            **common,
+                        }
+                    )
+            else:
+                items.append(
+                    {
+                        "kind": "routine",
                         "routine_id": routine_id,
+                        "summary": "routine-summary" in tags,
                         "content": d.get("content") or "",
                         **common,
-                    })
-            else:
-                items.append({
-                    "kind": "routine",
-                    "routine_id": routine_id,
-                    "summary": "routine-summary" in tags,
-                    "content": d.get("content") or "",
-                    **common,
-                })
+                    }
+                )
             continue
         # Claude-code task channel — closure deltas from a tasked
         # claude-code session, plus any other claude-code:task source
@@ -669,13 +690,15 @@ async def get_feed(
                 (t.split(":", 1)[1] for t in tags if t.startswith("helper-role:")),
                 "",
             )
-            items.append({
-                "kind": "helper-reply",
-                "host": host,
-                "role": role,
-                "content": d.get("content") or "",
-                **common,
-            })
+            items.append(
+                {
+                    "kind": "helper-reply",
+                    "host": host,
+                    "role": role,
+                    "content": d.get("content") or "",
+                    **common,
+                }
+            )
             continue
         # Lake delta — telepathy mirror of recent durable lake activity
         # (RSS arrivals, claude-code session deltas, anything new in the
@@ -687,21 +710,25 @@ async def get_feed(
                 (t.split(":", 1)[1] for t in tags if t.startswith("from-source:")),
                 None,
             )
-            items.append({
-                "kind": "lake-delta",
-                "from_source": from_source,
-                "content": d.get("content") or "",
-                **common,
-            })
+            items.append(
+                {
+                    "kind": "lake-delta",
+                    "from_source": from_source,
+                    "content": d.get("content") or "",
+                    **common,
+                }
+            )
             continue
         # Compositional recall results — present and future model-driven
         # recall pulls (separate from the continuous mirror above).
         if "recall-result" in tags or "mirror" in tags:
-            items.append({
-                "kind": "recall",
-                "content": d.get("content") or "",
-                **common,
-            })
+            items.append(
+                {
+                    "kind": "recall",
+                    "content": d.get("content") or "",
+                    **common,
+                }
+            )
             continue
         # Process events (spawn/die/metric) are no longer written by
         # process.py — they were interleaving between voice thoughts in
@@ -723,12 +750,14 @@ async def get_feed(
             (t.split(":", 1)[1] for t in tags if t.startswith("from-source:")),
             None,
         )
-        items.append({
-            "kind": "lake-delta",
-            "from_source": from_source or d.get("source") or "unknown",
-            "content": d.get("content") or "",
-            **common,
-        })
+        items.append(
+            {
+                "kind": "lake-delta",
+                "from_source": from_source or d.get("source") or "unknown",
+                "content": d.get("content") or "",
+                **common,
+            }
+        )
 
     items.sort(key=lambda it: it.get("timestamp") or "", reverse=True)
     # has_more is true if either the puddle OR the lake holds anything
@@ -743,11 +772,14 @@ async def get_feed(
     )
     if not older:
         try:
-            older_lake = await delta_client.query(
-                tags_include=["feed-card"],
-                time_end=since_iso,
-                limit=1,
-            ) or []
+            older_lake = (
+                await delta_client.query(
+                    tags_include=["feed-card"],
+                    time_end=since_iso,
+                    limit=1,
+                )
+                or []
+            )
         except Exception as e:
             print(f"[feed] lake has_more peek failed: {type(e).__name__}: {e}")
             older_lake = []
@@ -780,17 +812,17 @@ def get_cards(limit: int = 50) -> dict:
         except Exception:
             payload = {"body": d.get("content") or ""}
         addressed = [
-            t.split(":", 1)[1]
-            for t in (d.get("tags") or [])
-            if t.startswith("addresses:")
+            t.split(":", 1)[1] for t in (d.get("tags") or []) if t.startswith("addresses:")
         ]
-        cards.append({
-            "id": d.get("id"),
-            "timestamp": d.get("timestamp"),
-            "expires_at": d.get("expires_at"),
-            "addresses": addressed,
-            **payload,
-        })
+        cards.append(
+            {
+                "id": d.get("id"),
+                "timestamp": d.get("timestamp"),
+                "expires_at": d.get("expires_at"),
+                "addresses": addressed,
+                **payload,
+            }
+        )
     return {"cards": cards}
 
 
@@ -805,8 +837,10 @@ async def get_intents() -> dict:
     as before.
     """
     import os
+
     if os.environ.get("FATHOM_THREADED_HARNESS", "0") == "1":
         from .. import thread as thread_mod
+
         window = await thread_mod.build_window()
         out = []
         for d in window["unaddressed"]:
@@ -815,25 +849,29 @@ async def get_intents() -> dict:
                 if isinstance(t, str) and t.startswith("msg-kind:"):
                     msg_kind = t.split(":", 1)[1]
                     break
-            out.append({
-                "id": d.get("id"),
-                "kind": msg_kind,
-                "content": d.get("content") or "",
-                "timestamp": d.get("timestamp"),
-                "expires_at": None,
-            })
+            out.append(
+                {
+                    "id": d.get("id"),
+                    "kind": msg_kind,
+                    "content": d.get("content") or "",
+                    "timestamp": d.get("timestamp"),
+                    "expires_at": None,
+                }
+            )
         return {"intents": out}
 
     pending = pending_intents()
     out = []
     for d in pending:
-        out.append({
-            "id": d.get("id"),
-            "kind": intent_kind(d),
-            "content": d.get("content") or "",
-            "timestamp": d.get("timestamp"),
-            "expires_at": d.get("expires_at"),
-        })
+        out.append(
+            {
+                "id": d.get("id"),
+                "kind": intent_kind(d),
+                "content": d.get("content") or "",
+                "timestamp": d.get("timestamp"),
+                "expires_at": d.get("expires_at"),
+            }
+        )
     return {"intents": out}
 
 
@@ -946,8 +984,8 @@ async def relief_tiers() -> dict:
     weight, and cooldown — plus the absolute pressure threshold so
     the UI can render reference lines on the pressure chart.
     """
-    from . import relief
     from ..settings import settings
+    from . import relief
 
     threshold = settings.feed_pressure_threshold
     return {
@@ -975,8 +1013,8 @@ async def relief_cooldowns() -> dict:
     rather than waiting for the first failed click to discover the lock.
     """
     from datetime import UTC, datetime
+
     from . import relief
-    from ..settings import settings
 
     now = datetime.now(UTC)
     state = relief._load_cooldowns()
@@ -1024,9 +1062,8 @@ async def fire_pulse(reason: str = "manual", tier: str | None = None) -> dict:
     tier is on cooldown when `tier=` is set).
     """
     from . import relief
-    result = await relief.fire_relief(
-        reason, bypass_floor=True, force_tier=tier
-    )
+
+    result = await relief.fire_relief(reason, bypass_floor=True, force_tier=tier)
     return {"ok": True, **result}
 
 
@@ -1054,8 +1091,8 @@ async def stop_loop() -> dict:
     Pending messages aren't deleted — the lake is append-only. The
     operator-stop just covers them so the loop moves on.
     """
-    from . import threaded_supervisor, worker
     from .. import thread as thread_mod
+    from . import threaded_supervisor, worker
 
     fire_cancelled = False
     if threaded_supervisor.cancel_active_fire():
@@ -1082,8 +1119,7 @@ async def stop_loop() -> dict:
                     cleared_count += 1
                 except Exception as e:
                     print(
-                        f"[stop] tally-mark write failed for {msg_id[:12]}: "
-                        f"{type(e).__name__}: {e}"
+                        f"[stop] tally-mark write failed for {msg_id[:12]}: {type(e).__name__}: {e}"
                     )
         except Exception as e:
             print(f"[stop] thread window read failed: {type(e).__name__}: {e}")
@@ -1094,12 +1130,8 @@ async def stop_loop() -> dict:
             # Read directly from puddle — the public pending_intents()
             # short-circuits to [] under the threaded flag, but we're
             # already on the legacy branch here.
-            intents_raw = puddle.query(
-                tags_include=[CONVO_TAG, "intent"], limit=100
-            )
-            seeds_raw = puddle.query(
-                tags_include=[CONVO_TAG, "seed"], limit=50
-            )
+            intents_raw = puddle.query(tags_include=[CONVO_TAG, "intent"], limit=100)
+            seeds_raw = puddle.query(tags_include=[CONVO_TAG, "seed"], limit=50)
             seen: set[str] = set()
             for it in intents_raw + seeds_raw:
                 pid = it.get("id") or ""
@@ -1119,10 +1151,7 @@ async def stop_loop() -> dict:
                     )
                     cleared_count += 1
                 except Exception as e:
-                    print(
-                        f"[stop] puddle clear failed for {pid[:12]}: "
-                        f"{type(e).__name__}: {e}"
-                    )
+                    print(f"[stop] puddle clear failed for {pid[:12]}: {type(e).__name__}: {e}")
         except Exception as e:
             print(f"[stop] puddle scan failed: {type(e).__name__}: {e}")
 
@@ -1169,10 +1198,12 @@ def get_metrics(per_voice: int = 8) -> dict:
         dist = payload.get("distance")
         if not isinstance(dist, (int, float)):
             continue
-        by_voice.setdefault(voice, []).append({
-            "timestamp": d.get("timestamp"),
-            "distance": float(dist),
-        })
+        by_voice.setdefault(voice, []).append(
+            {
+                "timestamp": d.get("timestamp"),
+                "distance": float(dist),
+            }
+        )
     out: dict[str, list[dict]] = {}
     for voice, samples in by_voice.items():
         samples.sort(key=lambda s: s.get("timestamp") or "")
@@ -1297,7 +1328,9 @@ async def engage_card(card_id: str, req: EngageRequest) -> dict:
     # regen_from_signal triggers immediately (no cooldown).
     try:
         import asyncio as _asyncio
+
         from . import feed_orient as _feed_orient
+
         _asyncio.create_task(_feed_orient.on_engagement_written())
     except Exception:
         pass
@@ -1336,6 +1369,7 @@ async def stream() -> StreamingResponse:
     Used by the live viz and (eventually) the main dashboard view to
     push cards, voice thoughts, and process events without polling.
     """
+
     async def event_gen():
         async for delta in puddle.subscribe(maxsize=256):
             try:
@@ -1380,7 +1414,7 @@ async def get_helper_tasks() -> dict:
     def _tag_value(tags: list[str], prefix: str) -> str:
         for t in tags:
             if t.startswith(prefix):
-                return t[len(prefix):]
+                return t[len(prefix) :]
         return ""
 
     # Both `task-complete` (claude wrote a closure delta) and
@@ -1401,13 +1435,15 @@ async def get_helper_tasks() -> dict:
         if not corr or not sid or corr in completed or corr in seen:
             continue
         seen.add(corr)
-        active.append({
-            "corr": corr,
-            "claude_session_id": sid,
-            "host": _tag_value(tags, "host:"),
-            "project": _tag_value(tags, "project:"),
-            "spawn_iso": s.get("timestamp") or "",
-        })
+        active.append(
+            {
+                "corr": corr,
+                "claude_session_id": sid,
+                "host": _tag_value(tags, "host:"),
+                "project": _tag_value(tags, "project:"),
+                "spawn_iso": s.get("timestamp") or "",
+            }
+        )
 
     if not active:
         return {"tasks": []}

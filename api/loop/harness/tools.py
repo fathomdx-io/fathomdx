@@ -40,6 +40,7 @@ from __future__ import annotations
 
 import contextlib
 import json
+import logging
 import uuid
 from collections import Counter
 from datetime import UTC, datetime, timedelta
@@ -49,6 +50,8 @@ from ... import delta_client
 from ... import search as search_mod
 from ..intents import CONVO_TAG, intent_kind, pending_intents
 from ..puddle import puddle
+
+log = logging.getLogger(__name__)
 
 # Hard caps on per-call result counts — these limit how many items a
 # tool returns, not how much rendered text it produces. The harness
@@ -1508,10 +1511,7 @@ async def tool_dispatch_helper(
     pair_set = {(h["host"], h["role"]) for h in available}
     if (host, role) not in pair_set:
         pretty = sorted(f"{r}@{h}" for h, r in pair_set)
-        return (
-            f"ERROR: ({host!r}, {role!r}) is not a connected helper. "
-            f"Available: {pretty}"
-        )
+        return f"ERROR: ({host!r}, {role!r}) is not a connected helper. Available: {pretty}"
 
     if not title:
         title = task.split("\n", 1)[0][:80].strip() or "helper task"
@@ -1568,6 +1568,7 @@ async def tool_dispatch_helper(
         if recent:
             latest = recent[0]
             from ...channels import extract_channel as _extract
+
             ch, corr = _extract(latest.get("tags") or [])
             if ch and ch != "helper":
                 base_tags.append(f"originating-channel:{ch}")
@@ -1680,8 +1681,7 @@ async def tool_mint_routine(
         return "ERROR: schedule (cron expression) is required"
     if not (purpose or needs or steps or ending):
         return (
-            "ERROR: at least one prompt section (purpose / needs / "
-            "steps / ending) must be provided"
+            "ERROR: at least one prompt section (purpose / needs / steps / ending) must be provided"
         )
     if not routines_mod.validate_cron(schedule):
         return f"ERROR: schedule {schedule!r} is not a valid cron expression"
@@ -1691,10 +1691,7 @@ async def tool_mint_routine(
 
     schedule_human = routines_mod.describe_schedule(schedule)
     composed_prompt = (
-        f"# Purpose\n{purpose}\n\n"
-        f"# Needs\n{needs}\n\n"
-        f"# Steps\n{steps}\n\n"
-        f"# Ending\n{ending}\n"
+        f"# Purpose\n{purpose}\n\n# Needs\n{needs}\n\n# Steps\n{steps}\n\n# Ending\n{ending}\n"
     )
 
     payload = {
@@ -1706,8 +1703,7 @@ async def tool_mint_routine(
         # paint a duplicate markdown blob above the structured layout.
         "body": "",
         "tail": (
-            f"Will fire {schedule_human} (`{schedule}`) — operator "
-            f"approves before scheduling."
+            f"Will fire {schedule_human} (`{schedule}`) — operator approves before scheduling."
         ),
         "route": "tool:routines",
         "tool": "routines",
@@ -1784,6 +1780,7 @@ async def tool_orient_shift(*, reason: str = "", session_tag: str = "") -> str:
     immediately — the regen runs async and the caller doesn't wait.
     """
     import asyncio as _asyncio
+
     from ..feed_orient import regen_from_signal
 
     reason = (reason or "").strip() or "harness signal"
@@ -1861,9 +1858,14 @@ TOOL_MODEL_ARGS = {
     "propose_provenance": {"level", "title", "summary", "from_ids", "rationale", "test_questions"},
     "dispatch_helper": {"host", "role", "task", "title"},
     "mint_routine": {
-        "name", "schedule",
-        "purpose", "needs", "steps", "ending",
-        "single_fire", "title",
+        "name",
+        "schedule",
+        "purpose",
+        "needs",
+        "steps",
+        "ending",
+        "single_fire",
+        "title",
     },
     "orient_shift": {"reason"},
 }

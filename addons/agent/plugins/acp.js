@@ -191,9 +191,7 @@ async function dispatchOne(item, target, inbox, _config) {
       finalText = `[done · ${stop}]`;
     }
     await inbox.reply(corr, { kind: "complete", content: finalText });
-    console.log(
-      `  acp: complete ${corr.slice(0, 12)} (stop=${stop}, ${finalText.length} chars)`,
-    );
+    console.log(`  acp: complete ${corr.slice(0, 12)} (stop=${stop}, ${finalText.length} chars)`);
   } catch (e) {
     console.error(`  acp: dispatch ${corr.slice(0, 12)} failed: ${e.message}`);
     try {
@@ -231,7 +229,7 @@ async function pollOnce(config, inbox, state, targetsByRole) {
     // Spawn dispatch in background; pollOnce returns quickly so the
     // poll cadence stays steady even when a task takes minutes.
     dispatchOne(item, target, inbox, config).catch((e) =>
-      console.error(`  acp: dispatch crashed: ${e.message}`),
+      console.error(`  acp: dispatch crashed: ${e.message}`)
     );
   }
   if (resp.cursor) state.last_seen = resp.cursor;
@@ -279,7 +277,7 @@ export default {
     if (!helperRoles.length) {
       console.log(
         `  acp: no targets configured — plugin idle. Add entries to ` +
-          `plugins.acp.targets in ~/.fathom/agent.json.`,
+          `plugins.acp.targets in ~/.fathom/agent.json.`
       );
       return { stop() {} };
     }
@@ -297,7 +295,7 @@ export default {
       console.error(
         `  acp: duplicate role names in targets — refusing to start: ` +
           `[${[...new Set(dupRoles)].join(", ")}]. Each role must be ` +
-          `unique within plugins.acp.targets.`,
+          `unique within plugins.acp.targets.`
       );
       return { stop() {} };
     }
@@ -320,12 +318,13 @@ export default {
     const state = { last_seen: new Date(Date.now() - 60_000).toISOString() };
     const myHost = config.host || hostname().split(".")[0];
     console.log(
-      `  acp: polling /v1/helpers/${myHost}/inbox for roles [${[...targetsByRole.keys()].join(", ")}]`,
+      `  acp: polling /v1/helpers/${myHost}/inbox for roles [${[...targetsByRole.keys()].join(", ")}]`
     );
 
-    const tick = () => pollOnce(config, inbox, state, targetsByRole).catch((e) =>
-      console.error(`  acp: tick failed: ${e.message}`),
-    );
+    const tick = () =>
+      pollOnce(config, inbox, state, targetsByRole).catch((e) =>
+        console.error(`  acp: tick failed: ${e.message}`)
+      );
     const timer = setInterval(tick, config.poll_interval_ms || 3000);
     tick();
 

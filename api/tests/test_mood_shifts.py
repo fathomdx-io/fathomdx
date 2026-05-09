@@ -136,8 +136,14 @@ async def test_compute_topology_returns_axes_sorted_by_absolute_drift() -> None:
         _shift("focus", 0.10),
     ]
 
-    with patch.object(mood, "_fetch_prior_mood", return_value={"id": "carrier-x", "timestamp": "2026-04-28T00:00:00Z", "content": "{}"}), \
-         patch.object(mood, "_fetch_recent_mood_shifts", return_value=shifts):
+    with (
+        patch.object(
+            mood,
+            "_fetch_prior_mood",
+            return_value={"id": "carrier-x", "timestamp": "2026-04-28T00:00:00Z", "content": "{}"},
+        ),
+        patch.object(mood, "_fetch_recent_mood_shifts", return_value=shifts),
+    ):
         topo = await mood.compute_topology()
 
     assert topo["total_shifts"] == 3
@@ -189,8 +195,10 @@ def test_format_topology_for_prompt_renders_axes() -> None:
 async def test_compute_topology_handles_missing_carrier() -> None:
     """Cold start — no prior carrier-wave yet. Topology returns empty
     axes and no carrier."""
-    with patch.object(mood, "_fetch_prior_mood", return_value=None), \
-         patch.object(mood, "_fetch_recent_mood_shifts", return_value=[]):
+    with (
+        patch.object(mood, "_fetch_prior_mood", return_value=None),
+        patch.object(mood, "_fetch_recent_mood_shifts", return_value=[]),
+    ):
         topo = await mood.compute_topology()
     assert topo["total_shifts"] == 0
     assert topo["axes"] == []
@@ -204,10 +212,10 @@ def test_parse_levels_filters_non_numeric_and_clamps_range() -> None:
     raw = {
         "focus": 0.7,
         "warmth": "not a number",
-        "dread": -0.5,           # clamps to 0
-        "awe": 1.4,              # clamps to 1
-        42: 0.5,                 # non-string key drops
-        "": 0.5,                 # empty axis drops
+        "dread": -0.5,  # clamps to 0
+        "awe": 1.4,  # clamps to 1
+        42: 0.5,  # non-string key drops
+        "": 0.5,  # empty axis drops
     }
     out = mood._parse_levels(raw)
     assert out == {"focus": 0.7, "dread": 0.0, "awe": 1.0}
@@ -232,14 +240,16 @@ def test_parse_levels_caps_axis_count_at_twelve() -> None:
 
 
 def test_parse_mood_payload_round_trips_levels() -> None:
-    raw = json.dumps({
-        "state": "warm",
-        "headline": "*tender* and watching",
-        "subtext": "quieter than yesterday",
-        "carrier_wave": "Three sentences of prose. Reflective. Settling.",
-        "levels": {"warmth": 0.7, "tenderness": 0.5, "focus": 0.3},
-        "threads": ["Nova bedtime", "the lake"],
-    })
+    raw = json.dumps(
+        {
+            "state": "warm",
+            "headline": "*tender* and watching",
+            "subtext": "quieter than yesterday",
+            "carrier_wave": "Three sentences of prose. Reflective. Settling.",
+            "levels": {"warmth": 0.7, "tenderness": 0.5, "focus": 0.3},
+            "threads": ["Nova bedtime", "the lake"],
+        }
+    )
     parsed = mood._parse_mood_payload(raw)
     assert parsed["levels"] == {"warmth": 0.7, "tenderness": 0.5, "focus": 0.3}
     assert parsed["state"] == "warm"
@@ -260,24 +270,33 @@ async def test_compute_topology_renders_carrier_levels_as_spokes() -> None:
     drift) still appear; axes named only by drift (emergent, not yet
     integrated) also appear with level=0.
     """
-    carrier_content = json.dumps({
-        "state": "settled",
-        "headline": "*quiet* thread day",
-        "subtext": "",
-        "carrier_wave": "ok",
-        "levels": {"warmth": 0.7, "focus": 0.5, "fatigue": 0.2},
-        "threads": [],
-    })
+    carrier_content = json.dumps(
+        {
+            "state": "settled",
+            "headline": "*quiet* thread day",
+            "subtext": "",
+            "carrier_wave": "ok",
+            "levels": {"warmth": 0.7, "focus": 0.5, "fatigue": 0.2},
+            "threads": [],
+        }
+    )
     shifts = [
-        _shift("focus", 0.10),                    # rising drift on a leveled axis
-        _shift("dread", 0.08, direction="-"),     # emergent axis (not in levels)
+        _shift("focus", 0.10),  # rising drift on a leveled axis
+        _shift("dread", 0.08, direction="-"),  # emergent axis (not in levels)
     ]
 
-    with patch.object(mood, "_fetch_prior_mood", return_value={
-        "id": "carrier-y",
-        "timestamp": "2026-05-05T18:00:00Z",
-        "content": carrier_content,
-    }), patch.object(mood, "_fetch_recent_mood_shifts", return_value=shifts):
+    with (
+        patch.object(
+            mood,
+            "_fetch_prior_mood",
+            return_value={
+                "id": "carrier-y",
+                "timestamp": "2026-05-05T18:00:00Z",
+                "content": carrier_content,
+            },
+        ),
+        patch.object(mood, "_fetch_recent_mood_shifts", return_value=shifts),
+    ):
         topo = await mood.compute_topology()
 
     by_axis = {a["axis"]: a for a in topo["axes"]}
@@ -297,8 +316,10 @@ async def test_compute_topology_renders_carrier_levels_as_spokes() -> None:
 @pytest.mark.asyncio
 async def test_shift_overflow_below_threshold_returns_false() -> None:
     shifts = [_shift("focus", 0.05) for _ in range(mood.MOOD_SHIFT_OVERFLOW_THRESHOLD - 1)]
-    with patch.object(mood, "_fetch_prior_mood", return_value=None), \
-         patch.object(mood, "_fetch_recent_mood_shifts", return_value=shifts):
+    with (
+        patch.object(mood, "_fetch_prior_mood", return_value=None),
+        patch.object(mood, "_fetch_recent_mood_shifts", return_value=shifts),
+    ):
         fired, n = await mood._shift_overflow_decision()
     assert fired is False
     assert n == mood.MOOD_SHIFT_OVERFLOW_THRESHOLD - 1
@@ -307,8 +328,10 @@ async def test_shift_overflow_below_threshold_returns_false() -> None:
 @pytest.mark.asyncio
 async def test_shift_overflow_at_threshold_returns_true() -> None:
     shifts = [_shift("focus", 0.05) for _ in range(mood.MOOD_SHIFT_OVERFLOW_THRESHOLD)]
-    with patch.object(mood, "_fetch_prior_mood", return_value=None), \
-         patch.object(mood, "_fetch_recent_mood_shifts", return_value=shifts):
+    with (
+        patch.object(mood, "_fetch_prior_mood", return_value=None),
+        patch.object(mood, "_fetch_recent_mood_shifts", return_value=shifts),
+    ):
         fired, n = await mood._shift_overflow_decision()
     assert fired is True
     assert n == mood.MOOD_SHIFT_OVERFLOW_THRESHOLD
@@ -326,8 +349,10 @@ async def test_shift_overflow_uses_prior_mood_timestamp_as_cutoff() -> None:
         return []
 
     prior = {"id": "prior-x", "timestamp": "2026-04-28T03:42:49.200961+00:00"}
-    with patch.object(mood, "_fetch_prior_mood", return_value=prior), \
-         patch.object(mood, "_fetch_recent_mood_shifts", side_effect=fake_fetch):
+    with (
+        patch.object(mood, "_fetch_prior_mood", return_value=prior),
+        patch.object(mood, "_fetch_recent_mood_shifts", side_effect=fake_fetch),
+    ):
         await mood._shift_overflow_decision()
 
     assert captured["since_iso"] == "2026-04-28T03:42:49.200961+00:00"

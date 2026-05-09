@@ -459,9 +459,7 @@ def _apply_valence_rerank(deltas_by_step: dict[str, list[dict]]) -> None:
                 d["distance"] = float(base) * multiplier
             any_distance = True
         if any_distance:
-            deltas.sort(
-                key=lambda d: (d.get("distance") is None, d.get("distance") or 0.0)
-            )
+            deltas.sort(key=lambda d: (d.get("distance") is None, d.get("distance") or 0.0))
 
 
 _CLOUD_LABEL_BY_PREFIX = {
@@ -535,7 +533,9 @@ def _format_strip_header(t_start: str, t_end: str) -> str:
 
 
 def _render_timelines(
-    timelines: list[dict], *, query: str,
+    timelines: list[dict],
+    *,
+    query: str,
     provenance_deltas: list[dict] | None = None,
 ) -> str:
     """Render a list of timeline strips as the LLM-facing markdown block.
@@ -582,14 +582,16 @@ def _render_timelines(
     # Containers-active block — provenance / qa-marker deltas that the
     # upward expansion pulled in. Sorted level-desc so eras read first.
     if provenance_deltas:
+
         def _level(d: dict) -> int:
-            for t in (d.get("tags") or []):
+            for t in d.get("tags") or []:
                 if isinstance(t, str) and t.startswith("provenance-level:"):
                     try:
                         return int(t.split(":", 1)[1])
                     except (TypeError, ValueError):
                         return 0
             return 0
+
         sorted_provs = sorted(provenance_deltas, key=lambda d: -_level(d))
         cont_lines = [
             "  ── containers active in this recall ──",
@@ -616,9 +618,7 @@ def _render_timelines(
         anchors = [d for d in deltas if _normalize_delta(d).get("is_anchor")]
         ambient = [d for d in deltas if not _normalize_delta(d).get("is_anchor")]
 
-        anchor_lines = [
-            timeline_renderers.render_delta(_normalize_delta(d)) for d in anchors
-        ]
+        anchor_lines = [timeline_renderers.render_delta(_normalize_delta(d)) for d in anchors]
         anchor_lines = [ln for ln in anchor_lines if ln]
         anchor_block_size = len(header_line) + sum(len(ln) + 1 for ln in anchor_lines)
 
@@ -636,9 +636,7 @@ def _render_timelines(
 
         # Ambient is the first thing dropped under budget pressure.
         if anchors and ambient:
-            ambient_lines = [
-                timeline_renderers.render_delta(_normalize_delta(d)) for d in ambient
-            ]
+            ambient_lines = [timeline_renderers.render_delta(_normalize_delta(d)) for d in ambient]
             ambient_lines = [ln for ln in ambient_lines if ln]
             divider = "  ── surrounding context ──"
             divider_emitted = False
@@ -767,9 +765,7 @@ async def search(
     )
 
 
-async def _shallow(
-    text: str, *, limit: int, threshold: float | None, view: str = "deltas"
-) -> dict:
+async def _shallow(text: str, *, limit: int, threshold: float | None, view: str = "deltas") -> dict:
     # Shallow timeline-view runs the search via the plan executor instead
     # of the bare /search endpoint so the timeline step has a parent to
     # reference. One round-trip; same hit set as the legacy path because
@@ -955,7 +951,7 @@ async def _build_result_from_plan_response(
         # can naturally extend / skip rather than re-propose.
         provenance_deltas: list[dict] = []
         prov_seen: set[str] = set()
-        for sid, ds in deltas_by_step.items():
+        for _sid, ds in deltas_by_step.items():
             for d in ds:
                 tags = d.get("tags") or []
                 if "kind:provenance" not in tags and "kind:qa-marker" not in tags:
@@ -966,7 +962,9 @@ async def _build_result_from_plan_response(
                 prov_seen.add(did)
                 provenance_deltas.append(d)
         as_prompt = _render_timelines(
-            timelines, query=text, provenance_deltas=provenance_deltas,
+            timelines,
+            query=text,
+            provenance_deltas=provenance_deltas,
         )
     else:
         as_prompt = _render_tree(tree, deltas_by_step)
@@ -1014,6 +1012,7 @@ async def _load_provenance_parent_index() -> dict[str, list[str]]:
     path is constant.
     """
     import time
+
     global _PROVENANCE_PARENT_CACHE, _PROVENANCE_PARENT_CACHE_TS
     now = time.time()
     if (
@@ -1035,7 +1034,7 @@ async def _load_provenance_parent_index() -> dict[str, list[str]]:
                 continue
             for t in d.get("tags") or []:
                 if isinstance(t, str) and t.startswith("from:"):
-                    cid = t[len("from:"):].strip()
+                    cid = t[len("from:") :].strip()
                     if cid:
                         parents.setdefault(cid, []).append(pid)
 
@@ -1121,9 +1120,7 @@ async def _expand_upward_to_provenance(
     )
 
 
-def _provenance_ids_from_deltas(
-    deltas: list[dict], already_seen: set[str]
-) -> list[str]:
+def _provenance_ids_from_deltas(deltas: list[dict], already_seen: set[str]) -> list[str]:
     """Pull `from:<id>` pointers off any provenance-shaped delta — both
     kind:sediment (reactive recall) and kind:provenance (intentional
     hierarchy: Q/A markers, hand-curated episodes, topics, eras).

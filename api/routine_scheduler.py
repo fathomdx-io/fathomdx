@@ -75,9 +75,7 @@ async def _hydrate_last_fires() -> None:
     seen: dict[str, float] = {}
     for tag in ("routine-tick", "routine-fire"):
         try:
-            deltas = await delta_client.query(
-                limit=500, tags_include=[tag]
-            )
+            deltas = await delta_client.query(limit=500, tags_include=[tag])
         except Exception as e:
             print(
                 f"[routine-scheduler] lake unreachable on hydrate ({tag}, "
@@ -114,8 +112,7 @@ async def _check_once() -> None:
         specs = await routines_mod._spec_deltas()
     except Exception as e:
         print(
-            f"[routine-scheduler] lake unreachable, skipping tick "
-            f"({type(e).__name__}: {e})",
+            f"[routine-scheduler] lake unreachable, skipping tick ({type(e).__name__}: {e})",
             flush=True,
         )
         return
@@ -157,8 +154,7 @@ async def _check_once() -> None:
             _last_fire_at[rid] = now
         except Exception as e:
             print(
-                f"[routine-scheduler] fire failed for {rid}: "
-                f"{type(e).__name__}: {e}",
+                f"[routine-scheduler] fire failed for {rid}: {type(e).__name__}: {e}",
                 flush=True,
             )
             continue
@@ -180,8 +176,7 @@ async def _check_once() -> None:
 
 async def _loop() -> None:
     print(
-        f"[routine-scheduler] loop starting "
-        f"(poll={settings.routine_scheduler_poll_seconds}s)",
+        f"[routine-scheduler] loop starting (poll={settings.routine_scheduler_poll_seconds}s)",
         flush=True,
     )
     assert _stop_event is not None

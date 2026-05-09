@@ -103,9 +103,7 @@ async def test_chat_empty_choices_returns_empty_assistant():
     """Providers occasionally return zero choices on bad input — don't
     crash, return a valid empty assistant turn."""
     fake_client = MagicMock()
-    fake_client.chat.completions.create = AsyncMock(
-        return_value=SimpleNamespace(choices=[])
-    )
+    fake_client.chat.completions.create = AsyncMock(return_value=SimpleNamespace(choices=[]))
     with patch.object(llm, "_resolve_client_and_model", return_value=(fake_client, "m")):
         out = await llm.loop_generate_chat(messages=[{"role": "user", "content": "hi"}])
     assert out == {"role": "assistant", "content": ""}

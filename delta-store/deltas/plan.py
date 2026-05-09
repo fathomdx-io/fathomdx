@@ -175,9 +175,7 @@ class PlanExecutor:
             elif action == "neighbors":
                 source_rows = resolved.get(step.neighbors, [])
                 if not source_rows:
-                    warnings.append(
-                        f"step '{step.id}' skipped: input '{step.neighbors}' is empty"
-                    )
+                    warnings.append(f"step '{step.id}' skipped: input '{step.neighbors}' is empty")
                     resolved[step.id] = []
                     continue
                 rows = await self._exec_neighbors(step, source_rows)
@@ -186,9 +184,7 @@ class PlanExecutor:
             elif action == "timeline":
                 source_rows = resolved.get(step.timeline, [])
                 if not source_rows:
-                    warnings.append(
-                        f"step '{step.id}' skipped: input '{step.timeline}' is empty"
-                    )
+                    warnings.append(f"step '{step.id}' skipped: input '{step.timeline}' is empty")
                     timelines_by_step[step.id] = []
                     resolved[step.id] = []
                     continue
@@ -211,18 +207,14 @@ class PlanExecutor:
 
         # Build response
         elapsed_ms = (time.monotonic() - t0) * 1000
-        step_results: dict[
-            str, StepResultDeltas | StepResultAggregate | StepResultTimelines
-        ] = {}
+        step_results: dict[str, StepResultDeltas | StepResultAggregate | StepResultTimelines] = {}
 
         for step in steps:
             action = self._action_type(step)
 
             if action == "timeline":
                 tls = timelines_by_step.get(step.id, [])
-                count = sum(
-                    1 for tl in tls for d in tl["deltas"] if d.kind != "collapsed"
-                )
+                count = sum(1 for tl in tls for d in tl["deltas"] if d.kind != "collapsed")
                 step_results[step.id] = StepResultTimelines(
                     count=count,
                     timelines=[
@@ -614,9 +606,7 @@ class PlanExecutor:
 
     # ── Timeline execution ───────────────────────────────────────────────
 
-    async def _exec_timeline(
-        self, step: PlanStep, seeds: list[dict]
-    ) -> list[dict]:
+    async def _exec_timeline(self, step: PlanStep, seeds: list[dict]) -> list[dict]:
         """For each seed, build a chronological strip of surrounding deltas.
 
         Returns a list of timeline dicts ordered by t_start, where each
@@ -750,9 +740,7 @@ class PlanExecutor:
                 max_per_side=max_per_side,
             )
             collapsed = self._collapse_runs(
-                self._collapse_same_second_bursts(
-                    trimmed, protected_ids={seed_id}
-                ),
+                self._collapse_same_second_bursts(trimmed, protected_ids={seed_id}),
                 collapse_sources,
                 protected_ids={seed_id},
             )
@@ -764,8 +752,8 @@ class PlanExecutor:
                     "anchor_ids": anchor_set,
                     "t_start": t_start,
                     "t_end": t_end,
-                    "rows": collapsed,         # mix of real dicts + collapsed virtuals
-                    "_raw_rows": trimmed,      # real dicts only, pre-collapse
+                    "rows": collapsed,  # mix of real dicts + collapsed virtuals
+                    "_raw_rows": trimmed,  # real dicts only, pre-collapse
                 }
             )
 
@@ -802,9 +790,7 @@ class PlanExecutor:
                 prev["_raw_rows"] = merged_raws
                 merged_anchor_set = set(prev["anchor_ids"]) | set(w["anchor_ids"])
                 prev["rows"] = self._collapse_runs(
-                    self._collapse_same_second_bursts(
-                        merged_raws, protected_ids=merged_anchor_set
-                    ),
+                    self._collapse_same_second_bursts(merged_raws, protected_ids=merged_anchor_set),
                     collapse_sources,
                     protected_ids=merged_anchor_set,
                 )

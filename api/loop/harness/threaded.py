@@ -27,6 +27,7 @@ Phase 2 ships this alongside the legacy harness — nothing in
 production calls `run_threaded_fire` yet. Phase 3 cuts the
 supervisor over.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -43,7 +44,6 @@ from ..intents import CONVO_TAG
 from ..llm import loop_generate_chat
 from ..puddle import puddle as _puddle
 from . import tool_schemas
-
 
 _TRACE_ARGS_CAP = 1500
 _TRACE_RESULT_CAP = 1500
@@ -516,7 +516,9 @@ def _build_system_message(
         parts.append("")
     elif available_helpers is not None:
         parts.append("AVAILABLE HELPERS")
-        parts.append("  (none online — dispatch_helper proposals will queue but no host will pick them up right now)")
+        parts.append(
+            "  (none online — dispatch_helper proposals will queue but no host will pick them up right now)"
+        )
         parts.append("")
     parts.append("USER MESSAGES AWAITING RESPONSE")
     parts.append(_render_tally(unaddressed))
@@ -638,6 +640,7 @@ async def run_threaded_fire(
         try:
             from . import tools as legacy_tools  # noqa  (force module init)
             from .. import witness as witness_mod
+
             available_helpers = await witness_mod._available_helpers()
         except Exception:
             available_helpers = None
@@ -664,6 +667,7 @@ async def run_threaded_fire(
     # the dashboard's thinking accordion.
     if not session_tag:
         import uuid as _uuid
+
         session_tag = f"session:threaded-{_uuid.uuid4().hex[:12]}"
 
     # Fire-start trace — gives the dashboard an immediate session →
@@ -715,7 +719,8 @@ async def run_threaded_fire(
         # against it (semantic, etc) rather than re-planning.
         active_tools = (
             [t for t in tools if (t.get("function") or {}).get("name") != "plan"]
-            if plan_called else tools
+            if plan_called
+            else tools
         )
         try:
             asst = await loop_generate_chat(
@@ -726,6 +731,7 @@ async def run_threaded_fire(
             )
         except Exception as e:
             from ..llm_errors import summarize as _summarize_llm_error
+
             err_summary = _summarize_llm_error(tier="hard", exc=e)
             print(
                 f"[threaded-fire] LLM call crashed turn {turn}: "
@@ -758,16 +764,13 @@ async def run_threaded_fire(
                     extra_tags=[
                         "system-error",
                         f"system-error-class:{err_summary['class']}",
-                        f"system-error-tier:hard",
+                        "system-error-tier:hard",
                         *pending_routing_tags,
                     ],
                 )
                 error_lake_id = (d or {}).get("id") or ""
             except Exception as ae:
-                print(
-                    f"[threaded-fire] error-row append failed: "
-                    f"{type(ae).__name__}: {ae}"
-                )
+                print(f"[threaded-fire] error-row append failed: {type(ae).__name__}: {ae}")
             # Stamp tally-marks so `thread.unaddressed` drops these
             # ids — the unaddressed filter looks at kind:tally-mark
             # deltas, NOT assistant addresses: tags. Without this the
@@ -796,10 +799,7 @@ async def run_threaded_fire(
                         route="chat-reply",
                     )
                 except Exception as ae:
-                    print(
-                        f"[threaded-fire] error puddle-bridge failed: "
-                        f"{type(ae).__name__}: {ae}"
-                    )
+                    print(f"[threaded-fire] error puddle-bridge failed: {type(ae).__name__}: {ae}")
             return {
                 "final_response": None,
                 "turns": turns_used,
@@ -847,32 +847,44 @@ async def run_threaded_fire(
                         cb = (c.get("body") or "").strip()
                         if not cb:
                             continue
-                        cards_clean.append({
-                            "kicker": (c.get("kicker") or "").strip(),
-                            "title": (c.get("title") or "").strip(),
-                            "body": cb,
-                            "tail": (c.get("tail") or "").strip(),
-                            "media_hash": (c.get("media_hash") or "").strip(),
-                        })
+                        cards_clean.append(
+                            {
+                                "kicker": (c.get("kicker") or "").strip(),
+                                "title": (c.get("title") or "").strip(),
+                                "body": cb,
+                                "tail": (c.get("tail") or "").strip(),
+                                "media_hash": (c.get("media_hash") or "").strip(),
+                            }
+                        )
                 body = (args.get("body") or "").strip()
                 if not cards_clean and body:
-                    cards_clean = [{
-                        "kicker": (args.get("kicker") or "").strip(),
-                        "title": (args.get("title") or "").strip(),
-                        "body": body,
-                        "tail": (args.get("tail") or "").strip(),
-                        "media_hash": (args.get("media_hash") or "").strip(),
-                    }]
+                    cards_clean = [
+                        {
+                            "kicker": (args.get("kicker") or "").strip(),
+                            "title": (args.get("title") or "").strip(),
+                            "body": body,
+                            "tail": (args.get("tail") or "").strip(),
+                            "media_hash": (args.get("media_hash") or "").strip(),
+                        }
+                    ]
                 # Thread sees the joined prose so a follow-up turn can
                 # reference the full reply as one assistant message;
                 # the puddle gets one delta per card for the dashboard.
-                joined_body = "\n\n".join(
-                    "\n".join(filter(None, [
-                        f"**{c['title']}**" if c["title"] else "",
-                        c["body"],
-                    ]))
-                    for c in cards_clean
-                ).strip() or body
+                joined_body = (
+                    "\n\n".join(
+                        "\n".join(
+                            filter(
+                                None,
+                                [
+                                    f"**{c['title']}**" if c["title"] else "",
+                                    c["body"],
+                                ],
+                            )
+                        )
+                        for c in cards_clean
+                    ).strip()
+                    or body
+                )
                 resp_addresses = args.get("addresses") or []
                 if isinstance(resp_addresses, list):
                     addresses_clean = [str(a) for a in resp_addresses if a]
@@ -888,10 +900,7 @@ async def run_threaded_fire(
                 if explicit_route in ("chat-reply", "feed-card", "alert"):
                     chosen_route = explicit_route
                 else:
-                    has_titled_card = any(
-                        c.get("kicker") or c.get("title")
-                        for c in cards_clean
-                    )
+                    has_titled_card = any(c.get("kicker") or c.get("title") for c in cards_clean)
                     chosen_route = "feed-card" if has_titled_card else "chat-reply"
                 final_response = {
                     "body": joined_body,
@@ -942,30 +951,36 @@ async def run_threaded_fire(
             # user content block. Most providers reject image_url
             # inside role:tool, so this shape works everywhere.
             if isinstance(tool_result, str) and tool_result.startswith(IMAGE_RESULT_PREFIX):
-                data_uri = tool_result[len(IMAGE_RESULT_PREFIX):]
+                data_uri = tool_result[len(IMAGE_RESULT_PREFIX) :]
                 mh = str(args.get("media_hash") or "?")
-                chat_msgs.append({
-                    "role": "tool",
-                    "tool_call_id": tcid,
-                    "content": f"Image loaded (media_hash: {mh}). See the next message.",
-                })
-                chat_msgs.append({
-                    "role": "user",
-                    "content": [
-                        {
-                            "type": "text",
-                            "text": f"[System: image from delta lake, media_hash={mh}]",
-                        },
-                        {"type": "image_url", "image_url": {"url": data_uri}},
-                    ],
-                })
+                chat_msgs.append(
+                    {
+                        "role": "tool",
+                        "tool_call_id": tcid,
+                        "content": f"Image loaded (media_hash: {mh}). See the next message.",
+                    }
+                )
+                chat_msgs.append(
+                    {
+                        "role": "user",
+                        "content": [
+                            {
+                                "type": "text",
+                                "text": f"[System: image from delta lake, media_hash={mh}]",
+                            },
+                            {"type": "image_url", "image_url": {"url": data_uri}},
+                        ],
+                    }
+                )
                 trace_result = f"Image loaded: media_hash={mh}"
             else:
-                chat_msgs.append({
-                    "role": "tool",
-                    "tool_call_id": tcid,
-                    "content": tool_result,
-                })
+                chat_msgs.append(
+                    {
+                        "role": "tool",
+                        "tool_call_id": tcid,
+                        "content": tool_result,
+                    }
+                )
                 trace_result = tool_result
 
             # Trace this tool call so the dashboard's thinking
@@ -1036,7 +1051,9 @@ async def run_threaded_fire(
                 )
                 print(f"[threaded-fire] auto-claimed {uid[:12]}")
             except Exception as e:
-                print(f"[threaded-fire] auto-claim mark failed for {uid[:12]}: {type(e).__name__}: {e}")
+                print(
+                    f"[threaded-fire] auto-claim mark failed for {uid[:12]}: {type(e).__name__}: {e}"
+                )
         # If any card carries an image, stamp it on the thread message
         # so future fires' projection annotates [Image attached:…] when
         # this reply scrolls through the rolling window. First non-empty
@@ -1072,6 +1089,7 @@ async def run_threaded_fire(
         if lake_id:
             try:
                 from .. import witness as witness_mod
+
                 await witness_mod._write_constituting_writes(
                     lake_card_id=lake_id,
                     attestation=final_response.get("attestation") or "",
@@ -1090,10 +1108,7 @@ async def run_threaded_fire(
         # Feed-tier fires (pressure-feed) route as feed-card, not
         # chat-reply, so the card surfaces in the feed rather than the
         # conversation thread.
-        _is_feed_fire = any(
-            "msg-kind:pressure-feed" in (p.get("tags") or [])
-            for p in pending
-        )
+        _is_feed_fire = any("msg-kind:pressure-feed" in (p.get("tags") or []) for p in pending)
         _sit_round: int | None = None
         _sit_max_rounds: int | None = None
         _sit_session: str = ""
@@ -1116,8 +1131,7 @@ async def run_threaded_fire(
         # chosen route, which defaults to feed-card when cards are
         # provided and chat-reply otherwise (set in the respond branch).
         bridge_route = (
-            "feed-card" if _is_feed_fire
-            else (final_response.get("route") or "chat-reply")
+            "feed-card" if _is_feed_fire else (final_response.get("route") or "chat-reply")
         )
         await _bridge_to_puddle_feed(
             body=final_response["body"],
@@ -1238,10 +1252,14 @@ def _tool_history_summary(chat_msgs: list[dict]) -> str:
         elif role == "tool":
             tcid = m.get("tool_call_id") or ""
             call = pending_calls.pop(tcid, None) or {"name": "?", "args": "{}"}
-            content = (m.get("content") or "")
+            content = m.get("content") or ""
             lines.append(f"  · {call['name']}({call['args']})")
             # Truncate result so a 50KB recall doesn't bloat the prompt.
-            result = content if len(content) <= 1500 else content[:1500] + f"\n…[truncated {len(content) - 1500} chars]"
+            result = (
+                content
+                if len(content) <= 1500
+                else content[:1500] + f"\n…[truncated {len(content) - 1500} chars]"
+            )
             lines.append(f"    → {result}")
     return "\n".join(lines) if lines else "  (no tool calls)"
 
@@ -1443,12 +1461,12 @@ async def _maybe_continue_inquiry(
     next_depth = cur_chain_depth + 1
     if next_depth > MAX_AUTO_CONTINUE_CHAIN:
         print(
-            f"[threaded-fire] continuation chain hit cap "
-            f"({MAX_AUTO_CONTINUE_CHAIN}) — terminating"
+            f"[threaded-fire] continuation chain hit cap ({MAX_AUTO_CONTINUE_CHAIN}) — terminating"
         )
         return
 
     from datetime import UTC, datetime
+
     fired_at = datetime.now(UTC).isoformat(timespec="milliseconds").replace("+00:00", "Z")
     if tier:
         msg_kind = f"pressure-{tier}"
@@ -1470,11 +1488,7 @@ async def _maybe_continue_inquiry(
 
     # Carry the prior reply + the model's own next_prompt, so the next
     # fire has its own thinking visible alongside the seed.
-    wrapped_content = (
-        f"You just said:\n\n{body}\n\n"
-        "──\n\n"
-        f"{next_prompt}"
-    )
+    wrapped_content = f"You just said:\n\n{body}\n\n──\n\n{next_prompt}"
     try:
         await thread_mod.append(
             role="user",
@@ -1486,14 +1500,9 @@ async def _maybe_continue_inquiry(
             extra_tags=extra_tags,
         )
         label = f"sit/{tier}" if tier else "self"
-        print(
-            f"[threaded-fire] {label} continuation → chain-depth {next_depth}"
-        )
+        print(f"[threaded-fire] {label} continuation → chain-depth {next_depth}")
     except Exception as e:
-        print(
-            f"[threaded-fire] continuation append failed: "
-            f"{type(e).__name__}: {e}"
-        )
+        print(f"[threaded-fire] continuation append failed: {type(e).__name__}: {e}")
 
 
 async def _bridge_to_puddle_feed(
@@ -1533,11 +1542,12 @@ async def _bridge_to_puddle_feed(
     addresses linkage is decorative on the card UI side.
     """
     try:
-        from ... import delta_client as lake
-        from ..puddle import puddle
-        from ..intents import CONVO_TAG, Q_A_TTL_S
         import json as _json
         from datetime import UTC, datetime, timedelta
+
+        from ... import delta_client as lake
+        from ..intents import CONVO_TAG, Q_A_TTL_S
+        from ..puddle import puddle
 
         cards_to_write = list(cards or [])
         if not cards_to_write:
@@ -1551,13 +1561,15 @@ async def _bridge_to_puddle_feed(
             # the chat-reply renderer pulls it from the payload too.
             # Carry the same hash on the lake delta's media_hash field
             # so search/recall can surface the image alongside the card.
-            payload = _json.dumps({
-                "kicker": (card.get("kicker") or "").strip(),
-                "title": (card.get("title") or "").strip(),
-                "body": (card.get("body") or "").strip(),
-                "tail": (card.get("tail") or "").strip(),
-                "body_image": card_media_hash or "",
-            })
+            payload = _json.dumps(
+                {
+                    "kicker": (card.get("kicker") or "").strip(),
+                    "title": (card.get("title") or "").strip(),
+                    "body": (card.get("body") or "").strip(),
+                    "tail": (card.get("tail") or "").strip(),
+                    "body_image": card_media_hash or "",
+                }
+            )
             lake_tags = [
                 "feed-card",
                 "synthesis",
@@ -1586,7 +1598,7 @@ async def _bridge_to_puddle_feed(
             except Exception as le:
                 print(f"[threaded-fire] bridge lake write failed: {type(le).__name__}: {le}")
 
-            tags = [CONVO_TAG] + lake_tags
+            tags = [CONVO_TAG, *lake_tags]
             if lake_id:
                 tags.append(f"lake-id:{lake_id}")
                 tags.append(f"recalled-id:{lake_id[:24]}")

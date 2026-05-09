@@ -19,7 +19,6 @@ import json
 from ..channels import extract_channel
 from .puddle import puddle
 
-
 # Rolling 48h horizon — gives the feed real substance, lets the loop
 # resonate against a wider working window, and prevents Q/A from falling
 # off-screen mid-thought. Everything in the puddle aspires to this same
@@ -29,15 +28,15 @@ from .puddle import puddle
 Q_A_TTL_S = 48 * 60 * 60
 
 INTENT_TTL_BY_KIND: dict[str, int] = {
-    "question":    Q_A_TTL_S,
-    "resonance":   Q_A_TTL_S,
-    "pressure":    Q_A_TTL_S,
-    "drop-in":     Q_A_TTL_S,
-    "alert":       Q_A_TTL_S,
+    "question": Q_A_TTL_S,
+    "resonance": Q_A_TTL_S,
+    "pressure": Q_A_TTL_S,
+    "drop-in": Q_A_TTL_S,
+    "alert": Q_A_TTL_S,
     "routine-due": Q_A_TTL_S,
-    "reflection":  Q_A_TTL_S,
-    "drift":       Q_A_TTL_S,
-    "bridging":    Q_A_TTL_S,
+    "reflection": Q_A_TTL_S,
+    "drift": Q_A_TTL_S,
+    "bridging": Q_A_TTL_S,
 }
 
 
@@ -99,6 +98,7 @@ def pending_intents(since_iso: str | None = None) -> list[dict]:
     callers (dormant supervisor, _run_one_fire) see an empty queue.
     """
     import os
+
     if os.environ.get("FATHOM_THREADED_HARNESS", "0") == "1":
         return []
     intents = puddle.query(tags_include=[CONVO_TAG, "intent"], limit=100)
@@ -118,7 +118,7 @@ def pending_intents(since_iso: str | None = None) -> list[dict]:
 
     addressed: set[str] = set()
     for o in outputs:
-        for tag in (o.get("tags") or []):
+        for tag in o.get("tags") or []:
             if tag.startswith("addresses:"):
                 addressed.add(tag.split(":", 1)[1])
 
@@ -157,7 +157,7 @@ def next_intent_group(pending: list[dict]) -> list[dict]:
 def intent_kind(intent: dict) -> str:
     """Extract the kind:<x> tag. Returns 'unknown' for hand-written test
     deltas missing the kind tag."""
-    for t in (intent.get("tags") or []):
+    for t in intent.get("tags") or []:
         if t.startswith("kind:"):
             return t.split(":", 1)[1]
     return "unknown"

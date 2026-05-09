@@ -18,8 +18,8 @@ means one entry, not a tag-format-string scattered across four files.
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Callable
 
 # ── Tag conventions ────────────────────────────────────────────────────
 
@@ -58,7 +58,7 @@ def extract_channel(tags: list[str]) -> tuple[str, str]:
     prefix = f"{channel}-session:"
     for t in tags:
         if t.startswith(prefix):
-            return channel, t[len(prefix):]
+            return channel, t[len(prefix) :]
     return channel, ""
 
 
@@ -81,6 +81,7 @@ def _render_feed(payload: dict) -> str:
     """Feed renderer — the feed reads the JSON payload directly, so this
     is identity. Present for symmetry; the dashboard doesn't call it."""
     import json
+
     return json.dumps(payload, ensure_ascii=False)
 
 
@@ -105,9 +106,9 @@ class Channel:
 
 
 REGISTRY: dict[str, Channel] = {
-    "openai":  Channel(name="openai",  render=_render_openai),
-    "feed":    Channel(name="feed",    render=_render_feed),
-    "helper":  Channel(name="helper",  render=_render_helper),
+    "openai": Channel(name="openai", render=_render_openai),
+    "feed": Channel(name="feed", render=_render_feed),
+    "helper": Channel(name="helper", render=_render_helper),
 }
 
 

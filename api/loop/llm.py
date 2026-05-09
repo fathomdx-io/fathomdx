@@ -29,7 +29,6 @@ from openai import AsyncOpenAI
 from .. import providers
 from ..settings import settings
 
-
 # Concurrency cap — same intent as the experiment's _LLM_SEM. Parliament
 # mode runs voices serially (one tick = one voice), so the cap mostly
 # matters when the witness fires alongside late-arriving voice ticks
@@ -41,8 +40,13 @@ _LLM_SEM = asyncio.Semaphore(int(os.getenv("LOOP_LLM_CONCURRENCY", "6")))
 # subclasses with messages we sniff for. We catch by string-match because
 # the SDK's exception hierarchy varies across providers.
 _RATE_LIMIT_HINTS = (
-    "429", "RESOURCE_EXHAUSTED", "quota", "rate limit",
-    "rate_limit", "Too Many Requests", "RateLimitError",
+    "429",
+    "RESOURCE_EXHAUSTED",
+    "quota",
+    "rate limit",
+    "rate_limit",
+    "Too Many Requests",
+    "RateLimitError",
 )
 
 

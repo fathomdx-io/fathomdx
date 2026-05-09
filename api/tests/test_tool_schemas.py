@@ -13,7 +13,6 @@ import pytest
 
 from api.loop.harness import tool_schemas
 
-
 # ── chat_tools shape ──────────────────────────────────────────────
 
 

@@ -15,7 +15,6 @@ import pytest
 
 from api.loop import threaded_supervisor as ts
 
-
 # ── feature flag ──────────────────────────────────────────────────
 
 
@@ -74,8 +73,10 @@ async def test_loop_skips_fire_when_no_pending(monkeypatch):
     # Run one iteration by setting a tiny poll, kicking the task,
     # then cancelling.
     monkeypatch.setattr(ts, "IDLE_POLL_S", 0.01)
-    with patch.object(ts.thread_mod, "build_window", AsyncMock(side_effect=fake_window)), \
-         patch.object(ts, "run_threaded_fire", AsyncMock(side_effect=fake_fire)):
+    with (
+        patch.object(ts.thread_mod, "build_window", AsyncMock(side_effect=fake_window)),
+        patch.object(ts, "run_threaded_fire", AsyncMock(side_effect=fake_fire)),
+    ):
         task = asyncio.create_task(ts._supervisor_loop())
         await asyncio.sleep(0.05)
         task.cancel()
@@ -104,8 +105,10 @@ async def test_loop_fires_when_pending_present(monkeypatch):
 
     monkeypatch.setattr(ts, "IDLE_POLL_S", 0.01)
     monkeypatch.setattr(ts, "BUSY_GAP_S", 0.01)
-    with patch.object(ts.thread_mod, "build_window", AsyncMock(side_effect=fake_window)), \
-         patch.object(ts, "run_threaded_fire", AsyncMock(side_effect=fake_fire)):
+    with (
+        patch.object(ts.thread_mod, "build_window", AsyncMock(side_effect=fake_window)),
+        patch.object(ts, "run_threaded_fire", AsyncMock(side_effect=fake_fire)),
+    ):
         task = asyncio.create_task(ts._supervisor_loop())
         await asyncio.sleep(0.1)
         task.cancel()
@@ -145,8 +148,10 @@ async def test_loop_anti_spin_caps_fire_rate(monkeypatch):
     monkeypatch.setattr(ts, "IDLE_POLL_S", 0.01)
     monkeypatch.setattr(ts, "BUSY_GAP_S", 0.005)
     monkeypatch.setattr(ts, "MAX_CONSECUTIVE_FIRES", 3)
-    with patch.object(ts.thread_mod, "build_window", AsyncMock(side_effect=fake_window)), \
-         patch.object(ts, "run_threaded_fire", AsyncMock(side_effect=fake_fire)):
+    with (
+        patch.object(ts.thread_mod, "build_window", AsyncMock(side_effect=fake_window)),
+        patch.object(ts, "run_threaded_fire", AsyncMock(side_effect=fake_fire)),
+    ):
         task = asyncio.create_task(ts._supervisor_loop())
         await asyncio.sleep(0.15)
         task.cancel()
@@ -202,8 +207,10 @@ async def test_loop_survives_fire_error(monkeypatch):
 
     monkeypatch.setattr(ts, "IDLE_POLL_S", 0.01)
     monkeypatch.setattr(ts, "BUSY_GAP_S", 0.01)
-    with patch.object(ts.thread_mod, "build_window", AsyncMock(side_effect=fake_window)), \
-         patch.object(ts, "run_threaded_fire", AsyncMock(side_effect=fake_fire)):
+    with (
+        patch.object(ts.thread_mod, "build_window", AsyncMock(side_effect=fake_window)),
+        patch.object(ts, "run_threaded_fire", AsyncMock(side_effect=fake_fire)),
+    ):
         task = asyncio.create_task(ts._supervisor_loop())
         await asyncio.sleep(0.15)
         task.cancel()
@@ -218,7 +225,9 @@ async def test_loop_survives_fire_error(monkeypatch):
 async def test_loop_responds_to_cancellation(monkeypatch):
     """Cancellation during sleep returns cleanly."""
     monkeypatch.setattr(ts, "IDLE_POLL_S", 5.0)
-    with patch.object(ts.thread_mod, "build_window", AsyncMock(return_value={"messages": [], "unaddressed": []})):
+    with patch.object(
+        ts.thread_mod, "build_window", AsyncMock(return_value={"messages": [], "unaddressed": []})
+    ):
         task = asyncio.create_task(ts._supervisor_loop())
         await asyncio.sleep(0.02)
         task.cancel()
@@ -240,7 +249,11 @@ async def test_start_then_stop_cleans_up(monkeypatch):
     prev_task = ts._supervisor_task
     try:
         ts._supervisor_task = None
-        with patch.object(ts.thread_mod, "build_window", AsyncMock(return_value={"messages": [], "unaddressed": []})):
+        with patch.object(
+            ts.thread_mod,
+            "build_window",
+            AsyncMock(return_value={"messages": [], "unaddressed": []}),
+        ):
             ts.start()
             assert ts._supervisor_task is not None
             assert not ts._supervisor_task.done()
@@ -258,7 +271,11 @@ async def test_start_idempotent(monkeypatch):
     prev_task = ts._supervisor_task
     try:
         ts._supervisor_task = None
-        with patch.object(ts.thread_mod, "build_window", AsyncMock(return_value={"messages": [], "unaddressed": []})):
+        with patch.object(
+            ts.thread_mod,
+            "build_window",
+            AsyncMock(return_value={"messages": [], "unaddressed": []}),
+        ):
             ts.start()
             first = ts._supervisor_task
             ts.start()
@@ -277,8 +294,8 @@ async def test_continuation_msg_picked_up_by_supervisor():
     lands as `role:user msg-kind:self-continue` with no tally mark —
     `thread.unaddressed()` must treat it as a pending msg so the
     supervisor's next poll fires fire-N+1."""
-    from api.loop.harness import threaded
     from api import thread as thread_mod
+    from api.loop.harness import threaded
 
     written: list[dict] = []
 

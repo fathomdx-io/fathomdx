@@ -171,9 +171,7 @@ def _render_dialog(d: dict) -> str:
     role = "user" if "user" in tags else "assistant" if "assistant" in tags else None
     src = (d.get("source") or "?").ljust(13)[:13]
     role_str = f" {role}:" if role else ""
-    return (
-        f"{_anchor_marker(d)} {_short_ts(d)}  {src}·{role_str} {_id_prefix(d)}{_content_oneline(d)}{_media_suffix(d)}"
-    )
+    return f"{_anchor_marker(d)} {_short_ts(d)}  {src}·{role_str} {_id_prefix(d)}{_content_oneline(d)}{_media_suffix(d)}"
 
 
 def _render_sediment(d: dict) -> str:

@@ -18,6 +18,7 @@ See docs/routine-spec.md for the canonical field reference.
 
 from __future__ import annotations
 
+import contextlib
 import time
 from datetime import UTC, datetime
 
@@ -70,12 +71,7 @@ def _compose_scaffold_prompt(body: dict) -> str | None:
     needs = (body.get("needs") or "").strip()
     steps = (body.get("steps") or "").strip()
     ending = (body.get("ending") or "").strip()
-    return (
-        f"# Purpose\n{purpose}\n\n"
-        f"# Needs\n{needs}\n\n"
-        f"# Steps\n{steps}\n\n"
-        f"# Ending\n{ending}\n"
-    )
+    return f"# Purpose\n{purpose}\n\n# Needs\n{needs}\n\n# Steps\n{steps}\n\n# Ending\n{ending}\n"
 
 
 # ── Frontmatter parse / render ───────────────────────────────────────────
@@ -210,19 +206,30 @@ def preview_fires(schedule: str, count: int = 5) -> list[str]:
 _DOW_FULL = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"]
 _DOW_SHORT = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"]
 _MONTH_NAMES = [
-    "", "January", "February", "March", "April", "May", "June",
-    "July", "August", "September", "October", "November", "December",
+    "",
+    "January",
+    "February",
+    "March",
+    "April",
+    "May",
+    "June",
+    "July",
+    "August",
+    "September",
+    "October",
+    "November",
+    "December",
 ]
 
 
 def _describe_field(value: str, names: list[str] | None = None) -> str:
     """Render a single cron field as natural language. Examples:
-        '*'           → 'every'
-        '0'           → '0' (or names[0] if names supplied)
-        '0,15,30,45'  → '0, 15, 30, 45'
-        '17-22'       → '17–22'
-        '*/2'         → 'every 2'
-        '1,3-5'       → '1, 3–5'
+    '*'           → 'every'
+    '0'           → '0' (or names[0] if names supplied)
+    '0,15,30,45'  → '0, 15, 30, 45'
+    '17-22'       → '17–22'
+    '*/2'         → 'every 2'
+    '1,3-5'       → '1, 3–5'
     """
     if value == "*":
         return ""
@@ -231,7 +238,9 @@ def _describe_field(value: str, names: list[str] | None = None) -> str:
         chunk = chunk.strip()
         if "/" in chunk:
             base, step = chunk.split("/", 1)
-            parts.append(f"every {step}" + (f" starting at {base}" if base not in ("*", "0") else ""))
+            parts.append(
+                f"every {step}" + (f" starting at {base}" if base not in ("*", "0") else "")
+            )
         elif "-" in chunk:
             lo, hi = chunk.split("-", 1)
             if names:
@@ -350,7 +359,7 @@ def describe_schedule(cron_expr: str) -> str:
     if dom != "*":
         bits.append(f"day-of-month {dom}")
     if month != "*":
-        bits.append(f"month {_describe_field(month, [''] + _MONTH_NAMES[1:])}")
+        bits.append(f"month {_describe_field(month, ['', *_MONTH_NAMES[1:]])}")
     if dow != "*":
         bits.append(f"weekday {_describe_field(dow, _DOW_SHORT)}")
     return ", ".join(bits) if bits else cron_expr
@@ -661,17 +670,15 @@ async def fire(routine_id: str, prompt_override: str | None = None) -> dict:
     ]
     if host:
         tick_tags.append(f"host:{host}")
-    try:
+    # Tick is hydration-only — the intent already landed in the puddle
+    # so the routine itself isn't lost. Future restart may re-fire it,
+    # which is acceptable, so we suppress write failures here.
+    with contextlib.suppress(Exception):
         await delta_client.write(
             content=f"routine-tick: {routine_id}",
             tags=tick_tags,
             source="routine-scheduler",
         )
-    except Exception:
-        # Tick is hydration-only — the intent already landed in the
-        # puddle so the routine itself isn't lost. Future restart may
-        # re-fire it, which is acceptable.
-        pass
 
     # Phase 1 shadow write: also append to the global thread.
     # Routines fire as user-role messages — they're prompts to Fathom
@@ -688,6 +695,7 @@ async def fire(routine_id: str, prompt_override: str | None = None) -> dict:
     # exact thing for the same reason.
     try:
         from . import thread as thread_mod
+
         thread_extras: list[str] = [f"fired-at:{fired_at}"]
         if host:
             thread_extras.append(f"host:{host}")

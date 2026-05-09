@@ -23,12 +23,12 @@ unaddressed." A new unaddressed message is what wakes the harness.
 The model marks messages addressed via `mark_addressed` (a tool)
 or implicitly via `addresses:` tags on its response.
 """
+
 from __future__ import annotations
 
 from typing import Any
 
 from . import delta_client
-
 
 # ── Tag constants ──────────────────────────────────────────────────
 
@@ -43,6 +43,7 @@ def _t(prefix: str, value: str) -> str:
 
 
 # ── Append API ─────────────────────────────────────────────────────
+
 
 async def append(
     *,
@@ -119,6 +120,7 @@ async def append(
 
 
 # ── Tally API ──────────────────────────────────────────────────────
+
 
 async def mark_addressed(
     *,

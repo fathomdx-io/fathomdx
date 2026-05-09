@@ -86,10 +86,11 @@ async def _mirror_closure_to_puddle(closure: dict, info: dict, corr: str) -> Non
     # "<host> ← claude".
     if info.get("host") and not any(t.startswith("host:") for t in src_tags):
         src_tags.append(f"host:{info['host']}")
-    new_tags = src_tags + [
+    new_tags = [
+        *src_tags,
         CONVO_TAG,
         "lake-delta",
-        f"from-source:claude-code:task",
+        "from-source:claude-code:task",
         f"recalled-id:{short}",
     ]
     try:
@@ -121,7 +122,7 @@ _last_minted: dict[str, str] = {}
 def _tag_value(tags: list[str], prefix: str) -> str:
     for t in tags:
         if t.startswith(prefix):
-            return t[len(prefix):]
+            return t[len(prefix) :]
     return ""
 
 
@@ -153,8 +154,7 @@ async def _dispatch_origin_for_corr(corr: str) -> dict:
         )
     except Exception as e:
         print(
-            f"[claude-code watcher] dispatch lookup failed for {corr[:12]}: "
-            f"{type(e).__name__}: {e}"
+            f"[claude-code watcher] dispatch lookup failed for {corr[:12]}: {type(e).__name__}: {e}"
         )
         return out
     for d in dispatches:
@@ -271,6 +271,7 @@ async def _prime_last_minted() -> None:
          flooding the loop with stale intents.
     """
     from datetime import UTC, datetime
+
     now_iso = datetime.now(UTC).isoformat()
     try:
         completes, abandoned = await asyncio.gather(
@@ -291,7 +292,8 @@ async def _prime_last_minted() -> None:
             primed_from_closures += 1
     try:
         spawns = await delta_client.query(
-            tags_include=["task-spawn"], limit=500,
+            tags_include=["task-spawn"],
+            limit=500,
         )
     except Exception as e:
         print(f"[claude-code watcher] prime (active) failed: {type(e).__name__}: {e}")
@@ -312,7 +314,9 @@ async def _prime_last_minted() -> None:
         )
 
 
-def _build_intent_tags(corr: str, sid: str, info: dict, source_id: str, *, closure: bool) -> list[str]:
+def _build_intent_tags(
+    corr: str, sid: str, info: dict, source_id: str, *, closure: bool
+) -> list[str]:
     tags = [
         channel_tag("helper"),
         correlation_tag("helper", corr),
@@ -377,8 +381,7 @@ async def claude_code_watcher_tick() -> None:
             )
         except Exception as e:
             print(
-                f"[claude-code watcher] query failed for corr {corr[:12]}: "
-                f"{type(e).__name__}: {e}"
+                f"[claude-code watcher] query failed for corr {corr[:12]}: {type(e).__name__}: {e}"
             )
             continue
 
@@ -399,7 +402,9 @@ async def claude_code_watcher_tick() -> None:
                 await write_intent(
                     kind="helper-reply",
                     content=content,
-                    extra_tags=_build_intent_tags(corr, sid, info, r.get("id") or "", closure=False),
+                    extra_tags=_build_intent_tags(
+                        corr, sid, info, r.get("id") or "", closure=False
+                    ),
                     source="claude-code-watcher",
                 )
                 _last_minted[corr] = ts
@@ -408,10 +413,7 @@ async def claude_code_watcher_tick() -> None:
                     f"{corr[:12]} from delta {(r.get('id') or '?')[:8]}"
                 )
             except Exception as e:
-                print(
-                    f"[claude-code watcher] write_intent failed: "
-                    f"{type(e).__name__}: {e}"
-                )
+                print(f"[claude-code watcher] write_intent failed: {type(e).__name__}: {e}")
 
     # ── Closing sessions: mint ONCE from the closure delta ──
     # On a tasked dispatch, claude often runs entirely through tool
@@ -459,10 +461,7 @@ async def claude_code_watcher_tick() -> None:
                 f"{corr[:12]} from delta {closure_id[:8]}"
             )
         except Exception as e:
-            print(
-                f"[claude-code watcher] write_intent (closure) failed: "
-                f"{type(e).__name__}: {e}"
-            )
+            print(f"[claude-code watcher] write_intent (closure) failed: {type(e).__name__}: {e}")
 
         # Phase 5b shadow write: also append the closure to the global
         # thread so the threaded supervisor sees it and fires. Without
@@ -472,6 +471,7 @@ async def claude_code_watcher_tick() -> None:
         # would complete invisibly.
         try:
             from .. import thread as thread_mod
+
             # Propagate the originating chat surface onto the shadow
             # thread row so the threaded harness, when it fires on
             # this closure, can route its chat-reply back to the
@@ -488,9 +488,7 @@ async def claude_code_watcher_tick() -> None:
             if origin.get("channel"):
                 extra.append(f"originating-channel:{origin['channel']}")
                 if origin.get("correlation"):
-                    extra.append(
-                        f"originating-correlation:{origin['correlation']}"
-                    )
+                    extra.append(f"originating-correlation:{origin['correlation']}")
             if origin.get("intent_id"):
                 extra.append(f"originating-intent:{origin['intent_id']}")
             await thread_mod.append(

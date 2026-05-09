@@ -34,7 +34,7 @@ export class Inbox {
       throw new Error(
         "inbox: helper_token not configured — mint one via " +
           "POST /v1/admin/helpers/<host>/tokens and add it to agent.json " +
-          "as `helper_token`",
+          "as `helper_token`"
       );
     }
   }

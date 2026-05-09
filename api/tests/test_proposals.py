@@ -37,8 +37,11 @@ def _proposal_card(delta_id: str = "p-1", tool_args: dict | None = None) -> dict
     return {
         "id": delta_id,
         "tags": [
-            "feed-card", "kind:proposal", "tool:routines",
-            "action:create", "proposal-status:pending",
+            "feed-card",
+            "kind:proposal",
+            "tool:routines",
+            "action:create",
+            "proposal-status:pending",
             "route:tool:routines",
         ],
         "content": json.dumps(payload),

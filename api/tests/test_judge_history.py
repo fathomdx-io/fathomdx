@@ -104,9 +104,7 @@ def test_judge_stats_unparseable_payload_skipped() -> None:
 def test_judge_stats_caps_at_per_kind_limit() -> None:
     """Even if the lake returns 20 reflection cards, the aggregate
     uses at most _PER_KIND_LIMIT recent samples."""
-    rows = [
-        _card("reflection", {"salience": 0.5, "resonance": 0.5, "confidence": 0.5})
-    ] * 20
+    rows = [_card("reflection", {"salience": 0.5, "resonance": 0.5, "confidence": 0.5})] * 20
 
     async def _fake_query(**kwargs):
         return rows

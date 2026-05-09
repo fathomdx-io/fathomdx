@@ -147,9 +147,9 @@ class RecentAlert:
 
     delta_id: str
     timestamp: str
-    route: str       # e.g. "alert:critical" / "alert:warn"
-    title: str       # short label
-    body: str        # excerpt — full body would bloat the prompt
+    route: str  # e.g. "alert:critical" / "alert:warn"
+    title: str  # short label
+    body: str  # excerpt — full body would bloat the prompt
     cited_ids: list[str]
 
 
@@ -466,9 +466,7 @@ async def _load_recent_alerts() -> list[RecentAlert]:
     re-raising on chronic conditions until the dispatch-layer dedup
     catches it as backstop.
     """
-    cutoff_iso = (
-        datetime.now(UTC) - timedelta(hours=ALERT_LOOKBACK_HOURS)
-    ).isoformat()
+    cutoff_iso = (datetime.now(UTC) - timedelta(hours=ALERT_LOOKBACK_HOURS)).isoformat()
     try:
         rows = await delta_client.query(
             tags_include=["feed-card"],
@@ -502,11 +500,7 @@ async def _load_recent_alerts() -> list[RecentAlert]:
                     body = (payload.get("body") or "").strip()
             except Exception:
                 body = raw
-        cited = [
-            t.split(":", 1)[1]
-            for t in tags
-            if isinstance(t, str) and t.startswith("from:")
-        ]
+        cited = [t.split(":", 1)[1] for t in tags if isinstance(t, str) and t.startswith("from:")]
         out.append(
             RecentAlert(
                 delta_id=delta_id,
