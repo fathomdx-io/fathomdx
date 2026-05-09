@@ -180,17 +180,19 @@ async def auto_approve_provenance(
     proposal_id: str,
     args: dict,
     produced_by: str,
-    decided_by: str = "auto-policy:level<=2",
+    decided_by: str = "auto-policy:provenance",
 ) -> dict:
-    """Auto-approve an L1/L2 provenance proposal at write time.
+    """Auto-approve a provenance proposal at write time.
 
     Skips the human-review step: writes the kind:provenance delta with
     `produced_by` matching the proposing producer, then writes a
     proposal-decision delta tagged `decided-by:<value>` so the audit
     trail distinguishes auto-approval from operator approval.
 
-    The proposal itself stays in the lake — the proposals pane folds in
-    decisions client-side and the row will render as approved.
+    Every level (L1/L2/L3+) auto-approves through this same path; L3+
+    additionally pings the operator's header bell as a created-alert.
+    The proposal itself stays in the lake — the proposals pane folds
+    in decisions client-side and the row will render as approved.
     """
     result = await _approve_provenance_create(
         args,
@@ -222,7 +224,7 @@ async def _write_decision(
     """Write the decision delta linked to the original proposal.
 
     `decided_by` distinguishes operator approvals from auto-approved
-    proposals (e.g. "auto-policy:level<=2"). Goes onto a
+    proposals (e.g. "auto-policy:provenance"). Goes onto a
     `decided-by:<value>` tag for later filtering.
     """
     tags = [
@@ -499,17 +501,16 @@ async def draft_proposal(body: dict):
         # is just for live feed visibility.
         print(f"[proposals/draft] puddle echo failed: {type(e).__name__}: {e}")
 
-    # Auto-approve gate: L1 (episodes) and L2 (topics) are bounded
-    # enough that operator review just creates friction. L3 eras and
-    # higher still require explicit approval — they make stronger
-    # claims about identity/structure that warrant a human pass.
+    # Auto-approve gate: every provenance level auto-accepts. L1/L2 are
+    # bounded; L3+ eras make stronger identity claims but the operator
+    # sees them as "L<n> created" alerts in the header bell rather than
+    # as a blocking pending decision.
     auto_approved: dict | None = None
     try:
         level_int = _provenance_level_from_tags(tags)
         tool_args = (payload.get("tool_args") or {}) if isinstance(payload, dict) else {}
         if (
             level_int is not None
-            and level_int <= 2
             and isinstance(tool_args, dict)
             and (payload.get("tool") or "") == "provenance"
             and lake_id

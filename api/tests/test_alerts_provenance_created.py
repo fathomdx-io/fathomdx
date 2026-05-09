@@ -15,7 +15,7 @@ import pytest
 from api.routes import alerts
 
 
-def _prov(*, did: str, level: int = 1, ts: str = "2026-05-05T12:00:00+00:00",
+def _prov(*, did: str, level: int = 3, ts: str = "2026-05-05T12:00:00+00:00",
           title: str = "Test Provenance", body: str = "Summary text.",
           from_count: int = 5):
     tags = ["kind:provenance", f"provenance-level:{level}"]
@@ -40,9 +40,23 @@ async def test_recent_provenance_returns_alerts_when_unviewed():
     assert len(out) == 1
     assert out[0]["kind"] == "provenance-created"
     assert out[0]["delta_id"] == "prov-1"
-    assert out[0]["level"] == 1
+    assert out[0]["level"] == 3
     assert "Test Provenance" in out[0]["title"]
     assert "5 constituents" in out[0]["preview"]
+
+
+@pytest.mark.asyncio
+async def test_recent_provenance_filters_l1_l2_below_threshold():
+    """L1/L2 land silently — they auto-approve and don't ping the bell.
+    Only L3+ identity-arc claims surface here."""
+    rows = [
+        _prov(did="ep", level=1),
+        _prov(did="topic", level=2),
+        _prov(did="era", level=3),
+    ]
+    with patch.object(alerts.delta_client, "query", AsyncMock(return_value=rows)):
+        out = await alerts._recent_provenance_alerts(viewed_at="")
+    assert [a["delta_id"] for a in out] == ["era"]
 
 
 @pytest.mark.asyncio
@@ -59,10 +73,10 @@ async def test_recent_provenance_filters_by_viewed_at():
 
 @pytest.mark.asyncio
 async def test_recent_provenance_includes_level_in_title():
-    rows = [_prov(did="x", level=2, title="Big Topic")]
+    rows = [_prov(did="x", level=4, title="Big Era")]
     with patch.object(alerts.delta_client, "query", AsyncMock(return_value=rows)):
         out = await alerts._recent_provenance_alerts(viewed_at="")
-    assert out[0]["title"] == "L2 created: Big Topic"
+    assert out[0]["title"] == "L4 created: Big Era"
 
 
 @pytest.mark.asyncio

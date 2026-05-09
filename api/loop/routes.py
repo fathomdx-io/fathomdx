@@ -423,21 +423,13 @@ async def get_feed(
                     (t.split(":", 1)[1] for t in tags if t.startswith("tool:")),
                     "",
                 )
-                # L1/L2 provenance proposals auto-approve at draft time.
-                # The harness-review row in the thinking accordion already
-                # surfaces "provenance made" — duplicating as a feed card
-                # is noise. Skip.
+                # Provenance proposals auto-approve at every level now,
+                # so none of them need to render as a feed card — the
+                # harness-review row in the thinking accordion already
+                # surfaces "provenance made" and the header bell carries
+                # L3+ announcements. Skip the feed-card path entirely.
                 if tool == "provenance":
-                    level: int | None = None
-                    for t in tags:
-                        if isinstance(t, str) and t.startswith("provenance-level:"):
-                            try:
-                                level = int(t.split(":", 1)[1])
-                            except (TypeError, ValueError):
-                                level = None
-                            break
-                    if level is not None and level <= 2:
-                        continue
+                    continue
                 # `lake-id:<full>` is the witness's own dual-write cross-
                 # pointer; `recalled-id:<short>` is what telepathy stamps
                 # when it mirrors a durable lake delta back into the puddle

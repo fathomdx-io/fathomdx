@@ -338,8 +338,8 @@ Tool call:
 
 L1 = episode (one stretch of activity), L2 = topic (recurring concern
 spanning episodes), L3 = era (an arc large enough you'd point to it
-when telling the story of a season). L1 and L2 auto-approve; L3 goes
-to the operator.
+when telling the story of a season). All levels auto-approve; L3+
+also pings the operator's header bell so identity-arc claims are seen.
 
 SIZE DISCIPLINE — 5-30 constituents per node, every level:
   · L1: 5-30 base moments (tight episode, not a bulk container)

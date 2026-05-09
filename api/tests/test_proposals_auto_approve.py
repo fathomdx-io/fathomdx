@@ -1,10 +1,11 @@
 """Unit tests for the proposal auto-approve gate (api/routes/proposals.py).
 
-The gate runs at proposal-draft time and silently approves L1/L2
-provenance proposals so the operator only sees L3+ in the queue. Get
-the level parsing wrong and either the operator drowns (false-negatives:
-L1/L2 proposals stack up) or the lake silently grows wrong takes
-(false-positives: an L3 era auto-approves without review).
+The gate runs at proposal-draft time and auto-approves provenance
+proposals at every level. L1/L2 land silently; L3+ also pings the
+header bell as a created-alert (separate code path in alerts.py).
+Get the level parsing wrong and the lake either fails to auto-approve
+real provenance (proposals stack up pending) or treats a missing-tag
+delta as an auto-approval candidate (parser must surface None).
 
 The HTTP gate itself wires several conditions together (level + tool +
 lake_id + tool_args type). Pinning the helpers + the level boundary
@@ -103,10 +104,9 @@ def test_level_first_parseable_wins() -> None:
 
 
 def test_level_negative_value_passes_through() -> None:
-    """No clamp on negative levels — -1 parses to -1 (and the gate
-    happens to auto-approve on `level <= 2`). Pinning the parser as
-    an unconditional int(); any policy on negative values is the
-    gate's responsibility, not the parser's."""
+    """No clamp on negative levels — -1 parses to -1. Pinning the
+    parser as an unconditional int(); any policy on negative values
+    is the gate's responsibility, not the parser's."""
     assert _provenance_level_from_tags(["provenance-level:-1"]) == -1
 
 
@@ -115,33 +115,33 @@ def test_level_negative_value_passes_through() -> None:
 
 def _gate_decision(level: int | None) -> str:
     """Mirror the level-side of the gate condition in proposals.py:
-        if level_int is not None and level_int <= 2: auto-approve
+        if level_int is not None: auto-approve
     (Other gate conditions — tool name, lake_id presence, tool_args type
     — are not represented here; this isolates the level boundary itself.)"""
     if level is None:
         return "manual"
-    return "auto" if level <= 2 else "manual"
+    return "auto"
 
 
 def test_gate_l0_auto_approves() -> None:
-    """L0 (qa-marker / question-anchored) is the lowest tier and auto-
-    approves under the gate's level <= 2 rule."""
+    """L0 (qa-marker / question-anchored) auto-approves."""
     assert _gate_decision(0) == "auto"
 
 
 def test_gate_l1_l2_auto_approve() -> None:
-    """L1 (episodes) and L2 (topics) — bounded enough that operator
-    review just creates friction, per the inline comment in the gate."""
+    """L1 (episodes) and L2 (topics) auto-approve and land silently —
+    no header-bell ping, no feed card."""
     assert _gate_decision(1) == "auto"
     assert _gate_decision(2) == "auto"
 
 
-def test_gate_l3_and_above_stay_manual() -> None:
-    """L3 (eras) and any future L4+ make stronger claims about identity
-    or structure; explicit operator approval required."""
-    assert _gate_decision(3) == "manual"
-    assert _gate_decision(4) == "manual"
-    assert _gate_decision(99) == "manual"
+def test_gate_l3_and_above_auto_approve() -> None:
+    """L3 (eras) and L4+ also auto-approve, but they ALSO ping the
+    operator's header bell when they land — so identity-arc claims are
+    visible without blocking on a pending decision."""
+    assert _gate_decision(3) == "auto"
+    assert _gate_decision(4) == "auto"
+    assert _gate_decision(99) == "auto"
 
 
 def test_gate_missing_level_stays_manual() -> None:
@@ -153,7 +153,7 @@ def test_gate_missing_level_stays_manual() -> None:
 
 def test_gate_negative_level_currently_auto_approves() -> None:
     """Documenting the current contract: the parser passes through any
-    int and the gate's `<= 2` check accepts negatives. If the policy
-    ever needs to clamp negatives to 'manual', this test will signal
-    the change."""
+    int and the gate accepts any non-None level. If the policy ever
+    needs to clamp negatives to 'manual', this test will signal the
+    change."""
     assert _gate_decision(-1) == "auto"

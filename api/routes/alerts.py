@@ -37,8 +37,14 @@ router = APIRouter()
 
 _READ_RECEIPT_TAG = "alert-viewed-at"
 
-# Provenance auto-approve cuts off at L2; L3 (eras) and higher are the
-# items that surface here for operator decision. L0/L1/L2 land silently.
+# Provenance auto-approves at every level — L1/L2 silently, L3+ with a
+# header-bell announcement so the operator sees identity-arc claims
+# without them blocking on a pending decision. The threshold below
+# applies to BOTH halves of the path:
+#   · `_pending_proposal_alerts` — proposals that fail auto-approve and
+#     fall back to pending only surface from L3 up (L1/L2 stay quiet).
+#   · `_recent_provenance_alerts` — created provenance only pings the
+#     bell from L3 up (L1/L2 land silently).
 _PROPOSAL_MIN_LEVEL = 3
 
 # Non-provenance proposal tools always require operator decision —
@@ -239,17 +245,16 @@ async def _pending_proposal_alerts() -> list[dict]:
 
 
 async def _recent_provenance_alerts(viewed_at: str) -> list[dict]:
-    """Surface freshly-created provenance deltas in the bell.
+    """Surface freshly-created L3+ provenance deltas in the bell.
 
-    L1/L2 provenance auto-approves silently — without this the operator
-    has no visibility into what's being named in the lake. The bell
-    becomes the live ledger of consolidation: each new provenance
-    landing pings here once, then ages past the viewer's read receipt
-    on the next mark-all-read.
+    Provenance auto-approves at every level. L1/L2 land silently —
+    they're the bounded, frequent consolidations and would drown the
+    bell. L3+ eras make stronger identity-arc claims, so each one
+    pings here once when it lands; the operator sees what was named
+    without it blocking on a pending decision.
 
-    L3+ pending review still flow through `_pending_proposal_alerts`
-    above; this function covers the auto-approved tier so both ends
-    of the provenance pipeline are visible.
+    Pending L3+ proposals (auto-approve failed for some reason) still
+    flow through `_pending_proposal_alerts` above.
     """
     try:
         rows = await delta_client.query(
@@ -268,6 +273,9 @@ async def _recent_provenance_alerts(viewed_at: str) -> list[dict]:
             continue
         tags = d.get("tags") or []
         level = _provenance_level(tags) or 1
+        # L1/L2 are silent; only L3+ shows in the bell.
+        if level < _PROPOSAL_MIN_LEVEL:
+            continue
         # Constituent count from from:<id> tags.
         from_ids = [t.split(":", 1)[1] for t in tags if isinstance(t, str) and t.startswith("from:")]
         raw = (d.get("content") or "").strip()
@@ -360,9 +368,9 @@ async def list_alerts(request: Request):
     # only clears the timestamp-driven alerts (those age past viewed_at);
     # proposals are decision-driven, not read-driven.
     proposal_alerts = await _pending_proposal_alerts()
-    # Auto-approved provenance (L1/L2) — surfaces what's been quietly
-    # named in the lake since the last mark-all-read. Read-driven, so
-    # acking clears them once seen.
+    # Auto-approved L3+ provenance — surfaces era-level identity-arc
+    # claims as they're named in the lake. L1/L2 stay silent (too
+    # frequent to bell). Read-driven, so acking clears them once seen.
     provenance_alerts = await _recent_provenance_alerts(viewed_at)
     merged = proposal_alerts + provenance_alerts + alerts
     merged.sort(key=lambda a: a.get("unread_since") or "", reverse=True)

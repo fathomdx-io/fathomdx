@@ -1149,7 +1149,7 @@ async def _run_post_response_review(
     review gets a stripped prompt with one job.
 
     Only outcome paths:
-      · `tool_call` → propose_provenance (auto-approves at L1/L2)
+      · `tool_call` → propose_provenance (auto-approves at all levels)
       · `skip`      → no-op, with a one-sentence reason logged
 
     Anything else is treated as skip.

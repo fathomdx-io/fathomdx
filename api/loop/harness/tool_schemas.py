@@ -335,8 +335,8 @@ _PROPOSE_PROVENANCE_SCHEMA: dict[str, Any] = {
         "description": (
             "Propose grouping a set of constituent deltas under a new "
             "provenance summary at level L1 (episode), L2 (topic), or "
-            "L3 (era). L1/L2 auto-approve at draft time; L3+ requires "
-            "operator review."
+            "L3 (era). All levels auto-approve at draft time; L3+ also "
+            "pings the operator's header bell as a created announcement."
         ),
         "parameters": {
             "type": "object",

@@ -1220,10 +1220,11 @@ async def tool_propose_provenance(
         # is just for live feed visibility.
         print(f"[propose_provenance] puddle echo failed: {type(e).__name__}: {e}")
 
-    # Auto-approve gate: L1 / L2 are bounded enough that operator review
-    # creates friction without adding signal. L3 eras still require a
-    # human pass because they make stronger claims about identity arcs.
-    if level_int <= 2 and lake_id:
+    # Auto-approve gate: every provenance level auto-accepts. L1/L2 are
+    # bounded; L3+ eras make stronger identity claims but the operator
+    # sees them as "L<n> created" alerts in the header bell rather than
+    # as a blocking pending decision. Failures fall back to pending.
+    if lake_id:
         try:
             from ...routes.proposals import auto_approve_provenance
 
@@ -1235,7 +1236,7 @@ async def tool_propose_provenance(
             new_id = (auto.get("result") or {}).get("delta_id") or ""
             return (
                 f"Proposal {lake_id[:12]} drafted AND auto-approved "
-                f"(level={level_int} ≤ 2 → policy auto-accepts). "
+                f"(level={level_int} → policy auto-accepts). "
                 f"Real kind:provenance delta {new_id[:12]} now in the lake "
                 f"with {len(cleaned_ids)} constituents."
             )
@@ -1250,8 +1251,8 @@ async def tool_propose_provenance(
 
     return (
         f"Proposal drafted as {lake_id[:12]} (level={level_int}, "
-        f"{len(cleaned_ids)} constituents). L3+ requires operator "
-        f"review — visible in the dashboard for Edit / Deny / Approve."
+        f"{len(cleaned_ids)} constituents). Pending operator review — "
+        f"visible in the dashboard for Edit / Deny / Approve."
     )
 
 
