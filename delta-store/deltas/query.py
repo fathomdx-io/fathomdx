@@ -470,6 +470,7 @@ class QueryEngine:
         tags_include: list[str] | None = None,
         tags_exclude: list[str] | None = None,
         modality: str | None = None,
+        has_media: bool | None = None,
         limit: int = 2000,
     ) -> list[dict]:
         """Use pgvector HNSW to fetch nearest candidates, with optional filters."""
@@ -494,6 +495,10 @@ class QueryEngine:
             conditions.append(f"d.modality = ${idx}")
             params.append(modality)
             idx += 1
+        if has_media is True:
+            conditions.append("d.media_hash IS NOT NULL")
+        elif has_media is False:
+            conditions.append("d.media_hash IS NULL")
 
         where = " AND ".join(conditions)
         params.append(limit)
@@ -588,6 +593,7 @@ class QueryEngine:
         tags_include: list[str] | None = None,
         tags_exclude: list[str] | None = None,
         modality: str | None = None,
+        has_media: bool | None = None,
         create_subset: bool = False,
         subset_id: str | None = None,
         limit: int = 50,
@@ -625,6 +631,7 @@ class QueryEngine:
             tags_include=tags_include,
             tags_exclude=tags_exclude,
             modality=modality,
+            has_media=has_media,
         )
 
         # 2b. Scope to subset if provided

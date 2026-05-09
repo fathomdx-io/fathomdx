@@ -275,6 +275,7 @@ class DeltaStore:
         tags_exclude: list[str] | None = None,
         modality: str | None = None,
         source: str | None = None,
+        has_media: bool | None = None,
         limit: int = 100,
         offset: int = 0,
     ) -> list[dict]:
@@ -307,6 +308,10 @@ class DeltaStore:
             conditions.append(f"NOT (d.tags && ${idx})")
             params.append(tags_exclude)
             idx += 1
+        if has_media is True:
+            conditions.append("d.media_hash IS NOT NULL")
+        elif has_media is False:
+            conditions.append("d.media_hash IS NULL")
 
         where = f"WHERE {' AND '.join(conditions)}" if conditions else ""
         sql = f"""

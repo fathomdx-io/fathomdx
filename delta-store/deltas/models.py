@@ -125,6 +125,7 @@ class SearchRequest(BaseModel):
     tags_include: list[str] | None = None
     tags_exclude: list[str] | None = None
     modality: str | None = None
+    has_media: bool | None = None
     create_subset: bool = False
     subset_id: str | None = None
     limit: int = 50
@@ -202,6 +203,7 @@ class PlanStep(BaseModel):
     tags_exclude: list[str] | None = None
     modality: str | None = None
     source: str | None = None
+    has_media: bool | None = None
     time_start: str | None = None
     time_end: str | None = None
     group_by: str | None = None  # "week", "day", "month", "tag", "source"

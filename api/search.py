@@ -730,6 +730,7 @@ async def search(
     limit: int = 50,
     threshold: float | None = None,
     view: str = "timeline",
+    has_media: bool | None = None,
 ) -> dict:
     """Canonical NL recall.
 
@@ -748,6 +749,11 @@ async def search(
     per-step delta lists with the tree-of-blocks ``as_prompt``. Tests
     and table-rendering UIs use this.
 
+    ``has_media`` — when True, restrict every retrieval step to deltas
+    with a media_hash (image-bearing). When False, restrict to deltas
+    without one. The filter applies post-plan-generation so the planner
+    LLM doesn't need to know about it.
+
     Retrieval counting lives at the delta-store (see delta-store's
     retrievals.py) so the Stats Activity card catches every client.
     """
@@ -755,25 +761,36 @@ async def search(
         return _empty_result()
 
     if depth == "shallow":
-        return await _shallow(text, limit=limit, threshold=threshold, view=view)
+        return await _shallow(
+            text, limit=limit, threshold=threshold, view=view, has_media=has_media
+        )
     return await _deep(
         text,
         conv_context=conv_context,
         session_slug=session_slug,
         limit=limit,
         view=view,
+        has_media=has_media,
     )
 
 
-async def _shallow(text: str, *, limit: int, threshold: float | None, view: str = "deltas") -> dict:
+async def _shallow(
+    text: str,
+    *,
+    limit: int,
+    threshold: float | None,
+    view: str = "deltas",
+    has_media: bool | None = None,
+) -> dict:
     # Shallow timeline-view runs the search via the plan executor instead
     # of the bare /search endpoint so the timeline step has a parent to
     # reference. One round-trip; same hit set as the legacy path because
     # the executor's _exec_search uses the same noise rerank.
     if view == "timeline":
-        plan_steps = [
-            {"id": "root", "search": text, "limit": limit, "relation": "surfaced"},
-        ]
+        root_step: dict = {"id": "root", "search": text, "limit": limit, "relation": "surfaced"}
+        if has_media is not None:
+            root_step["has_media"] = has_media
+        plan_steps = [root_step]
         plan = {"steps": plan_steps}
         _inject_timeline_step(plan)
         try:
@@ -789,7 +806,7 @@ async def _shallow(text: str, *, limit: int, threshold: float | None, view: str 
         )
 
     try:
-        data = await delta_client.search(text, limit=limit)
+        data = await delta_client.search(text, limit=limit, has_media=has_media)
     except Exception:
         return _empty_result()
     raw = data.get("results", []) or []
@@ -837,10 +854,21 @@ async def _deep(
     session_slug: str | None,
     limit: int,
     view: str = "deltas",
+    has_media: bool | None = None,
 ) -> dict:
     plan = await _generate_plan(text, conv_context=conv_context, session_slug=session_slug)
     if not plan:
         return _empty_result()
+
+    if has_media is not None:
+        # Stamp every retrieval step with the media filter post-hoc — the
+        # planner LLM doesn't need to know about has_media; the caller
+        # decided. Timeline / aggregate / set-op steps don't fetch deltas
+        # themselves, so they're left alone.
+        _RETRIEVAL_ACTIONS = ("search", "filter", "chain", "neighbors")
+        for step in plan.get("steps", []) or []:
+            if any(step.get(action) for action in _RETRIEVAL_ACTIONS):
+                step["has_media"] = has_media
 
     if view == "timeline":
         _inject_timeline_step(plan)

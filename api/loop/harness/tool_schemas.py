@@ -121,6 +121,17 @@ _SEARCH_SCHEMA: dict[str, Any] = {
                         "shallow = single semantic pass; deep = compositional plan (default)."
                     ),
                 },
+                "has_media": {
+                    "type": "boolean",
+                    "description": (
+                        "True restricts results to image-bearing moments "
+                        "(deltas with a media_hash). False restricts to "
+                        "text-only. Use when the query is *about photos* "
+                        "rather than text content — semantic search on the "
+                        "word 'photo' won't preferentially surface visual "
+                        "feeds (rss/atlas-obscura, etc.) without this."
+                    ),
+                },
             },
             "required": ["query"],
         },
@@ -774,6 +785,14 @@ _TIME_SCHEMA: dict[str, Any] = {
                 "end": {"type": "string"},
                 "source": {"type": "string"},
                 "tag": {"type": "string"},
+                "has_media": {
+                    "type": "boolean",
+                    "description": (
+                        "(action='between' only) True returns only "
+                        "image-bearing deltas in the window; False returns "
+                        "only text-only ones."
+                    ),
+                },
                 "limit": {"type": "integer"},
                 "period": {"type": "string"},
                 "since": {"type": "string"},

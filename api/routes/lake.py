@@ -173,11 +173,26 @@ LAKE_TOOLS = [
                     "items": {"type": "string"},
                     "description": "Optional — only surface moments with ALL these tags.",
                 },
+                "has_media": {
+                    "type": "boolean",
+                    "description": (
+                        "Optional. True restricts results to image-bearing "
+                        "moments; False to text-only ones. Use when the "
+                        "query is about photos rather than text content — "
+                        "semantic 'photo' alone won't preferentially "
+                        "surface visual feeds."
+                    ),
+                },
             },
             "required": ["query"],
         },
         "endpoint": {"method": "POST", "path": "/v1/search"},
-        "request_map": {"query": "text", "depth": "depth", "limit": "limit"},
+        "request_map": {
+            "query": "text",
+            "depth": "depth",
+            "limit": "limit",
+            "has_media": "has_media",
+        },
         "scope": "lake:read",
         "surfaces": ["chat", "mcp", "cli"],
         "response_kind": "tree",
@@ -231,6 +246,14 @@ LAKE_TOOLS = [
                 },
                 "source": {"type": "string", "description": "Filter by source."},
                 "time_start": {"type": "string", "description": "ISO timestamp — only after this."},
+                "has_media": {
+                    "type": "boolean",
+                    "description": (
+                        "Optional. True returns only image-bearing "
+                        "moments (deltas with a media_hash); False "
+                        "returns only text-only ones."
+                    ),
+                },
                 "limit": {"type": "integer", "description": "Max results.", "default": 30},
             },
         },
@@ -240,6 +263,7 @@ LAKE_TOOLS = [
             "limit": "limit",
             "source": "source",
             "time_start": "time_start",
+            "has_media": "has_media",
         },
         "scope": "lake:read",
         "surfaces": ["chat", "mcp", "cli"],
@@ -628,6 +652,9 @@ async def search_endpoint(request: dict):
     limit = int(request.get("limit", 50))
     threshold = request.get("threshold")
     view = request.get("view", "timeline")
+    has_media = request.get("has_media")
+    if has_media is not None and not isinstance(has_media, bool):
+        has_media = None
     if threshold is not None:
         threshold = float(threshold)
     return await nl_search(
@@ -637,6 +664,7 @@ async def search_endpoint(request: dict):
         limit=limit,
         threshold=threshold,
         view=view,
+        has_media=has_media,
     )
 
 
@@ -738,6 +766,7 @@ async def proxy_query_deltas(
     tags_include: str | None = None,
     source: str | None = None,
     time_start: str | None = None,
+    has_media: bool | None = None,
 ):
     c = await delta_client._get()
     params: dict = {"limit": limit}
@@ -756,6 +785,8 @@ async def proxy_query_deltas(
         params["source"] = source
     if time_start:
         params["time_start"] = time_start
+    if has_media is not None:
+        params["has_media"] = has_media
     r = await c.get("/deltas", params=params)
     r.raise_for_status()
     return r.json()

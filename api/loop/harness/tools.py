@@ -65,7 +65,9 @@ _ASCEND_LIMIT = 6
 # ─── search ────────────────────────────────────────────────────────────
 
 
-async def tool_search(*, query: str, depth: str = "deep") -> str:
+async def tool_search(
+    *, query: str, depth: str = "deep", has_media: bool | None = None
+) -> str:
     """Run the canonical NL search and return its `as_prompt` rendering.
 
     Same `api/search.py:search()` the loop's intent-searcher and the
@@ -77,7 +79,9 @@ async def tool_search(*, query: str, depth: str = "deep") -> str:
     if depth not in ("shallow", "deep"):
         depth = "deep"
     try:
-        result = await search_mod.search(text=query.strip(), depth=depth, view="timeline")
+        result = await search_mod.search(
+            text=query.strip(), depth=depth, view="timeline", has_media=has_media
+        )
     except Exception as e:
         return f"ERROR: search failed — {type(e).__name__}: {e}"
     rendered = (result.get("as_prompt") or "").strip()
@@ -633,8 +637,10 @@ _TIME_HELP = """time — temporal-window queries.
 Actions:
   time(action="help")
   time(action="between", start="<iso>", end="<iso>",
-       source="<src>", tag="<tag>", limit=<N>)
-       — pull deltas in a time window. Optional source/tag filters.
+       source="<src>", tag="<tag>", has_media=<bool>, limit=<N>)
+       — pull deltas in a time window. Optional source/tag/has_media
+         filters. has_media=true returns only image-bearing deltas;
+         has_media=false returns only text-only.
   time(action="bucket_by", period="day"|"hour"|"week",
        since="<iso>", group_by="source"|"kind")
        — counts grouped by time bucket (e.g. activity per day).
@@ -663,6 +669,8 @@ async def tool_time(*, action: str = "help", **kwargs) -> str:
             end = _now_iso()
         source = (kwargs.get("source") or "").strip() or None
         tag = (kwargs.get("tag") or "").strip() or None
+        has_media_arg = kwargs.get("has_media")
+        has_media = has_media_arg if isinstance(has_media_arg, bool) else None
         try:
             limit = int(kwargs.get("limit") or _LENS_RESULT_LIMIT)
         except (TypeError, ValueError):
@@ -675,6 +683,8 @@ async def tool_time(*, action: str = "help", **kwargs) -> str:
         }
         if source:
             q["source"] = source
+        if has_media is not None:
+            q["has_media"] = has_media
         try:
             items = await delta_client.query(**q)
         except Exception as e:
@@ -1826,7 +1836,7 @@ TOOL_HANDLERS = {
 TOOL_MODEL_ARGS = {
     "plan": {"question"},
     "introspect": {"question"},
-    "semantic": {"query", "depth"},
+    "semantic": {"query", "depth", "has_media"},
     "expand": {"delta_id"},
     "ascend": {"delta_id"},
     "deliberate": {"question"},
@@ -1847,6 +1857,7 @@ TOOL_MODEL_ARGS = {
         "end",
         "source",
         "tag",
+        "has_media",
         "limit",
         "period",
         "since",

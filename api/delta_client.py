@@ -97,6 +97,7 @@ async def search(
     limit: int = 20,
     radii: dict | None = None,
     tags_include: list[str] | None = None,
+    has_media: bool | None = None,
     include_engagement_cloud: bool = False,
 ) -> dict:
     body: dict = {"origin": query, "limit": min(limit, 50)}
@@ -104,6 +105,8 @@ async def search(
         body["radii"] = radii
     if tags_include:
         body["tags_include"] = tags_include
+    if has_media is not None:
+        body["has_media"] = has_media
     if include_engagement_cloud:
         body["include_engagement_cloud"] = True
     r = await _request_with_retry("POST", "/search", json=body)
@@ -173,6 +176,7 @@ async def query(
     tags_include: list[str] | None = None,
     tags_exclude: list[str] | None = None,
     source: str | None = None,
+    has_media: bool | None = None,
     time_start: str | None = None,
     time_end: str | None = None,
 ) -> list:
@@ -183,6 +187,8 @@ async def query(
         params["tags_exclude"] = tags_exclude
     if source:
         params["source"] = source
+    if has_media is not None:
+        params["has_media"] = has_media
     if time_start:
         params["time_start"] = time_start
     if time_end:

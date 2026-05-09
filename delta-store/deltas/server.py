@@ -564,6 +564,7 @@ async def query_deltas(
     tags_exclude: list[str] | None = Query(None),
     modality: str | None = None,
     source: str | None = None,
+    has_media: bool | None = None,
     limit: int = 100,
     offset: int = 0,
 ):
@@ -574,6 +575,7 @@ async def query_deltas(
         tags_exclude=tags_exclude,
         modality=modality,
         source=source,
+        has_media=has_media,
         limit=limit,
         offset=offset,
     )
@@ -607,6 +609,7 @@ async def search(req: SearchRequest):
             tags_include=req.tags_include,
             tags_exclude=req.tags_exclude,
             modality=req.modality,
+            has_media=req.has_media,
             create_subset=req.create_subset,
             subset_id=req.subset_id,
             limit=req.limit,

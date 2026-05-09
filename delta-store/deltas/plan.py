@@ -321,6 +321,10 @@ class PlanExecutor:
             conditions.append(f"d.source = ${idx}")
             params.append(step.source)
             idx += 1
+        if step.has_media is True:
+            conditions.append("d.media_hash IS NOT NULL")
+        elif step.has_media is False:
+            conditions.append("d.media_hash IS NULL")
         if step.time_start:
             conditions.append(f"d.timestamp >= ${idx}")
             params.append(_parse_ts(step.time_start))
@@ -414,6 +418,10 @@ class PlanExecutor:
             conditions.append(f"d.source = ${idx}")
             params.append(step.source)
             idx += 1
+        if step.has_media is True:
+            conditions.append("d.media_hash IS NOT NULL")
+        elif step.has_media is False:
+            conditions.append("d.media_hash IS NULL")
         if step.time_start:
             conditions.append(f"d.timestamp >= ${idx}")
             params.append(_parse_ts(step.time_start))
@@ -449,6 +457,10 @@ class PlanExecutor:
             conditions.append(f"d.modality = ${idx}")
             params.append(filter_spec["modality"])
             idx += 1
+        if filter_spec.get("has_media") is True:
+            conditions.append("d.media_hash IS NOT NULL")
+        elif filter_spec.get("has_media") is False:
+            conditions.append("d.media_hash IS NULL")
 
         where = " AND ".join(conditions)
         params.append(step.limit)
