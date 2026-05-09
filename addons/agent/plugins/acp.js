@@ -190,9 +190,16 @@ async function dispatchOne(item, target, inbox, _config) {
     const stop = promptResp?.stopReason || promptResp?.stop_reason || "ok";
     // Prefer the accumulated agent_message_chunk text (the actual
     // model output as it streamed). Fall back to a top-level content
-    // field on the prompt response, then to a marker line. Strip a
-    // common <final>...</final> wrapper that some adapters (openclaw)
-    // emit by convention; downstream consumers don't need to see it.
+    // field on the prompt response, then to a marker line.
+    //
+    // We deliberately DON'T strip per-adapter wrapping conventions
+    // here (OpenClaw's <final>...</final>, others' <think>...</think>,
+    // etc.). The plugin is generic over ACP; what conventions an
+    // adapter uses around its model output is the adapter's
+    // business, not ours. Downstream consumers — the dashboard
+    // rendering helper-update content, the harness when it relays a
+    // helper reply into a chat-reply — can post-process per-adapter
+    // if they care to.
     let finalText = messageBuffer.join("").trim();
     if (!finalText && typeof promptResp?.content === "string") {
       finalText = promptResp.content;
@@ -200,9 +207,6 @@ async function dispatchOne(item, target, inbox, _config) {
     if (!finalText) {
       finalText = `[done · ${stop}]`;
     }
-    finalText = finalText
-      .replace(/^<final>\s*/i, "")
-      .replace(/\s*<\/final>\s*$/i, "");
     await inbox.reply(corr, { kind: "complete", content: finalText });
     console.log(
       `  acp: complete ${corr.slice(0, 12)} (stop=${stop}, ${finalText.length} chars)`,
