@@ -50,6 +50,17 @@ class RSSProducer(SourceProducer):
                 for entry in feed.entries:
                     raw_html = self._entry_content(entry)
                     md_content, image_urls = convert_html(raw_html)
+                    # Many photography-first feeds (Guardian Photography,
+                    # NASA Image of the Day) carry the actual image in
+                    # RSS namespace tags — <media:content>, <enclosure>,
+                    # <media:thumbnail> — instead of inline <img> in the
+                    # body. convert_html only sees the body HTML, so
+                    # those feeds end up with image_urls=[] and no
+                    # media_hash. Pull from feedparser's parsed shape and
+                    # merge in (preserving order, dedup on URL).
+                    for ns_url in self._namespace_image_urls(entry):
+                        if ns_url not in image_urls:
+                            image_urls.append(ns_url)
                     title = getattr(entry, "title", "")
                     media_hash = (
                         await extract_images(image_urls, http_client=client) if image_urls else None
@@ -111,6 +122,35 @@ class RSSProducer(SourceProducer):
             return raw_id
         title = getattr(entry, "title", "")
         return hashlib.sha256(f"{feed_url}:{title}".encode()).hexdigest()[:16]
+
+    def _namespace_image_urls(self, entry: object) -> list[str]:
+        """Pull image URLs from RSS namespace tags feedparser exposes:
+        <media:content>, <media:thumbnail>, <enclosure>. Filters to
+        image MIME types when a `type` is declared; permits anything
+        when it isn't (some feeds omit type but the URL is plainly an
+        image). Order: media_content, media_thumbnail, enclosures.
+        """
+        urls: list[str] = []
+        seen: set[str] = set()
+
+        def _add(candidate: object) -> None:
+            if not isinstance(candidate, dict):
+                return
+            url = (candidate.get("url") or "").strip()
+            if not url or url in seen:
+                return
+            mime = (candidate.get("type") or "").lower()
+            if mime and not mime.startswith("image/"):
+                return
+            seen.add(url)
+            urls.append(url)
+
+        for attr in ("media_content", "media_thumbnail"):
+            for item in getattr(entry, attr, None) or []:
+                _add(item)
+        for item in getattr(entry, "enclosures", None) or []:
+            _add(item)
+        return urls
 
     def _entry_content(self, entry: object) -> str:
         if hasattr(entry, "content") and entry.content:
