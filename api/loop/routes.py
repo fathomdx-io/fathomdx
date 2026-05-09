@@ -375,11 +375,15 @@ async def get_feed(
                 "route": route,
                 **payload,
             }
-            if route == "helper":
+            if route == "helper" or route.startswith("helper:"):
                 # Outbound dispatch: Fathom asking a helper agent on a
                 # specific machine to do work. Body is the literal prompt
                 # the agent reads. Surface the (role, host) pair so the
                 # renderer can show full addressing in the kicker.
+                # Witness writes both `route:helper:<role>` (role-namespaced,
+                # what plugins filter on) and `route:helper` (umbrella).
+                # Tag iteration is hash-bucket order on a set, so either
+                # form may surface first — accept both.
                 host = next(
                     (t.split(":", 1)[1] for t in tags if t.startswith("host:")),
                     "",
