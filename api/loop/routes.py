@@ -252,12 +252,35 @@ async def get_feed(
     # Dedupe by id when concatenating; the primary window query and
     # the chat anchor's `time_end=since_iso` are non-overlapping by
     # construction, but defensive against any boundary clock skew.
+    #
+    # Also cross-reference dedupe: a composer seed dual-writes a puddle
+    # intent (carrying `lake-id:<X>` + `recalled-id:<X[:24]>`) AND a
+    # durable lake delta `<X>`. Telepathy then mirrors the lake delta
+    # back into the puddle as a SECOND entry tagged `recalled-id:<X[:24]>`.
+    # Both items share the originating lake id but their puddle-row ids
+    # differ, so the by-id pass above can't catch it. Without this
+    # second pass the user sees their seed (and any attached image)
+    # rendered twice in the feed.
     seen_ids: set[str] = set()
+    seen_lake_keys: set[str] = set()
     deduped: list[dict] = []
     for d in raw + chat_anchor_raw:
         d_id = d.get("id")
         if not d_id or d_id in seen_ids:
             continue
+        lake_key = ""
+        for t in d.get("tags") or []:
+            if isinstance(t, str):
+                if t.startswith("lake-id:"):
+                    lake_key = t.split(":", 1)[1]
+                    break
+                if t.startswith("recalled-id:") and not lake_key:
+                    lake_key = t.split(":", 1)[1]
+        if lake_key:
+            short_key = lake_key[:24]
+            if short_key in seen_lake_keys:
+                continue
+            seen_lake_keys.add(short_key)
         seen_ids.add(d_id)
         deduped.append(d)
 

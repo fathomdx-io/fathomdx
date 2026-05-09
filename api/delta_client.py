@@ -348,6 +348,27 @@ async def upload_media(
     return r.json()
 
 
+async def upload_media_bytes(
+    file_bytes: bytes,
+    filename: str,
+) -> dict:
+    """Upload image bytes only — no companion delta. Returns ``{id: "", media_hash}``.
+
+    Hits delta-store's bytes-only endpoint (``/media/upload``). The
+    caller is expected to attach the returned ``media_hash`` to their
+    own delta. Used by composer image-with-caption flows where
+    ``post_seed`` writes the authoritative user-seed delta.
+    """
+    import io
+
+    c = await _get()
+    files = {"file": (filename, io.BytesIO(file_bytes), "application/octet-stream")}
+    r = await c.post("/media/upload", files=files, timeout=30)
+    r.raise_for_status()
+    payload = r.json() or {}
+    return {"id": "", "media_hash": payload.get("media_hash") or ""}
+
+
 async def recent_deltas_timestamps(limit: int = 5000) -> list[str]:
     """Fetch timestamps of recent deltas for the usage chart."""
     r = await _request_with_retry("GET", "/deltas", params={"limit": limit})

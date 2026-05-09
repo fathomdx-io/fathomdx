@@ -1015,17 +1015,28 @@ async def run_threaded_fire(
         )
         if not addr_set and pending:
             addr_set = [p.get("id") for p in pending if p.get("id")]
-            # Stamp tally-marks so future fires also see them addressed.
-            for uid in addr_set:
-                try:
-                    await thread_mod.mark_addressed(
-                        user_message_id=uid,
-                        note="auto-claimed by harness response",
-                        by="harness-auto-claim",
-                    )
-                    print(f"[threaded-fire] auto-claimed {uid[:12]}")
-                except Exception as e:
-                    print(f"[threaded-fire] auto-claim mark failed for {uid[:12]}: {type(e).__name__}: {e}")
+
+        # Defensively write tally marks for EVERY id in addr_set, even
+        # when the model already called mark_addressed during the fire.
+        # In-fire dispatch failures (network, lake hiccup) used to fly
+        # silently — the local `addressed` list grew but no tally-mark
+        # delta landed, so the next supervisor tick re-fired on the
+        # same message. The supervisor's anti-spin would idle for a
+        # while, then fire again, looping until the operator killed
+        # the container. unaddressed() dedupes on tally-id, so
+        # duplicate marks are fine.
+        for uid in addr_set:
+            if not uid:
+                continue
+            try:
+                await thread_mod.mark_addressed(
+                    user_message_id=uid,
+                    note="auto-claimed by harness response",
+                    by="harness-auto-claim",
+                )
+                print(f"[threaded-fire] auto-claimed {uid[:12]}")
+            except Exception as e:
+                print(f"[threaded-fire] auto-claim mark failed for {uid[:12]}: {type(e).__name__}: {e}")
         # If any card carries an image, stamp it on the thread message
         # so future fires' projection annotates [Image attached:…] when
         # this reply scrolls through the rolling window. First non-empty
@@ -1371,7 +1382,7 @@ async def _run_review_pass(
         )
 
 
-MAX_AUTO_CONTINUE_CHAIN = 10  # safety cap on consecutive self-continuations
+MAX_AUTO_CONTINUE_CHAIN = 3  # safety cap on consecutive self-continuations
 
 
 async def _maybe_continue_inquiry(

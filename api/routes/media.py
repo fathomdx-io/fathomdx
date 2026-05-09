@@ -36,23 +36,42 @@ async def upload_media(
     expires_at: str = Form(""),
     tags: str = Form(""),
     source: str = Form(""),
+    write_delta: str = Form("auto"),
 ):
-    """Upload an image as a lake delta. Returns {id, media_hash}.
+    """Upload an image. Returns ``{id, media_hash}`` (id may be empty).
 
-    Defaults to chat framing (tags: user,participant:user,image; source:
-    fathom-chat) for backwards compatibility with the chat UI. Non-chat
-    callers (browser extensions, screen capture, imports) pass their own
-    comma-separated ``tags`` and ``source`` to override — when ``tags``
-    is set, the chat defaults are skipped entirely. ``session_id`` still
-    appends ``chat:<slug>`` regardless, so a browse capture can also land
-    in a chat session if you want Fathom to see it there.
+    Two modes, picked via ``write_delta``:
 
-    ``expires_at`` (optional ISO timestamp) makes the delta short-lived;
-    the reaper deletes on/after that time. Caller computes the absolute
-    timestamp themselves, matching the heartbeat / sysinfo / chat-event
-    pattern used elsewhere.
+    * ``"auto"`` (default) — write a companion lake delta only when the
+      caller passed ``content`` or explicit ``tags``/``source``. The
+      composer-image flow (no caption text, no extra tags) gets bytes
+      only; ``post_seed`` then attaches the returned ``media_hash`` to
+      its own user-seed delta. Without this, every image upload spawned
+      a duplicate "fathom-chat / participant:user / image" delta that
+      surfaced alongside the real seed and rendered the image twice.
+    * ``"true"``/``"1"`` — always write the delta (legacy chat UI,
+      browser-capture flows that genuinely want a standalone image
+      record).
+    * ``"false"``/``"0"`` — never write the delta; just return the hash.
     """
     file_bytes = await file.read()
+    mode = (write_delta or "auto").strip().lower()
+
+    if mode in ("false", "0", "no"):
+        wants_delta = False
+    elif mode in ("true", "1", "yes"):
+        wants_delta = True
+    else:
+        # Auto: write only when the caller declared intent via content
+        # or explicit tags/source. Composer's "just upload bytes" call
+        # passes none of these and gets the bytes-only path.
+        wants_delta = bool(content or tags or source)
+
+    if not wants_delta:
+        return await delta_client.upload_media_bytes(
+            file_bytes=file_bytes,
+            filename=file.filename or "upload.jpg",
+        )
 
     if tags:
         tag_list = [t.strip() for t in tags.split(",") if t.strip()]
