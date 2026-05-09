@@ -50,6 +50,27 @@ MAX_CONSECUTIVE_FIRES = 5
 _supervisor_task: asyncio.Task | None = None
 _fire_lock = asyncio.Lock()
 
+# Tracks the in-flight `run_threaded_fire` task so the operator stop
+# button (POST /v1/loop/stop → cancel_active_fire) can interrupt a
+# runaway loop. Set when a fire starts, cleared when it returns.
+_active_fire_task: asyncio.Task | None = None
+
+
+def cancel_active_fire() -> bool:
+    """Cancel the in-flight harness fire, if any. Returns True if a fire
+    was running and got cancelled.
+
+    The supervisor loop catches the resulting CancelledError on the
+    fire task (without exiting itself) and continues to the next tick.
+    Pairing this with a queue-clear (see routes.stop_loop) keeps the
+    supervisor from immediately re-firing on the same pending messages.
+    """
+    task = _active_fire_task
+    if task is None or task.done():
+        return False
+    task.cancel()
+    return True
+
 
 def is_enabled() -> bool:
     """True when FATHOM_THREADED_HARNESS=1 in the environment.
@@ -62,6 +83,7 @@ def is_enabled() -> bool:
 
 async def _supervisor_loop() -> None:
     """One forever-loop: poll, fire if pending, sleep, repeat."""
+    global _active_fire_task
     print("[threaded-supervisor armed] flag=on poll=%.1fs" % IDLE_POLL_S)
     consecutive_fires = 0
     last_pending_count = -1
@@ -107,13 +129,31 @@ async def _supervisor_loop() -> None:
         consecutive_fires += 1
 
         async with _fire_lock:
+            fire_task = asyncio.create_task(
+                run_threaded_fire(), name="loop/threaded-fire"
+            )
+            _active_fire_task = fire_task
             try:
-                result = await run_threaded_fire()
+                result = await fire_task
             except asyncio.CancelledError:
-                return
+                # Distinguish operator-driven fire cancel from supervisor
+                # shutdown. If the OUTER supervisor task is being
+                # cancelled (container teardown), `cancelling()` is > 0
+                # — propagate. Otherwise the cancel came from
+                # `cancel_active_fire()` (the stop button); eat it and
+                # let the next tick re-evaluate.
+                outer = asyncio.current_task()
+                if outer is not None and outer.cancelling() > 0:
+                    return
+                print("[threaded-supervisor] fire cancelled by operator")
+                consecutive_fires = 0
+                last_pending_count = -1
+                continue
             except Exception as e:
                 print(f"[threaded-supervisor] fire crashed: {type(e).__name__}: {e}")
                 continue
+            finally:
+                _active_fire_task = None
         addressed = result.get("addressed") or []
         body_chars = len((result.get("final_response") or {}).get("body") or "")
         print(

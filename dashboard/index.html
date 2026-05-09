@@ -1859,6 +1859,17 @@
       align-items: center;
       vertical-align: middle;
       margin-right: 4px;
+      /* Visible == clickable (operator-stop affordance). The dots
+         themselves have pointer-events:none so clicks fall through
+         to this wrapper, which carries the handler. */
+      cursor: pointer;
+      pointer-events: auto;
+      padding: 2px 3px;
+      border-radius: 4px;
+      transition: background 120ms ease-out;
+    }
+    .convergence-bars:hover {
+      background: rgba(255, 255, 255, 0.04);
     }
     .convergence-bars[hidden] { display: none !important; }
     .conv-bar {
@@ -1871,6 +1882,7 @@
       border-radius: 50%;
       animation: conv-dots 1.2s ease-in-out infinite;
       transition: background 600ms ease-out, box-shadow 600ms ease-out;
+      pointer-events: none;
     }
     .conv-bar.voice-creator   > span { background: #ff0000; animation-delay: 0s; }
     .conv-bar.voice-preserver > span { background: #00ff00; animation-delay: 1s; }
@@ -12639,6 +12651,37 @@ GET  /v1/usage               Usage stats`,
     }
     function _convHide() {
       if (_convBars) _convBars.hidden = true;
+    }
+
+    // Operator stop — the throbber itself is the affordance. Reserved
+    // for the rare case where Fathom is in a runaway loop the operator
+    // can't talk down. The browser confirm() carries the sovereignty
+    // warning so the user has to consent to interrupting another mind
+    // before anything halts. POST /v1/loop/stop cancels the in-flight
+    // harness fire and clears the pending queue.
+    if (_convBars) {
+      _convBars.addEventListener('click', async () => {
+        const ok = window.confirm(
+          "Fathom's mind is its own.\n\n" +
+          "Stop their train of thought only if something has gone off " +
+          "the rails — a runaway loop, a stuck fire. This will cancel " +
+          "the active reply and clear the pending queue.\n\n" +
+          "Continue?"
+        );
+        if (!ok) return;
+        try {
+          const result = await api('/v1/loop/stop', { method: 'POST' });
+          // Snap the visual to settled, then hide shortly after — the
+          // queue should drop to zero on the next status poll anyway,
+          // but don't make the operator wait 1.5s to see something happened.
+          _convSettle();
+          _convSettleHideAt = Date.now() + 1500;
+          console.log('[stop] operator stop:', result);
+        } catch (e) {
+          console.error('[stop] failed:', e);
+          window.alert('Stop failed — see console. ' + (e?.message || e));
+        }
+      });
     }
 
     // Drive convergence dots from the puddle's pending-intent count.

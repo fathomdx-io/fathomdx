@@ -1034,6 +1034,115 @@ async def fire_pulse(reason: str = "manual", tier: str | None = None) -> dict:
     return {"ok": True, **result}
 
 
+@router.post("/v1/loop/stop")
+async def stop_loop() -> dict:
+    """Halt the active harness fire and clear the pending queue.
+
+    Intentionally subtle on the dashboard — the throbber is the only
+    affordance, behind a confirm() warning about Fathom's sovereignty.
+    Reserved for moments when something has actually gone off the rails
+    (a runaway loop the operator can't talk down).
+
+    Two parts to the stop:
+
+      1. Cancel the in-flight harness fire — sends asyncio.CancelledError
+         through whichever supervisor is active (legacy or threaded).
+         The outstanding LLM HTTP call is interrupted at its `await`
+         point.
+      2. Clear the queue — without this, the next supervisor tick reads
+         the same pending intents / unaddressed thread messages and
+         re-fires. We mark them addressed (tally-marks on the threaded
+         path, addressing-output deltas on the legacy path) so the
+         supervisor sees an empty queue and idles.
+
+    Pending messages aren't deleted — the lake is append-only. The
+    operator-stop just covers them so the loop moves on.
+    """
+    from . import threaded_supervisor, worker
+    from .. import thread as thread_mod
+
+    fire_cancelled = False
+    if threaded_supervisor.cancel_active_fire():
+        fire_cancelled = True
+    if worker.cancel_active_fire():
+        fire_cancelled = True
+
+    cleared_count = 0
+    threaded = threaded_supervisor.is_enabled()
+
+    if threaded:
+        try:
+            window = await thread_mod.build_window()
+            for d in window.get("unaddressed") or []:
+                msg_id = d.get("id")
+                if not msg_id:
+                    continue
+                try:
+                    await thread_mod.mark_addressed(
+                        user_message_id=msg_id,
+                        note="cleared by operator stop",
+                        by="operator-stop",
+                    )
+                    cleared_count += 1
+                except Exception as e:
+                    print(
+                        f"[stop] tally-mark write failed for {msg_id[:12]}: "
+                        f"{type(e).__name__}: {e}"
+                    )
+        except Exception as e:
+            print(f"[stop] thread window read failed: {type(e).__name__}: {e}")
+    else:
+        # Legacy puddle path. Drop addressing-output deltas pointing at
+        # each pending intent so pending_intents() filters them out.
+        try:
+            # Read directly from puddle — the public pending_intents()
+            # short-circuits to [] under the threaded flag, but we're
+            # already on the legacy branch here.
+            intents_raw = puddle.query(
+                tags_include=[CONVO_TAG, "intent"], limit=100
+            )
+            seeds_raw = puddle.query(
+                tags_include=[CONVO_TAG, "seed"], limit=50
+            )
+            seen: set[str] = set()
+            for it in intents_raw + seeds_raw:
+                pid = it.get("id") or ""
+                if not pid or pid in seen:
+                    continue
+                seen.add(pid)
+                try:
+                    await puddle.write(
+                        content="cleared by operator stop",
+                        tags=[
+                            CONVO_TAG,
+                            "addressing-output",
+                            f"addresses:{pid}",
+                            "operator-stop",
+                        ],
+                        source="operator-stop",
+                    )
+                    cleared_count += 1
+                except Exception as e:
+                    print(
+                        f"[stop] puddle clear failed for {pid[:12]}: "
+                        f"{type(e).__name__}: {e}"
+                    )
+        except Exception as e:
+            print(f"[stop] puddle scan failed: {type(e).__name__}: {e}")
+
+    print(
+        f"[stop] operator stop: fire_cancelled={fire_cancelled} "
+        f"cleared={cleared_count} path={'threaded' if threaded else 'legacy'}"
+    )
+
+    return {
+        "ok": True,
+        "fire_cancelled": fire_cancelled,
+        "queue_cleared": cleared_count,
+        "path": "threaded" if threaded else "legacy",
+    }
+
+
 @router.get("/v1/puddle/stats")
 def get_stats() -> dict:
     return puddle.stats()

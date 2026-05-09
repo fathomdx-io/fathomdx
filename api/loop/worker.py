@@ -47,6 +47,25 @@ _pressure_task: asyncio.Task | None = None
 _helper_task: asyncio.Task | None = None
 _boot_iso: str = ""
 
+# Tracks the in-flight `run_harness` task on the legacy path so the
+# operator stop button (POST /v1/loop/stop) can interrupt a runaway
+# fire. Threaded supervisor has its own twin of this variable.
+_active_fire_task: asyncio.Task | None = None
+
+
+def cancel_active_fire() -> bool:
+    """Cancel the legacy in-flight harness fire, if any. Returns True
+    if a fire was running and got cancelled.
+
+    The supervisor catches the resulting CancelledError on the fire
+    task (without exiting itself) and continues to the next tick.
+    """
+    task = _active_fire_task
+    if task is None or task.done():
+        return False
+    task.cancel()
+    return True
+
 
 def _now_iso() -> str:
     from datetime import UTC, datetime
@@ -73,6 +92,7 @@ async def _run_one_fire() -> bool:
     Returns True if a fire happened (work was done). The caller idles
     when there was nothing pending.
     """
+    global _active_fire_task
     all_pending = pending_intents(since_iso=_boot_iso)
     if not all_pending:
         return False
@@ -106,14 +126,31 @@ async def _run_one_fire() -> bool:
         print(f"[loop fire] standpoint gather crashed: {type(e).__name__}: {e}")
         standpoint = None
 
-    try:
-        await run_harness(
+    fire_task = asyncio.create_task(
+        run_harness(
             session_tag=session_tag,
             pending=pending,
             standpoint=standpoint,
-        )
+        ),
+        name="loop/legacy-fire",
+    )
+    _active_fire_task = fire_task
+    try:
+        await fire_task
+    except asyncio.CancelledError:
+        # Distinguish operator-driven fire cancel from supervisor
+        # shutdown. If the OUTER supervisor task is being cancelled,
+        # `cancelling()` is > 0 — propagate. Otherwise the cancel came
+        # from `cancel_active_fire()` (the stop button); eat it and
+        # let the next tick re-evaluate.
+        outer = asyncio.current_task()
+        if outer is not None and outer.cancelling() > 0:
+            raise
+        print("[loop fire] cancelled by operator")
     except Exception as e:
         print(f"[loop fire] harness crashed: {type(e).__name__}: {e}")
+    finally:
+        _active_fire_task = None
     return True
 
 
