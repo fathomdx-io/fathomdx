@@ -106,16 +106,37 @@ async function dispatchOne(item, target, inbox, _config) {
     env: target.env || {},
     cwd: target.cwd,
     onUpdate: (params) => {
-      // session/update notifications carry the agent's progress for the
-      // current turn. The shape varies by adapter; the most useful field
-      // is usually params.update.content — pass a JSON-stringified form
-      // through so the dashboard sees structured events. The content
-      // stays inside helper-update deltas; nothing here is authority-
-      // bearing so the inbox tag allowlist is fine.
-      const content =
-        typeof params?.update?.content === "string"
-          ? params.update.content
-          : JSON.stringify(params).slice(0, 4000);
+      // session/update notifications carry the agent's progress for
+      // the current turn. The shape varies by sessionUpdate type:
+      //   agent_message_chunk → params.update.content is {type, text}
+      //   tool_call_update    → has params.update.content array
+      //   session_info_update / usage_update / available_commands_update → metadata
+      // We extract user-facing text when we recognize the shape, and
+      // fall back to a JSON-stringified envelope for everything else
+      // so the dashboard can still parse structured events.
+      const update = params?.update || {};
+      let content = "";
+      const sub = update.sessionUpdate || "";
+      const c = update.content;
+      if (typeof c === "string") {
+        content = c;
+      } else if (c && typeof c.text === "string") {
+        // agent_message_chunk { content: { type: "text", text: "..." } }
+        content = c.text;
+      } else if (Array.isArray(c)) {
+        // some shapes use array-of-blocks
+        content = c
+          .map((b) => (b && typeof b.text === "string" ? b.text : ""))
+          .filter(Boolean)
+          .join("");
+      }
+      if (!content) {
+        // Metadata events (session_info_update, usage_update, etc.) —
+        // useful to the dashboard for rendering session state, but
+        // not user-facing text. Keep them as JSON so consumers can
+        // distinguish from real model output.
+        content = JSON.stringify({ sessionUpdate: sub, ...update }).slice(0, 4000);
+      }
       inbox
         .reply(corr, { kind: "update", content })
         .catch((e) => console.error(`  acp: update reply failed: ${e.message}`));
