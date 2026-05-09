@@ -700,10 +700,35 @@ class DeltaStore:
         result = await self._pool.execute("DELETE FROM deltas WHERE id = $1", delta_id)
         return result == "DELETE 1"
 
-    async def reap_expired(self) -> int:
-        """Delete deltas whose expires_at is in the past. Returns count deleted."""
-        result = await self._pool.execute(
-            "DELETE FROM deltas WHERE expires_at IS NOT NULL AND expires_at <= NOW()"
-        )
-        # result is like "DELETE 5"
-        return int(result.split()[-1])
+    async def reap_expired(self) -> tuple[int, list[str]]:
+        """Delete deltas whose expires_at is in the past.
+
+        Returns (deleted_count, orphaned_media_hashes). A media_hash is
+        orphaned when none of the surviving deltas still reference it —
+        media is content-addressable so a hash shared by two deltas
+        survives until both reap. Caller is expected to delete the
+        orphan files (this layer doesn't know about MEDIA_DIR).
+        """
+        async with self._pool.acquire() as conn, conn.transaction():
+            expired_hashes = [
+                r["media_hash"]
+                for r in await conn.fetch(
+                    "SELECT DISTINCT media_hash FROM deltas "
+                    "WHERE expires_at IS NOT NULL "
+                    "  AND expires_at <= NOW() "
+                    "  AND media_hash IS NOT NULL"
+                )
+            ]
+            result = await conn.execute(
+                "DELETE FROM deltas WHERE expires_at IS NOT NULL AND expires_at <= NOW()"
+            )
+            deleted = int(result.split()[-1]) if result.startswith("DELETE ") else 0
+
+            orphans: list[str] = []
+            for h in expired_hashes:
+                still_referenced = await conn.fetchval(
+                    "SELECT 1 FROM deltas WHERE media_hash = $1 LIMIT 1", h
+                )
+                if not still_referenced:
+                    orphans.append(h)
+            return deleted, orphans

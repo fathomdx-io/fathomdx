@@ -23,7 +23,7 @@ from pydantic import BaseModel as _BaseModel
 from deltas import backup, retrievals
 from deltas.contacts import ContactsStore
 from deltas.db import close_pool, init_pool
-from deltas.media import ingest
+from deltas.media import delete as media_delete, ingest
 from deltas.models import (
     BackupAckRequest,
     BackupAckResult,
@@ -289,9 +289,20 @@ async def reap_loop():
     while True:
         await asyncio.sleep(REAP_INTERVAL)
         try:
-            reaped = await store.reap_expired()
-            if reaped:
-                log.info("Reaped %d expired deltas", reaped)
+            reaped, orphan_hashes = await store.reap_expired()
+            removed_files = 0
+            for h in orphan_hashes:
+                try:
+                    if await asyncio.to_thread(media_delete, MEDIA_DIR, h):
+                        removed_files += 1
+                except Exception:
+                    log.exception("Failed to delete orphaned media %s", h)
+            if reaped or removed_files:
+                log.info(
+                    "Reaped %d expired deltas (%d orphan media files removed)",
+                    reaped,
+                    removed_files,
+                )
         except asyncio.CancelledError:
             break
         except Exception:
