@@ -94,6 +94,16 @@
       transition: border-color 120ms, color 120ms;
     }
     .icon-btn:hover { border-color: var(--ink-faint); color: var(--ink); }
+    /* Feedback button — icon + label, so it widens out of the 36px
+       square sit the rest of the topbar uses. */
+    .icon-btn.feedback-btn {
+      width: auto; padding: 0 12px; display: inline-flex;
+      align-items: center; gap: 6px;
+    }
+    .feedback-btn-label {
+      font-family: var(--mono); font-size: 11px; letter-spacing: 0.05em;
+      text-transform: uppercase;
+    }
     .topbar-left, .topbar-right { display: flex; gap: 8px; align-items: center; }
 
     /* ── Header alerts ───────────────────────────────
@@ -3860,6 +3870,53 @@
     .pair-details ol { padding-left: 22px; margin-top: 10px; }
     .pair-details li { margin: 6px 0; line-height: 1.5; }
 
+    /* Feedback modal — reuses .pair-modal scaffolding for layout, adds
+       form-specific styling for the email/textarea/attachment row. */
+    .fb-field { display: flex; flex-direction: column; gap: 6px; margin-bottom: 14px; }
+    .fb-field label {
+      font-family: var(--mono); font-size: 11px; letter-spacing: 0.05em;
+      text-transform: uppercase; color: var(--ink-faint);
+    }
+    .fb-field input[type="email"],
+    .fb-field textarea {
+      background: var(--bg); border: 1px solid var(--rule); border-radius: 8px;
+      padding: 10px 12px; font-family: inherit; font-size: 13px;
+      color: var(--ink); outline: none;
+      width: 100%; resize: vertical;
+    }
+    .fb-field input[type="email"]:focus,
+    .fb-field textarea:focus { border-color: var(--accent); }
+    .fb-attach-row { display: flex; gap: 8px; flex-wrap: wrap; }
+    .fb-attach-row .btn {
+      display: inline-flex; align-items: center; gap: 6px;
+      cursor: pointer;
+    }
+    .fb-attach-status {
+      display: flex; align-items: center; gap: 8px;
+      margin-top: 8px; padding: 8px 12px;
+      background: var(--bg); border: 1px solid var(--rule); border-radius: 8px;
+      font-size: 12px; color: var(--ink-soft);
+    }
+    .fb-attach-status[hidden] { display: none; }
+    .fb-attach-name {
+      flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+      font-family: var(--mono);
+    }
+    .fb-attach-clear {
+      background: transparent; border: 0; color: var(--ink-faint);
+      font-size: 18px; line-height: 1; cursor: pointer; padding: 0 4px;
+    }
+    .fb-attach-clear:hover { color: var(--ink); }
+    .fb-actions {
+      display: flex; align-items: center; justify-content: flex-end;
+      gap: 12px; margin-top: 4px;
+    }
+    .fb-status {
+      flex: 1; font-size: 12px; color: var(--ink-soft);
+    }
+    .fb-status[data-state="error"] { color: var(--danger); }
+    .fb-status[data-state="ok"] { color: var(--signal); }
+
     /* Label above the install tiles when an agent is already connected —
        signals the tiles are "add another" rather than "install your first". */
     .agent-add-another {
@@ -4299,6 +4356,11 @@
         <!-- sun (shown in light mode — click to go dark) -->
         <svg class="ic-sun" viewBox="0 0 256 256" fill="currentColor" width="16" height="16"><path d="M120,40V16a8,8,0,0,1,16,0V40a8,8,0,0,1-16,0Zm72,88a64,64,0,1,1-64-64A64.07,64.07,0,0,1,192,128Zm-16,0a48,48,0,1,0-48,48A48.05,48.05,0,0,0,176,128ZM58.34,69.66A8,8,0,0,0,69.66,58.34l-16-16A8,8,0,0,0,42.34,53.66Zm0,116.68-16,16a8,8,0,0,0,11.32,11.32l16-16a8,8,0,0,0-11.32-11.32ZM192,72a8,8,0,0,0,5.66-2.34l16-16a8,8,0,0,0-11.32-11.32l-16,16A8,8,0,0,0,192,72Zm5.66,114.34a8,8,0,0,0-11.32,11.32l16,16a8,8,0,0,0,11.32-11.32ZM48,128a8,8,0,0,0-8-8H16a8,8,0,0,0,0,16H40A8,8,0,0,0,48,128Zm80,80a8,8,0,0,0-8,8v24a8,8,0,0,0,16,0V216A8,8,0,0,0,128,208Zm112-88H216a8,8,0,0,0,0,16h24a8,8,0,0,0,0-16Z"/></svg>
       </button>
+      <button class="icon-btn feedback-btn" id="feedbackBtn" aria-label="Send feedback" title="Send feedback">
+        <!-- Phosphor: Bug -->
+        <svg viewBox="0 0 256 256" fill="currentColor" width="16" height="16"><path d="M168,128a8,8,0,0,1-8,8H96a8,8,0,0,1,0-16h64A8,8,0,0,1,168,128ZM216,72H187.7a64.06,64.06,0,0,0-119.4,0H40a8,8,0,0,0,0,16H64v32H40a8,8,0,0,0,0,16H64v32H40a8,8,0,0,0,0,16H67.71a64,64,0,0,0,120.58,0H216a8,8,0,0,0,0-16H192V136h24a8,8,0,0,0,0-16H192V88h24a8,8,0,0,0,0-16ZM128,32a48.07,48.07,0,0,1,43.13,27H84.87A48.07,48.07,0,0,1,128,32Zm0,192a48.05,48.05,0,0,1-48-48V88h96v88A48.05,48.05,0,0,1,128,224Z"/></svg>
+        <span class="feedback-btn-label">Feedback</span>
+      </button>
       <div class="alerts-wrap">
         <button class="icon-btn alerts-btn" id="alertsBtn" aria-label="Alerts" title="Alerts">
           <svg viewBox="0 0 256 256" fill="currentColor" width="16" height="16"><path d="M221.8,175.94C216.25,166.38,208,139.33,208,104a80,80,0,1,0-160,0c0,35.34-8.26,62.38-13.81,71.94A16,16,0,0,0,48,200H88.81a40,40,0,0,0,78.38,0H208a16,16,0,0,0,13.8-24.06ZM128,216a24,24,0,0,1-22.62-16h45.24A24,24,0,0,1,128,216ZM48,184c7.7-13.24,16-43.92,16-80a64,64,0,1,1,128,0c0,36.05,8.28,66.73,16,80Z"/></svg>
@@ -4477,6 +4539,59 @@
           </ol>
         </details>
       </div>
+    </div>
+  </div>
+
+  <!-- Feedback modal — opened from the topbar bug button. Posts JSON
+       to a Formspree endpoint. Attachments aren't sent through
+       Formspree (file uploads are paywalled there); they're uploaded
+       to litterbox.catbox.moe — anonymous, hash-URL, 72h retention,
+       CORS-open — and the resulting URL is appended to the message.
+       The screenshot button uses the native Screen Capture API
+       (getDisplayMedia) to grab the current tab. DOM-cloning libs
+       (html2canvas, html-to-image, modern-screenshot) all choke on
+       cross-origin stylesheets and the modern CSS color() function —
+       pixel capture sidesteps both. -->
+  <div class="pair-modal feedback-modal" id="feedbackModal" hidden>
+    <div class="pair-backdrop" data-feedback-dismiss></div>
+    <div class="pair-dialog">
+      <div class="pair-head">
+        <h2>Send feedback</h2>
+        <button class="pair-close" data-feedback-dismiss aria-label="Close">×</button>
+      </div>
+      <p class="pair-lead">Spotted something off? Tell me what happened — attach a file or grab a screenshot of the current view.</p>
+      <form id="feedbackForm" action="https://formspree.io/f/xqenyvzk" method="POST">
+        <div class="fb-field">
+          <label for="feedbackEmail">Your email <span class="pair-optional">(optional)</span></label>
+          <input type="email" id="feedbackEmail" name="email" placeholder="you@example.com" autocomplete="email">
+        </div>
+        <div class="fb-field">
+          <label for="feedbackMessage">What's wrong?</label>
+          <textarea id="feedbackMessage" name="message" rows="5" placeholder="Describe the error or what you were doing when it broke." required></textarea>
+        </div>
+        <div class="fb-field">
+          <label>Attachment <span class="pair-optional">(optional — uploaded to litterbox.catbox.moe, link in email, expires in 72h)</span></label>
+          <div class="fb-attach-row">
+            <label class="btn fb-file-btn" for="feedbackFile">
+              <svg viewBox="0 0 256 256" fill="currentColor" width="14" height="14" aria-hidden="true"><path d="M209.66,122.34a8,8,0,0,1,0,11.32l-82.05,82a56,56,0,0,1-79.2-79.21L147.67,38.41a40,40,0,1,1,56.61,56.55L105,193.94a24,24,0,1,1-33.94-33.94l86-86.05a8,8,0,0,1,11.32,11.32l-86.05,86a8,8,0,0,0,11.32,11.32l99.3-99a24,24,0,1,0-33.94-33.94L59.72,148a40,40,0,1,0,56.56,56.57l82.06-82A8,8,0,0,1,209.66,122.34Z"/></svg>
+              Choose file
+            </label>
+            <input type="file" id="feedbackFile" name="upload" hidden>
+            <button type="button" class="btn fb-shot-btn" id="feedbackShotBtn">
+              <svg viewBox="0 0 256 256" fill="currentColor" width="14" height="14" aria-hidden="true"><path d="M208,56H180.28L166.65,35.56A8,8,0,0,0,160,32H96a8,8,0,0,0-6.65,3.56L75.71,56H48A24,24,0,0,0,24,80V192a24,24,0,0,0,24,24H208a24,24,0,0,0,24-24V80A24,24,0,0,0,208,56Zm8,136a8,8,0,0,1-8,8H48a8,8,0,0,1-8-8V80a8,8,0,0,1,8-8H80a8,8,0,0,0,6.66-3.56L100.28,48h55.43l13.63,20.44A8,8,0,0,0,176,72h32a8,8,0,0,1,8,8ZM128,88a44,44,0,1,0,44,44A44.05,44.05,0,0,0,128,88Zm0,72a28,28,0,1,1,28-28A28,28,0,0,1,128,160Z"/></svg>
+              Capture screenshot
+            </button>
+          </div>
+          <div class="fb-attach-status" id="feedbackAttachStatus" hidden>
+            <span class="fb-attach-name" id="feedbackAttachName"></span>
+            <button type="button" class="fb-attach-clear" id="feedbackAttachClear" aria-label="Remove attachment">×</button>
+          </div>
+        </div>
+        <div class="fb-actions">
+          <span class="fb-status" id="feedbackStatus" aria-live="polite"></span>
+          <button type="submit" class="btn fb-submit" id="feedbackSubmit">Send</button>
+        </div>
+      </form>
     </div>
   </div>
 
@@ -6128,6 +6243,224 @@
         setTimeout(() => { stackVersionCopyBtn.textContent = 'Copy'; }, 1200);
       } catch (_) { /* clipboard denied */ }
     });
+
+    // ── Feedback modal ──────────────────────────────
+    // Topbar bug button → modal → multipart POST to Formspree. The
+    // screenshot button uses navigator.mediaDevices.getDisplayMedia
+    // with preferCurrentTab — Chrome auto-suggests the current tab in
+    // the picker. We hide the modal during capture so the user gets
+    // the viewport they were looking at, not the open modal.
+    (function setupFeedback() {
+      const btn = document.getElementById('feedbackBtn');
+      const modal = document.getElementById('feedbackModal');
+      if (!btn || !modal) return;
+      const form = document.getElementById('feedbackForm');
+      const fileInput = document.getElementById('feedbackFile');
+      const shotBtn = document.getElementById('feedbackShotBtn');
+      const status = document.getElementById('feedbackStatus');
+      const submitBtn = document.getElementById('feedbackSubmit');
+      const attachStatus = document.getElementById('feedbackAttachStatus');
+      const attachName = document.getElementById('feedbackAttachName');
+      const attachClear = document.getElementById('feedbackAttachClear');
+
+      let screenshotFile = null;  // captured PNG, if any — wins over fileInput on submit
+
+      function setStatus(text, state) {
+        status.textContent = text || '';
+        if (state) status.dataset.state = state;
+        else delete status.dataset.state;
+      }
+      function showAttachment(name) {
+        attachName.textContent = name;
+        attachStatus.hidden = false;
+      }
+      function clearAttachment() {
+        screenshotFile = null;
+        fileInput.value = '';
+        attachStatus.hidden = true;
+        attachName.textContent = '';
+      }
+      function open() {
+        modal.hidden = false;
+        setStatus('');
+        setTimeout(() => document.getElementById('feedbackMessage').focus(), 30);
+      }
+      function close() {
+        modal.hidden = true;
+      }
+
+      btn.addEventListener('click', open);
+      modal.querySelectorAll('[data-feedback-dismiss]').forEach(el => {
+        el.addEventListener('click', close);
+      });
+      document.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape' && !modal.hidden) close();
+      });
+
+      fileInput.addEventListener('change', () => {
+        const f = fileInput.files && fileInput.files[0];
+        if (!f) return;
+        screenshotFile = null;  // user picked a file, drop any prior shot
+        showAttachment(f.name);
+      });
+      attachClear.addEventListener('click', clearAttachment);
+
+      async function captureViewport() {
+        // navigator.mediaDevices.getDisplayMedia returns a MediaStream
+        // of the picked surface. preferCurrentTab biases Chrome's picker
+        // to the active tab; selfBrowserSurface=include lets the user
+        // confirm sharing this tab. Other browsers ignore the hints —
+        // the user just picks the tab manually.
+        if (!navigator.mediaDevices || !navigator.mediaDevices.getDisplayMedia) {
+          throw new Error('Screen capture not supported in this browser');
+        }
+        const stream = await navigator.mediaDevices.getDisplayMedia({
+          video: { displaySurface: 'browser' },
+          audio: false,
+          preferCurrentTab: true,
+          selfBrowserSurface: 'include',
+          surfaceSwitching: 'exclude',
+          monitorTypeSurfaces: 'exclude',
+        });
+        try {
+          const track = stream.getVideoTracks()[0];
+          if (!track) throw new Error('No video track in capture stream');
+          // Give the browser a frame or two to populate the track.
+          await new Promise(r => setTimeout(r, 120));
+          let bitmap = null;
+          if (typeof ImageCapture !== 'undefined') {
+            try {
+              bitmap = await new ImageCapture(track).grabFrame();
+            } catch (_) { /* fall through to <video> path */ }
+          }
+          let canvas;
+          if (bitmap) {
+            canvas = document.createElement('canvas');
+            canvas.width = bitmap.width;
+            canvas.height = bitmap.height;
+            canvas.getContext('2d').drawImage(bitmap, 0, 0);
+          } else {
+            // Fallback: draw the live track into a <video>, then snap.
+            const video = document.createElement('video');
+            video.srcObject = stream;
+            video.muted = true; video.playsInline = true;
+            await video.play();
+            await new Promise(r => setTimeout(r, 150));
+            canvas = document.createElement('canvas');
+            canvas.width = video.videoWidth || track.getSettings().width || 1280;
+            canvas.height = video.videoHeight || track.getSettings().height || 720;
+            canvas.getContext('2d').drawImage(video, 0, 0, canvas.width, canvas.height);
+          }
+          return await new Promise(res => canvas.toBlob(res, 'image/png'));
+        } finally {
+          stream.getTracks().forEach(t => t.stop());
+        }
+      }
+
+      shotBtn.addEventListener('click', async () => {
+        setStatus('Pick this tab in the dialog…');
+        shotBtn.disabled = true;
+        // Hide the modal so the captured frame shows what the user was
+        // actually looking at — not the open modal.
+        modal.hidden = true;
+        try {
+          // Wait one paint so the modal is gone before the picker fires.
+          await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
+          const blob = await captureViewport();
+          if (!blob || !blob.size) throw new Error('Capture returned no data');
+          const ts = new Date().toISOString().replace(/[:.]/g, '-');
+          screenshotFile = new File([blob], `screenshot-${ts}.png`, { type: 'image/png' });
+          fileInput.value = '';  // captured shot wins over a stale picked file
+          showAttachment(screenshotFile.name);
+          setStatus('');
+        } catch (err) {
+          // User cancelled the picker → NotAllowedError. Treat as a
+          // silent dismiss, not an error.
+          if (err && (err.name === 'NotAllowedError' || err.name === 'AbortError')) {
+            setStatus('');
+          } else {
+            setStatus(err.message || 'Screenshot failed', 'error');
+          }
+        } finally {
+          modal.hidden = false;
+          shotBtn.disabled = false;
+        }
+      });
+
+      async function uploadToLitterbox(file) {
+        // litterbox.catbox.moe — anonymous, no auth, CORS open. Returns
+        // the file URL as plain text. `time` accepts 1h | 12h | 24h | 72h.
+        const fd = new FormData();
+        fd.append('reqtype', 'fileupload');
+        fd.append('time', '72h');
+        fd.append('fileToUpload', file, file.name);
+        const r = await fetch('https://litterbox.catbox.moe/resources/internals/api.php', {
+          method: 'POST',
+          body: fd,
+        });
+        if (!r.ok) throw new Error(`Upload failed: HTTP ${r.status}`);
+        const url = (await r.text()).trim();
+        if (!/^https?:\/\//.test(url)) throw new Error(`Upload returned: ${url.slice(0, 120)}`);
+        return url;
+      }
+
+      form.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        submitBtn.disabled = true;
+        try {
+          const email = document.getElementById('feedbackEmail').value.trim();
+          let message = document.getElementById('feedbackMessage').value.trim();
+
+          // If there's an attachment, upload it first and append the
+          // URL to the message. Failures are surfaced but don't block
+          // the message itself — the prose is the important part.
+          const attachment = screenshotFile || (fileInput.files && fileInput.files[0]) || null;
+          if (attachment) {
+            setStatus('Uploading attachment…');
+            try {
+              const url = await uploadToLitterbox(attachment);
+              message = (message ? message + '\n\n' : '') + `Attachment: ${url}`;
+            } catch (err) {
+              setStatus(`Attachment upload failed (${err.message}) — sending without it…`, 'error');
+              await new Promise(r => setTimeout(r, 1200));
+            }
+          }
+
+          setStatus('Sending…');
+          const payload = { message };
+          if (email) payload.email = email;
+          if (attachment && /^Attachment: https?:\/\//.test(message.split('\n').pop())) {
+            // Mirror the URL into a dedicated field so it lands in
+            // the email as a clickable link, not buried in prose.
+            payload.attachment_url = message.split('\n').pop().slice('Attachment: '.length);
+          }
+          const r = await fetch(form.action, {
+            method: 'POST',
+            headers: {
+              'Accept': 'application/json',
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify(payload),
+          });
+          if (!r.ok) {
+            let detail = `HTTP ${r.status}`;
+            try {
+              const j = await r.json();
+              if (j && j.errors && j.errors.length) detail = j.errors.map(x => x.message).join('; ');
+            } catch (_) { /* keep status fallback */ }
+            throw new Error(detail);
+          }
+          setStatus('Sent — thank you.', 'ok');
+          form.reset();
+          clearAttachment();
+          setTimeout(close, 1500);
+        } catch (err) {
+          setStatus(err.message || 'Send failed', 'error');
+        } finally {
+          submitBtn.disabled = false;
+        }
+      });
+    })();
 
     let _cloudSourceCounts = { active: 0, paused: 0 };  // snapshot from last loadSources()
 
