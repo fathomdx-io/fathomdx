@@ -127,14 +127,15 @@ async def cmd_mint_key(args: argparse.Namespace) -> int:
     )
     name = args.name or default_name
 
-    # Scope picking: admin contacts get full scopes; members get the
-    # same subset the web register flow mints. Operator can override
-    # with --scopes but that's a power-user knob.
+    # Scope picking: admin contacts get the full default set (every
+    # scope except `helper`, which requires a host binding minted via
+    # /v1/admin/helpers/... — not this CLI). Members get the subset the
+    # web register flow mints. Operator can override with --scopes.
     if args.scopes:
         scopes = [s.strip() for s in args.scopes.split(",") if s.strip()]
     else:
         scopes = (
-            list(auth_mod.ALL_SCOPES.keys())
+            list(auth_mod.DEFAULT_SCOPES)
             if role == "admin"
             else ["lake:read", "lake:write", "chat"]
         )
