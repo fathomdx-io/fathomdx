@@ -228,6 +228,7 @@ async def _correlation_state() -> tuple[dict[str, dict], dict[str, dict]]:
         info = {
             "claude_session_id": sid,
             "host": _tag_value(tags, "host:"),
+            "role": _tag_value(tags, "helper-role:"),
             "project": _tag_value(tags, "project:"),
             "spawn_iso": s.get("timestamp") or "",
         }
@@ -321,6 +322,8 @@ def _build_intent_tags(corr: str, sid: str, info: dict, source_id: str, *, closu
     ]
     if info.get("host"):
         tags.append(f"host:{info['host']}")
+    if info.get("role"):
+        tags.append(f"helper-role:{info['role']}")
     if info.get("project"):
         tags.append(f"project:{info['project']}")
     if closure:

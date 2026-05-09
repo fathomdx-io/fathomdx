@@ -355,13 +355,17 @@ async def get_feed(
             if route == "helper":
                 # Outbound dispatch: Fathom asking a helper agent on a
                 # specific machine to do work. Body is the literal prompt
-                # the agent reads. Surface the host so the renderer can
-                # show "Fathom → <host>" instead of a generic card.
+                # the agent reads. Surface the (role, host) pair so the
+                # renderer can show full addressing in the kicker.
                 host = next(
                     (t.split(":", 1)[1] for t in tags if t.startswith("host:")),
                     "",
                 )
-                items.append({"kind": "helper-dispatch", "host": host, **base})
+                role = next(
+                    (t.split(":", 1)[1] for t in tags if t.startswith("helper-role:")),
+                    "",
+                )
+                items.append({"kind": "helper-dispatch", "host": host, "role": role, **base})
             elif route == "chat-reply":
                 sit_round_v = next(
                     (t.split(":", 1)[1] for t in tags if t.startswith("sit-round:")),
@@ -642,9 +646,14 @@ async def get_feed(
                 (t.split(":", 1)[1] for t in tags if t.startswith("host:")),
                 "",
             )
+            role = next(
+                (t.split(":", 1)[1] for t in tags if t.startswith("helper-role:")),
+                "",
+            )
             items.append({
                 "kind": "helper-reply",
                 "host": host,
+                "role": role,
                 "content": d.get("content") or "",
                 **common,
             })

@@ -628,14 +628,14 @@
       font-family: var(--serif); font-size: 14px; line-height: 1.5;
       color: var(--ink); white-space: pre-wrap;
     }
-    /* Claude-code dispatches and replies — terminal-window styling.
-       Surface is `--bg-deep` (the DS's "trench" — deepest layer in
-       both themes; trench-black in dark, wet-sand grey in light), so
-       the cards always sit visually deeper than surrounding feed
-       items regardless of theme. Mono throughout. The icon, header
-       chips, arrow, and blinking cursor all use `--signal` (the
-       "alive" token — phosphorescent teal in dark, deep teal in
-       light), echoing the convergence dots and the status strip. */
+    /* Helper dispatches and replies — generic over (role, host) pairs.
+       Kicker shows full addressing (`<role> @ <host>`); surface is
+       `--bg-deep` (the DS's "trench" — deepest layer in both themes;
+       trench-black in dark, wet-sand grey in light), so the cards
+       always sit visually deeper than surrounding feed items. Mono
+       throughout. Header chips, arrow, and blinking cursor use
+       `--signal` (the "alive" token), echoing the convergence dots
+       and the status strip. */
     .feed .delta.helper-dispatch,
     .feed .delta.helper-reply {
       border-left: none;
@@ -654,24 +654,58 @@
     }
     .feed .delta.helper-dispatch > summary.d-head::-webkit-details-marker,
     .feed .delta.helper-reply > summary.d-head::-webkit-details-marker { display: none; }
-    .feed .delta.helper-dispatch > summary.d-head::before,
-    .feed .delta.helper-reply > summary.d-head::before {
-      content: "▸";
-      display: inline-block;
-      width: 0.9rem;
-      color: var(--signal);
-      opacity: 0.7;
-      transition: transform 160ms;
-    }
-    .feed .delta.helper-dispatch[open] > summary.d-head::before,
-    .feed .delta.helper-reply[open] > summary.d-head::before { transform: rotate(90deg); }
-    /* Closed: summary alone — drop the divider + bottom margin so the
-       header sits flush. Open: divider returns and body follows. */
+    /* Two-row summary: address + timestamp clustered on the left, an
+       optional inline action floats to the right; preview on row 2
+       spans the full width. No expander chevron — click anywhere on
+       the row to toggle. */
     .feed .delta.helper-dispatch > summary.d-head,
     .feed .delta.helper-reply > summary.d-head {
-      display: flex;
+      display: grid;
+      grid-template-columns: auto auto 1fr auto;
       align-items: center;
-      gap: 0.5rem;
+      column-gap: 0.6rem;
+      row-gap: 0.15rem;
+    }
+    .feed .delta.helper-dispatch > summary.d-head .d-kind,
+    .feed .delta.helper-reply > summary.d-head .d-kind {
+      grid-column: 1;
+      grid-row: 1;
+    }
+    .feed .delta.helper-dispatch > summary.d-head .d-ts,
+    .feed .delta.helper-reply > summary.d-head .d-ts {
+      grid-column: 2;
+      grid-row: 1;
+    }
+    .feed .delta.helper-dispatch > summary.d-head .proposal-approve-head,
+    .feed .delta.helper-dispatch > summary.d-head .proposal-status-pill {
+      grid-column: 4;
+      grid-row: 1 / -1;
+      justify-self: end;
+      align-self: center;
+    }
+    /* After a decision the head Approve button is replaced by an inline
+       status pill in the same grid slot — green for approved, red for
+       denied. Visuals borrow from the existing proposal-status colors. */
+    .feed .delta.helper-dispatch > summary.d-head .proposal-status-pill {
+      font-family: var(--mono);
+      font-size: 10.5px;
+      letter-spacing: 0.05em;
+      text-transform: uppercase;
+      padding: 1px 6px;
+      border-radius: 3px;
+    }
+    .feed .delta.helper-dispatch > summary.d-head .proposal-status-pill.proposal-status-approved {
+      color: #6ee7b7;
+      border: 1px solid rgba(110, 231, 183, 0.45);
+    }
+    .feed .delta.helper-dispatch > summary.d-head .proposal-status-pill.proposal-status-denied {
+      color: #f87171;
+      border: 1px solid rgba(248, 113, 113, 0.45);
+    }
+    .feed .delta.helper-dispatch > summary.d-head .helper-preview,
+    .feed .delta.helper-reply > summary.d-head .helper-preview {
+      grid-column: 1 / -1;
+      grid-row: 2;
     }
     .feed .delta.helper-dispatch[open] > summary.d-head,
     .feed .delta.helper-reply[open] > summary.d-head {
@@ -680,47 +714,12 @@
       border-bottom: 1px solid color-mix(in srgb, var(--signal) 22%, transparent);
     }
     /* Helper-dispatch proposals reuse the helper-dispatch shape but
-       carry the proposal action footer + a "pending review" chip. */
-    .feed .delta.helper-dispatch.helper-dispatch-proposal .proposal-pending-chip {
-      font-family: var(--mono); font-size: 10.5px;
-      letter-spacing: 0.05em; text-transform: uppercase;
-      color: #fbbf24;
-      padding: 1px 6px;
-      border: 1px solid rgba(251, 191, 36, 0.35);
-      border-radius: 3px;
-      margin-left: 6px;
-    }
+       carry an Edit/Deny footer (the Approve action lives in the head).
+       Buttons are design-system `btn ghost compact` — no per-button
+       overrides needed here, just the footer layout. */
     .feed .delta.helper-dispatch.helper-dispatch-proposal .proposal-actions-cc {
       display: flex; gap: 6px; justify-content: flex-end;
-      margin-top: 12px;
-      padding-top: 8px;
-      border-top: 1px dashed rgba(255, 255, 255, 0.08);
-    }
-    .feed .delta.helper-dispatch.helper-dispatch-proposal .proposal-actions-cc .proposal-btn {
-      padding: 4px 10px;
-      font-family: var(--mono); font-size: 11px;
-      letter-spacing: 0.04em;
-      border: 1px solid rgba(255, 255, 255, 0.12);
-      border-radius: 4px;
-      background: transparent;
-      color: var(--ink-soft);
-      cursor: pointer;
-      transition: color 120ms, border-color 120ms, background 120ms;
-    }
-    .feed .delta.helper-dispatch.helper-dispatch-proposal .proposal-actions-cc .proposal-btn:hover {
-      color: var(--ink);
-      border-color: rgba(255, 255, 255, 0.25);
-      background: rgba(255, 255, 255, 0.04);
-    }
-    .feed .delta.helper-dispatch.helper-dispatch-proposal .proposal-actions-cc .proposal-approve {
-      color: #6ee7b7;
-      border-color: rgba(110, 231, 183, 0.45);
-    }
-    .feed .delta.helper-dispatch.helper-dispatch-proposal .proposal-actions-cc .proposal-approve:hover {
-      background: rgba(110, 231, 183, 0.08);
-    }
-    .feed .delta.helper-dispatch.helper-dispatch-proposal .proposal-actions-cc .proposal-btn:disabled {
-      opacity: 0.5; cursor: progress;
+      margin-top: 0.5rem;
     }
     .feed .delta.helper-dispatch.helper-dispatch-proposal .proposal-status-cc {
       margin-top: 12px; padding-top: 8px;
@@ -736,20 +735,6 @@
     .feed .delta.helper-dispatch.helper-dispatch-proposal .proposal-status-denied {
       color: #f87171;
     }
-    .feed .delta.helper-dispatch .cc-icon,
-    .feed .delta.helper-reply .cc-icon {
-      width: 14px;
-      height: 14px;
-      color: var(--signal);
-      flex-shrink: 0;
-      display: inline-flex;
-      align-items: center;
-    }
-    .feed .delta.helper-dispatch .cc-icon svg,
-    .feed .delta.helper-reply .cc-icon svg {
-      width: 100%;
-      height: 100%;
-    }
     .feed .delta.helper-dispatch .d-kind,
     .feed .delta.helper-reply .d-kind {
       color: var(--signal);
@@ -757,7 +742,30 @@
       font-size: 11px;
       letter-spacing: 0.08em;
       text-transform: lowercase;
-      flex: 1;
+      display: inline-flex;
+      align-items: center;
+      gap: 0.4rem;
+    }
+    /* Phosphor directional arrow leading the address. Sizes off the
+       kicker font and inherits its color. */
+    .feed .delta.helper-dispatch .d-kind .ph-arrow,
+    .feed .delta.helper-reply .d-kind .ph-arrow {
+      width: 14px;
+      height: 14px;
+      flex-shrink: 0;
+    }
+    /* One-line preview of the task / reply, sits on its own row below
+       the addressing kicker. Regular sans, dim, ellipsized when long. */
+    .feed .delta.helper-dispatch .helper-preview,
+    .feed .delta.helper-reply .helper-preview {
+      min-width: 0;
+      color: var(--ink-soft);
+      font-family: var(--sans);
+      font-size: 13.5px;
+      opacity: 0.85;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
     }
     .feed .delta.helper-dispatch .d-ts,
     .feed .delta.helper-reply .d-ts {
@@ -894,15 +902,33 @@
        everything else white. No left border, no leading icon, no
        expand chevron. */
     .feed .delta.routine {
-      background: color-mix(in srgb, var(--surface) 92%, var(--signal) 8%);
-      border: 1px solid var(--rule-soft);
-      border-radius: 4px;
+      /* Theme-neutral gradient: holds --surface-2 for the first
+         ~40% of the card, then fades to transparent across the
+         remaining ~60% all the way to the right edge. Reads as a
+         lighter "highlight band" that dissolves toward the page
+         background. */
+      background: linear-gradient(
+        to right,
+        var(--surface-2) 0%,
+        var(--surface-2) 40%,
+        transparent 100%
+      );
+      /* Top/bottom rules only — no left/right borders, no radius.
+         Reads as a horizontal log entry rather than a contained card. */
+      border: none;
+      border-top: 1px solid var(--rule-soft);
+      border-bottom: 1px solid var(--rule-soft);
+      border-radius: 0;
       padding: 0.5rem 0.85rem;
     }
     .feed .delta.routine .d-head {
       display: flex;
-      align-items: baseline;
+      align-items: center;
       gap: 0.55rem;
+      /* Generic .feed .delta .d-head ships with margin-bottom: 0.3rem
+         to space its head above its body. Routine cards have no body,
+         so that bottom margin pushes the head above center. Zero it. */
+      margin-bottom: 0;
     }
     .feed .delta.routine .routine-icon { display: none; }
     /* Header content: white-on-surface, mono kicker prefix in orange. */
@@ -930,9 +956,9 @@
       text-decoration-color: currentColor;
     }
     .feed .delta.routine .routine-name {
-      font-family: var(--serif);
-      font-size: 14.5px;
-      font-weight: 500;
+      font-family: var(--sans);
+      font-size: 13.5px;
+      font-weight: 400;
       color: var(--ink);
       text-transform: none;
       letter-spacing: 0;
@@ -2011,7 +2037,7 @@
       box-shadow: 0 0 6px var(--dot-glow); display: inline-block; vertical-align: middle;
     }
     .btn.ghost .dot.paused { background: var(--ink-faint); box-shadow: none; }
-    .btn.ghost.compact { padding: 7px 14px; font-size: 13px; border-radius: 8px; }
+    .btn.compact { padding: 7px 14px; font-size: 13px; border-radius: 8px; }
     .btn.ghost.icon-only { padding: 7px 8px; min-width: 0; border-radius: 8px; }
     .detail-actions { display: flex; align-items: center; gap: 6px; margin-left: auto; }
     .detail-kebab-wrap { position: relative; }
@@ -3157,12 +3183,20 @@
       padding: 13px 16px;
     }
 
-    /* Pass-intent (pressure prompt) — open-ended, no box, sides fade */
+    /* Pass-intent (pressure prompt) — open-ended, no box. Same
+       gradient as routine cards: holds --surface-2 across the left
+       ~40%, then fades to transparent all the way to the right
+       edge. Reads as "transitory" / injected in both light and dark. */
     .msg-user[data-kind="pass-intent"] .msg-body {
       border-radius: 0;
       border-left: none;
       border-right: none;
-      background: linear-gradient(to right, transparent, var(--surface) 4%, var(--surface) 96%, transparent);
+      background: linear-gradient(
+        to right,
+        var(--surface-2) 0%,
+        var(--surface-2) 40%,
+        transparent 100%
+      );
     }
 
     /* Fathom message: full-width prose, no chrome */
@@ -9496,6 +9530,11 @@ GET  /v1/usage               Usage stats`,
     const PH_THUMBS_DOWN = '<svg viewBox="0 0 256 256" fill="currentColor" width="13" height="13"><path d="M239.82,157l-12-96A24,24,0,0,0,204,40H32A16,16,0,0,0,16,56v88a16,16,0,0,0,16,16H75.06l37.78,75.58A8,8,0,0,0,120,240a40,40,0,0,0,40-40V184h56a24,24,0,0,0,23.82-27ZM72,144H32V56H72Zm150,21.29a7.88,7.88,0,0,1-6,2.71H152a8,8,0,0,0-8,8v24a24,24,0,0,1-19.29,23.54L88,150.11V56H204a8,8,0,0,1,7.94,7l12,96A7.87,7.87,0,0,1,222,165.29Z"/></svg>';
     const PH_CHAT_DOTS = '<svg class="ph-chat-dots" viewBox="0 0 256 256" fill="currentColor"><path d="M116,128a12,12,0,1,1,12,12A12,12,0,0,1,116,128ZM84,140a12,12,0,1,0-12-12A12,12,0,0,0,84,140Zm88,0a12,12,0,1,0-12-12A12,12,0,0,0,172,140Zm60-76V192a16,16,0,0,1-16,16H83l-32.6,28.16-.09.07A15.89,15.89,0,0,1,40,240a16.13,16.13,0,0,1-6.8-1.52A15.85,15.85,0,0,1,24,224V64A16,16,0,0,1,40,48H216A16,16,0,0,1,232,64ZM40,224h0ZM216,64H40V224l34.77-30A8,8,0,0,1,80,192H216Z"/></svg>';
     const PH_TRIANGLE = '<svg class="ph-triangle" viewBox="0 0 340 256" fill="currentColor"><g transform="rotate(20.4 128 150)" opacity="0.28"><path d="M236.8,188.09,149.35,36.22a24.76,24.76,0,0,0-42.7,0L19.2,188.09a23.51,23.51,0,0,0,0,23.72A24.35,24.35,0,0,0,40.55,224h174.9a24.35,24.35,0,0,0,21.33-12.19A23.51,23.51,0,0,0,236.8,188.09ZM222.93,203.8a8.5,8.5,0,0,1-7.48,4.2H40.55a8.5,8.5,0,0,1-7.48-4.2,7.59,7.59,0,0,1,0-7.72L120.52,44.21a8.75,8.75,0,0,1,15,0l87.45,151.87A7.59,7.59,0,0,1,222.93,203.8Z"/></g><g transform="translate(41 0) rotate(-17.2 128 150)" opacity="0.58"><path d="M236.8,188.09,149.35,36.22a24.76,24.76,0,0,0-42.7,0L19.2,188.09a23.51,23.51,0,0,0,0,23.72A24.35,24.35,0,0,0,40.55,224h174.9a24.35,24.35,0,0,0,21.33-12.19A23.51,23.51,0,0,0,236.8,188.09ZM222.93,203.8a8.5,8.5,0,0,1-7.48,4.2H40.55a8.5,8.5,0,0,1-7.48-4.2,7.59,7.59,0,0,1,0-7.72L120.52,44.21a8.75,8.75,0,0,1,15,0l87.45,151.87A7.59,7.59,0,0,1,222.93,203.8Z"/></g><g transform="translate(82 0) rotate(0.4 128 150)"><path d="M149.35,36.22a24.76,24.76,0,0,0-42.7,0L19.2,188.09a23.51,23.51,0,0,0,0,23.72A24.35,24.35,0,0,0,40.55,224h174.9a24.35,24.35,0,0,0,21.33-12.19,23.51,23.51,0,0,0,0-23.72Z"/></g></svg>';
+    // Phosphor arrow-right / arrow-left — used as the directional glyph
+    // on helper-dispatch / helper-reply kicker rows. Right = outbound to
+    // the helper, left = inbound from the helper.
+    const PH_ARROW_RIGHT = '<svg class="ph-arrow" viewBox="0 0 256 256" fill="currentColor"><path d="M221.66,133.66l-72,72a8,8,0,0,1-11.32-11.32L196.69,136H40a8,8,0,0,1,0-16H196.69L138.34,61.66a8,8,0,0,1,11.32-11.32l72,72A8,8,0,0,1,221.66,133.66Z"/></svg>';
+    const PH_ARROW_LEFT = '<svg class="ph-arrow" viewBox="0 0 256 256" fill="currentColor"><path d="M224,128a8,8,0,0,1-8,8H59.31l58.35,58.34a8,8,0,0,1-11.32,11.32l-72-72a8,8,0,0,1,0-11.32l72-72a8,8,0,0,1,11.32,11.32L59.31,120H216A8,8,0,0,1,224,128Z"/></svg>';
 
     const TOOL_ICONS = {
       search: '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>',
@@ -9572,6 +9611,28 @@ GET  /v1/usage               Usage stats`,
       return (s == null ? '' : String(s))
         .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
         .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+    }
+
+    // Render a helper's full (role, host) address for kicker display.
+    // Falls back gracefully when one half is unknown — older deltas
+    // pre-helper-roles only have host. Empty pair returns 'helper'.
+    function _formatHelperAddress(role, host) {
+      const r = (role || '').trim();
+      const h = (host || '').trim();
+      if (r && h) return `${_esc(r)} @ ${_esc(h)}`;
+      if (h) return _esc(h);
+      if (r) return _esc(r);
+      return 'helper';
+    }
+
+    // One-line description of a helper task / reply for the closed
+    // summary. First non-empty line, whitespace-collapsed, capped.
+    function _helperTaskPreview(text, max = 70) {
+      const s = (text == null ? '' : String(text)).trim();
+      if (!s) return '';
+      const firstLine = (s.split(/\r?\n/).find(l => l.trim()) || '').trim().replace(/\s+/g, ' ');
+      if (firstLine.length <= max) return firstLine;
+      return firstLine.slice(0, max - 1).trimEnd() + '…';
     }
 
     // Customize marked: external links in new tab, images zoomable
@@ -10949,26 +11010,23 @@ GET  /v1/usage               Usage stats`,
       const ts = it.timestamp ? new Date(it.timestamp) : new Date();
       const timeStr = ts.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
       const host = (args.host || '').toString();
-      const task = (args.task || it.body || it.content || '').toString();
-      const hostEsc = host.replace(/[<>&]/g, c => ({'<':'&lt;','>':'&gt;','&':'&amp;'}[c]));
-      const icon = (typeof PROVIDER_ICONS === 'object' && PROVIDER_ICONS['helper'])
-        ? PROVIDER_ICONS['helper']
-        : '';
-      const peer = hostEsc || 'claude';
-      const headLabel = `fathom <span class="cc-arrow">→</span> ${peer}`;
+      const role = (args.role || '').toString();
+      const task = (args.task || it.body || it.content || '').toString().trimEnd();
+      const peer = _formatHelperAddress(role, host);
+      const preview = _helperTaskPreview(it.title || args.title || task);
+      const previewSpan = preview ? `<span class="helper-preview">${_esc(preview)}</span>` : '';
+      const headLabel = `${PH_ARROW_RIGHT} ${peer}`;
       el.innerHTML = `
         <summary class="d-head">
-          <span class="cc-icon">${icon}</span>
           <span class="d-kind">${headLabel}</span>
-          <span class="proposal-pending-chip">pending review</span>
           <span class="d-ts">${timeStr}</span>
+          <button class="btn compact proposal-approve proposal-approve-head" type="button">Approve</button>
+          ${previewSpan}
         </summary>
-        <div class="d-body">${_esc(task)}<span class="cc-cursor" aria-hidden="true"></span>
-          <div class="proposal-actions proposal-actions-cc">
-            <button class="proposal-btn proposal-edit" type="button">Edit</button>
-            <button class="proposal-btn proposal-deny" type="button">Deny</button>
-            <button class="proposal-btn proposal-approve" type="button">Approve</button>
-          </div>
+        <div class="d-body">${_esc(task)}<span class="cc-cursor" aria-hidden="true"></span></div>
+        <div class="proposal-actions proposal-actions-cc">
+          <button class="btn ghost compact proposal-edit" type="button">Edit</button>
+          <button class="btn ghost compact proposal-deny" type="button">Deny</button>
         </div>
       `;
       // Default open so the operator can see the task without clicking.
@@ -11040,12 +11098,23 @@ GET  /v1/usage               Usage stats`,
     }
 
     function _helperDispatchSettleUI(el, code, decision) {
-      const actions = el.querySelector('.proposal-actions');
-      if (!actions) return;
       const stamp = decision && decision.timestamp ? ` · ${_relTime(decision.timestamp)}` : ' · just now';
       const cls = code === 'approved' ? 'proposal-status-approved' : 'proposal-status-denied';
       const verb = code === 'approved' ? 'Approved' : 'Denied';
-      actions.outerHTML = `<div class="proposal-status ${cls} proposal-status-cc">${verb}${stamp}</div>`;
+      // Body footer (Edit / Deny) becomes the inline status banner.
+      const actions = el.querySelector('.proposal-actions');
+      if (actions) {
+        actions.outerHTML = `<div class="proposal-status ${cls} proposal-status-cc">${verb}${stamp}</div>`;
+      }
+      // Head Approve button becomes a small inline status pill in the
+      // same grid slot so the row reads "approved" at a glance.
+      const headBtn = el.querySelector('.proposal-approve-head');
+      if (headBtn) {
+        const pill = document.createElement('span');
+        pill.className = `proposal-status-pill ${cls}`;
+        pill.textContent = verb;
+        headBtn.replaceWith(pill);
+      }
       const chip = el.querySelector('.proposal-pending-chip');
       if (chip) chip.remove();
       // Decided cards collapse — they're noise once acted on.
@@ -11787,12 +11856,11 @@ GET  /v1/usage               Usage stats`,
         const lakeOneliner = `δ ${src}${lakeSnip ? ' — ' + lakeSnip : ''}`;
         return _wrapThinkingRow(el, lakeOneliner, it);
       }
-      // Claude-code DISPATCH — Fathom telling a claude-code agent on
-      // a specific machine to do work. The body is the literal prompt
-      // claude reads, rendered as a terminal window: dark surface,
-      // mono everywhere, claude-code icon inline-left in the header,
-      // a blinking cyan cursor rectangle at the end of the body so
-      // the card reads as a live shell waiting for the next line.
+      // Helper DISPATCH / REPLY — Fathom talking to (or hearing from) a
+      // helper agent identified by a (role, host) pair. The card is generic
+      // across helper roles: kicker shows full addressing (`<role> @ <host>`),
+      // body renders the task / reply text. Mono body keeps it readable
+      // for code, terminal output, and structured prompts alike.
       if (it.kind === 'helper-dispatch' || it.kind === 'helper-reply') {
         // Native <details> — the d-head is the summary (click to expand);
         // d-body is the content. Closed by default.
@@ -11803,23 +11871,18 @@ GET  /v1/usage               Usage stats`,
         el.dataset.fromPuddle = '1';
         el.dataset.puddleId = it.id || '';
         if (it.id) el.dataset.deltaId = it.id;
-        const host = (it.host || '').replace(/[<>&]/g, c => ({'<':'&lt;','>':'&gt;','&':'&amp;'}[c]));
-        const body = (isDispatch ? (it.body || it.content || '') : (it.content || '')).toString();
-        const icon = (typeof PROVIDER_ICONS === 'object' && PROVIDER_ICONS['helper'])
-          ? PROVIDER_ICONS['helper']
-          : '';
-        // Dispatch: fathom → host. Reply: fathom ← host (or "claude" if
-        // the closure landed without host provenance, which is rare —
-        // the watcher injects it from the task-spawn join).
-        const peer = host || 'claude';
+        const body = (isDispatch ? (it.body || it.content || '') : (it.content || '')).toString().trimEnd();
+        const peer = _formatHelperAddress(it.role || '', it.host || '');
+        const preview = _helperTaskPreview(it.title || body);
+        const previewSpan = preview ? `<span class="helper-preview">${_esc(preview)}</span>` : '';
         const headLabel = isDispatch
-          ? `fathom <span class="cc-arrow">→</span> ${peer}`
-          : `fathom <span class="cc-arrow">←</span> ${peer}`;
+          ? `${PH_ARROW_RIGHT} ${peer}`
+          : `${PH_ARROW_LEFT} ${peer}`;
         el.innerHTML = `
           <summary class="d-head">
-            <span class="cc-icon">${icon}</span>
             <span class="d-kind">${headLabel}</span>
             <span class="d-ts">${timeStr}</span>
+            ${previewSpan}
           </summary>
           <div class="d-body">${_esc(body)}<span class="cc-cursor" aria-hidden="true"></span></div>
         `;

@@ -3,8 +3,8 @@ title: Agents, routines, helpers, and hooks
 description: Four Fathom concepts that sound similar and do different things. Here's what each is, when to reach for it, and how they compose.
 audience: developer
 quadrant: explanation
-last_verified: 2026-04-24
-owners: [addons/agent/, addons/connect/, addons/hooks/, api/routes/]
+last_verified: 2026-05-08
+owners: [addons/agent/, addons/agent/plugins/acp.js, addons/connect/, addons/hooks/, api/routes/, api/routes/helpers.py]
 ---
 
 # Agents, routines, helpers, and hooks
@@ -53,6 +53,13 @@ Routines are independent of chat sessions. Routine activity lives under `routine
 For routines that route through claude-code, you need an agent paired on a machine with both [kitty](https://sw.kovidgoyal.net/kitty/) and [Claude Code](https://docs.claude.com/en/docs/claude-code) installed and authenticated. For substrate-only routines, no agent is required.
 
 ## Helper
+
+The word "helper" is used two ways in Fathom, and both are in active use. This section is about the inference-time sense; the host-side sense is the helper plugins described in [Agent](#agent) above and the [Wire up helpers](../how-to/wire-up-helpers.md) how-to.
+
+- **Helper (inference-time, LLM tool):** a named capability Fathom can invoke during a chat or harness turn. Registered in `LAKE_TOOLS` (HTTP-backed) or `CHAT_ONLY_TOOLS` (inline). The harness sees these as OpenAI-style functions.
+- **Helper (host-side, dispatchable agent):** a `(host, role)` pair an agent advertises via heartbeat — kitty for `claude-code`, the ACP plugin for `openclaw`, `codex`, etc. The harness's `dispatch_helper` tool *targets* one of these pairs.
+
+The rest of this section is about the first sense.
 
 A helper is a named capability Fathom can invoke during an inference turn. "Fetch the weather." "Summarize this URL." "Draft a response to this email." "Query a database." Each helper has a name, an input schema, and a runtime that executes it.
 

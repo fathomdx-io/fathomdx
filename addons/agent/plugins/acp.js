@@ -115,45 +115,27 @@ async function dispatchOne(item, target, inbox, _config) {
     env: target.env || {},
     cwd: target.cwd,
     onUpdate: (params) => {
-      // session/update notifications carry the agent's progress for
-      // the current turn. The shape varies by sessionUpdate type:
-      //   agent_message_chunk → params.update.content is {type, text}
-      //   tool_call_update    → has params.update.content array
-      //   session_info_update / usage_update / available_commands_update → metadata
-      // We extract user-facing text when we recognize the shape, and
-      // fall back to a JSON-stringified envelope for everything else
-      // so the dashboard can still parse structured events.
+      // session/update notifications stream the agent's progress mid-turn.
+      // We only care about the assistant's text — chunks are accumulated
+      // locally and assembled into the final closure body. Protocol
+      // metadata (usage_update, session_info_update, available_commands_update,
+      // tool_call_update, etc.) is dropped on the floor; surfacing each one
+      // as its own lake delta drowned the dashboard feed.
       const update = params?.update || {};
-      let content = "";
-      const sub = update.sessionUpdate || "";
+      if (update.sessionUpdate !== "agent_message_chunk") return;
       const c = update.content;
+      let text = "";
       if (typeof c === "string") {
-        content = c;
+        text = c;
       } else if (c && typeof c.text === "string") {
-        // agent_message_chunk { content: { type: "text", text: "..." } }
-        content = c.text;
+        text = c.text;
       } else if (Array.isArray(c)) {
-        // some shapes use array-of-blocks
-        content = c
+        text = c
           .map((b) => (b && typeof b.text === "string" ? b.text : ""))
           .filter(Boolean)
           .join("");
       }
-      // Accumulate real text into messageBuffer for the final closure
-      // body. Skip metadata events.
-      if (content && sub === "agent_message_chunk") {
-        messageBuffer.push(content);
-      }
-      if (!content) {
-        // Metadata events (session_info_update, usage_update, etc.) —
-        // useful to the dashboard for rendering session state, but
-        // not user-facing text. Keep them as JSON so consumers can
-        // distinguish from real model output.
-        content = JSON.stringify({ sessionUpdate: sub, ...update }).slice(0, 4000);
-      }
-      inbox
-        .reply(corr, { kind: "update", content })
-        .catch((e) => console.error(`  acp: update reply failed: ${e.message}`));
+      if (text) messageBuffer.push(text);
     },
     // No client-method handler: phase 3.0 refuses fs/terminal/permission
     // requests with method-not-found. Adapters running headless against
