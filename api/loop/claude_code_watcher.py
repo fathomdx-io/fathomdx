@@ -469,6 +469,27 @@ async def claude_code_watcher_tick() -> None:
         # would complete invisibly.
         try:
             from .. import thread as thread_mod
+            # Propagate the originating chat surface onto the shadow
+            # thread row so the threaded harness, when it fires on
+            # this closure, can route its chat-reply back to the
+            # surface that started the dispatch (openai, etc.) — not
+            # leave it stranded as a generic channel:helper reply.
+            origin = info.get("origin") or {}
+            extra = [
+                f"task-corr:{corr}",
+                f"reply-to:{closure_id}",
+                "closure:true",
+            ]
+            if info.get("host"):
+                extra.append(f"host:{info['host']}")
+            if origin.get("channel"):
+                extra.append(f"originating-channel:{origin['channel']}")
+                if origin.get("correlation"):
+                    extra.append(
+                        f"originating-correlation:{origin['correlation']}"
+                    )
+            if origin.get("intent_id"):
+                extra.append(f"originating-intent:{origin['intent_id']}")
             await thread_mod.append(
                 role="user",
                 msg_kind="helper-reply",
@@ -477,12 +498,7 @@ async def claude_code_watcher_tick() -> None:
                 correlation=corr,
                 contact=info.get("contact") or "",
                 source="claude-code-watcher",
-                extra_tags=[
-                    f"task-corr:{corr}",
-                    f"reply-to:{closure_id}",
-                    f"host:{info['host']}" if info.get("host") else "",
-                    "closure:true",
-                ],
+                extra_tags=extra,
             )
         except Exception as e:
             print(

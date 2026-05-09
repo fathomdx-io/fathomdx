@@ -355,21 +355,35 @@ async def approve_proposal(delta_id: str, body: dict | None = None):
             # requires (see addons/agent/plugins/kitty.js, openclaw.js).
             # Without it the dispatch is logged "missing to:helper:<corr>"
             # and skipped.
+            dispatch_tags = [
+                "feed-card",
+                f"route:helper:{role}",
+                "route:helper",
+                f"host:{host}",
+                f"helper-role:{role}",
+                "channel:helper",
+                f"to:helper:{corr}",
+                f"task-corr:{corr}",
+                "kind:helper-dispatch",
+                f"approved-from-proposal:{delta_id}",
+                "produced-by:harness",
+            ]
+            # Propagate the originating chat surface from the proposal
+            # so the watcher's closure-followup intent inherits the
+            # routing info, and the harness's chat-reply lands back in
+            # the user's thread instead of vanishing into the dashboard
+            # feed. tool_dispatch_helper stamps these onto the proposal
+            # at draft time; we just forward them here.
+            try:
+                proposal = await delta_client.get_delta(delta_id)
+            except Exception:
+                proposal = None
+            for t in (proposal or {}).get("tags") or []:
+                if t.startswith(("originating-channel:", "originating-correlation:", "originating-intent:")):
+                    dispatch_tags.append(t)
             dispatch = await delta_client.write(
                 content=task,
-                tags=[
-                    "feed-card",
-                    f"route:helper:{role}",
-                    "route:helper",
-                    f"host:{host}",
-                    f"helper-role:{role}",
-                    "channel:helper",
-                    f"to:helper:{corr}",
-                    f"task-corr:{corr}",
-                    "kind:helper-dispatch",
-                    f"approved-from-proposal:{delta_id}",
-                    "produced-by:harness",
-                ],
+                tags=dispatch_tags,
                 source="harness-helper-dispatch",
             )
             result = {

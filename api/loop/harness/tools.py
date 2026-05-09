@@ -1542,6 +1542,45 @@ async def tool_dispatch_helper(
         "produced-by:harness",
     ]
 
+    # Stamp the originating chat channel onto the proposal so the
+    # approve flow can propagate it onto the dispatch delta. Without
+    # this, the watcher's closure-followup intent lands without
+    # routing info and the user's chat thread shows the dispatch
+    # card with no follow-up reply when the helper finishes.
+    #
+    # session_tag here is the per-fire trace tag (e.g.
+    # "session:threaded-abc123") — it's NOT the user's chat session
+    # tag. So instead we look up the most recent kind:question delta
+    # in the lake and pull its channel/correlation/id. That's "the
+    # user message Fathom is responding to right now" — the right
+    # answer in the common case (single user, recent interaction).
+    # Pathological multi-user races could misattribute, but for
+    # self-host this is fine; the harness is single-fire serial.
+    try:
+        recent = await delta_client.query(
+            tags_include=["kind:question"],
+            limit=5,
+        )
+        # delta_client.query returns newest-first; pick the very
+        # latest, regardless of session — anything older is unlikely
+        # to be the one we're addressing.
+        if recent:
+            latest = recent[0]
+            from ...channels import extract_channel as _extract
+            ch, corr = _extract(latest.get("tags") or [])
+            if ch and ch != "helper":
+                base_tags.append(f"originating-channel:{ch}")
+                if corr:
+                    base_tags.append(f"originating-correlation:{corr}")
+            if latest.get("id"):
+                base_tags.append(f"originating-intent:{latest['id']}")
+            print(
+                f"[dispatch_helper] originating: channel={ch} corr={corr} "
+                f"intent={(latest.get('id') or '')[:12]}"
+            )
+    except Exception as e:
+        print(f"[dispatch_helper] originating lookup failed: {type(e).__name__}: {e}")
+
     try:
         lake_delta = await delta_client.write(
             content=payload_json,
