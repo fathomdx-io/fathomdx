@@ -355,23 +355,30 @@ class PlanExecutor:
         )
         params.append(fetch_limit)
 
-        # Two-embedding provenance: kind:provenance deltas store a
-        # constituent centroid in provenance_embedding (set at write
-        # time, preserved by the embed loop). For these, the effective
-        # distance is min(summary_distance, centroid_distance) — the
-        # provenance ranks on either substantive OR meta queries. Non-
-        # provenance deltas use embedding only; their provenance_embedding
-        # holds the legacy tag-string vector and we ignore it here.
+        # Three-axis distance — text, image, provenance-centroid:
         #
-        # The CASE expression isn't index-friendly. For the prov-scale
-        # lake (~36k deltas) the full scan is millisecond-class; if the
-        # production lake outgrows that, switch to a UNION over two
-        # index-using subqueries.
+        #  · text `embedding`       — content of every delta
+        #  · `image_embedding`      — CLIP-image vector for media-bearing
+        #                             deltas (same CLIP space as text;
+        #                             a text query scores against it
+        #                             naturally)
+        #  · `provenance_embedding` — kind:provenance deltas' centroid
+        #                             of their constituents
+        #
+        # LEAST() picks whichever axis is closest to the query. Each
+        # NULL-coalesces to a high sentinel so a row without that axis
+        # isn't dragged to the top by a NULL <=> 0 comparison.
+        #
+        # The CASE expression isn't index-friendly but the prov-scale
+        # lake (~80k deltas) full-scans in milliseconds; if production
+        # outgrows that, switch to a UNION over index-using subqueries.
         effective_distance_expr = (
-            "LEAST(d.embedding <=> $1, "
-            "      CASE WHEN 'kind:provenance' = ANY(d.tags) "
-            "           THEN COALESCE(d.provenance_embedding <=> $1, 999.0) "
-            "           ELSE 999.0 END)"
+            "LEAST("
+            "  COALESCE(d.embedding <=> $1, 999.0),"
+            "  COALESCE(d.image_embedding <=> $1, 999.0),"
+            "  CASE WHEN 'kind:provenance' = ANY(d.tags) "
+            "       THEN COALESCE(d.provenance_embedding <=> $1, 999.0) "
+            "       ELSE 999.0 END)"
         )
         sql = f"""
             SELECT d.id, d.timestamp, d.modality, d.content, d.source, d.tags,

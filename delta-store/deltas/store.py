@@ -107,6 +107,11 @@ def _row_to_delta(row: asyncpg.Record) -> dict:
         "source": row["source"],
         "tags": list(row["tags"]) if row["tags"] else [],
     }
+    # image_embedding is nullable and optional — populated for deltas
+    # whose media_hash had a CLIP-image vector computed at embed time.
+    img_emb = row["image_embedding"] if "image_embedding" in row else None
+    if img_emb is not None:
+        d["image_embedding"] = _vec_to_list(img_emb)
     if row["media_hash"]:
         d["media_hash"] = row["media_hash"]
     if row["expires_at"]:
@@ -518,8 +523,18 @@ class DeltaStore:
     # ── Embeddings ───────────────────────────────────────────────────────
 
     async def unembedded(self, limit: int = 50) -> list[dict]:
+        # Two cases qualify:
+        #  · No text embedding yet — fresh writes, embed-loop computes
+        #    text + image (if media) in one pass.
+        #  · Has text embedding but missing image_embedding while
+        #    carrying media — legacy backfill. Pre-split, image content
+        #    was averaged into `embedding`; the new shape stores it
+        #    separately. The loop recomputes both axes cleanly.
         rows = await self._pool.fetch(
-            "SELECT * FROM deltas WHERE embedding IS NULL ORDER BY timestamp DESC LIMIT $1",
+            "SELECT * FROM deltas "
+            "WHERE embedding IS NULL "
+            "   OR (media_hash IS NOT NULL AND image_embedding IS NULL) "
+            "ORDER BY timestamp DESC LIMIT $1",
             limit,
         )
         return [_row_to_delta(r) for r in rows]
@@ -555,14 +570,41 @@ class DeltaStore:
         )
 
     async def update_embeddings(
-        self, delta_id: str, embedding: list[float], provenance_embedding: list[float]
+        self,
+        delta_id: str,
+        embedding: list[float],
+        provenance_embedding: list[float],
+        image_embedding: list[float] | None = None,
     ) -> None:
-        emb = np.array(embedding, dtype=np.float32)
-        prov = np.array(provenance_embedding, dtype=np.float32)
+        emb = np.array(embedding, dtype=np.float32) if embedding else None
+        prov = np.array(provenance_embedding, dtype=np.float32) if provenance_embedding else None
+        if image_embedding is None:
+            await self._pool.execute(
+                "UPDATE deltas SET embedding = $1, provenance_embedding = $2 WHERE id = $3",
+                emb,
+                prov,
+                delta_id,
+            )
+            return
+        img = np.array(image_embedding, dtype=np.float32) if image_embedding else None
         await self._pool.execute(
-            "UPDATE deltas SET embedding = $1, provenance_embedding = $2 WHERE id = $3",
+            "UPDATE deltas SET embedding = $1, provenance_embedding = $2, "
+            "image_embedding = $3 WHERE id = $4",
             emb,
             prov,
+            img,
+            delta_id,
+        )
+
+    async def update_image_embedding_only(
+        self, delta_id: str, image_embedding: list[float]
+    ) -> None:
+        """Backfill / set the CLIP-image vector without touching the
+        text or provenance embeddings."""
+        img = np.array(image_embedding, dtype=np.float32)
+        await self._pool.execute(
+            "UPDATE deltas SET image_embedding = $1 WHERE id = $2",
+            img,
             delta_id,
         )
 

@@ -25,6 +25,7 @@ CREATE TABLE IF NOT EXISTS deltas (
     content              TEXT NOT NULL,
     embedding            vector({VECTOR_DIM}),
     provenance_embedding vector({VECTOR_DIM}),
+    image_embedding      vector({VECTOR_DIM}),
     source               TEXT NOT NULL DEFAULT 'unknown',
     tags                 TEXT[] NOT NULL DEFAULT '{{}}',
     media_hash           TEXT,
@@ -61,11 +62,19 @@ CREATE INDEX IF NOT EXISTS idx_handles_contact ON handles (contact_slug);
 # instance that was created with the v1 shape (display_name, role,
 # notes columns) needs an explicit rewrite. This is idempotent: each
 # statement is guarded by IF NOT EXISTS / IF EXISTS.
-MIGRATIONS_SQL = """
+MIGRATIONS_SQL = f"""
 ALTER TABLE contacts ADD COLUMN IF NOT EXISTS disabled_at TIMESTAMPTZ;
 ALTER TABLE contacts DROP COLUMN IF EXISTS display_name;
 ALTER TABLE contacts DROP COLUMN IF EXISTS role;
 ALTER TABLE contacts DROP COLUMN IF EXISTS notes;
+
+-- Two-embedding split: image_embedding holds the CLIP-image vector
+-- separately from text `embedding`. Replaces the prior write-time
+-- blend (server.py embed_loop). Same CLIP space, so a text query can
+-- still score against image_embedding via cosine. Search SQL uses
+-- LEAST() across both so each axis ranks independently. Backfill
+-- happens lazily through the embed loop after the column lands.
+ALTER TABLE deltas ADD COLUMN IF NOT EXISTS image_embedding vector({VECTOR_DIM});
 """
 
 HNSW_INDEXES = [
@@ -78,6 +87,11 @@ HNSW_INDEXES = [
         "idx_deltas_prov_embedding",
         "CREATE INDEX IF NOT EXISTS idx_deltas_prov_embedding ON deltas "
         "USING hnsw (provenance_embedding vector_cosine_ops) WITH (m = 16, ef_construction = 64)",
+    ),
+    (
+        "idx_deltas_image_embedding",
+        "CREATE INDEX IF NOT EXISTS idx_deltas_image_embedding ON deltas "
+        "USING hnsw (image_embedding vector_cosine_ops) WITH (m = 16, ef_construction = 64)",
     ),
 ]
 

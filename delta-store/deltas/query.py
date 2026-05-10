@@ -477,7 +477,10 @@ class QueryEngine:
         emb_arr = np.array(origin_embedding, dtype=np.float32)
 
         conditions = [
-            "d.embedding IS NOT NULL",
+            # Embeddable on at least one axis. Text-only and pure-image
+            # deltas both qualify; the LEAST() in the ORDER BY picks
+            # whichever vector is closest to the query.
+            "(d.embedding IS NOT NULL OR d.image_embedding IS NOT NULL)",
             "(d.expires_at IS NULL OR d.expires_at > NOW())",
         ]
         params: list = [emb_arr]
@@ -503,13 +506,24 @@ class QueryEngine:
         where = " AND ".join(conditions)
         params.append(limit)
 
+        # Effective distance ranks across text + image axes. Both live
+        # in the same CLIP space so a text query scores against both
+        # naturally; LEAST() picks the better axis per row. NULL on
+        # either column coalesces to a sentinel so rows without that
+        # axis aren't dragged to the top by a NULL <=> 0 comparison.
         sql = f"""
             SELECT d.*,
-                   (d.embedding <=> $1) AS s_dist,
+                   LEAST(
+                       COALESCE(d.embedding <=> $1, 999.0),
+                       COALESCE(d.image_embedding <=> $1, 999.0)
+                   ) AS s_dist,
                    (d.provenance_embedding <=> $1) AS p_dist
             FROM deltas d
             WHERE {where}
-            ORDER BY d.embedding <=> $1
+            ORDER BY LEAST(
+                COALESCE(d.embedding <=> $1, 999.0),
+                COALESCE(d.image_embedding <=> $1, 999.0)
+            )
             LIMIT ${idx}
         """
 

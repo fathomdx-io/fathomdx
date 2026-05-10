@@ -80,16 +80,6 @@ async def verify_api_key(key: str | None = Security(api_key_header)):
 # ── Background embed loop ───────────────────────────────────────────────────
 
 
-def _blend(a: list[float], b: list[float]) -> list[float]:
-    """Average two vectors and L2-normalize."""
-    n = min(len(a), len(b))
-    if n == 0:
-        return a or b
-    out = [(a[i] + b[i]) / 2.0 for i in range(n)]
-    norm = sum(x * x for x in out) ** 0.5
-    return [x / norm for x in out] if norm > 0 else out
-
-
 _FACET_SKIP_TAGS = {
     "assistant",
     "identity-crystal",
@@ -239,29 +229,41 @@ async def embed_loop():
 
             batch_candidates: list[dict] = []
             for i, d in enumerate(batch):
-                emb = text_embs[i]
+                text_emb = text_embs[i]
+                img_emb: list[float] | None = None
                 if d.get("media_hash"):
                     path = resolve_media(MEDIA_DIR, d["media_hash"])
                     if path:
                         async with _embed_lock:
                             img_emb = await asyncio.to_thread(embed_image, str(path))
-                        if d["content"] and not d["content"].startswith("[image:"):
-                            emb = _blend(emb, img_emb)
-                        else:
-                            emb = img_emb
+                # Two-embedding storage: text in `embedding`, image in
+                # `image_embedding`. CLIP-text and CLIP-image share the
+                # same space, so a text query still scores against the
+                # image axis at search time (LEAST() over both). Pure-
+                # image deltas (legacy `[image:` content prefix) keep
+                # their image vector in `image_embedding`; text axis
+                # gets the text-of-content (which is just the marker)
+                # so distance falls back gracefully.
+                #
                 # kind:provenance deltas carry a centroid in their
                 # provenance_embedding column (pre-populated at write
-                # time from constituents' embeddings). The default
-                # tag-string embedding the loop would compute is NOT
-                # what we want for these — it would clobber the
-                # centroid. Only update the content embedding.
+                # time from constituents' embeddings). Only update the
+                # content embedding for those — the loop's tag-string
+                # default would clobber the centroid.
                 is_provenance = "kind:provenance" in (d.get("tags") or [])
                 if is_provenance:
-                    await store.update_text_embedding_only(d["id"], emb)
+                    await store.update_text_embedding_only(d["id"], text_emb)
+                    if img_emb is not None:
+                        await store.update_image_embedding_only(d["id"], img_emb)
                 else:
-                    await store.update_embeddings(d["id"], emb, prov_embs[i])
+                    await store.update_embeddings(
+                        d["id"], text_emb, prov_embs[i], image_embedding=img_emb
+                    )
 
-                candidate = _check_facet_activation(d, emb)
+                # Use whichever vector is most representative for facet
+                # activation: image when present (it's what the user
+                # actually sees), text otherwise.
+                candidate = _check_facet_activation(d, img_emb or text_emb)
                 if candidate:
                     batch_candidates.append(candidate)
 
