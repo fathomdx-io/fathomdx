@@ -95,18 +95,18 @@ it once at fire start (via `standpoint.current()`) and works from
 there. The `recalled-id:<24chars>` tag still dedupes recall results
 across surfaces.
 
-### Two harness flavors
+### Harness
 
-| Flavor | Module | Activation | What it is |
-|---|---|---|---|
-| **Legacy** | `api/loop/harness/loop.py` | default (`FATHOM_THREADED_HARNESS` unset / `=0`) | Renders the entire fire context (standpoint, conversation, tool history) into one giant user prompt each turn. Model emits JSON envelopes the loop parses and dispatches. Drives `api/loop/worker.py:_run_one_fire`. |
-| **Threaded** | `api/loop/harness/threaded.py` | `FATHOM_THREADED_HARNESS=1` | Native chat-completions: real `role:user` / `role:assistant` / `role:tool` turns with native `tool_calls`. Prompt-cache friendly. Driven by `api/loop/threaded_supervisor.py`, which polls `thread.unaddressed` instead of `puddle.pending_intents`. Adds `engage_feed`, `see_image`, `mark_addressed`, and self-continuation via `next_prompt`. |
+Single flavor — the threaded harness at `api/loop/harness/threaded.py`,
+driven by `api/loop/threaded_supervisor.py`. Native chat-completions
+with `role:user` / `role:assistant` / `role:tool` turns and native
+`tool_calls`; prompt-cache friendly. Polls `thread.unaddressed` for
+work. Tools include `engage_feed`, `see_image`, `mark_addressed`, and
+self-continuation via `next_prompt`.
 
-When `FATHOM_THREADED_HARNESS=1`, the legacy supervisor stays dormant
-(`worker.py:_supervisor` checks the flag each tick). Flip the flag,
-restart the api, and the active path swaps — no other config change
-needed. This is the cutover sequence; threaded is the future, legacy
-is the documented fallback while the cutover bakes.
+The legacy single-prompt harness (`api/loop/harness/loop.py`) is
+retained only as a utility for the `introspect` tool's child fire.
+It no longer drives any supervisor; cutover is complete.
 
 `api/loop/witness.py` survives as a utility module
 (`_dispatch_card`, `_available_helper_hosts`, `_render_hosts_block`).

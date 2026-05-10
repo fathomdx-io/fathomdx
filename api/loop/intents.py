@@ -89,18 +89,14 @@ def pending_intents(since_iso: str | None = None) -> list[dict]:
     starts with an empty queue rather than churning through stale
     legacy seeds.
 
-    Phase 5: when FATHOM_THREADED_HARNESS=1, the threaded supervisor
-    is the active queue manager and the legacy supervisor is dormant.
-    The puddle still accumulates dual-written intents nobody reads
-    here. The dashboard's pending widget reads via the route handler
-    (api/loop/routes.py:get_intents) which projects thread.unaddressed
-    when the flag is on — this sync function returns [] so legacy
-    callers (dormant supervisor, _run_one_fire) see an empty queue.
+    The threaded supervisor is the active queue manager and reads
+    `thread.unaddressed` instead of the puddle. The puddle still
+    accumulates dual-written intents nobody reads here, so this sync
+    function is effectively dead code on the production path — kept
+    only because `state(action='pending_intents')` and the legacy
+    introspect-child harness still call it. Returns [] in normal
+    operation; pulls puddle queue if anything still uses it.
     """
-    import os
-
-    if os.environ.get("FATHOM_THREADED_HARNESS", "0") == "1":
-        return []
     intents = puddle.query(tags_include=[CONVO_TAG, "intent"], limit=100)
     seeds = puddle.query(tags_include=[CONVO_TAG, "seed"], limit=50)
     outputs = puddle.query(tags_include=[CONVO_TAG, "addressing-output"], limit=200)

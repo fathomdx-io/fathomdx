@@ -1,22 +1,20 @@
 # Harness — Product Requirements Document
 
-**Status:** shipped — migrated into fathomdx; legacy harness drives every fire on the default path; threaded harness shipped behind `FATHOM_THREADED_HARNESS=1` and is the cutover target
+**Status:** shipped — migrated into fathomdx; threaded harness is the only active path. The single-prompt legacy implementation is retained as a utility for the `introspect` tool's child fire only.
 **Owner:** Myra
-**Last updated:** 2026-05-07
+**Last updated:** 2026-05-09
 
 ---
 
-> **Migration complete (2026-05-07).** The convener+parliament+witness
-> pipeline is retired. `api/loop/worker.py:_run_one_fire` calls
-> `run_harness` directly. `api/loop/process.py`, `metric.py`,
-> `recall.py`, and `telepathy.py` are deleted; `witness.py` survives
-> only as a card-dispatch helper module. A second harness flavor
-> (`api/loop/harness/threaded.py` + `api/loop/threaded_supervisor.py`)
-> ships behind the `FATHOM_THREADED_HARNESS=1` env flag and uses
-> native chat-completions tool calls instead of the legacy
-> render-everything-as-one-prompt approach. The dashboard renders
-> harness fires natively (thinking accordion, sit-round grouping,
-> plan board, structured cards). What's left is forward work — see
+> **Cutover complete.** The convener+parliament+witness pipeline is
+> retired. `api/loop/threaded_supervisor.py` polls `thread.unaddressed`
+> and drives `api/loop/harness/threaded.py` — native chat-completions
+> with `role:user` / `role:assistant` / `role:tool` turns and native
+> `tool_calls`. `api/loop/process.py`, `metric.py`, `recall.py`, and
+> `telepathy.py` are deleted; `witness.py` survives only as a card-
+> dispatch helper module. The dashboard renders harness fires natively
+> (thinking accordion, sit-round grouping, plan board, structured
+> cards). What's left is forward work — see
 > [harness-topology.md § What's left](../explanation/harness-topology.md#whats-left).
 ---
 

@@ -51,22 +51,20 @@ Three entry points (legacy harness; threaded mirrors them):
 
 Lives at `api/loop/harness/`.
 
-### Two flavors: legacy and threaded
+### Implementation
 
-Two parallel harness implementations share the same module tree:
+The active harness is `threaded.py` (+ `tool_schemas.py`) — native
+chat-completions with `role:user` / `role:assistant` / `role:tool`
+turns and native `tool_calls`; prompt-cache friendly. Driven by
+`threaded_supervisor.py`, which polls `thread.unaddressed` for work.
 
-| Flavor | Module | Activation | Protocol |
-|---|---|---|---|
-| **Legacy** | `loop.py` (+ `tools.py`, `prompts.py`) | default | One giant rendered user prompt per turn; model emits a JSON envelope the loop parses; tools dispatched via `TOOL_HANDLERS`. |
-| **Threaded** | `threaded.py` (+ `tool_schemas.py`) | `FATHOM_THREADED_HARNESS=1` | Native chat-completions: `role:user` / `role:assistant` / `role:tool` turns with native `tool_calls`; prompt-cache friendly. Driven by `threaded_supervisor.py`, which polls `thread.unaddressed` instead of `puddle.pending_intents`. |
+`loop.py` (+ `tools.py`, `prompts.py`) is the older single-prompt
+implementation — rendered fire context, JSON envelopes, `TOOL_HANDLERS`
+dispatch. Retained only as a utility for the `introspect` tool's
+child fire; no supervisor drives it anymore.
 
-When the threaded flag is set, the legacy `worker.py:_supervisor`
-goes dormant (it checks the flag each tick) and `threaded_supervisor`
-takes over. Surfaces shadow-write both substrates during the cutover
-window (puddle intent + `kind:thread-msg` thread message) so either
-supervisor can pick up incoming work; only one fires.
-
-Threaded adds three operator-facing tools the legacy doesn't:
+The threaded harness exposes three operator-facing tools the legacy
+implementation doesn't:
 
 - **`mark_addressed`** — the model ticks each user message off the
   unaddressed list. Anything left in the rolling window re-fires the

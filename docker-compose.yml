@@ -197,11 +197,6 @@ services:
       FATHOM_SOURCE_RUNNER_URL: http://source-runner:8000
       FATHOM_USE_HARNESS: ${FATHOM_USE_HARNESS:-0}
       FATHOM_PRESSURE_RELIEF_DISABLED: ${FATHOM_PRESSURE_RELIEF_DISABLED:-0}
-      # Phase 3 cutover flag — when "1", the threaded harness
-      # supervisor activates alongside the legacy puddle-driven one.
-      # Both run in parallel during validation; the legacy supervisor
-      # still owns user-facing reply routing until Phase 3b lands.
-      FATHOM_THREADED_HARNESS: ${FATHOM_THREADED_HARNESS:-0}
     depends_on:
       delta-store:
         condition: service_healthy

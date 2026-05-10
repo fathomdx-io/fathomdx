@@ -856,23 +856,16 @@ async def _await_witness_reply(
                   May be empty if every reply was silence.
       "timeout" — no output within timeout_s.
 
-    Two reply sources, polled in parallel:
+    Two reply sources, polled in parallel for back-compat:
 
-      Legacy: witness feed-card with `to:openai:<sid>` and
-        `addresses:<intent_id>`. The puddle-driven supervisor produces
-        these.
+      Legacy (residual): witness feed-card with `to:openai:<sid>` and
+        `addresses:<intent_id>`. No active producer writes these
+        anymore — kept for any in-flight rows from before the cutover.
 
       Threaded: thread-msg with `role:assistant` and
-        `addresses:<thread_user_msg_id>`. The threaded supervisor
-        produces these. `thread_user_msg_id` is captured at
-        request-write time so the OpenAI session knows which
-        thread message to wait on.
-
-    Whichever lands first wins per (id, ts) — both supervisors may
-    fire on the same operator turn during validation; this collects
-    both replies in chronological order. When only one supervisor is
-    enabled (FATHOM_THREADED_HARNESS gates the threaded one), the
-    other source naturally returns nothing.
+        `addresses:<thread_user_msg_id>`. The supervisor produces
+        these. `thread_user_msg_id` is captured at request-write time
+        so the OpenAI session knows which thread message to wait on.
     """
     address = channels_mod.address_tag("openai", session_id)
     deadline = time.monotonic() + timeout_s

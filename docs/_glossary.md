@@ -73,7 +73,7 @@ fathomdx's internal vocabulary. Use these terms in docs, code comments, commit m
 
 | Term | Meaning |
 |---|---|
-| **harness** | The agentic tool-calling loop that drives every fire (`api/loop/harness/`). Replaces the retired convener+parliament+witness pipeline. Two flavors: legacy (default) renders the fire context to a single user prompt; threaded (`FATHOM_THREADED_HARNESS=1`) uses native chat-completions tool calls. |
+| **harness** | The agentic tool-calling loop that drives every fire (`api/loop/harness/threaded.py`). Replaces the retired convener+parliament+witness pipeline. Native chat-completions with `role:user` / `role:assistant` / `role:tool` turns and native `tool_calls`; polls `thread.unaddressed` for work. |
 | **fire** | One harness invocation. Reads pending intent(s), elects tool calls, emits a `respond`, writes self-constituting deltas (attestation, mood-shift, citation engagements, Q/A marker). |
 | **puddle** | The ephemeral now-substrate (`api/loop/puddle.py`). Carries pending intents and short-lived working-set deltas. |
 | **standpoint** | Fathom's self-state snapshot at fire-start (`api/standpoint.py`): posture, affect, endorsements, understanding, recent activity. The harness reads from this consistent snapshot rather than re-fetching mid-fire. |

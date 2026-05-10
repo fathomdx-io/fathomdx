@@ -1,19 +1,13 @@
-"""Threaded harness supervisor.
+"""Harness supervisor.
 
 Polls the global thread for unaddressed user-role messages. When any
 are present (and we're not already firing), hands off to
-`run_threaded_fire`. Counterpart to the legacy `worker.py` supervisor,
-which polled the puddle's `pending_intents`.
+`run_threaded_fire`.
 
-The activation rule is the design we settled on: the rolling window
-IS the queue. Anything in it that hasn't been marked addressed is
-load-bearing; the harness fires until nothing pending remains, then
-sleeps until a new user message lands.
-
-Phase 3 ships this behind the `FATHOM_THREADED_HARNESS=1` env flag.
-When unset (the default), this supervisor never starts; the legacy
-worker continues to drive the production loop. Flip the flag, restart
-the api, and the threaded path takes over.
+The activation rule: the rolling window IS the queue. Anything in it
+that hasn't been marked addressed is load-bearing; the harness fires
+until nothing pending remains, then sleeps until a new user message
+lands.
 
 Concurrency safety: only one fire runs at a time. New user messages
 arriving during a fire are handled on the next poll — the in-flight
@@ -25,7 +19,6 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
-import os
 
 from .. import thread as thread_mod
 from .harness.threaded import run_threaded_fire
@@ -73,19 +66,10 @@ def cancel_active_fire() -> bool:
     return True
 
 
-def is_enabled() -> bool:
-    """True when FATHOM_THREADED_HARNESS=1 in the environment.
-
-    Read fresh each call so a settings reload (or test) takes effect
-    immediately without restarting the supervisor.
-    """
-    return os.environ.get("FATHOM_THREADED_HARNESS", "0") == "1"
-
-
 async def _supervisor_loop() -> None:
     """One forever-loop: poll, fire if pending, sleep, repeat."""
     global _active_fire_task
-    print(f"[threaded-supervisor armed] flag=on poll={IDLE_POLL_S:.1f}s")
+    print(f"[supervisor armed] poll={IDLE_POLL_S:.1f}s")
     consecutive_fires = 0
     last_pending_count = -1
     while True:
@@ -163,16 +147,13 @@ async def _supervisor_loop() -> None:
 
 
 def start() -> None:
-    """Start the supervisor task. Idempotent. No-op when the flag is off."""
+    """Start the supervisor task. Idempotent."""
     global _supervisor_task
-    if not is_enabled():
-        print("[threaded-supervisor] FATHOM_THREADED_HARNESS not set — supervisor idle")
-        return
     if _supervisor_task and not _supervisor_task.done():
         return
     _supervisor_task = asyncio.create_task(
         _supervisor_loop(),
-        name="loop/threaded-supervisor",
+        name="loop/supervisor",
     )
 
 

@@ -463,12 +463,10 @@ async def claude_code_watcher_tick() -> None:
         except Exception as e:
             print(f"[claude-code watcher] write_intent (closure) failed: {type(e).__name__}: {e}")
 
-        # Phase 5b shadow write: also append the closure to the global
-        # thread so the threaded supervisor sees it and fires. Without
-        # this, when FATHOM_THREADED_HARNESS=1 (legacy supervisor
-        # dormant), dispatched-task closures silently land in the
-        # puddle but never activate Fathom — operator-asked tasks
-        # would complete invisibly.
+        # Append the closure to the global thread so the supervisor
+        # sees it and fires. Without this, dispatched-task closures
+        # would silently land in the puddle but never activate Fathom —
+        # operator-asked tasks would complete invisibly.
         try:
             from .. import thread as thread_mod
 

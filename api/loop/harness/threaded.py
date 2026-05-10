@@ -560,11 +560,10 @@ _WAKE_TASKS: set[asyncio.Task] = set()
 
 
 async def _fire_wake_hook() -> None:
-    """Real-time mood + drift coupling for the threaded harness.
+    """Real-time mood + drift coupling for the harness.
 
-    Replaces the legacy server.py:509 chat-LLM wake-event hook that
-    went dormant when FATHOM_THREADED_HARNESS=1 cut the supervisor
-    over. Each threaded fire is now the wake event:
+    Replaces the retired server.py chat-LLM wake-event hook. Each
+    fire is now the wake event:
 
       · `mood.maybe_synthesize_on_wake()` — gated by pressure;
         synthesis only fires when accumulated wakes cross threshold.

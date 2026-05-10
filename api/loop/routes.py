@@ -32,8 +32,6 @@ from .intents import (
     CONVO_TAG,
     INTENT_TTL_BY_KIND,
     Q_A_TTL_S,
-    intent_kind,
-    pending_intents,
     write_intent,
 )
 from .puddle import puddle
@@ -831,45 +829,27 @@ async def get_intents() -> dict:
     """Pending intent queue. The 'what's next' indicator the dashboard
     polls for the throbber.
 
-    With FATHOM_THREADED_HARNESS=1, the queue source is the thread —
-    project thread.unaddressed into the same shape so the dashboard
-    keeps working without changes. With the flag off, read the puddle
-    as before.
+    The queue source is the thread — project `thread.unaddressed` into
+    the shape the dashboard expects. (Endpoint name is historical; the
+    puddle isn't the queue anymore.)
     """
-    import os
+    from .. import thread as thread_mod
 
-    if os.environ.get("FATHOM_THREADED_HARNESS", "0") == "1":
-        from .. import thread as thread_mod
-
-        window = await thread_mod.build_window()
-        out = []
-        for d in window["unaddressed"]:
-            msg_kind = "question"
-            for t in d.get("tags") or []:
-                if isinstance(t, str) and t.startswith("msg-kind:"):
-                    msg_kind = t.split(":", 1)[1]
-                    break
-            out.append(
-                {
-                    "id": d.get("id"),
-                    "kind": msg_kind,
-                    "content": d.get("content") or "",
-                    "timestamp": d.get("timestamp"),
-                    "expires_at": None,
-                }
-            )
-        return {"intents": out}
-
-    pending = pending_intents()
+    window = await thread_mod.build_window()
     out = []
-    for d in pending:
+    for d in window["unaddressed"]:
+        msg_kind = "question"
+        for t in d.get("tags") or []:
+            if isinstance(t, str) and t.startswith("msg-kind:"):
+                msg_kind = t.split(":", 1)[1]
+                break
         out.append(
             {
                 "id": d.get("id"),
-                "kind": intent_kind(d),
+                "kind": msg_kind,
                 "content": d.get("content") or "",
                 "timestamp": d.get("timestamp"),
-                "expires_at": d.get("expires_at"),
+                "expires_at": None,
             }
         )
     return {"intents": out}
@@ -1079,92 +1059,49 @@ async def stop_loop() -> dict:
     Two parts to the stop:
 
       1. Cancel the in-flight harness fire — sends asyncio.CancelledError
-         through whichever supervisor is active (legacy or threaded).
-         The outstanding LLM HTTP call is interrupted at its `await`
-         point.
-      2. Clear the queue — without this, the next supervisor tick reads
-         the same pending intents / unaddressed thread messages and
-         re-fires. We mark them addressed (tally-marks on the threaded
-         path, addressing-output deltas on the legacy path) so the
-         supervisor sees an empty queue and idles.
+         through the supervisor. The outstanding LLM HTTP call is
+         interrupted at its `await` point.
+      2. Clear the queue — mark every unaddressed thread message as
+         addressed (tally-marks). Without this, the next supervisor
+         tick reads the same messages and re-fires.
 
     Pending messages aren't deleted — the lake is append-only. The
     operator-stop just covers them so the loop moves on.
     """
     from .. import thread as thread_mod
-    from . import threaded_supervisor, worker
+    from . import threaded_supervisor
 
-    fire_cancelled = False
-    if threaded_supervisor.cancel_active_fire():
-        fire_cancelled = True
-    if worker.cancel_active_fire():
-        fire_cancelled = True
+    fire_cancelled = threaded_supervisor.cancel_active_fire()
 
     cleared_count = 0
-    threaded = threaded_supervisor.is_enabled()
-
-    if threaded:
-        try:
-            window = await thread_mod.build_window()
-            for d in window.get("unaddressed") or []:
-                msg_id = d.get("id")
-                if not msg_id:
-                    continue
-                try:
-                    await thread_mod.mark_addressed(
-                        user_message_id=msg_id,
-                        note="cleared by operator stop",
-                        by="operator-stop",
-                    )
-                    cleared_count += 1
-                except Exception as e:
-                    print(
-                        f"[stop] tally-mark write failed for {msg_id[:12]}: {type(e).__name__}: {e}"
-                    )
-        except Exception as e:
-            print(f"[stop] thread window read failed: {type(e).__name__}: {e}")
-    else:
-        # Legacy puddle path. Drop addressing-output deltas pointing at
-        # each pending intent so pending_intents() filters them out.
-        try:
-            # Read directly from puddle — the public pending_intents()
-            # short-circuits to [] under the threaded flag, but we're
-            # already on the legacy branch here.
-            intents_raw = puddle.query(tags_include=[CONVO_TAG, "intent"], limit=100)
-            seeds_raw = puddle.query(tags_include=[CONVO_TAG, "seed"], limit=50)
-            seen: set[str] = set()
-            for it in intents_raw + seeds_raw:
-                pid = it.get("id") or ""
-                if not pid or pid in seen:
-                    continue
-                seen.add(pid)
-                try:
-                    await puddle.write(
-                        content="cleared by operator stop",
-                        tags=[
-                            CONVO_TAG,
-                            "addressing-output",
-                            f"addresses:{pid}",
-                            "operator-stop",
-                        ],
-                        source="operator-stop",
-                    )
-                    cleared_count += 1
-                except Exception as e:
-                    print(f"[stop] puddle clear failed for {pid[:12]}: {type(e).__name__}: {e}")
-        except Exception as e:
-            print(f"[stop] puddle scan failed: {type(e).__name__}: {e}")
+    try:
+        window = await thread_mod.build_window()
+        for d in window.get("unaddressed") or []:
+            msg_id = d.get("id")
+            if not msg_id:
+                continue
+            try:
+                await thread_mod.mark_addressed(
+                    user_message_id=msg_id,
+                    note="cleared by operator stop",
+                    by="operator-stop",
+                )
+                cleared_count += 1
+            except Exception as e:
+                print(
+                    f"[stop] tally-mark write failed for {msg_id[:12]}: {type(e).__name__}: {e}"
+                )
+    except Exception as e:
+        print(f"[stop] thread window read failed: {type(e).__name__}: {e}")
 
     print(
-        f"[stop] operator stop: fire_cancelled={fire_cancelled} "
-        f"cleared={cleared_count} path={'threaded' if threaded else 'legacy'}"
+        f"[stop] operator stop: fire_cancelled={fire_cancelled} cleared={cleared_count}"
     )
 
     return {
         "ok": True,
         "fire_cancelled": fire_cancelled,
         "queue_cleared": cleared_count,
-        "path": "threaded" if threaded else "legacy",
     }
 
 

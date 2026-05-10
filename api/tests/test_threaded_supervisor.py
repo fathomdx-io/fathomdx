@@ -1,9 +1,9 @@
-"""Tests for the threaded harness supervisor.
+"""Tests for the harness supervisor.
 
 Pins the activation rule (fire when unaddressed > 0), the anti-spin
-cap (don't burn CPU on a queue that isn't shrinking), the feature
-flag gating (off → no fire), and crash safety (lake errors / fire
-errors / cancellation don't kill the supervisor).
+cap (don't burn CPU on a queue that isn't shrinking), and crash
+safety (lake errors / fire errors / cancellation don't kill the
+supervisor).
 """
 
 from __future__ import annotations
@@ -14,40 +14,6 @@ from unittest.mock import AsyncMock, patch
 import pytest
 
 from api.loop import threaded_supervisor as ts
-
-# ── feature flag ──────────────────────────────────────────────────
-
-
-def test_is_enabled_false_by_default(monkeypatch):
-    monkeypatch.delenv("FATHOM_THREADED_HARNESS", raising=False)
-    assert ts.is_enabled() is False
-
-
-def test_is_enabled_reads_env_fresh(monkeypatch):
-    monkeypatch.setenv("FATHOM_THREADED_HARNESS", "1")
-    assert ts.is_enabled() is True
-    monkeypatch.setenv("FATHOM_THREADED_HARNESS", "0")
-    assert ts.is_enabled() is False
-
-
-def test_is_enabled_only_one_truthy_value(monkeypatch):
-    """Sloppy values like 'true' or 'yes' don't enable — explicit '1' only."""
-    for v in ("true", "yes", "on", "True", "TRUE"):
-        monkeypatch.setenv("FATHOM_THREADED_HARNESS", v)
-        assert ts.is_enabled() is False, f"value={v!r} should NOT enable"
-
-
-def test_start_no_op_when_flag_off(monkeypatch):
-    """start() is a no-op when the flag is off — never spawns the task."""
-    monkeypatch.delenv("FATHOM_THREADED_HARNESS", raising=False)
-    # Save and restore module state
-    prev = ts._supervisor_task
-    try:
-        ts._supervisor_task = None
-        ts.start()
-        assert ts._supervisor_task is None
-    finally:
-        ts._supervisor_task = prev
 
 
 # ── _supervisor_loop activation logic ─────────────────────────────
@@ -244,7 +210,6 @@ async def test_loop_responds_to_cancellation(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_start_then_stop_cleans_up(monkeypatch):
-    monkeypatch.setenv("FATHOM_THREADED_HARNESS", "1")
     monkeypatch.setattr(ts, "IDLE_POLL_S", 5.0)
     prev_task = ts._supervisor_task
     try:
@@ -266,7 +231,6 @@ async def test_start_then_stop_cleans_up(monkeypatch):
 @pytest.mark.asyncio
 async def test_start_idempotent(monkeypatch):
     """Calling start() twice doesn't spawn a second task."""
-    monkeypatch.setenv("FATHOM_THREADED_HARNESS", "1")
     monkeypatch.setattr(ts, "IDLE_POLL_S", 5.0)
     prev_task = ts._supervisor_task
     try:
