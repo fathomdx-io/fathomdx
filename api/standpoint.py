@@ -130,6 +130,24 @@ class Sediment:
 
 
 @dataclass(frozen=True)
+class RecentVisual:
+    """One recent image-bearing delta the lake has captured.
+
+    Surfaced into the standpoint so Fathom's at-fire-start working set
+    isn't text-blind. Without this, the harness only learns about
+    image content when it explicitly reaches for `time(has_media=true)`
+    or `semantic(has_media=true)` — but it has to *know* to ask, and
+    "show me what came in visually today" never naturally surfaces
+    from a text-only standpoint."""
+
+    delta_id: str
+    timestamp: str
+    source: str
+    media_hash: str
+    excerpt: str  # leading slice of content, kept tight
+
+
+@dataclass(frozen=True)
 class RecentAlert:
     """One recent alert card the harness has already raised.
 
@@ -182,6 +200,10 @@ class Standpoint:
     # not an unconscious one. Default empty list so existing
     # construction sites keep working without the field.
     recent_alerts: list[RecentAlert] = field(default_factory=list)
+
+    # Recent image-bearing deltas — keeps the working set from being
+    # text-blind. Default empty list for back-compat construction.
+    recent_visuals: list[RecentVisual] = field(default_factory=list)
 
 
 # ── Posture inference ────────────────────────────────────────────────
@@ -419,12 +441,20 @@ async def current(session_tag: str = "") -> Standpoint:
     """
     import asyncio
 
-    identity, affect, endorsements, understanding, recent_alerts = await asyncio.gather(
+    (
+        identity,
+        affect,
+        endorsements,
+        understanding,
+        recent_alerts,
+        recent_visuals,
+    ) = await asyncio.gather(
         _load_identity(),
         _load_affect(),
         _load_endorsements(),
         _load_understanding(),
         _load_recent_alerts(),
+        _load_recent_visuals(),
     )
     posture = _infer_posture(identity, affect)
     return Standpoint(
@@ -433,6 +463,7 @@ async def current(session_tag: str = "") -> Standpoint:
         endorsements=endorsements,
         understanding=understanding,
         recent_alerts=recent_alerts,
+        recent_visuals=recent_visuals,
         posture=posture,
         captured_at=datetime.now(UTC).isoformat(),
         session_tag=session_tag,
@@ -449,6 +480,12 @@ async def current(session_tag: str = "") -> Standpoint:
 # weeks down the line.
 ALERT_LOOKBACK_HOURS = 6
 ALERT_LIMIT = 8
+
+# Recent-visuals window — long enough to catch the day's photo feeds
+# (atlas-obscura fires twice an hour, kottke once an hour), short
+# enough that yesterday's wallpaper noise doesn't drown today's signal.
+VISUAL_LOOKBACK_HOURS = 24
+VISUAL_LIMIT = 8
 
 
 async def _load_recent_alerts() -> list[RecentAlert]:
@@ -512,6 +549,57 @@ async def _load_recent_alerts() -> list[RecentAlert]:
             )
         )
         if len(out) >= ALERT_LIMIT:
+            break
+    return out
+
+
+async def _load_recent_visuals() -> list[RecentVisual]:
+    """Pull recent image-bearing deltas into a digest list.
+
+    Uses the lake's `has_media=True` filter (postgres-side) instead of
+    semantic match — semantic search on 'photo' or 'image' doesn't
+    surface visual feeds whose content is ABOUT the place/event the
+    image depicts. We just want a recency-ordered window of what
+    visual content has landed lately.
+
+    Soft-fails to empty list — the standpoint stays text-only on
+    failure rather than blocking the fire.
+    """
+    cutoff_iso = (datetime.now(UTC) - timedelta(hours=VISUAL_LOOKBACK_HOURS)).isoformat()
+    try:
+        rows = await delta_client.query(
+            has_media=True,
+            time_start=cutoff_iso,
+            limit=VISUAL_LIMIT * 2,  # over-fetch; we filter to one-per-source below
+        )
+    except Exception as e:
+        log.warning(f"recent-visuals query failed: {type(e).__name__}: {e}")
+        return []
+
+    # One entry per source so a chatty image source (rss/reddit-memes)
+    # doesn't crowd a sparse one (a routine that captured a screenshot)
+    # out of the standpoint.
+    seen_sources: set[str] = set()
+    out: list[RecentVisual] = []
+    for d in rows:
+        src = d.get("source") or "unknown"
+        if src in seen_sources:
+            continue
+        media_hash = (d.get("media_hash") or "").strip()
+        if not media_hash:
+            continue  # has_media filter should make this impossible, but defend
+        seen_sources.add(src)
+        excerpt = (d.get("content") or "").strip().split("\n", 1)[0][:160]
+        out.append(
+            RecentVisual(
+                delta_id=d.get("id") or "",
+                timestamp=d.get("timestamp") or "",
+                source=src,
+                media_hash=media_hash,
+                excerpt=excerpt,
+            )
+        )
+        if len(out) >= VISUAL_LIMIT:
             break
     return out
 
@@ -585,5 +673,18 @@ def render_for_prompt(sp: Standpoint, *, char_budget: int = 1200) -> str:
             content = s.content.split(".", 1)[0]
             if not _add(f"  · {content[:160]}"):
                 break
+
+    if sp.recent_visuals:
+        _add("")
+        _add("recent visual moments:")
+        for v in sp.recent_visuals[:6]:
+            ts = (v.timestamp or "")[:16]
+            line = f"  · {v.source} · {ts} [Image attached: media_hash={v.media_hash}]"
+            if not _add(line):
+                break
+            if v.excerpt:
+                # Indent the caption under its source line.
+                if not _add(f"      {v.excerpt}"):
+                    break
 
     return "".join(parts).rstrip()
