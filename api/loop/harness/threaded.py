@@ -494,6 +494,46 @@ seed itself.
 """
 
 
+def _select_pending_for_fire(unaddressed: list[dict]) -> list[dict]:
+    """Pick which pending items this fire actually addresses.
+
+    Two regimes:
+
+      · Any user-typed messages present (composer, openai-chat, any
+        non-routine kind) — batch ALL of them and let routine-fires
+        wait for the next tick. Quick multi-message bursts ("hey",
+        "actually wait") were always meant to be one Fathom turn;
+        keep that.
+
+      · Pending list is purely routine-fires — take only the OLDEST
+        one. Each routine-fire is a discrete prompt, designed to
+        stand on its own. Mashing five together (a same-time
+        collision, or a morning catchup after the laptop slept) gives
+        Fathom one rambling response that confuses every routine's
+        intent. Single-fire serially through the supervisor's
+        existing fire-lock.
+
+    Returns the items to address THIS fire. The leftover pending sits
+    in `thread.unaddressed` and surfaces on the next supervisor tick.
+    """
+    if not unaddressed:
+        return []
+    routines = []
+    user_typed = []
+    for d in unaddressed:
+        tags = d.get("tags") or []
+        kind = _tag_value(tags, "msg-kind:")
+        if kind == "routine-fire":
+            routines.append(d)
+        else:
+            user_typed.append(d)
+    if user_typed:
+        return user_typed
+    # Pure routine pile — oldest first; thread.build_window already
+    # returns rows in chronological order.
+    return routines[:1]
+
+
 def _render_tally(unaddressed: list[dict]) -> str:
     if not unaddressed:
         return "  (queue empty — no user messages awaiting response)"
@@ -640,7 +680,7 @@ async def run_threaded_fire(
         max_tokens=max_tokens,
     )
     window_msgs = window["messages"]
-    pending = window["unaddressed"]
+    pending = _select_pending_for_fire(window["unaddressed"])
 
     if standpoint_text_override is not None:
         standpoint_text = standpoint_text_override

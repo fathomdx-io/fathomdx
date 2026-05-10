@@ -126,6 +126,56 @@ def test_tally_render_empty_message():
     assert "queue empty" in threaded._render_tally([])
 
 
+# ── pending selection (idle queue) ────────────────────────────────
+
+
+def _routine(mid: str = "r"):
+    return {"id": mid, "tags": ["kind:thread-msg", "role:user", "msg-kind:routine-fire"]}
+
+
+def _user_msg(mid: str = "u", kind: str = "composer"):
+    return {"id": mid, "tags": ["kind:thread-msg", "role:user", f"msg-kind:{kind}"]}
+
+
+def test_select_pending_returns_empty_for_empty():
+    assert threaded._select_pending_for_fire([]) == []
+
+
+def test_select_pending_batches_user_messages():
+    """Multi-message user bursts batch into one fire — preserved behavior."""
+    out = threaded._select_pending_for_fire([_user_msg("u1"), _user_msg("u2"), _user_msg("u3")])
+    assert [d["id"] for d in out] == ["u1", "u2", "u3"]
+
+
+def test_select_pending_takes_one_routine_at_a_time():
+    """A pile of routine-fires (same-time collision or morning catchup)
+    fires one at a time so each gets Fathom's full attention."""
+    out = threaded._select_pending_for_fire(
+        [_routine("r1"), _routine("r2"), _routine("r3")]
+    )
+    assert [d["id"] for d in out] == ["r1"]
+
+
+def test_select_pending_user_messages_jump_routines():
+    """When user-typed and routine messages mix, user messages take the
+    fire and routines wait. Operator interaction never queues behind
+    background cron noise."""
+    out = threaded._select_pending_for_fire(
+        [_routine("r1"), _user_msg("u1"), _routine("r2"), _user_msg("u2")]
+    )
+    assert [d["id"] for d in out] == ["u1", "u2"]
+
+
+def test_select_pending_treats_unknown_kind_as_user():
+    """Unknown msg-kinds (openai-chat, future kinds) batch as user-typed
+    rather than serializing — single-fire is specifically a routine
+    coping mechanism, not a general policy."""
+    out = threaded._select_pending_for_fire(
+        [_user_msg("a", kind="openai-chat"), _user_msg("b", kind="composer")]
+    )
+    assert len(out) == 2
+
+
 # ── system message ────────────────────────────────────────────────
 
 
