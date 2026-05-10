@@ -928,6 +928,91 @@ async def get_thread_window(
     }
 
 
+class ThreadDismissRequest(BaseModel):
+    """Operator dismiss for the chat-tail queue widget.
+
+    Exactly one of `user_message_id` / `correlation` must be set.
+    Single-id dismisses one pending row. Correlation bulk-dismisses
+    every unaddressed row in the same correlation (used by the UI's
+    collapse rule — "8 missed routine fires" → one X dismisses all).
+    """
+
+    user_message_id: str | None = None
+    correlation: str | None = None
+    note: str = "dismissed by operator"
+
+
+@router.post("/v1/thread/dismiss")
+async def dismiss_thread_message(req: ThreadDismissRequest) -> dict:
+    """Stamp tally-marks so the supervisor stops considering these
+    messages pending. Pure operator UX path — no model in the loop.
+    The lake stays append-only; we cover the row, never delete it.
+    """
+    from .. import thread as thread_mod
+
+    if not req.user_message_id and not req.correlation:
+        raise HTTPException(
+            status_code=400, detail="user_message_id or correlation required"
+        )
+
+    note = (req.note or "dismissed by operator").strip()[:200]
+    dismissed: list[str] = []
+
+    if req.user_message_id:
+        try:
+            await thread_mod.mark_addressed(
+                user_message_id=req.user_message_id,
+                note=note,
+                by="operator-dismiss",
+            )
+            dismissed.append(req.user_message_id)
+        except Exception as e:
+            raise HTTPException(
+                status_code=500, detail=f"dismiss failed: {type(e).__name__}: {e}"
+            ) from e
+        return {"dismissed": dismissed, "count": len(dismissed)}
+
+    # Correlation bulk-dismiss — walk the window, mark every unaddressed
+    # row carrying `correlation:<id>` (or any equivalent shape the
+    # caller passed; we match against full tag string).
+    try:
+        window = await thread_mod.build_window()
+    except Exception as e:
+        raise HTTPException(
+            status_code=500, detail=f"window read failed: {type(e).__name__}: {e}"
+        ) from e
+
+    target = (req.correlation or "").strip()
+    for d in window.get("unaddressed") or []:
+        tags = d.get("tags") or []
+        match = False
+        for t in tags:
+            if not isinstance(t, str):
+                continue
+            # Match either bare correlation value (`<id>`) or full tag
+            # (`correlation:<id>`). UI sends bare; tolerant of either.
+            if t == target or t == f"correlation:{target}" or t.endswith(f":{target}"):
+                if t.startswith("correlation:") or t == target:
+                    match = True
+                    break
+        if not match:
+            continue
+        msg_id = d.get("id")
+        if not msg_id:
+            continue
+        try:
+            await thread_mod.mark_addressed(
+                user_message_id=msg_id,
+                note=note,
+                by="operator-dismiss",
+            )
+            dismissed.append(msg_id)
+        except Exception as e:
+            print(f"[dismiss] mark failed for {msg_id[:12]}: {type(e).__name__}: {e}")
+
+    return {"dismissed": dismissed, "count": len(dismissed)}
+
+
 @router.get("/v1/thread/unaddressed")
 async def get_thread_unaddressed(
     limit: int = 15,

@@ -2132,6 +2132,60 @@
       transition: background 120ms, color 120ms;
     }
     .reply-context-clear:hover { background: var(--surface); color: var(--ink); }
+    /* Idle queue — routines / prompts waiting for Fathom to be free.
+       Sits above the composer, dimmer than chat, half-opacity until
+       hovered. Each row reveals an ✕ on hover. Subtle dashed left
+       border to read as "queued, not happening yet". */
+    .queued-tail {
+      max-width: 720px; margin: 0 auto 6px;
+      display: flex; flex-direction: column; gap: 4px;
+    }
+    .queued-tail[hidden] { display: none; }
+    .queued-tail .qrow {
+      display: flex; align-items: center; gap: 8px;
+      padding: 6px 10px 6px 12px;
+      border-left: 2px dashed var(--rule);
+      border-radius: 4px;
+      font-family: var(--sans); font-size: 12.5px;
+      color: var(--ink-faint);
+      opacity: 0.7;
+      transition: opacity 120ms, background 120ms;
+    }
+    .queued-tail .qrow:hover {
+      opacity: 1;
+      background: var(--surface-elev1, var(--surface-2));
+    }
+    .queued-tail .qrow .qkind {
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: var(--accent);
+      flex-shrink: 0;
+    }
+    .queued-tail .qrow .qpreview {
+      flex: 1; min-width: 0;
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    }
+    .queued-tail .qrow .qcount {
+      flex-shrink: 0;
+      padding: 1px 6px; border-radius: 8px;
+      background: var(--surface-2, var(--surface));
+      font-size: 11px;
+    }
+    .queued-tail .qrow .qts {
+      flex-shrink: 0;
+      color: var(--ink-faint); font-size: 11px;
+    }
+    .queued-tail .qrow .qx {
+      flex-shrink: 0;
+      background: transparent; border: 0; color: var(--ink-faint);
+      cursor: pointer; padding: 2px 6px; border-radius: 6px;
+      font-size: 13px; line-height: 1;
+      opacity: 0; transition: opacity 120ms, background 120ms, color 120ms;
+    }
+    .queued-tail .qrow:hover .qx { opacity: 1; }
+    .queued-tail .qrow .qx:hover { background: var(--surface); color: var(--ink); }
+    .queued-tail .qrow.dismissing { opacity: 0.3; pointer-events: none; }
     .composer textarea {
       flex: 1; border: 0; outline: 0; resize: none;
       font-family: var(--sans); font-size: 15.5px; line-height: 1.4;
@@ -2378,9 +2432,13 @@
        chat hits its top or bottom edge, the wheel/touch event stops
        there instead of propagating to the main feed underneath. */
     #rightSidebarBody { padding: 0; overscroll-behavior: contain; }
+    /* Bottom padding equals the live height of #chatComposerFoot (which
+       grows when the queue widget has rows) plus a small breathing
+       margin so the last chat message clears the footer overlay.
+       JS keeps --chat-foot-h in sync via a ResizeObserver. */
     .chat-feed {
       display: flex; flex-direction: column;
-      padding: 20px 20px 210px;
+      padding: 20px 20px calc(var(--chat-foot-h, 130px) + 20px);
       gap: 10px;
     }
 
@@ -4298,6 +4356,14 @@
       <div class="chat-feed feed" id="chatFeed"></div>
     </div>
     <div class="chat-composer-foot" id="chatComposerFoot">
+      <!-- Idle queue: routines / prompts waiting to fire as soon as Fathom
+           is idle. Polls GET /v1/thread/unaddressed every 3s; rows reveal
+           a ✕ on hover that POSTs to /v1/thread/dismiss. Routine fires
+           with the same correlation collapse into one row "Routine × N"
+           with a single ✕ that bulk-dismisses the correlation. Lives in
+           the chat sidebar footer because the queue is for fires landing
+           in Fathom's context, which is what the chat view represents. -->
+      <div id="queuedTail" class="queued-tail" hidden></div>
       <div id="chatReplyContext" class="reply-context" hidden>
         <span class="reply-context-text"><span class="reply-context-prefix">↩ Replying to:</span> <span id="chatReplyContextPreview"></span></span>
         <button id="chatReplyContextClear" class="reply-context-clear" type="button" aria-label="Clear reply target">✕</button>
@@ -13061,6 +13127,183 @@ GET  /v1/usage               Usage stats`,
       if (_convStatusTimer) { clearInterval(_convStatusTimer); _convStatusTimer = null; }
     }
 
+    // ── Chat composer footer height → CSS var ─────────
+    // The footer holds the queue widget, reply-context bar, and composer.
+    // As the queue grows the footer grows, so .chat-feed needs its
+    // padding-bottom to follow live. ResizeObserver writes the current
+    // height to --chat-foot-h on :root; .chat-feed reads it.
+    (() => {
+      const foot = document.getElementById('chatComposerFoot');
+      if (!foot || typeof ResizeObserver === 'undefined') return;
+      const apply = () => {
+        document.documentElement.style.setProperty(
+          '--chat-foot-h', `${foot.offsetHeight}px`
+        );
+      };
+      new ResizeObserver(apply).observe(foot);
+      apply();
+    })();
+
+    // ── Idle queue (chat-tail) ─────────────────────
+    // Renders /v1/thread/unaddressed above the composer. Routine fires
+    // sharing a `correlation:<routine-id>` collapse into one row "× N".
+    // Hover reveals an ✕ that POSTs /v1/thread/dismiss; correlation rows
+    // bulk-dismiss by passing the correlation, single rows by id.
+    const _queuedTailEl = document.getElementById('queuedTail');
+    let _queuedPollTimer = null;
+    let _queuedDismissing = new Set();  // ids the user just dismissed (optimistic)
+
+    function _qReadCorrelation(tags) {
+      for (const t of (tags || [])) {
+        if (typeof t === 'string' && t.startsWith('correlation:')) {
+          return t.slice('correlation:'.length);
+        }
+      }
+      return '';
+    }
+
+    function _qReadKind(tags) {
+      for (const t of (tags || [])) {
+        if (typeof t === 'string' && t.startsWith('msg-kind:')) {
+          return t.slice('msg-kind:'.length);
+        }
+      }
+      return '';
+    }
+
+    function _qFmtTime(ts) {
+      if (!ts || typeof ts !== 'string') return '';
+      const m = ts.match(/T(\d{2}):(\d{2})/);
+      return m ? `${m[1]}:${m[2]}` : '';
+    }
+
+    async function _qDismiss(opts) {
+      // opts: {ids: [string]} for single-id rows, or {correlation: string} for collapsed
+      try {
+        const body = opts.correlation
+          ? { correlation: opts.correlation }
+          : { user_message_id: opts.ids[0] };
+        await api('/v1/thread/dismiss', {
+          method: 'POST',
+          body: JSON.stringify(body),
+        });
+      } catch (e) {
+        // Roll back the optimistic dismiss if the request failed.
+        for (const id of (opts.ids || [])) _queuedDismissing.delete(id);
+        await _pollQueuedTail();
+      }
+    }
+
+    function _renderQueuedTail(items) {
+      if (!_queuedTailEl) return;
+
+      // Filter out optimistically-dismissed items so the row doesn't
+      // flash back in during the brief window before the lake's tally
+      // mark surfaces in the next /v1/thread/unaddressed read.
+      const live = items.filter(d => !_queuedDismissing.has(d.id));
+
+      if (live.length === 0) {
+        _queuedTailEl.hidden = true;
+        _queuedTailEl.innerHTML = '';
+        return;
+      }
+
+      // Group by correlation. Items without correlation stay individual.
+      const grouped = new Map();  // correlation → [items]
+      const singles = [];
+      for (const d of live) {
+        const corr = _qReadCorrelation(d.tags);
+        if (corr) {
+          if (!grouped.has(corr)) grouped.set(corr, []);
+          grouped.get(corr).push(d);
+        } else {
+          singles.push(d);
+        }
+      }
+
+      // Build rows in oldest-first order. Use the EARLIEST timestamp in
+      // each correlation group as its sort key so a long-pending routine
+      // surfaces at the top.
+      const rows = [];
+      for (const [corr, items] of grouped.entries()) {
+        items.sort((a, b) => (a.timestamp || '').localeCompare(b.timestamp || ''));
+        rows.push({
+          kind: _qReadKind(items[0].tags) || 'queued',
+          preview: items[0].preview || items[0].content || '',
+          ts: items[0].timestamp,
+          count: items.length,
+          correlation: corr,
+          ids: items.map(d => d.id),
+        });
+      }
+      for (const d of singles) {
+        rows.push({
+          kind: _qReadKind(d.tags) || 'queued',
+          preview: d.preview || d.content || '',
+          ts: d.timestamp,
+          count: 1,
+          correlation: '',
+          ids: [d.id],
+        });
+      }
+      rows.sort((a, b) => (a.ts || '').localeCompare(b.ts || ''));
+
+      _queuedTailEl.innerHTML = '';
+      for (const r of rows) {
+        const row = document.createElement('div');
+        row.className = 'qrow';
+        const kindLabel = r.kind === 'routine-fire' ? 'routine' : r.kind;
+        row.innerHTML = `
+          <span class="qkind"></span>
+          <span class="qpreview"></span>
+          ${r.count > 1 ? '<span class="qcount"></span>' : ''}
+          <span class="qts"></span>
+          <button class="qx" type="button" aria-label="Dismiss">✕</button>
+        `;
+        row.querySelector('.qkind').textContent = kindLabel;
+        row.querySelector('.qpreview').textContent = r.preview;
+        if (r.count > 1) row.querySelector('.qcount').textContent = '× ' + r.count;
+        row.querySelector('.qts').textContent = _qFmtTime(r.ts);
+        row.querySelector('.qx').addEventListener('click', async () => {
+          row.classList.add('dismissing');
+          for (const id of r.ids) _queuedDismissing.add(id);
+          if (r.correlation) {
+            await _qDismiss({ correlation: r.correlation, ids: r.ids });
+          } else {
+            await _qDismiss({ ids: r.ids });
+          }
+          await _pollQueuedTail();
+        });
+        _queuedTailEl.appendChild(row);
+      }
+      _queuedTailEl.hidden = false;
+    }
+
+    async function _pollQueuedTail() {
+      try {
+        const r = await fetch(API_BASE + '/v1/thread/unaddressed', { headers: authHeaders() });
+        if (!r.ok) return;
+        const data = await r.json();
+        const items = data.unaddressed || [];
+        // Drop any optimistic-dismiss IDs that the lake has now confirmed
+        // (i.e. they're no longer in unaddressed). Keeps the set small.
+        const live = new Set(items.map(d => d.id));
+        for (const id of [..._queuedDismissing]) {
+          if (!live.has(id)) _queuedDismissing.delete(id);
+        }
+        _renderQueuedTail(items);
+      } catch (e) { /* best-effort */ }
+    }
+
+    function _startQueuedTailPoll() {
+      if (_queuedPollTimer || document.hidden) return;
+      _pollQueuedTail();
+      _queuedPollTimer = setInterval(_pollQueuedTail, 3000);
+    }
+    function _stopQueuedTailPoll() {
+      if (_queuedPollTimer) { clearInterval(_queuedPollTimer); _queuedPollTimer = null; }
+    }
+
     // Per-tier fire buttons in the Weather card header. Each button
     // dispatches its specific tier via /v1/puddle/pulse?tier=<name>;
     // the manual path bypasses the pressure floor, but cooldowns still
@@ -13526,10 +13769,12 @@ GET  /v1/usage               Usage stats`,
         _stopFeedStatusPoll();
         _stopFeedLivePoll();
         _stopPuddleLivePoll();
+        _stopQueuedTailPoll();
       } else {
         _startFeedStatusPoll();
         _startFeedLivePoll();
         _startPuddleLivePoll();
+        _startQueuedTailPoll();
       }
     });
 
@@ -13547,6 +13792,7 @@ GET  /v1/usage               Usage stats`,
     _startFeedStatusPoll();
     _startFeedLivePoll();
     _startPuddleLivePoll();
+    _startQueuedTailPoll();
     // (legacy /v1/feed/visit ping removed — the feed-loop synthesis
     // pipeline is retired; mark_visit() is a no-op now.)
 
