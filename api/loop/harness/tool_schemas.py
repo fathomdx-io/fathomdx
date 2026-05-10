@@ -316,7 +316,12 @@ _MINT_ROUTINE_SCHEMA: dict[str, Any] = {
                     "description": (
                         "What to look for, filter, compare. Numbered or "
                         "prose. Written first-person to Fathom; don't "
-                        "pre-script tool calls."
+                        "pre-script tool calls. If the routine surfaces "
+                        "anything visual — screenshots, charts, photos "
+                        "from a scraped page — instruct it to persist "
+                        "those via `fathom write --image <path>` so the "
+                        "image lands in the lake as an attached delta, "
+                        "not a paraphrase."
                     ),
                 },
                 "ending": {
