@@ -1,6 +1,6 @@
 {
   "name": "fathom-agent",
-  "version": "0.12.0",
+  "version": "0.12.1",
   "description": "Local agent for Fathom — watches files and pushes deltas to your lake",
   "bin": {
     "fathom-agent": "index.js"
@@ -10,6 +10,8 @@
     "index.js",
     "identity.js",
     "pusher.js",
+    "inbox.js",
+    "acp_client.js",
     "plugins/",
     "local-ui/"
   ],
