@@ -114,6 +114,72 @@ async def _write_threaded_turn_trace(
         print(f"[threaded-trace] puddle write failed: {type(e).__name__}: {e}")
 
 
+async def _write_qa_marker(
+    *,
+    pending: list[dict],
+    cards: list[dict],
+    cited_ids: list[str],
+    lake_card_id: str,
+) -> None:
+    """Write a Q/A provenance marker after the harness responds.
+
+    Records that this question was asked, what was said, and which
+    deltas the answer leaned on. Future fires that resonate with this
+    question will surface this marker as additional context — not as
+    a cache replacing fresh recall, but as recognition that the
+    question has been visited before.
+
+    Skipped when there's no pending intent text, no cards, or no
+    cited_ids — the marker has no anchor without all three.
+
+    The marker carries `kind:provenance` so it surfaces through the
+    same ascend/expand machinery as the hand-curated hierarchy. Tagged
+    `provenance-level:0` to sit BELOW level-1 episodes — these are
+    pre-episode, question-anchored, prone to being folded up later.
+    """
+    from ... import delta_client
+    from ... import provenance_centroid
+
+    if not pending or not cards or not cited_ids:
+        return
+
+    question = (pending[0].get("content") or "").strip()
+    question = question.split("\n\n[intent-payload]", 1)[0].strip()
+    if not question:
+        return
+
+    # Combine card bodies into one answer text. Most fires emit one
+    # card; multi-card fires (chat-reply + feed-card) get concatenated.
+    answer_parts = [c.get("body", "").strip() for c in cards if c.get("body")]
+    answer = "\n\n".join(p for p in answer_parts if p)
+    if not answer:
+        return
+
+    content = f"Q: {question}\n\nA: {answer}"
+    if len(content) > 2400:
+        content = content[:2400] + "…"
+
+    tags = [
+        "kind:provenance",
+        "kind:qa-marker",
+        "provenance-level:0",
+        "provenance-version:v1-experimental",
+        f"from-card:{lake_card_id}",
+    ]
+    for cid in cited_ids[:30]:
+        if cid:
+            tags.append(f"from:{cid}")
+
+    centroid = await provenance_centroid.compute_centroid(cited_ids)
+
+    await delta_client.write(
+        content=content,
+        tags=tags,
+        source="harness-qa-marker",
+        provenance_embedding=centroid,
+    )
+
+
 # How many tool-call rounds to allow inside one fire before giving
 # up. Real fires settle in 0–3 rounds; the cap protects against a
 # pathological self-call loop.
@@ -1184,6 +1250,23 @@ async def run_threaded_fire(
                 )
             except Exception as e:
                 print(f"[threaded-fire] constituting writes failed: {type(e).__name__}: {e}")
+
+            # Q/A marker — level-0 provenance anchoring this fire's
+            # question + answer + citations. The hand-curated hierarchy
+            # (L1+ episodes/topics) folds up over these.
+            try:
+                from .. import witness as witness_mod
+
+                await _write_qa_marker(
+                    pending=pending,
+                    cards=final_response.get("cards") or [],
+                    cited_ids=witness_mod._clean_id_list(
+                        final_response.get("cited_ids")
+                    ),
+                    lake_card_id=lake_id,
+                )
+            except Exception as e:
+                print(f"[threaded-fire] qa-marker write failed: {type(e).__name__}: {e}")
 
         # Phase 5d bridge: dual-write to the puddle as a feed-card so
         # the existing dashboard's /v1/puddle/feed consumer can render
