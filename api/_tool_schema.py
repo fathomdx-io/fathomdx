@@ -1,33 +1,23 @@
-"""OpenAI-format tool schema for chat.
+"""OpenAI-format tool schema for the chat-surface tool list.
 
-Chat's LLM expects OpenAI function-calling shape. The canonical registry
-for lake-dispatched tools (remember, write, recall, deep_recall,
-see_image, mind_stats, mind_tags, propose_contact, engage) lives in
-`api/routes/lake.py` as `LAKE_TOOLS`. We convert each chat-scoped entry
-to OpenAI shape here with `to_openai_schema()`.
+The canonical registry for lake-dispatched tools (remember, write,
+recall, deep_recall, see_image, mind_stats, mind_tags, propose_contact,
+engage, send_message, dispatch_helper, mint_routine) lives in
+`api/routes/lake.py` as `LAKE_TOOLS`. We convert each chat-scoped
+entry to OpenAI function-calling shape here with `to_openai_schema()`.
 
-Chat-only tools (routines, explain) have no lake HTTP endpoint — their
-execution is inline in `api/tools.py`. They stay defined here in
-`CHAT_ONLY_TOOLS` in OAI shape directly.
-
-Note (Grand Loop migration): the `routines` tool's create-action schema
-is the canonical shape for routine creation and should be re-used when
-the Grand Loop's witness gains the ability to mint routines from intent
-deltas. Don't drop the schema even if /n is later retired — it captures
-the contract (id, name, schedule, plus the four-section prompt scaffold
-purpose / needs / steps / ending) that the dashboard form and the
-harness `mint_routine` tool both produce.
-
-The final exported `TOOLS` list is the union, filtered to the chat
-surface. One source of truth; chat and MCP/CLI no longer drift because
-they consume from the same registry.
+Crystal regen (`_generate_crystal_candidate` in `server.py`) is the
+only remaining caller of this `TOOLS` list. The user-facing chat path
+(`/v1/chat/completions`) runs entirely through the threaded harness,
+which carries its own tool schemas in
+`api/loop/harness/tool_schemas.py`.
 """
 
 from __future__ import annotations
 
 from .routes.lake import LAKE_TOOLS
 
-__all__ = ["CHAT_ONLY_TOOLS", "TOOLS", "to_openai_schema"]
+__all__ = ["TOOLS", "to_openai_schema"]
 
 
 def to_openai_schema(entry: dict) -> dict:
@@ -47,213 +37,6 @@ def to_openai_schema(entry: dict) -> dict:
     }
 
 
-# ── Chat-only tools (no lake endpoint, dispatched inline) ──────────
-
-CHAT_ONLY_TOOLS: list[dict] = [
-    {
-        "type": "function",
-        "function": {
-            "name": "routines",
-            "description": (
-                "Manage scheduled routines — prompts that fire into a local "
-                "claude session on a cron schedule. Everything goes through "
-                "this one tool via the `action` field. "
-                "Start with action='help' to see the routine spec, or "
-                "action='list' to see existing ones. "
-                "If no local agent is connected the mutation actions "
-                "(create/update/delete/fire) will return installation "
-                "instructions — tell the user to visit the main page of the "
-                "app to set one up. "
-                "For action='create': the default flow is PROPOSE, NOT COMMIT. "
-                "Call create with whatever fields you've composed (name, "
-                "schedule, plus the four scaffold sections at minimum — "
-                "id/workspace/host may be blank) and the tool returns "
-                "{status:'needs_confirmation'} while simultaneously painting "
-                "a review form in the user's chat. "
-                "The user edits and saves that form — you do NOT re-prompt the "
-                "user for the fields in prose; just say something short like "
-                "'Here's the routine — review and save.' Pass confirm=true "
-                "only when the user has explicitly told you to skip the review "
-                "step (e.g. 'just make it', 'don't ask, create it'). "
-                "Outside a chat session (session_id absent), the tool commits "
-                "directly and returns the result. "
-                "ROUTINE BODY SHAPE: prefer the four-section scaffold "
-                "(`purpose`, `needs`, `steps`, `ending`) over the freeform "
-                "`prompt` field. Each section maps to a `# Section` header "
-                "in the saved body. The `prompt` field is a back-compat "
-                "fallback — only use it when migrating an existing freeform "
-                "body verbatim."
-            ),
-            "parameters": {
-                "type": "object",
-                "required": ["action"],
-                "properties": {
-                    "action": {
-                        "type": "string",
-                        "enum": [
-                            "help",
-                            "list",
-                            "get",
-                            "create",
-                            "update",
-                            "delete",
-                            "fire",
-                            "preview_schedule",
-                        ],
-                        "description": (
-                            "help: spec reference and action catalogue. "
-                            "list: all current routines. "
-                            "get: single routine by id. "
-                            "create: new routine (requires id, name; schedule/prompt strongly recommended). "
-                            "update: modify fields by id. "
-                            "delete: soft-delete (tombstone) by id. "
-                            "fire: trigger a routine to run now. "
-                            "preview_schedule: show next N fire times for a cron string."
-                        ),
-                    },
-                    "id": {
-                        "type": "string",
-                        "description": (
-                            "routine-id slug — required for get/update/delete/fire. "
-                            "For create, derive it from `name`: lowercase, hyphen-"
-                            "separated, e.g. name 'Menya Rui hours check' → id "
-                            "'menya-rui-hours-check'. If you omit it, the server "
-                            "will slugify the name as a fallback."
-                        ),
-                    },
-                    "name": {"type": "string", "description": "human-readable label"},
-                    "schedule": {
-                        "type": "string",
-                        "description": "5-field cron (e.g. '0 * * * *' for hourly, '*/5 * * * *' every 5 min)",
-                    },
-                    "purpose": {
-                        "type": "string",
-                        "description": (
-                            "One sentence — what should Fathom accomplish on "
-                            "this routine? Goes under `# Purpose` in the saved body."
-                        ),
-                    },
-                    "needs": {
-                        "type": "string",
-                        "description": (
-                            "What this routine needs to actually run — "
-                            "claude-code on a host (e.g. 'claude-code on "
-                            "<host-slug>'), a specific tool, or "
-                            "'substrate only' if the lake already has the data. "
-                            "Goes under `# Needs`."
-                        ),
-                    },
-                    "steps": {
-                        "type": "string",
-                        "description": (
-                            "The instructions — what to look for, filter, "
-                            "compare. Numbered list or short prose. Written "
-                            "as a request to Fathom, not as instructions for "
-                            "claude-code. Goes under `# Steps`."
-                        ),
-                    },
-                    "ending": {
-                        "type": "string",
-                        "description": (
-                            "How the user wants to be notified. Plain language. "
-                            "The witness reads this as a route directive: "
-                            "'send me a card' → feed-card, 'DM me' → chat-reply, "
-                            "'stay silent unless X' → silent then alert when X. "
-                            "Goes under `# Ending`."
-                        ),
-                    },
-                    "prompt": {
-                        "type": "string",
-                        "description": (
-                            "Back-compat freeform body. Prefer the four scaffold "
-                            "fields (purpose/needs/steps/ending). Use this only "
-                            "when migrating an existing freeform body verbatim "
-                            "(it's the literal markdown that will be saved as the "
-                            "routine's prompt). When scaffold fields are passed, "
-                            "this field is ignored."
-                        ),
-                    },
-                    "permission_mode": {
-                        "type": "string",
-                        "enum": ["auto", "normal"],
-                        "description": (
-                            "auto: classifier auto-approves safe actions. "
-                            "normal: claude prompts for each tool (user approves)."
-                        ),
-                    },
-                    "host": {
-                        "type": "string",
-                        "description": (
-                            "which machine runs this routine — must match a connected "
-                            "agent's hostname (e.g. 'fedora'). Empty = fleet-wide (every "
-                            "connected agent will execute the fire). When unsure, call "
-                            "action='help' to see the list of connected machines, or leave "
-                            "blank and the tool will ask."
-                        ),
-                    },
-                    "enabled": {"type": "boolean", "description": "paused if false"},
-                    "single_fire": {
-                        "type": "boolean",
-                        "description": "documented but not yet honored by scheduler",
-                    },
-                    "confirm": {
-                        "type": "boolean",
-                        "description": (
-                            "create-only bypass. Default behavior proposes the "
-                            "routine in a chat form for the user to review. "
-                            "Set true only when the user explicitly asked you "
-                            "to skip the review step."
-                        ),
-                    },
-                    "count": {
-                        "type": "integer",
-                        "description": "for preview_schedule: number of upcoming fires to return (default 5)",
-                    },
-                },
-            },
-        },
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "explain",
-            "description": (
-                "Explain a part of the Fathom dashboard to the user. Call this "
-                "whenever the user asks what something is, how it works, or how "
-                "to set it up — covers sources, feed, stats, and agent. The tool "
-                "returns a spec-style description blended with the user's live "
-                "state (e.g. how many sources they have configured right now), "
-                "so your answer can be concrete rather than generic. Prefer this "
-                "over answering from general knowledge — the dashboard is "
-                "opinionated and the tool is authoritative."
-            ),
-            "parameters": {
-                "type": "object",
-                "required": ["topic"],
-                "properties": {
-                    "topic": {
-                        "type": "string",
-                        "enum": ["sources", "feed", "stats", "agent"],
-                        "description": (
-                            "sources: pollers that write deltas into the lake (RSS, "
-                            "Mastodon, HN, custom). "
-                            "feed: the 'What I noticed' surface on the dashboard — "
-                            "synthesized stories from recent lake activity. "
-                            "stats: the time-series dashboard showing deltas-in, "
-                            "recall, mood pressure, drift. "
-                            "agent: the local fathom-agent runtime — what it runs "
-                            "(routines, passive senses) and how to install it."
-                        ),
-                    },
-                },
-            },
-        },
-    },
-]
-
-
-# ── Computed: chat-only + lake-surface chat tools ──────────────────
-
-TOOLS: list[dict] = CHAT_ONLY_TOOLS + [
+TOOLS: list[dict] = [
     to_openai_schema(t) for t in LAKE_TOOLS if "chat" in (t.get("surfaces") or [])
 ]

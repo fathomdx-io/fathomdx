@@ -1,6 +1,6 @@
 """Smoke tests for the OpenAI-compatible `/v1/chat/completions` endpoint.
 
-The endpoint no longer runs `fathom_think` directly — it drops the
+The endpoint does not run an in-process chat LLM — it drops the
 user's turn into the puddle as a `kind:question` intent tagged
 `channel:openai` + `openai-session:<sid>`, then polls the lake for a
 witness card tagged `to:openai:<sid>` + `addresses:<intent_id>`. These

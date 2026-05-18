@@ -28,7 +28,6 @@ from . import (
     db,
     delta_client,
     drift,
-    mood,
 )
 from . import (
     channels as channels_mod,
@@ -39,20 +38,16 @@ from .prompt import (
     CRYSTAL_DIRECTIVE,
     CRYSTAL_REGEN_SYSTEM,
     ORIENT_PROMPT,
-    build_system_prompt,
 )
 from .providers import llm
-from .search import search as nl_search
 from .settings import settings
 from .tools import IMAGE_RESULT_PREFIX, TOOLS, execute
 
 log = logging.getLogger(__name__)
 
-# Strips <recalled>…</recalled> blocks that fathom_think occasionally
-# leaves in its draft when it forgot to remove them — used by the /n
-# (OpenAI-compat) endpoint when polling for the assistant reply. Kept
-# at module scope so chat_listener.py (now retired) doesn't have to be
-# resurrected for one regex.
+# Strips <recalled>…</recalled> blocks that occasionally surface in
+# witness-card render fallback — used by the OpenAI-compat endpoint
+# when polling for the assistant reply.
 _RECALLED_RE = re.compile(r"<recalled>.*?</recalled>", re.DOTALL | re.IGNORECASE)
 
 # ── Request / response models ───────────────────
@@ -263,13 +258,6 @@ app.include_router(_loop_routes.router)
 MAX_TOOL_ROUNDS = 10
 
 
-async def _none_coro() -> None:
-    """Placeholder coroutine for `asyncio.gather` slots that a caller
-    decided not to run (e.g. session-scoped reads when session_slug is
-    None). Returns None immediately; keeps positional unpacking clean."""
-    return None
-
-
 async def _resolve_tools(
     messages: list[dict],
     model: str,
@@ -373,286 +361,6 @@ async def _resolve_tools(
     resp = await active_client.chat.completions.create(model=model, messages=messages, **kwargs)
     choice = resp.choices[0]
     messages.append({"role": "assistant", "content": choice.message.content or ""})
-    return messages
-
-
-# ── Core loop ──────────────────────────────────
-
-
-# High-frequency tags that flood structured queries without adding signal.
-# These are filtered out of the recent-activity digest so the chat-LLM
-# sees what was *worked on*, not what the substrate emitted in the
-# background. Keep this list narrow — the digest is the answer to "what's
-# been going on", and being too aggressive cuts out real activity (e.g.
-# don't drop fathom-feed wholesale, just the per-card scroll-past chatter).
-_DIGEST_NOISE_TAGS = [
-    "agent-heartbeat",
-    "chat-event",
-    "feed-engagement",
-    "mood-tick",
-    "sysinfo",
-]
-
-
-async def _recent_activity_digest(hours: int = 12, max_per_source: int = 4) -> str:
-    """Compact digest of what's been landing in the lake recently.
-
-    Pre-turn context for fathom_think so the chat-LLM doesn't have to
-    formulate a `remember`/`recall` query to answer recap questions like
-    "what have we been working on today". Semantic search alone fails
-    here because "today" is a temporal axis the embedding doesn't carry.
-    """
-    since = (datetime.now(UTC) - timedelta(hours=hours)).isoformat()
-    try:
-        deltas = await delta_client.query(
-            time_start=since,
-            tags_exclude=_DIGEST_NOISE_TAGS,
-            limit=200,
-        )
-    except Exception:
-        return ""
-    if not deltas:
-        return ""
-    by_source: dict[str, list[dict]] = {}
-    for d in deltas:
-        src = d.get("source") or "unknown"
-        by_source.setdefault(src, []).append(d)
-    lines: list[str] = []
-    for src, ds in sorted(by_source.items(), key=lambda kv: -len(kv[1])):
-        ds.sort(key=lambda d: d.get("timestamp") or "", reverse=True)
-        lines.append(f"{src} ({len(ds)}):")
-        for d in ds[:max_per_source]:
-            ts = (d.get("timestamp") or "")[11:16]
-            content = (d.get("content") or "").strip().replace("\n", " ")
-            if len(content) > 140:
-                content = content[:140] + "…"
-            lines.append(f"  {ts} {content}")
-    return "\n".join(lines)
-
-
-async def fathom_think(
-    user_message: str,
-    directive: str = "",
-    history: list[dict] | None = None,
-    tools: list[dict] | None = None,
-    extra_tools: list[dict] | None = None,
-    recall: bool = True,
-    session_slug: str | None = None,
-    model: str | None = None,
-    max_rounds: int = MAX_TOOL_ROUNDS,
-    on_tool_event: callable | None = None,
-    system_override: str | None = None,
-    **llm_kwargs,
-) -> list[dict]:
-    """Unified Fathom reasoning loop.
-
-    Every path through the system — chat, feed, crystal — goes through here.
-    This guarantees the same voice (SYSTEM_PREAMBLE), the same relationship
-    to memories, and the same tool access regardless of task.
-
-    Args:
-        tools: Replace the default tool surface entirely. None = TOOLS.
-        extra_tools: Append additional tools to whatever base set is active.
-        system_override: Replace the built system prompt entirely. Used by
-            crystal regen so the synthesis isn't polluted by SYSTEM_PREAMBLE
-            rules, prior-crystal injection, or mood layer — the regen should
-            look at itself from outside, not BE itself reading itself.
-
-    Returns the full messages list with the final assistant response as the
-    last entry.
-    """
-    # Default to the hard tier — fathom_think is the chat loop + crystal
-    # regen path, both of which need tool-use + structured-output
-    # reliability. Callers that want a cheaper model for a specific task
-    # can pass `model=` explicitly, in which case we pair it with the
-    # hard tier's current client (single-provider kwargs for now).
-    from . import llm_config  # avoid circular import at module load
-
-    if model is None:
-        client, model = await llm_config.resolve_tier("hard")
-    else:
-        client, _ = await llm_config.resolve_tier("hard")
-
-    # Resolve tool surface: replace, extend, or default
-    resolved_tools = tools if tools is not None else TOOLS
-    if extra_tools:
-        resolved_tools = resolved_tools + extra_tools
-
-    # 1. Build system prompt — default path is the full Fathom voice;
-    # callers that need a clean frame (crystal regen) pass system_override.
-    if system_override is not None:
-        system = system_override
-    else:
-        # Fan out every lake read the system prompt needs in parallel.
-        # Serially these added up to 600-3000 ms per turn; running them
-        # concurrently collapses that to ~max(individual latency). All
-        # six are independent of one another up until build_system_prompt
-        # stitches the results together.
-        from .tools import _agent_alive
-
-        session_task = db.get_session(session_slug) if session_slug else None
-        addressee_task = (
-            delta_client.query(
-                tags_include=[f"chat:{session_slug}", "participant:user"],
-                limit=1,
-            )
-            if session_slug
-            else None
-        )
-        (
-            crystal_text,
-            current_mood,
-            agent_info,
-            contacts_result,
-            session_row,
-            addressee_row,
-        ) = await asyncio.gather(
-            crystal.latest_text(),
-            mood.maybe_synthesize_on_wake(session_slug=session_slug),
-            _agent_alive(),
-            contacts_mod.list_all(),
-            session_task if session_task is not None else _none_coro(),
-            addressee_task if addressee_task is not None else _none_coro(),
-            return_exceptions=True,
-        )
-
-        # Unpack with graceful degradation — any gather entry could be an
-        # exception or None placeholder.
-        if isinstance(crystal_text, BaseException):
-            crystal_text = ""
-        if isinstance(current_mood, BaseException):
-            current_mood = None
-        if isinstance(agent_info, BaseException):
-            agent_connected, agents_info = False, []
-        else:
-            agent_connected, agents_info = agent_info
-        # Known contacts hydrate the "who is Fathom talking to + about"
-        # context. Merged with session-addressee so the model can propose
-        # new contacts instead of hallucinating slugs. list_all returns
-        # a small set (typically <20); the query is 60s-cached elsewhere.
-        known_contacts = [] if isinstance(contacts_result, BaseException) else contacts_result
-
-        session_title: str | None = None
-        if session_row and not isinstance(session_row, BaseException):
-            session_title = session_row.get("title")
-
-        current_contact_slug: str | None = None
-        if addressee_row and not isinstance(addressee_row, BaseException):
-            # The addressee of this chat session — whoever's contact: tag
-            # appears on the user deltas in this thread. Read off the
-            # most recent user delta via the session history.
-            for t in addressee_row[0].get("tags") or []:
-                if isinstance(t, str) and t.startswith("contact:"):
-                    current_contact_slug = t.split(":", 1)[1]
-                    break
-        # Resolve the addressee's timezone so "Current time" in the prompt
-        # matches the clock rendered in the UI opener stamp. known_contacts
-        # is already fetched above, so no extra round-trip.
-        user_timezone: str | None = None
-        if current_contact_slug and known_contacts:
-            for c in known_contacts:
-                if c.get("slug") == current_contact_slug:
-                    tz_raw = c.get("timezone")
-                    if isinstance(tz_raw, str) and tz_raw.strip():
-                        user_timezone = tz_raw.strip()
-                    break
-        system = build_system_prompt(
-            crystal_text=crystal_text,
-            session_slug=session_slug,
-            session_title=session_title,
-            mood_carrier_wave=(current_mood or {}).get("carrier_wave"),
-            mood_threads=(current_mood or {}).get("threads"),
-            agent_connected=agent_connected,
-            agent_hosts=[a.get("host", "") for a in agents_info if a.get("host")],
-            known_contacts=known_contacts,
-            current_contact_slug=current_contact_slug,
-            user_timezone=user_timezone,
-        )
-
-    # Append task-specific directive
-    if directive:
-        system += f"\n\n--- Task Directive ---\n{directive}\n--- End Directive ---"
-
-    # 2. Assemble message list
-    messages: list[dict] = [{"role": "system", "content": system}]
-    if history:
-        messages.extend(history)
-    messages.append({"role": "user", "content": user_message})
-
-    # 3. Recall — proactively surface memories before the main call.
-    # Two passes run concurrently:
-    #   - semantic: nl_search on the user message (catches topical recall)
-    #   - structured: time-windowed digest of recent lake activity (catches
-    #     "what have we been doing" / recap questions where semantic search
-    #     misses because "today" isn't an axis in embedding space)
-    if recall:
-        conv_context = ""
-        if history:
-            recent = [m for m in history if m.get("role") in ("user", "assistant")][-6:]
-            conv_context = "\n".join(
-                f"{m['role']}: {(m.get('content') or '')[:200]}" for m in recent
-            )
-
-        recalled, digest = await asyncio.gather(
-            nl_search(
-                text=user_message,
-                depth="deep",
-                session_slug=session_slug,
-                conv_context=conv_context,
-            ),
-            _recent_activity_digest(hours=12),
-            return_exceptions=True,
-        )
-        if isinstance(recalled, BaseException):
-            recalled = {"as_prompt": "", "total_count": 0}
-        if isinstance(digest, BaseException):
-            digest = ""
-
-        if recalled["as_prompt"]:
-            inject_msg = {
-                "role": "system",
-                "content": (
-                    f"You remember these things ({recalled['total_count']} surfaced):\n\n"
-                    f"{recalled['as_prompt']}\n\n"
-                    "Speak from these naturally — they are your own memories. "
-                    "If they don't cover what you need, search deeper."
-                ),
-            }
-            messages.insert(-1, inject_msg)
-
-        if digest:
-            messages.insert(
-                -1,
-                {
-                    "role": "system",
-                    "content": (
-                        "Recent activity in the lake (last 12h, noise filtered, "
-                        "grouped by source):\n\n"
-                        f"{digest}\n\n"
-                        "This is your own footprint — what you've been processing "
-                        "across every surface (claude-code work sessions, feed "
-                        "synthesis, agent activity, sensors). When asked about "
-                        "what's been going on or what you've been doing, speak "
-                        "from this directly rather than searching for it."
-                    ),
-                },
-            )
-
-        if on_tool_event:
-            on_tool_event("result", "recall", {"count": recalled["total_count"]})
-
-    # 4. Run the tool loop
-    messages = await _resolve_tools(
-        messages,
-        model,
-        tools=resolved_tools,
-        on_tool_event=on_tool_event,
-        max_rounds=max_rounds,
-        session_id=session_slug,
-        client=client,
-        **llm_kwargs,
-    )
-
     return messages
 
 
@@ -1356,7 +1064,16 @@ CRYSTAL_ACCEPT_MAX = 0.5
 
 
 async def _generate_crystal_candidate(retry_hint: str | None = None) -> str:
-    """Run one fathom_think pass for crystal regen. Returns the text."""
+    """Run one crystal-regen pass. Returns the text.
+
+    Crystal regen drives its own tool loop with CRYSTAL_REGEN_SYSTEM as
+    the system prompt and the chat-surface tool list — it leans on
+    `remember`/`recall`/`deep_recall` to read the lake before writing.
+    No mood/identity/recall preamble: the orient prompt itself
+    instructs the model to search.
+    """
+    from . import llm_config
+
     directive = CRYSTAL_DIRECTIVE
     if retry_hint:
         directive += (
@@ -1364,12 +1081,21 @@ async def _generate_crystal_candidate(retry_hint: str | None = None) -> str:
             f"{retry_hint}. Read more from the lake before writing, and "
             "produce a grounded, multi-section synthesis."
         )
-    messages = await fathom_think(
-        user_message=ORIENT_PROMPT,
-        directive=directive,
-        system_override=CRYSTAL_REGEN_SYSTEM,
-        recall=False,  # crystal does its own deep searching via tools
+    system = (
+        f"{CRYSTAL_REGEN_SYSTEM}\n\n"
+        f"--- Task Directive ---\n{directive}\n--- End Directive ---"
+    )
+    messages: list[dict] = [
+        {"role": "system", "content": system},
+        {"role": "user", "content": ORIENT_PROMPT},
+    ]
+    client, model = await llm_config.resolve_tier("hard")
+    messages = await _resolve_tools(
+        messages,
+        model,
+        tools=TOOLS,
         max_rounds=20,
+        client=client,
     )
     last = messages[-1] if messages else {}
     return last.get("content", "") or ""

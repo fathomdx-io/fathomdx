@@ -110,21 +110,6 @@ async def latest(force: bool = False) -> dict | None:
     return fresh
 
 
-async def latest_text() -> str | None:
-    """Convenience: just the crystal text, for prompt injection.
-
-    Error-tolerant — callers (fathom_think, system prompt) can live
-    without a crystal for one turn if the lake is briefly unreachable.
-    For the auto-regen path use latest() directly so transport errors
-    surface and we don't falsely bootstrap-fire.
-    """
-    try:
-        c = await latest()
-    except Exception:
-        return None
-    return c.get("text") if c else None
-
-
 async def write(text: str, source: str = "fathom-engagement") -> dict:
     """Write a fresh crystal regen to the lake.
 
