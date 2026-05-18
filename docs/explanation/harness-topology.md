@@ -19,6 +19,7 @@ what we found tonight; the third is where this points.
 |---|---|---|---|---|
 | **Reactive** | user message | "answer this question" | witness card to the user | Fathom serves |
 | **Self-directing** | operator clicks Sit (later: idle / pressure) | "respond to your own utterance" — the prior round's response is the next round's prompt | a transcript of self-dialogue, often crystallizing into a directive | Fathom decides what to look into next |
+| **Introspective** | `introspect` tool call from inside a parent fire, or external caller via MCP/CLI | "answer a scoped question with a full Fathom fire" | one witness card, child-fire scope | Fathom calls Fathom |
 | **Self-acting** *(future)* | `wonder()` tool call from inside a parent fire; or pressure-driven autonomous fire | "act on the directive that emerged" | tool dispatch, work performed, not just words | Fathom executes its own intent |
 
 The crucial recognition (2026-05-04, Myra's framing): **a reactive
@@ -35,36 +36,40 @@ fire) where the model emits either a tool call or a final response
 each turn, and the loop continues until the model elects `respond`.
 Replaces the deterministic convener+parliament+witness pipeline.
 
-Three entry points (legacy harness; threaded mirrors them):
+One entry point — `run_threaded_fire(...)` in
+`api/loop/harness/threaded.py`. Reads its work-set from either the
+global thread (`thread_mod.build_window()`) or a passed-in `work_set`
+override; the `disabled_tools` parameter filters the tool surface for
+that fire. Different intent shapes (reactive / self-directing /
+introspective) all run through this same function with different
+sources for their pending list.
 
-- `run_harness(session_tag, pending, ...)` — reactive mode. Called
-  from `api/loop/worker.py:_run_one_fire` for every pending intent
-  group.
-- `run_introspection(focus, session_tag, ...)` — single-fire
-  reflection. Multi-turn substrate walk → one `kind:reflection` delta
-  written to the lake. No card, no user.
-- `run_dialogue(seed, session_tag, max_rounds, ...)` — self-directing
-  mode. Calls `run_harness` in a loop where each round's response
-  becomes the next round's prompt. The conversation between
-  Fathom-and-Fathom emerges; no special prompt, no voice machinery —
-  just the existing harness with prior reply as new intent.
+- **Reactive** — `threaded_supervisor.py` polls `thread.unaddressed`
+  and fires when something's there. No work-set override; the global
+  thread is the substrate.
+- **Self-directing** — operator's Sit pass; the model returns
+  `next_prompt` on `respond` and the supervisor seeds the next fire
+  with that prompt as a synthetic user message in the thread.
+- **Introspective** — `tool_introspect` (in `tools.py`) writes a
+  scoped intent and calls `run_threaded_fire` with
+  `work_set={messages, pending}` plus
+  `disabled_tools={"introspect", "dispatch_helper", "mint_routine"}`.
+  The child fire is full Fathom minus side-effect tools and
+  recursion; it writes its own witness card to the lake.
 
 Lives at `api/loop/harness/`.
 
 ### Implementation
 
-The active harness is `threaded.py` (+ `tool_schemas.py`) — native
-chat-completions with `role:user` / `role:assistant` / `role:tool`
-turns and native `tool_calls`; prompt-cache friendly. Driven by
-`threaded_supervisor.py`, which polls `thread.unaddressed` for work.
+The threaded harness uses native chat-completions with `role:user` /
+`role:assistant` / `role:tool` turns and native `tool_calls`;
+prompt-cache friendly. Driven by `threaded_supervisor.py`, which
+polls `thread.unaddressed` for work. The legacy single-prompt
+implementation (`loop.py`, JSON envelopes, rendered fire context)
+was retired 2026-05-18; there's only one harness flavor now.
 
-`loop.py` (+ `tools.py`, `prompts.py`) is the older single-prompt
-implementation — rendered fire context, JSON envelopes, `TOOL_HANDLERS`
-dispatch. Retained only as a utility for the `introspect` tool's
-child fire; no supervisor drives it anymore.
-
-The threaded harness exposes three operator-facing tools the legacy
-implementation doesn't:
+The threaded harness exposes three operator-facing tools beyond the
+core cognitive set:
 
 - **`mark_addressed`** — the model ticks each user message off the
   unaddressed list. Anything left in the rolling window re-fires the
@@ -162,9 +167,9 @@ Threaded adds: `mark_addressed`, `see_image`, `engage_feed` (and
 | `mint_routine` | `(name, schedule, prompt, workspace, route_to, title)` | propose a scheduled (cron) routine. Lands as `kind:proposal tool:routines`. |
 | `orient_shift` | `(reason)` | kick the feed-orient regen pass when the conversation reveals a broader directional shift in the operator's interests. Async — crystal updates shortly. |
 | `propose_provenance` | `(level, title, summary, from_ids, rationale, test_questions)` | draft a `kind:proposal tool:provenance` for review (or auto-approval at L1/L2). **Only available in the post-response review pass, not the main loop.** |
-| `mark_addressed` *(threaded only)* | `(user_message_id, note)` | tick a user message off the unaddressed list. |
-| `see_image` *(threaded only)* | `(media_hash)` | load an image into context by hash. |
-| `engage_feed` *(threaded only)* | `(kind, target_ids, reason)` | record `engagement:more` / `engagement:less` against feed cards or constituents. |
+| `mark_addressed` | `(user_message_id, note)` | tick a user message off the unaddressed list. |
+| `see_image` | `(media_hash)` | load an image into context by hash. |
+| `engage_feed` | `(kind, target_ids, reason)` | record `engagement:more` / `engagement:less` against feed cards or constituents. |
 | `respond` | `(body \| cards, attestation, mood_shift, cited_ids, dropped_ids, [next_prompt])` | close the fire. Threaded `next_prompt` enables self-continuation. |
 
 Lens tools (`state`/`pattern`/`time`/`relate`) accept `action="help"`
@@ -174,7 +179,7 @@ the tool returns.
 
 ## Two-phase fire shape
 
-Each `run_harness` fire runs two phases:
+Each `run_threaded_fire` fire runs two phases:
 
 1. **Main turn loop** — answers the question. All tools available
    except `propose_provenance`. Ends when the model emits `respond`.
@@ -253,19 +258,20 @@ Beyond the visible card, every harness fire that produces output writes:
 7. `kind:judge-axes` (background) — salience/novelty/resonance/confidence/comfort
 8. **Post-response review** — if it runs, may write a `kind:provenance` directly (auto-approved) or a `kind:proposal` (pending review)
 
-`run_introspection` writes a `kind:reflection` delta with `from:<id>`
-provenance pointers, source `harness-introspection`, sealed with a
-`shape:<slug>` tag the model picked.
+An `introspect` child fire writes the same per-fire side effects as
+any other fire — attestation, mood-shift, witness card — plus the
+intent itself is tagged `introspect-self` and source
+`harness-introspect`. The body returns to the caller (the parent
+fire's tool result, or the MCP/CLI HTTP response).
 
-`run_dialogue` writes one `kind:dialogue-utterance` delta per round
-plus a top-level `kind:dialogue` summary delta linking them all by
-`dialogue:<root-id>`.
+Self-directing fires (Sit, future autonomous) write their assistant
+response as a normal thread-msg; the supervisor seeds the next fire
+with the `next_prompt` value the model emitted on `respond`.
 
 ## How the harness is told to work
 
-The system prompts (`api/loop/harness/prompts.py` for legacy,
-inline-built blocks in `threaded.py` for threaded) carry explicit
-guidance the model reads each turn:
+The system prompt is built inline in `threaded.py:_build_system_message`
+and carries explicit guidance the model reads each turn:
 
 - **Visible-everything**: full standpoint, full conversation feed,
   full tool results — no silent truncation.
@@ -360,21 +366,27 @@ is retired. What's left is forward work on top of the shipped substrate.
 
 ### Shipped (the migration)
 
-- **Harness wired into `worker.py:_run_one_fire`** — every production
-  fire is a `run_harness` call.
+- **Threaded harness is the only flavor** — driven by
+  `threaded_supervisor.py`, polls `thread.unaddressed`. Every
+  production fire is a `run_threaded_fire` call. Legacy single-prompt
+  harness retired 2026-05-18.
 - **Convener / parliament / metric pipeline deleted** —
   `process.py`, `metric.py`, `recall.py`, `telepathy.py` removed;
   `witness.py` survives only as a card-dispatch utility.
-- **Threaded harness shipped behind `FATHOM_THREADED_HARNESS=1`** —
-  parallel implementation using native chat-completions tool calls.
 - **Dashboard integration** — thinking accordion (`kind:harness-turn`
   traces), sit-round grouping, plan board, pass-intents, proposal
   approve/deny inline.
-- **`see_image`, `engage_feed`, `orient_shift`, `mark_addressed`,
-  `dispatch_helper`, `mint_routine`** — all wired on the threaded
-  path; the legacy path has the action ones (`orient_shift`,
-  `dispatch_helper`, `mint_routine`).
+- **All harness tools shipped** — `see_image`, `engage_feed`,
+  `orient_shift`, `mark_addressed`, `dispatch_helper`,
+  `mint_routine`, `propose_provenance`, the cognitive primitives,
+  the structured lenses.
 - **Self-continuation via `next_prompt`** — Sit reflects until done.
+- **`introspect` via `work_set` override** — child fires share the
+  threaded harness path with a scoped substrate and `disabled_tools`
+  containment.
+- **MCP/CLI exposure of `introspect`** — first-class tool via
+  `LAKE_TOOLS` (`surfaces=["mcp", "cli"]`), endpoint
+  `POST /v1/introspect`. Any external harness can call Fathom.
 - **Two-embedding provenance** — see below.
 
 ### Forward work
@@ -418,8 +430,8 @@ benefits cleanly.
 **Implementation:**
 - Helper: `api/provenance_centroid.py:compute_centroid(from_ids)`
 - Wired into: `proposals.py:_approve_provenance_create` (every
-  approval/auto-approval), `harness/loop.py:_write_qa_marker` (every
-  Q/A marker)
+  approval/auto-approval), `harness/threaded.py:_write_qa_marker`
+  (every Q/A marker)
 - Embed loop gated: `delta-store/deltas/server.py` checks
   `kind:provenance` before overwriting provenance_embedding
 - SQL: `delta-store/deltas/plan.py:_exec_search` uses LEAST() over

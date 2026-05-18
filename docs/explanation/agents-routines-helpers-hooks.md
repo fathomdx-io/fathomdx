@@ -56,7 +56,7 @@ For routines that route through claude-code, you need an agent paired on a machi
 
 The word "helper" is used two ways in Fathom, and both are in active use. This section is about the inference-time sense; the host-side sense is the helper plugins described in [Agent](#agent) above and the [Wire up helpers](../how-to/wire-up-helpers.md) how-to.
 
-- **Helper (inference-time, LLM tool):** a named capability Fathom can invoke during a chat or harness turn. Registered in `LAKE_TOOLS` (HTTP-backed) or `CHAT_ONLY_TOOLS` (inline). The harness sees these as OpenAI-style functions.
+- **Helper (inference-time, LLM tool):** a named capability Fathom can invoke during a harness turn. Registered in `LAKE_TOOLS` (HTTP-backed; visible to chat / MCP / CLI / harness per its `surfaces` list). The harness sees these as OpenAI-style functions.
 - **Helper (host-side, dispatchable agent):** a `(host, role)` pair an agent advertises via heartbeat — kitty for `claude-code`, the ACP plugin for `openclaw`, `codex`, etc. The harness's `dispatch_helper` tool *targets* one of these pairs.
 
 The rest of this section is about the first sense.

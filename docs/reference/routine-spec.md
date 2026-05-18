@@ -263,7 +263,7 @@ The dashboard's Routines page does all of this through `/v1/routines`, `/v1/rout
 
 - **`api/routine_scheduler.py`** — reads spec deltas every 60s, writes `routine-due` intents into the puddle on cron-elapsed AND a `routine-tick` marker into the lake. Honors `single_fire` by soft-deleting the spec after firing once.
 - **`api/routines.py`** — CRUD over spec deltas. `fire()` is the legacy direct-to-kitty path (Path B); used by Fire Now and the chat tool.
-- **`api/loop/harness/`** — `worker.py:_run_one_fire` reads `routine-due` intents alongside other intents and hands them to `run_harness`, which elects tool calls and produces a card. The card stamps `addresses:<intent-id>` to close the intent. (`api/loop/witness.py` survives as a card-dispatch helper module — `_dispatch_card`, `_available_helper_hosts`, `_render_hosts_block` — but `run_witness` is unused.)
+- **`api/loop/harness/`** — `threaded_supervisor.py` polls `thread.unaddressed` and drives `run_threaded_fire`, which reads `routine-due` intents alongside other intents, elects tool calls, and produces a card. The card stamps `addresses:<intent-id>` to close the intent. (`api/loop/witness.py` survives as a card-dispatch helper module — `_dispatch_card`, `_available_helper_hosts`, `_render_hosts_block` — but `run_witness` is unused.)
 - **`addons/agent/plugins/kitty.js`** — polls for `routine-fire` deltas (Path B) AND `route:claude-code` deltas (Path A → harness-dispatched claude-code). Spawns kitty + claude in either case.
 - **`api/routes/routines.py`** — HTTP CRUD for the dashboard.
 - **Dashboard `RoutinesPage`** — renders, and POSTs back to `/v1/routines` for CRUD.

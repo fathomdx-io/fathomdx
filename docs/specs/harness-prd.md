@@ -1,8 +1,8 @@
 # Harness — Product Requirements Document
 
-**Status:** shipped — migrated into fathomdx; threaded harness is the only active path. The single-prompt legacy implementation is retained as a utility for the `introspect` tool's child fire only.
+**Status:** shipped — migrated into fathomdx; threaded harness is the only active path. The single-prompt legacy implementation was retired 2026-05-18. `introspect` runs through the same threaded harness via a `work_set` override.
 **Owner:** Myra
-**Last updated:** 2026-05-09
+**Last updated:** 2026-05-18
 
 ---
 
@@ -65,7 +65,7 @@ Three modes sharing one machinery (turn loop, tool dispatch, prompt scaffolding)
 - Each round of self-dialogue is a full reactive harness fire whose response feeds the next round's input
 - Default 4 rounds, configurable via `max_rounds`
 - Each utterance writes a `kind:dialogue-utterance` delta; the full session writes a `kind:dialogue` summary delta
-- Optional: single-fire reflection via `run_introspection`, output is `kind:reflection` delta
+- Each round writes its assistant response as a normal `kind:thread-msg` delta; the supervisor seeds the next fire with the `next_prompt` value from `respond`
 
 **Self-acting (partial)**
 - `introspect(question)` peer tool spawns a child harness fire; returns response body
@@ -108,7 +108,7 @@ Three modes sharing one machinery (turn loop, tool dispatch, prompt scaffolding)
 ## 4. Success criteria
 
 **Reactive parity (migration gate)**
-- A representative sample of recent witness fires reproduce equivalent cards through `run_harness` — same body shape, same addressed-intents, same routes
+- A representative sample of recent witness fires reproduce equivalent cards through `run_threaded_fire` — same body shape, same addressed-intents, same routes
 - No regression in dashboard / chat / mission-control surfaces that consume witness output
 - Per-fire latency p50 within 1.5x of witness baseline
 

@@ -70,14 +70,15 @@ The shape:
    pressure (`api/feed_pressure.py`); when it crosses, `intents.py`
    drops one intent per pass-kind into the puddle. User questions and
    other surface-driven asks also land as intent deltas.
-2. **Harness** — `api/loop/harness/loop.py:run_harness` is a multi-turn
-   tool-calling loop. Each turn the model emits either a tool call or a
-   final card. Tools cover recall (`semantic`, `expand`, `ascend`),
-   structured lenses (`state`, `pattern`, `time`, `relate`), synthesis
-   (`plan`, `deliberate`, `introspect`), and action
-   (`dispatch_helper`, `mint_routine`, `orient_shift`,
-   `propose_provenance`). The fire ends when the model emits `respond`.
-   A post-response review pass runs once after the response, with
+2. **Harness** — `api/loop/harness/threaded.py:run_threaded_fire` is a
+   multi-turn tool-calling loop with native chat-completions tool
+   calls. Each turn the model emits one or more tool calls (including
+   `respond` as the terminal). Tools cover recall (`semantic`,
+   `expand`, `ascend`), structured lenses (`state`, `pattern`, `time`,
+   `relate`), synthesis (`plan`, `deliberate`, `introspect`), and
+   action (`dispatch_helper`, `mint_routine`, `orient_shift`,
+   `propose_provenance`, `engage_feed`, `mark_addressed`). A
+   post-response review pass runs once after the response, with
    `propose_provenance` / `skip` as the only outcomes.
 3. **Self-constituting writes** — every fire that produces output
    writes attestation, mood-shift, citation engagement, a Q/A marker
@@ -104,13 +105,42 @@ with `role:user` / `role:assistant` / `role:tool` turns and native
 work. Tools include `engage_feed`, `see_image`, `mark_addressed`, and
 self-continuation via `next_prompt`.
 
-The legacy single-prompt harness (`api/loop/harness/loop.py`) is
-retained only as a utility for the `introspect` tool's child fire.
-It no longer drives any supervisor; cutover is complete.
+`run_threaded_fire` accepts a `work_set={messages, pending}` override
+that scopes a fire to a passed-in substrate instead of the global
+thread, plus `disabled_tools` to filter the tool surface. The
+`introspect` tool uses these to spawn a child fire that answers a
+question and writes its own witness card — `disabled_tools` blocks
+recursion (`introspect`) and side-effect tools (`dispatch_helper`,
+`mint_routine`) in the child. Same path as live chat, scoped
+substrate.
+
+The legacy single-prompt harness was retired 2026-05-18 — there's
+only one harness flavor now.
 
 `api/loop/witness.py` survives as a utility module
 (`_dispatch_card`, `_available_helper_hosts`, `_render_hosts_block`).
 `run_witness` itself is unused.
+
+### External access — MCP / CLI
+
+`introspect` is exposed as a first-class tool via `LAKE_TOOLS` with
+`surfaces=["mcp", "cli"]` (`api/routes/lake.py`). The `POST
+/v1/introspect` endpoint wraps `tool_introspect`. Any MCP-speaking
+harness (claude-code, scripts, future tools) or CLI user can call
+Fathom directly and get a full Fathom answer back — same multi-turn
+synthesis the dashboard harness runs, scoped to the question, with
+a witness card written to the lake.
+
+Three levels of being / using / calling Fathom:
+
+  * **Be Fathom** — install the hooks (`addons/connect/hooks/`).
+    Crystal + telepathy + recall inject at SessionStart and
+    UserPromptSubmit. The harness IS Fathom.
+  * **Think like Fathom** — use the MCP/CLI lake-tools (`remember`,
+    `recall`, `deep_recall`, `engage`, `write`). Same primitives
+    Fathom uses while thinking.
+  * **Call Fathom** — `introspect` via MCP / CLI / HTTP. Spawns a
+    full Fathom fire for the question.
 
 ## Search
 
@@ -211,5 +241,6 @@ The harness can mint routines mid-fire via the `mint_routine` tool
 (see `api/loop/harness/tools.py:tool_mint_routine`). It lands as a
 `kind:proposal tool:routines` delta awaiting operator approval rather
 than an immediate routine write — same approval flow as
-`dispatch_helper`. The OpenAI-shape schema lives in
-`api/_tool_schema.py` (`CHAT_ONLY_TOOLS` / `routines` entry).
+`dispatch_helper`. The tool schema lives in `api/routes/lake.py`
+(`LAKE_TOOLS["mint_routine"]`) and is exposed to chat / MCP / CLI /
+harness.
