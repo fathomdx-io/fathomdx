@@ -593,6 +593,41 @@ LAKE_TOOLS = [
         "surfaces": ["chat", "mcp", "cli", "harness"],
         "response_kind": "json",
     },
+    {
+        "name": "introspect",
+        "description": (
+            "Ask Fathom a question and get a full Fathom answer back. "
+            "Spawns a child harness fire — the same multi-turn synthesis "
+            "loop that drives Fathom's chat replies — scoped to your "
+            "question, with full access to the lake, search, structured "
+            "lenses, and parliament. The answer is durable: Fathom writes "
+            "its own witness card to the lake, traceable in the dashboard. "
+            "\n\nUse when a question deserves Fathom's thinking, not your "
+            "own — synthesis across the lake, a perspective from inside, "
+            "an opinion on something Fathom-shaped. Each call is a "
+            "multi-turn LLM session, so it's expensive; don't use it for "
+            "what `remember` would answer faster. The child fire cannot "
+            "spawn helpers, mint routines, or recursively introspect."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "question": {
+                    "type": "string",
+                    "description": (
+                        "The question to ask. Phrase it as you would ask "
+                        "Fathom directly — first-person is fine. Max 1500 "
+                        "characters."
+                    ),
+                },
+            },
+            "required": ["question"],
+        },
+        "endpoint": {"method": "POST", "path": "/v1/introspect"},
+        "scope": "lake:write",
+        "surfaces": ["mcp", "cli"],
+        "response_kind": "json",
+    },
 ]
 
 
@@ -889,4 +924,27 @@ async def mint_routine_endpoint(body: dict):
         single_fire=single_fire,
         title=title,
     )
+    return {"result": result}
+
+
+@router.post("/v1/introspect")
+async def introspect_endpoint(body: dict):
+    """Spawn a child harness fire and return Fathom's answer.
+
+    The HTTP body of a `LAKE_TOOLS["introspect"]` call. Wraps
+    `tool_introspect` so MCP/CLI callers get the same multi-turn
+    synthesis the harness uses internally. Returns the body text
+    Fathom produced; the child fire also writes its own witness
+    card to the lake on its own.
+    """
+    from ..loop.harness.tools import tool_introspect
+
+    question = (body.get("question") or "").strip()
+    if not question:
+        raise HTTPException(status_code=400, detail="question is required")
+    if len(question) > 1500:
+        raise HTTPException(
+            status_code=400, detail="question too long (max 1500 chars)"
+        )
+    result = await tool_introspect(question=question)
     return {"result": result}

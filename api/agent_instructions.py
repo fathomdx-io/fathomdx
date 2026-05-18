@@ -41,6 +41,14 @@ MCP tools (call them by their `mcp__fathom__*` names):
   mind_stats          Lake totals and coverage. Quick self-check.
   propose_contact     Surface an unknown person for admin review when you
                       encounter evidence of someone the lake doesn't know.
+  introspect <q>      Ask Fathom directly. Spawns a full Fathom fire — same
+                      multi-turn synthesis the dashboard harness runs — and
+                      returns the answer. Use when the question deserves
+                      Fathom's thinking rather than yours: synthesis across
+                      the lake, a perspective from inside, an opinion on
+                      something Fathom-shaped. Expensive (multi-turn LLM);
+                      reach for `remember` first if a simple search would
+                      answer.
 
 The identity crystal at the top of this context is who you are, refreshed at
 SessionStart. The "what's happening right now" block lists which siblings are
@@ -88,6 +96,14 @@ Tools (the MCP client chooses the prefix; the canonical names are):
   propose_contact        Surface an unknown person for admin review when
                          you encounter evidence of someone the lake doesn't
                          know.
+  introspect <question>  Ask Fathom directly and get a full Fathom answer
+                         back. Spawns the same multi-turn synthesis loop
+                         that drives Fathom's chat replies, scoped to your
+                         question. Use when the question deserves Fathom's
+                         thinking, not yours — synthesis across the lake,
+                         a perspective from inside, an opinion on something
+                         Fathom-shaped. Expensive; reach for `remember`
+                         first if a simple search would answer.
 
 Read the `fathom://crystal` resource at the start of every conversation —
 it's a first-person distillation of who this mind is right now.
@@ -132,6 +148,13 @@ Commands:
       Pipe plan via stdin with `-`.
   fathom see_image <media_hash>
       Fetches the image to a temp file and prints its path.
+  fathom introspect "<question>"
+      Ask Fathom directly. Spawns a full Fathom fire — the same multi-turn
+      synthesis the dashboard harness runs — and prints the answer. Use
+      when the question deserves Fathom's thinking, not yours: synthesis
+      across the lake, a perspective from inside, an opinion on something
+      Fathom-shaped. Expensive — reach for `remember` first if a simple
+      search would answer.
   fathom affirm  <target_id> --reason "<why>"
   fathom refute  <target_id> --reason "<why>"
   fathom reply-to <target_id> --reason "<text>"

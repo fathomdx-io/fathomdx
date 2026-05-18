@@ -13,6 +13,7 @@
  *   fathom remember "what happened today" --shallow # single similarity search
  *   fathom write "decided to ship v2 Friday" --tags decision,v2
  *   fathom recall --tags homeassistant --since 24h
+ *   fathom introspect "what am I avoiding?"         # call Fathom for an answer
  *   fathom mind                                     # stats overview
  *   fathom mind tags                                # tag catalogue
  */
@@ -295,6 +296,34 @@ async function cmdInstructions(args) {
   console.log((data.text || "").trimEnd());
 }
 
+async function cmdIntrospect(args) {
+  // Question is everything that's not a flag. `-` reads from stdin.
+  const parts = [];
+  let i = 0;
+  while (i < args.length) {
+    if (args[i].startsWith("--")) {
+      i += 2;
+      continue;
+    }
+    if (args[i] === "-") {
+      const chunks = [];
+      for await (const chunk of process.stdin) chunks.push(chunk);
+      parts.push(Buffer.concat(chunks).toString().trim());
+      i++;
+    } else {
+      parts.push(args[i]);
+      i++;
+    }
+  }
+  const question = parts.join(" ").trim();
+  if (!question) {
+    console.error("Usage: fathom introspect <question>  (or pipe via stdin with -)");
+    process.exit(1);
+  }
+  const data = await api("POST", "/v1/introspect", { question });
+  console.log(data.result || "");
+}
+
 async function cmdProposeContact(args) {
   // Parse positional display_name + optional --flags.
   const flagged = new Set(["--slug", "--candidate-slug", "--rationale", "--context"]);
@@ -363,6 +392,10 @@ const COMMANDS = {
     usage: "fathom deep_recall '<plan-json>'  (or pipe via stdin with -)",
   },
   see_image: { fn: cmdSeeImage, usage: "fathom see_image <media_hash>" },
+  introspect: {
+    fn: cmdIntrospect,
+    usage: "fathom introspect <question>  (calls Fathom, returns its answer)",
+  },
   mind: { fn: cmdMind, usage: "fathom mind [tags]" },
   refute: {
     fn: (a) => cmdEngage("refutes", a),
