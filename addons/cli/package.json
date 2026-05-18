@@ -1,7 +1,7 @@
 {
   "name": "fathom-delta-cli",
-  "version": "1.2.0",
-  "description": "Search, write, and query your Fathom memory lake from the terminal. Supports image attachment via --image.",
+  "version": "1.3.0",
+  "description": "Search, write, query, and introspect your Fathom memory lake from the terminal. Supports image attachment via --image.",
   "bin": {
     "fathom": "index.js"
   },
