@@ -1,21 +1,18 @@
-"""OpenAI function-calling schemas for the threaded harness.
+"""OpenAI function-calling schemas for the harness.
 
-The legacy harness has the model emit JSON envelopes that the loop
-parses and dispatches via TOOL_HANDLERS. The threaded harness uses
-the provider's native tool-calling protocol — `tools=[…]` on the
-request, `tool_calls` on the response, `role:tool` on the result.
+The harness uses the provider's native tool-calling protocol —
+`tools=[…]` on the request, `tool_calls` on the response, `role:tool`
+on the result.
 
 This module exposes:
 
   · `chat_tools()` — the tool list to pass to the LLM SDK
   · `dispatch(name, args, *, session_tag)` — runs a tool by name,
-    returns the string result. Bridges to the existing TOOL_HANDLERS
-    so we don't duplicate behavior between the two harness paths.
+    returns the string result. Looks up the handler in
+    `tools.TOOL_HANDLERS`.
 
-`mark_addressed` is the only tool defined fresh in this module —
-the others reuse their existing implementations in `tools.py`. As
-the threaded harness becomes the only path, the legacy registry
-can shrink to just what the chat protocol needs.
+`mark_addressed` is defined fresh here; the rest of the tool
+handlers live in `tools.py` and are registered via `TOOL_HANDLERS`.
 """
 
 from __future__ import annotations
@@ -1012,17 +1009,17 @@ async def dispatch(
         from ...tools import _fetch_image_as_tool_result
 
         return await _fetch_image_as_tool_result(str(args.get("media_hash") or ""))
-    # Bridge to the legacy handler registry for everything else.
-    from . import tools as legacy_tools
+    # Look up the handler in the shared TOOL_HANDLERS registry.
+    from . import tools as harness_tools
 
-    handler = legacy_tools.TOOL_HANDLERS.get(name)
+    handler = harness_tools.TOOL_HANDLERS.get(name)
     if handler is None:
         valid = sorted(tool_names())
         return f"ERROR: unknown tool {name!r} — valid: {valid}"
-    allowed = legacy_tools.TOOL_MODEL_ARGS.get(name, set())
+    allowed = harness_tools.TOOL_MODEL_ARGS.get(name, set())
     safe_args = {k: v for k, v in (args or {}).items() if not allowed or k in allowed}
-    # Tools that need the harness's session context get it injected
-    # alongside (matching loop.py's existing pattern).
+    # Tools that need the fire's session context get it injected
+    # alongside the model-supplied args.
     if name in {"propose_provenance", "introspect"}:
         safe_args["session_tag"] = session_tag
     try:

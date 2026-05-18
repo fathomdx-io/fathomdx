@@ -23,9 +23,11 @@ messages list. Their side effects (tally marks, helper-dispatch
 proposals, provenance writes) are durable in the lake on their own;
 the conversation thread doesn't need to carry the call-trace.
 
-Phase 2 ships this alongside the legacy harness — nothing in
-production calls `run_threaded_fire` yet. Phase 3 cuts the
-supervisor over.
+This is the sole harness — the legacy single-prompt JSON-envelope
+loop has been retired. The introspect tool re-enters this same
+function with a scoped `work_set` and `disabled_tools` set to spawn
+a child fire that answers a question and writes its own witness card
+to the lake.
 """
 
 from __future__ import annotations
@@ -650,6 +652,8 @@ async def run_threaded_fire(
     max_tool_turns: int = MAX_TOOL_TURNS,
     session_tag: str = "",
     standpoint_text_override: str | None = None,
+    work_set: dict | None = None,
+    disabled_tools: set[str] | None = None,
 ) -> dict:
     """Run one harness fire over the global thread.
 
@@ -664,6 +668,17 @@ async def run_threaded_fire(
 
     `standpoint_text_override` is a test hook so callers can inject
     a fixed standpoint without touching the lake.
+
+    `work_set` overrides the global-thread window. When provided as
+    `{"messages": [...], "pending": [...]}`, the fire runs against
+    that scoped substrate instead of reading from `thread_mod`. The
+    introspect tool uses this to spawn a child fire over a single
+    scoped intent without leaking into live conversation context.
+
+    `disabled_tools` removes the named tools from the schema offered
+    to the model AND rejects them at dispatch time. Used by introspect
+    to block recursion + side-effect tools (`introspect`,
+    `dispatch_helper`, `mint_routine`) in the child fire.
     """
     # Wake-event coupling — kicks off mood pressure-gated synthesis and
     # a drift sample for this moment. Runs concurrently with the window
@@ -675,12 +690,16 @@ async def run_threaded_fire(
     _WAKE_TASKS.add(wake_task)
     wake_task.add_done_callback(_WAKE_TASKS.discard)
 
-    window = await thread_mod.build_window(
-        max_messages=max_messages,
-        max_tokens=max_tokens,
-    )
-    window_msgs = window["messages"]
-    pending = _select_pending_for_fire(window["unaddressed"])
+    if work_set is not None:
+        window_msgs = list(work_set.get("messages") or [])
+        pending = list(work_set.get("pending") or [])
+    else:
+        window = await thread_mod.build_window(
+            max_messages=max_messages,
+            max_tokens=max_tokens,
+        )
+        window_msgs = window["messages"]
+        pending = _select_pending_for_fire(window["unaddressed"])
 
     if standpoint_text_override is not None:
         standpoint_text = standpoint_text_override
@@ -689,7 +708,7 @@ async def run_threaded_fire(
         sp = await standpoint_mod.current(session_tag=session_tag)
         standpoint_text = standpoint_mod.render_for_prompt(sp, char_budget=2400)
         try:
-            from . import tools as legacy_tools  # noqa  (force module init)
+            from . import tools as harness_tools  # noqa  (force module init)
             from .. import witness as witness_mod
 
             available_helpers = await witness_mod._available_helpers()
@@ -709,6 +728,11 @@ async def run_threaded_fire(
             chat_msgs.append(m)
 
     tools = tool_schemas.chat_tools()
+    if disabled_tools:
+        tools = [
+            t for t in tools
+            if (t.get("function") or {}).get("name") not in disabled_tools
+        ]
     addressed: list[str] = []
     final_response: dict[str, Any] | None = None
     turns_used = 0
@@ -887,6 +911,16 @@ async def run_threaded_fire(
             fn = tc.get("function") or {}
             tool_name = fn.get("name") or ""
             args = _parse_tool_args(tc)
+
+            if disabled_tools and tool_name in disabled_tools:
+                tool_result = (
+                    f"ERROR: {tool_name} is disabled in this fire "
+                    f"(child-fire side-effect containment)"
+                )
+                chat_msgs.append(
+                    {"role": "tool", "tool_call_id": tcid, "content": tool_result}
+                )
+                continue
 
             if tool_name == "respond":
                 cards_raw = args.get("cards") or []

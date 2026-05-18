@@ -1,18 +1,20 @@
-"""Harness — agentic tool-calling loop that subsumes the convener +
-parliament + witness pipeline.
+"""Harness — the agentic tool-calling loop that drives Fathom's thinking.
 
-Phase 1: drop-in replacement for `witness.run_witness` with the same
-signature. Tools are `search`, `expand`, `ascend`, `deliberate`. The
-loop exits when the model emits a final card (no tool call). Hard cap
-on turns is a safety, not a typical exit.
+`run_threaded_fire` (in `threaded.py`) is the single entry point. It
+reads a work-set (the live thread, or a scoped substrate when given a
+`work_set` override), assembles a chat-completions request with the
+shared tool surface (`tool_schemas.chat_tools()`), and loops until the
+model emits `respond` or hits the turn cap. Tool handlers live in
+`tools.py`, registered via `TOOL_HANDLERS`; the dispatcher in
+`tool_schemas.py` bridges native tool calls to the handlers.
 
-Phase 2 (separate work): multi-vector provenance facets in delta-store,
-which makes `expand`/`ascend` semantically richer without changing the
-harness API.
+The `introspect` tool re-enters `run_threaded_fire` with a scoped
+work-set and `disabled_tools` set, giving any caller a way to ask
+Fathom a question and get a full Fathom answer back.
 """
 
 from __future__ import annotations
 
-from .loop import run_dialogue, run_harness, run_introspection
+from .threaded import run_threaded_fire
 
-__all__ = ["run_dialogue", "run_harness", "run_introspection"]
+__all__ = ["run_threaded_fire"]

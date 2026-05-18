@@ -1285,13 +1285,14 @@ async def tool_introspect(*, question: str, session_tag: str = "") -> str:
       · "What would I want to look into next, if I had time?"
 
     Each call is a multi-turn LLM session — expensive. Don't use it
-    casually. The child fire cannot call introspect again (depth-1
-    recursion cap; nested introspect returns an error). The child
-    fire CAN call other tools and write a witness card to the lake;
-    Fathom's answer to itself is a real Fathom utterance, deserves
-    durable memory same as any other.
+    casually. The child fire is full Fathom minus three side-effect
+    tools: it cannot recursively introspect (depth-1 cap),
+    dispatch_helper (no spawning helpers from synthesis), or
+    mint_routine (no proposal-queue clutter from synthesis). The
+    child writes its own witness card to the lake — a real Fathom
+    utterance with durable memory same as any other.
     """
-    from .loop import run_harness  # lazy — avoids tools↔loop cycle
+    from .threaded import run_threaded_fire
 
     question = (question or "").strip()
     if not question:
@@ -1299,10 +1300,11 @@ async def tool_introspect(*, question: str, session_tag: str = "") -> str:
     if len(question) > 1500:
         return "ERROR: question too long (max 1500 chars)"
 
-    # Use a child session_tag derived from the parent so the child
-    # fire's witness card lands in the same conversation thread (and
-    # subsequent introspections within the same parent chain see
-    # earlier answers in the conversation feed).
+    # Per-introspect session tag so the child fire's traces and
+    # witness card cluster together in the dashboard. When called
+    # from within a parent fire, the parent's session_tag is reused
+    # so the introspection answer surfaces alongside the parent
+    # conversation.
     child_session = session_tag or f"session:introspect-{uuid.uuid4().hex[:8]}"
 
     intent = await puddle.write(
@@ -1313,32 +1315,23 @@ async def tool_introspect(*, question: str, session_tag: str = "") -> str:
             "intent",
             "kind:question",
             "introspect-self",
+            "role:user",
         ],
         source="harness-introspect",
         ttl_seconds=60 * 60,
     )
 
-    captured: dict[str, str] = {"body": ""}
-
-    async def cb(event: str, payload: dict) -> None:
-        if event == "respond":
-            cards = payload.get("cards") or []
-            if cards and isinstance(cards[0], dict):
-                captured["body"] = (cards[0].get("body") or "").strip()
-            elif payload.get("body"):
-                captured["body"] = (payload.get("body") or "").strip()
-
     try:
-        await run_harness(
+        result = await run_threaded_fire(
             session_tag=child_session,
-            pending=[intent],
-            event_callback=cb,
-            disabled_tools={"propose_provenance", "introspect"},
+            work_set={"messages": [intent], "pending": [intent]},
+            disabled_tools={"introspect", "dispatch_helper", "mint_routine"},
         )
     except Exception as e:
         return f"ERROR: child fire crashed — {type(e).__name__}: {e}"
 
-    body = captured["body"]
+    fr = result.get("final_response") or {}
+    body = (fr.get("body") or "").strip()
     if not body:
         return "ERROR: child fire produced no response body"
 
