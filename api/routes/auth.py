@@ -257,7 +257,13 @@ async def create_token(req: TokenCreate, request: Request):
     slug = req.contact_slug or default_slug
     if not slug:
         raise HTTPException(400, "contact_slug required")
-    return auth_mod.create_token(req.name, req.scopes, contact_slug=slug)
+    # `helper` is host-bound — issued via /v1/helpers/<host>/tokens, not
+    # the admin form. Strip it if a stale UI sends it through.
+    scopes = [s for s in (req.scopes or []) if s != "helper"] if req.scopes else req.scopes
+    try:
+        return auth_mod.create_token(req.name, scopes, contact_slug=slug)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
 
 
 @router.get("/v1/scopes")

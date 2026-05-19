@@ -299,8 +299,14 @@ def validate(raw: str) -> dict | None:
 
 
 def get_scopes() -> dict[str, str]:
-    """Return all available scopes with descriptions."""
-    return ALL_SCOPES
+    """Scopes mintable via the admin token form.
+
+    Excludes `helper` — that scope is host-bound and only issued via
+    /v1/helpers/<host>/tokens. Surfacing it here lets a dashboard
+    pre-check it and POST /v1/tokens with no helper_host, which used to
+    500 on the ValueError below.
+    """
+    return {k: v for k, v in ALL_SCOPES.items() if k != "helper"}
 
 
 # ── Contacts cache ──────────────────────────────────
