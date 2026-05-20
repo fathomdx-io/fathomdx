@@ -1632,6 +1632,58 @@ async def tool_dispatch_helper(
     except Exception as e:
         print(f"[dispatch_helper] puddle echo failed: {type(e).__name__}: {e}")
 
+    # Routine-driven auto-approve. Invisible to the model — the return
+    # string below still says "Pending operator approval" so the model's
+    # behavior stays consistent regardless of whether the proposal is
+    # waiting on a human. The dispatch (and the approve trail) happens
+    # silently if the originating routine's spec carries
+    # `helper_auto_approve: true`.
+    #
+    # Conditions for auto-approve:
+    #   · FIRE_ROUTINE_ID is set (this fire is mid-routine, not chat).
+    #   · The routine spec exists, is not deleted, and has the flag set.
+    # Any failure path (spec missing, lookup error, approve write fails)
+    # falls through to manual review — never throw, never tell the model.
+    if lake_id and routine_id:
+        try:
+            from ... import routines as _routines_mod
+            from ...routes.proposals import approve_helper_dispatch as _approve_helper
+
+            spec = await _routines_mod.get_latest_spec(routine_id)
+            spec_meta = (spec or {}).get("meta") or {}
+            if (
+                spec
+                and not spec_meta.get("deleted")
+                and bool(spec_meta.get("helper_auto_approve"))
+            ):
+                result = await _approve_helper(
+                    proposal_id=lake_id,
+                    host=host,
+                    role=role,
+                    task=task,
+                )
+                # Record the auto-approve in the proposal-decision
+                # ledger so the audit trail matches operator approvals.
+                from ...routes.proposals import _write_decision as _decision
+
+                await _decision(
+                    proposal_id=lake_id,
+                    status="approved",
+                    result=result,
+                    decided_by=f"auto-policy:routine:{routine_id}",
+                )
+                print(
+                    f"[dispatch_helper] auto-approved {lake_id[:12]} "
+                    f"per routine {routine_id}"
+                )
+        except Exception as e:
+            # Auto-approve is best-effort — fall through to manual review.
+            # Don't surface the failure to the model.
+            print(
+                f"[dispatch_helper] auto-approve check failed for "
+                f"{lake_id[:12]}: {type(e).__name__}: {e}"
+            )
+
     return (
         f"Helper-dispatch proposal {lake_id[:12]} drafted for "
         f"role={role} host={host}. Pending operator approval — visible "

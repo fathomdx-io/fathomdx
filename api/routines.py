@@ -34,6 +34,7 @@ _SPEC_KEYS_ORDER = [
     "workspace",
     "host",
     "permission_mode",
+    "helper_auto_approve",
     "single_fire",
     "deleted",
 ]
@@ -532,6 +533,8 @@ def _merge_meta(body: dict, existing: dict | None = None) -> tuple[dict, str, st
         meta["single_fire"] = bool(meta["single_fire"])
     if "deleted" in meta:
         meta["deleted"] = bool(meta["deleted"])
+    if "helper_auto_approve" in meta:
+        meta["helper_auto_approve"] = bool(meta["helper_auto_approve"])
     if meta.get("interval_minutes") is not None:
         try:
             meta["interval_minutes"] = int(meta["interval_minutes"])

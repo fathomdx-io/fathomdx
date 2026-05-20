@@ -243,6 +243,93 @@ async def _write_decision(
     )
 
 
+async def approve_helper_dispatch(
+    *,
+    proposal_id: str,
+    host: str,
+    role: str,
+    task: str,
+) -> dict:
+    """Materialize a helper-dispatch proposal as a `kind:helper-dispatch`
+    delta on the lake. The role-namespaced `route:helper:<role>` tag is
+    what the host's plugin (kitty for claude-code, openclaw for openclaw,
+    etc.) filters on; the bare `route:helper` umbrella rides alongside
+    so role-agnostic consumers (the OpenAI endpoint's pending-turn
+    check, claude_code_watcher's corr lookup) still find any helper
+    dispatch.
+
+    Used by two paths:
+      1. The HTTP approve endpoint, when the operator clicks Approve
+         in the bell.
+      2. The routine helper auto-approve path, when a routine spec
+         carries `helper_auto_approve: true` and a dispatch from that
+         routine should land immediately without operator review.
+
+    Raises `ValueError` on missing host/role/task. The caller maps that
+    to a 400 in the HTTP path and to a print + skip in the auto-approve
+    path.
+    """
+    import uuid as _uuid
+
+    host = (host or "").strip()
+    role = (role or "").strip()
+    task = (task or "").strip()
+    if not host:
+        raise ValueError("host required")
+    if not role:
+        raise ValueError("role required")
+    if not task:
+        raise ValueError("task required")
+
+    corr = _uuid.uuid4().hex[:12]
+    dispatch_tags = [
+        "feed-card",
+        f"route:helper:{role}",
+        "route:helper",
+        f"host:{host}",
+        f"helper-role:{role}",
+        "channel:helper",
+        f"to:helper:{corr}",
+        f"task-corr:{corr}",
+        "kind:helper-dispatch",
+        f"approved-from-proposal:{proposal_id}",
+        "produced-by:harness",
+    ]
+    # Propagate the originating chat surface AND routine-id from the
+    # proposal so the watcher's closure-followup intent inherits the
+    # routing info and the next harness fire that sees a helper-reply
+    # can load the right routine spec as ORIGINATING ROUTINE.
+    # tool_dispatch_helper stamps these onto the proposal at draft
+    # time; we just forward them here.
+    try:
+        proposal = await delta_client.get_delta(proposal_id)
+    except Exception:
+        proposal = None
+    for t in (proposal or {}).get("tags") or []:
+        if t.startswith(
+            (
+                "originating-channel:",
+                "originating-correlation:",
+                "originating-intent:",
+                "routine-id:",
+            )
+        ):
+            dispatch_tags.append(t)
+    dispatch = await delta_client.write(
+        content=task,
+        tags=dispatch_tags,
+        source="harness-helper-dispatch",
+    )
+    return {
+        "dispatched": True,
+        "host": host,
+        "role": role,
+        "task_corr": corr,
+        "task_chars": len(task),
+        "dispatch_delta_id": (dispatch or {}).get("id"),
+    }
+
+
 @router.post(
     "/v1/proposals/{delta_id}/approve",
     dependencies=[Depends(auth.require_admin)],
@@ -332,77 +419,15 @@ async def approve_proposal(delta_id: str, body: dict | None = None):
             raise HTTPException(status_code=400, detail=f"unknown action: {action!r}")
     elif tool == "helper-dispatch":
         if action == "run":
-            import uuid as _uuid
-
-            host = (args.get("host") or "").strip()
-            role = (args.get("role") or "").strip()
-            task = (args.get("task") or "").strip()
-            if not host:
-                raise HTTPException(status_code=400, detail="host required")
-            if not role:
-                raise HTTPException(status_code=400, detail="role required")
-            if not task:
-                raise HTTPException(status_code=400, detail="task required")
-            # Approval materializes the dispatch as a feed-card delta
-            # with the role-namespaced route tag. Each helper plugin
-            # (kitty for claude-code, openclaw for openclaw, etc.)
-            # filters on `tags_include=route:helper:<role>,host:<myhost>`
-            # so a dispatch only reaches the plugin that owns its role.
-            # The bare `route:helper` umbrella tag rides alongside so
-            # role-agnostic consumers (the OpenAI endpoint's pending-
-            # turn check, claude_code_watcher's corr lookup) can still
-            # find ANY helper dispatch.
-            corr = _uuid.uuid4().hex[:12]
-            # `to:helper:<corr>` is the addressing tag the host's plugin
-            # requires (see addons/agent/plugins/kitty.js, openclaw.js).
-            # Without it the dispatch is logged "missing to:helper:<corr>"
-            # and skipped.
-            dispatch_tags = [
-                "feed-card",
-                f"route:helper:{role}",
-                "route:helper",
-                f"host:{host}",
-                f"helper-role:{role}",
-                "channel:helper",
-                f"to:helper:{corr}",
-                f"task-corr:{corr}",
-                "kind:helper-dispatch",
-                f"approved-from-proposal:{delta_id}",
-                "produced-by:harness",
-            ]
-            # Propagate the originating chat surface from the proposal
-            # so the watcher's closure-followup intent inherits the
-            # routing info, and the harness's chat-reply lands back in
-            # the user's thread instead of vanishing into the dashboard
-            # feed. tool_dispatch_helper stamps these onto the proposal
-            # at draft time; we just forward them here.
             try:
-                proposal = await delta_client.get_delta(delta_id)
-            except Exception:
-                proposal = None
-            for t in (proposal or {}).get("tags") or []:
-                if t.startswith(
-                    (
-                        "originating-channel:",
-                        "originating-correlation:",
-                        "originating-intent:",
-                        "routine-id:",
-                    )
-                ):
-                    dispatch_tags.append(t)
-            dispatch = await delta_client.write(
-                content=task,
-                tags=dispatch_tags,
-                source="harness-helper-dispatch",
-            )
-            result = {
-                "dispatched": True,
-                "host": host,
-                "role": role,
-                "task_corr": corr,
-                "task_chars": len(task),
-                "dispatch_delta_id": (dispatch or {}).get("id"),
-            }
+                result = await approve_helper_dispatch(
+                    proposal_id=delta_id,
+                    host=(args.get("host") or "").strip(),
+                    role=(args.get("role") or "").strip(),
+                    task=(args.get("task") or "").strip(),
+                )
+            except ValueError as e:
+                raise HTTPException(status_code=400, detail=str(e)) from e
         else:
             raise HTTPException(
                 status_code=400,
