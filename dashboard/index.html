@@ -4851,6 +4851,14 @@
           <p class="routine-schedule-text" id="routineScheduleMeta">—</p>
         </section>
 
+        <!-- Helper auto-approve flag (only shown when on) -->
+        <section class="section" id="routineAutoApproveSection" hidden>
+          <div class="section-head">
+            <h2>Helper dispatches</h2>
+          </div>
+          <p class="routine-schedule-text">Auto-approved from this routine — the cycle runs end-to-end without bell prompts. Audit trail records each auto-approval.</p>
+        </section>
+
         <!-- Prompt body — parsed into Needs / Steps / Ending when the
              body matches the documented schema. Routines that don't
              conform fall back to a single "Prompt" section. -->
@@ -7164,6 +7172,7 @@
       const r = existing || {
         id: '', name: '', workspace: '', host: '', schedule: '0 * * * *', prompt: '',
         permission_mode: 'auto', enabled: true, single_fire: false,
+        helper_auto_approve: false,
       };
       const preset = inferPreset(r.schedule, r.single_fire);
       // Always render the four-section scaffold. If the existing
@@ -7242,6 +7251,13 @@
                 </div>
               </div>
             </div>
+          </div>
+          <div class="scaffold-field" style="margin-top: 8px;">
+            <label class="ending-choice" style="display: inline-flex; align-items: center; gap: 8px;">
+              <input type="checkbox" data-f="helper_auto_approve" ${r.helper_auto_approve ? 'checked' : ''} />
+              Auto-approve helper dispatches from this routine
+            </label>
+            <div class="form-hint">When on, helper-dispatch proposals from this routine's fires approve automatically — Fathom can run the cycle end-to-end without you clicking Approve in the bell. Default off for safety. Audit trail still records the auto-approval. Leave off for code-review-style routines where seeing the dispatch before it runs is the point.</div>
           </div>
           <div class="err" data-err hidden></div>
           <div style="display: flex; gap: 6px; justify-content: flex-end;">
@@ -7376,6 +7392,8 @@
       // button is the single control for it, so omitting from edit-form
       // saves preserves the existing flag (server's _merge_meta only
       // touches keys you send).
+      const autoApproveEl = editor.querySelector('[data-f="helper_auto_approve"]');
+      const helperAutoApprove = autoApproveEl ? !!autoApproveEl.checked : false;
       const body = {
         id,
         name,
@@ -7383,6 +7401,7 @@
         prompt,
         permission_mode: mode,
         single_fire: scheduledOnce,
+        helper_auto_approve: helperAutoApprove,
       };
       if (has('host') || existing.host) {
         body.host = has('host') ? get('host').trim() : (existing.host || '');
@@ -7930,6 +7949,8 @@
       viewRoutineDetail.dataset.routine = routineId;
       document.getElementById('routineDetailName').textContent = r.name || r.id;
       document.getElementById('routineScheduleMeta').textContent = _describeSchedule(r.schedule, r.single_fire);
+      const autoApproveSection = document.getElementById('routineAutoApproveSection');
+      if (autoApproveSection) autoApproveSection.hidden = !r.helper_auto_approve;
       const descEl = document.getElementById('routineDescription');
       const purpose = _extractRoutinePurpose(r.prompt || '');
       descEl.innerHTML = purpose ? renderMd(purpose) : '';
@@ -8129,12 +8150,14 @@
           permission_mode: opts.prefilled.permission_mode || 'auto',
           enabled: opts.prefilled.enabled !== false,
           single_fire: !!opts.prefilled.single_fire,
+          helper_auto_approve: !!opts.prefilled.helper_auto_approve,
         };
       } else if (host) {
         seed = {
           id: '', name: '', workspace: _defaultWorkspaceForHost(host), host,
           schedule: '0 * * * *', prompt: '',
           permission_mode: 'auto', enabled: true, single_fire: false,
+          helper_auto_approve: false,
         };
       }
       // Fresh-create branch: progressive flow, no all-at-once form.

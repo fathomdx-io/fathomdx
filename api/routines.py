@@ -461,6 +461,7 @@ async def list_routines() -> list[dict]:
                 "schedule": meta.get("schedule", ""),
                 "interval_minutes": meta.get("interval_minutes", 0),
                 "permission_mode": str(meta.get("permission_mode") or "auto"),
+                "helper_auto_approve": bool(meta.get("helper_auto_approve", False)),
                 "single_fire": bool(meta.get("single_fire", False)),
                 "workspace": workspace,
                 # `host` pins the routine to a specific agent. Empty/missing =
