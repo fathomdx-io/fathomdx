@@ -190,6 +190,40 @@ def test_system_message_includes_standpoint_and_tally():
     assert "u1" in msg["content"]
 
 
+def test_system_message_omits_routine_block_when_no_originating_routine():
+    """Default fires (chat, composer) get no ORIGINATING ROUTINE
+    block so we don't bloat every prompt with irrelevant context."""
+    msg = threaded._build_system_message(
+        standpoint_text="(identity stub)",
+        unaddressed=[_user_delta(mid="u1", content="ping")],
+    )
+    assert "ORIGINATING ROUTINE" not in msg["content"]
+
+
+def test_system_message_includes_originating_routine_block():
+    """When a fire's pending intents trace back to a routine, the
+    routine spec renders into the system message so Fathom knows it's
+    mid-flight on a multi-step task and reads the routine body again
+    for the next step."""
+    msg = threaded._build_system_message(
+        standpoint_text="(identity stub)",
+        unaddressed=[_user_delta(mid="u1", content="helper draft delivered")],
+        originating_routines=[
+            {
+                "id": "weekly-blog-post-reflection",
+                "name": "Weekly Blog Post Reflection",
+                "body": "# Steps\n1. Identify a theme.\n2. Dispatch a helper.\n3. Critique the draft.\n",
+            }
+        ],
+    )
+    assert "ORIGINATING ROUTINE" in msg["content"]
+    assert "Weekly Blog Post Reflection" in msg["content"]
+    assert "weekly-blog-post-reflection" in msg["content"]
+    assert "Critique the draft" in msg["content"]
+    # The pending tally still renders below the routine block.
+    assert "u1" in msg["content"]
+
+
 # ── fire: respond-only path ──────────────────────────────────────
 
 

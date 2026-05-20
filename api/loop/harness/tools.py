@@ -43,6 +43,7 @@ import json
 import logging
 import uuid
 from collections import Counter
+from contextvars import ContextVar
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
@@ -50,6 +51,15 @@ from ... import delta_client
 from ... import search as search_mod
 from ..intents import CONVO_TAG, intent_kind, pending_intents
 from ..puddle import puddle
+
+# Per-fire routine context. The threaded supervisor sets this when the
+# fire is activated by a routine-fire intent (or by a helper-reply
+# intent whose chain originated from a routine). dispatch_helper reads
+# it to stamp `routine-id:<id>` onto the proposal, which propagates
+# through the approve flow → dispatch delta → watcher-minted helper
+# reply intent → next fire's standpoint. Empty string means "this fire
+# is not part of a routine chain."
+FIRE_ROUTINE_ID: ContextVar[str] = ContextVar("FIRE_ROUTINE_ID", default="")
 
 log = logging.getLogger(__name__)
 
@@ -1545,6 +1555,16 @@ async def tool_dispatch_helper(
         f"helper-role:{role}",
         "produced-by:harness",
     ]
+
+    # Carry the originating-routine id through the chain so a follow-up
+    # fire handling the helper's reply can load the routine spec and
+    # know it's mid-flight. Set by the threaded supervisor at fire start
+    # when any pending intent has a `routine-id:` tag. The approve flow
+    # forwards this tag onto the dispatch delta; the watcher forwards
+    # it onto the helper-reply intent.
+    routine_id = FIRE_ROUTINE_ID.get()
+    if routine_id:
+        base_tags.append(f"routine-id:{routine_id}")
 
     # Stamp the originating chat channel onto the proposal so the
     # approve flow can propagate it onto the dispatch delta. Without

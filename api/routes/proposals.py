@@ -382,7 +382,12 @@ async def approve_proposal(delta_id: str, body: dict | None = None):
                 proposal = None
             for t in (proposal or {}).get("tags") or []:
                 if t.startswith(
-                    ("originating-channel:", "originating-correlation:", "originating-intent:")
+                    (
+                        "originating-channel:",
+                        "originating-correlation:",
+                        "originating-intent:",
+                        "routine-id:",
+                    )
                 ):
                     dispatch_tags.append(t)
             dispatch = await delta_client.write(

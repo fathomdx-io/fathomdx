@@ -167,6 +167,12 @@ async def _dispatch_origin_for_corr(corr: str) -> dict:
                 out["correlation"] = t.split(":", 1)[1]
             elif t.startswith("originating-intent:") and "intent_id" not in out:
                 out["intent_id"] = t.split(":", 1)[1]
+            elif t.startswith("routine-id:") and "routine_id" not in out:
+                # Originating routine — when present, the harness fire
+                # handling the helper-reply intent loads this routine's
+                # spec as ORIGINATING ROUTINE context so it knows it's
+                # mid-flight on a multi-step task.
+                out["routine_id"] = t.split(":", 1)[1]
     return out
 
 
@@ -330,6 +336,15 @@ def _build_intent_tags(
         tags.append(f"helper-role:{info['role']}")
     if info.get("project"):
         tags.append(f"project:{info['project']}")
+    # Originating routine — present when the dispatch chain started
+    # from a routine fire. The harness fire handling this intent
+    # reads the tag and loads the routine spec into its system
+    # message as ORIGINATING ROUTINE context, so Fathom knows it's
+    # mid-flight on a multi-step task rather than a one-off chat.
+    origin = info.get("origin") or {}
+    routine_id = origin.get("routine_id")
+    if routine_id:
+        tags.append(f"routine-id:{routine_id}")
     if closure:
         # Witness reads this to know "the task already wrapped up;
         # acknowledge in chat rather than dispatching another turn."
@@ -398,6 +413,16 @@ async def claude_code_watcher_tick() -> None:
             content = (r.get("content") or "").strip()
             if not content:
                 continue
+            # Lazy origin lookup for active sessions too — when this
+            # dispatch originated from a routine, intermediate helper
+            # replies should also carry `routine-id:` so the harness
+            # fire handling them loads the routine spec as context.
+            # Without this, mid-task assistant Stop-hooks fire the
+            # loop without the routine link and lose mid-flight
+            # context.
+            if "origin" not in info:
+                info["origin"] = await _dispatch_origin_for_corr(corr)
+                info["contact"] = info["origin"].get("contact", "")
             try:
                 await write_intent(
                     kind="helper-reply",

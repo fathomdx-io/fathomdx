@@ -696,7 +696,10 @@ async def fire(routine_id: str, prompt_override: str | None = None) -> dict:
     try:
         from . import thread as thread_mod
 
-        thread_extras: list[str] = [f"fired-at:{fired_at}"]
+        thread_extras: list[str] = [
+            f"fired-at:{fired_at}",
+            f"routine-id:{routine_id}",
+        ]
         if host:
             thread_extras.append(f"host:{host}")
         await thread_mod.append(

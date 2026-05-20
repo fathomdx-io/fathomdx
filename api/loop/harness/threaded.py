@@ -621,8 +621,17 @@ def _build_system_message(
     standpoint_text: str,
     unaddressed: list[dict],
     available_helpers: list[dict] | None = None,
+    originating_routines: list[dict] | None = None,
 ) -> dict:
-    """Assemble the role:system message for a fire."""
+    """Assemble the role:system message for a fire.
+
+    `originating_routines` is an optional list of `{id, name, body}`
+    dicts. When present, an ORIGINATING ROUTINE block renders before
+    the pending tally so Fathom knows this fire is mid-flight on a
+    multi-step routine task (the routine's first fire dispatched a
+    helper; the helper has now reported back; this fire's job is to
+    continue the routine rather than treat the reply as a new chat).
+    """
     parts: list[str] = [_SYSTEM_PREAMBLE.strip(), ""]
     if standpoint_text:
         parts.append("WHO YOU ARE")
@@ -639,6 +648,25 @@ def _build_system_message(
         parts.append(
             "  (none online — dispatch_helper proposals will queue but no host will pick them up right now)"
         )
+        parts.append("")
+    if originating_routines:
+        parts.append("ORIGINATING ROUTINE (you are mid-flight on a multi-step task)")
+        parts.append(
+            "A pending message in this fire belongs to a routine chain "
+            "you started earlier. The helper's reply below is one step "
+            "of that routine, not a fresh question. Re-read the routine "
+            "body to determine the next step (critique, dispatch a "
+            "revision, dispatch publish, etc.) and use `respond.next_prompt` "
+            "to seed your next fire if more work remains."
+        )
+        for r in originating_routines:
+            rid = (r.get("id") or "").strip()
+            name = (r.get("name") or rid).strip()
+            body = (r.get("body") or "").strip()
+            parts.append("")
+            parts.append(f"── routine: {name} ({rid})")
+            if body:
+                parts.append(body)
         parts.append("")
     parts.append("USER MESSAGES AWAITING RESPONSE")
     parts.append(_render_tally(unaddressed))
@@ -781,10 +809,47 @@ async def run_threaded_fire(
         except Exception:
             available_helpers = None
 
+    # Surface the routine spec when any pending intent belongs to a
+    # routine chain. Two paths land here:
+    #   1. First fire of a routine — the routine-fire thread-msg is
+    #      tagged `routine-id:<id>` (routines.py stamps it).
+    #   2. Follow-up fires after a helper reports back — the watcher
+    #      forwards `routine-id:<id>` from the dispatch onto the
+    #      helper-reply intent (claude_code_watcher.py).
+    # Without this block, follow-up fires lose the routine context and
+    # default to "relay the helper's reply" rather than continuing the
+    # multi-step task. See feat/originating-routine-context.
+    originating_routines: list[dict] = []
+    seen_routine_ids: set[str] = set()
+    for _p in pending:
+        for _t in _p.get("tags") or []:
+            if not isinstance(_t, str) or not _t.startswith("routine-id:"):
+                continue
+            _rid = _t.split(":", 1)[1].strip()
+            if not _rid or _rid in seen_routine_ids:
+                continue
+            seen_routine_ids.add(_rid)
+            try:
+                from ... import routines as routines_mod
+
+                spec = await routines_mod.get_latest_spec(_rid)
+            except Exception as e:
+                print(f"[threaded-fire] routine spec lookup failed for {_rid}: {type(e).__name__}: {e}")
+                spec = None
+            if spec and not (spec.get("meta") or {}).get("deleted"):
+                originating_routines.append(
+                    {
+                        "id": _rid,
+                        "name": (spec.get("meta") or {}).get("name") or _rid,
+                        "body": spec.get("body") or "",
+                    }
+                )
+
     system_msg = _build_system_message(
         standpoint_text=standpoint_text,
         unaddressed=pending,
         available_helpers=available_helpers,
+        originating_routines=originating_routines or None,
     )
 
     chat_msgs: list[dict[str, Any]] = [system_msg]
@@ -833,6 +898,19 @@ async def run_threaded_fire(
             if _t.startswith("routine-id:") or _t.startswith("correlation:"):
                 _seen_routing.add(_t)
                 pending_routing_tags.append(_t)
+    # Carry the routine_id (if any) on a contextvar so dispatch_helper
+    # can stamp it onto proposals. Each fire runs in its own asyncio
+    # task so the set is fire-scoped automatically — no explicit reset.
+    # The chain propagates onward through the approve flow and the
+    # claude-code watcher. We pick the first routine-id found in
+    # pending; a fire spanning multiple routine chains is exceedingly
+    # rare (routines fire one intent at a time and the supervisor
+    # serializes), but if it happens we stamp the freshest one.
+    _fire_routine_id = next(iter(seen_routine_ids), "")
+    if _fire_routine_id:
+        from . import tools as _harness_tools_for_ctx
+
+        _harness_tools_for_ctx.FIRE_ROUTINE_ID.set(_fire_routine_id)
     if pending_ids:
         await _write_threaded_turn_trace(
             session_tag=session_tag,
