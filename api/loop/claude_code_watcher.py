@@ -250,7 +250,7 @@ async def _correlation_state() -> tuple[dict[str, dict], dict[str, dict]]:
     return active, closing
 
 
-async def _prime_last_minted() -> None:
+async def _prime_last_minted() -> bool:
     """Prime `_last_minted` so a process restart doesn't re-fire the
     loop on closures and replies that landed before we were running.
 
@@ -275,10 +275,20 @@ async def _prime_last_minted() -> None:
          running session at boot. We accept missing replies that
          landed in the brief restart window — small price for not
          flooding the loop with stale intents.
+
+    Returns True iff BOTH lake queries succeeded. False signals the
+    caller (the watcher loop) that the floor isn't established yet
+    and it should retry — without the floor, the first tick would
+    treat every historical closure as new and mirror it into the
+    puddle, flooding the chat feed with deltas from prior sessions.
+    Cold-start race: api can boot before delta-store is reachable,
+    which used to silently leave the floor empty; the watcher loop
+    now retries `_prime_last_minted` with backoff until it succeeds.
     """
     from datetime import UTC, datetime
 
     now_iso = datetime.now(UTC).isoformat()
+    success = True
     try:
         completes, abandoned = await asyncio.gather(
             delta_client.query(tags_include=["task-complete"], limit=500),
@@ -287,6 +297,7 @@ async def _prime_last_minted() -> None:
     except Exception as e:
         print(f"[claude-code watcher] prime (closures) failed: {type(e).__name__}: {e}")
         completes, abandoned = [], []
+        success = False
     primed_from_closures = 0
     for c in (*completes, *abandoned):
         corr = _tag_value(c.get("tags") or [], "task-corr:")
@@ -304,6 +315,7 @@ async def _prime_last_minted() -> None:
     except Exception as e:
         print(f"[claude-code watcher] prime (active) failed: {type(e).__name__}: {e}")
         spawns = []
+        success = False
     primed_active = 0
     for s in spawns:
         corr = _tag_value(s.get("tags") or [], "task-corr:")
@@ -318,6 +330,7 @@ async def _prime_last_minted() -> None:
             f"[claude-code watcher] primed {primed_from_closures} closed "
             f"+ {primed_active} active corrs from lake"
         )
+    return success
 
 
 def _build_intent_tags(
@@ -534,11 +547,37 @@ async def claude_code_watcher_tick() -> None:
 async def claude_code_watcher_loop() -> None:
     """Background task — periodic claude_code_watcher_tick().
 
-    Primes `_last_minted` once at startup so an API restart doesn't
-    re-fire the loop on already-processed replies, then ticks forever.
+    Primes `_last_minted` (with retry-on-failure) so an API restart
+    doesn't re-fire the loop on already-processed replies, then ticks
+    forever. The prime MUST succeed before the first tick — without
+    the floor, every historical closure looks new and gets mirrored
+    into the puddle, flooding the chat feed with deltas from prior
+    sessions. Cold-start race: api boots faster than delta-store, so
+    the prime's lake queries can fail with ConnectError; we retry
+    with exponential backoff (capped at 30s) until the prime returns
+    True. Worst case: tens of seconds of "watcher waiting on prime"
+    after a fresh restart, during which incoming closures might be
+    missed — small price for not flooding the puddle.
     """
-    await _prime_last_minted()
-    print(f"[claude-code watcher armed] poll={CLAUDE_CODE_POLL_S}s")
+    attempt = 0
+    backoff_s = 1.0
+    while True:
+        attempt += 1
+        if await _prime_last_minted():
+            print(
+                f"[claude-code watcher armed] prime ok on attempt {attempt}; "
+                f"poll={CLAUDE_CODE_POLL_S}s"
+            )
+            break
+        print(
+            f"[claude-code watcher] prime attempt {attempt} failed; "
+            f"retrying in {backoff_s:.1f}s"
+        )
+        try:
+            await asyncio.sleep(backoff_s)
+        except asyncio.CancelledError:
+            return
+        backoff_s = min(backoff_s * 2, 30.0)
     while True:
         try:
             await asyncio.sleep(CLAUDE_CODE_POLL_S)
