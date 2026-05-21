@@ -1,11 +1,14 @@
 {
   "name": "fathom-agent",
-  "version": "0.12.1",
+  "version": "0.12.2",
   "description": "Local agent for Fathom — watches files and pushes deltas to your lake",
   "bin": {
     "fathom-agent": "index.js"
   },
   "type": "module",
+  "engines": {
+    "node": ">=18"
+  },
   "files": [
     "index.js",
     "identity.js",
@@ -13,7 +16,9 @@
     "inbox.js",
     "acp_client.js",
     "plugins/",
-    "local-ui/"
+    "local-ui/",
+    "README.md",
+    "LICENSE"
   ],
   "dependencies": {
     "chokidar": "^4.0.0"
@@ -25,5 +30,14 @@
     "vault",
     "watcher"
   ],
-  "license": "MIT"
+  "license": "MIT",
+  "homepage": "https://github.com/fathomdx-io/fathomdx/tree/main/addons/agent",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/fathomdx-io/fathomdx.git",
+    "directory": "addons/agent"
+  },
+  "bugs": {
+    "url": "https://github.com/fathomdx-io/fathomdx/issues"
+  }
 }

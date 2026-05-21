@@ -1,14 +1,19 @@
 {
   "name": "fathom-connect",
-  "version": "1.2.1",
+  "version": "1.2.2",
   "description": "Connect Claude Code, Claude Desktop, or Cursor to your Fathom memory lake",
   "bin": {
     "fathom-connect": "index.js"
   },
   "type": "module",
+  "engines": {
+    "node": ">=18"
+  },
   "files": [
     "index.js",
-    "hooks/"
+    "hooks/",
+    "README.md",
+    "LICENSE"
   ],
   "keywords": [
     "fathom",
@@ -17,5 +22,14 @@
     "claude",
     "hooks"
   ],
-  "license": "MIT"
+  "license": "MIT",
+  "homepage": "https://github.com/fathomdx-io/fathomdx/tree/main/addons/connect",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/fathomdx-io/fathomdx.git",
+    "directory": "addons/connect"
+  },
+  "bugs": {
+    "url": "https://github.com/fathomdx-io/fathomdx/issues"
+  }
 }
