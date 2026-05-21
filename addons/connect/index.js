@@ -210,7 +210,12 @@ async function main() {
   ]);
 
   const url = (await ask("  Fathom API URL [http://localhost:8201]: ")) || "http://localhost:8201";
-  const key = await ask("  API Key (from Settings → API Keys): ");
+
+  console.error("\n  Generate an API key in your Fathom dashboard → Settings → API Keys.");
+  console.error("  Required scopes:");
+  console.error("    • lake:read   — recall, search, view crystal, list tags/stats");
+  console.error("    • lake:write  — capture prompts/responses, write engagements\n");
+  const key = await ask("  API Key: ");
 
   if (!key) {
     console.error("\n  ✗ API key is required. Generate one in Settings → API Keys.\n");
