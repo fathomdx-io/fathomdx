@@ -23,10 +23,12 @@ from __future__ import annotations
 
 import asyncio
 import os
+import time
+from datetime import datetime, timedelta, timezone
 
 from openai import AsyncOpenAI
 
-from .. import providers
+from .. import delta_client, providers
 from ..settings import settings
 
 # Concurrency cap — same intent as the experiment's _LLM_SEM. Parliament
@@ -34,6 +36,53 @@ from ..settings import settings
 # matters when the witness fires alongside late-arriving voice ticks
 # or when ambient/pressure pulses overlap. 6 is comfortable for that.
 _LLM_SEM = asyncio.Semaphore(int(os.getenv("LOOP_LLM_CONCURRENCY", "6")))
+
+# Per-tier success heartbeat — every successful LLM call kicks one of
+# these into the lake so the LLM-down gate (api/loop/llm_gate.py) can
+# decide "is this tier currently working?" by comparing the newest
+# heartbeat to the newest system-error for that tier. Debounced per
+# tier to keep busy harness fires from spamming the lake — the gate
+# only needs the most-recent timestamp.
+_HEARTBEAT_DEBOUNCE_S = 30.0
+_HEARTBEAT_TTL_S = 3600  # 1h — long enough to outlive any reasonable idle gap
+_last_heartbeat_at: dict[str, float] = {}
+_heartbeat_lock = asyncio.Lock()
+
+
+def _expires_in(seconds: int) -> str:
+    """ISO-8601 UTC timestamp `seconds` from now, in the lake's `Z` shape."""
+    return (
+        (datetime.now(timezone.utc) + timedelta(seconds=seconds))
+        .isoformat()
+        .replace("+00:00", "Z")
+    )
+
+
+async def _maybe_heartbeat(tier: str, model: str) -> None:
+    """Fire-and-forget LLM-success heartbeat for the gate.
+
+    Debounced per tier — at most one heartbeat per `_HEARTBEAT_DEBOUNCE_S`
+    so busy fires don't spam the lake. Best-effort write; a missed
+    heartbeat just means the gate notices recovery on the next probe
+    instead of immediately.
+    """
+    now = time.monotonic()
+    async with _heartbeat_lock:
+        last = _last_heartbeat_at.get(tier, 0.0)
+        if now - last < _HEARTBEAT_DEBOUNCE_S:
+            return
+        _last_heartbeat_at[tier] = now
+    try:
+        await delta_client.write(
+            content=model,
+            tags=["kind:llm-heartbeat", f"llm-tier:{tier}"],
+            source="llm-heartbeat",
+            expires_at=_expires_in(_HEARTBEAT_TTL_S),
+        )
+    except Exception:
+        # Best-effort. The LLM call already succeeded; gate-recovery
+        # latency is the only thing affected by a missed heartbeat.
+        pass
 
 # Hints that an exception is rate-limit-shaped. The OpenAI SDK raises
 # RateLimitError directly; other providers may surface 429s as HTTPError
@@ -55,18 +104,22 @@ def _is_rate_limit(exc: BaseException) -> bool:
     return any(h.lower() in s for h in _RATE_LIMIT_HINTS)
 
 
-def _resolve_client_and_model(tier: str) -> tuple[AsyncOpenAI, str]:
-    """Pick the AsyncOpenAI client + model for `tier`.
+def _resolve_client_and_model(tier: str) -> tuple[AsyncOpenAI, str, str]:
+    """Pick the AsyncOpenAI client + model + canonical tier name for `tier`.
 
     `tier` is "medium" (cheap, parallel-safe — used by voices, searcher,
     intent-shaping) or "hard" (witness, judge — single call per fire,
     quality matters). The settings module exposes both as resolved
     properties; the legacy `model` field maps to hard for back-compat.
+
+    The third return is the normalized tier — anything other than "hard"
+    routes to the medium model, so the heartbeat/error tags need to
+    reflect the model that actually ran, not the caller's label.
     """
     client = providers.get_client(settings.provider)
     if tier == "hard":
-        return client, settings.resolved_model_hard
-    return client, settings.resolved_model_medium
+        return client, settings.resolved_model_hard, "hard"
+    return client, settings.resolved_model_medium, "medium"
 
 
 async def loop_generate(
@@ -85,7 +138,7 @@ async def loop_generate(
     callers strip preambles defensively in case a provider returns text
     with leading "Here is the JSON:" framing.
     """
-    client, model = _resolve_client_and_model(tier)
+    client, model, canonical_tier = _resolve_client_and_model(tier)
     request: dict = {
         "model": model,
         "messages": [{"role": "user", "content": prompt}],
@@ -102,6 +155,7 @@ async def loop_generate(
             try:
                 resp = await client.chat.completions.create(**request)
                 content = (resp.choices[0].message.content or "") if resp.choices else ""
+                asyncio.create_task(_maybe_heartbeat(canonical_tier, model))
                 return content.strip()
             except Exception as e:
                 last_exc = e
@@ -141,7 +195,7 @@ async def loop_generate_chat(
     if not messages:
         raise ValueError("messages must be non-empty")
 
-    client, model = _resolve_client_and_model(tier)
+    client, model, canonical_tier = _resolve_client_and_model(tier)
     request: dict = {
         "model": model,
         "messages": messages,
@@ -159,6 +213,7 @@ async def loop_generate_chat(
         async with _LLM_SEM:
             try:
                 resp = await client.chat.completions.create(**request)
+                asyncio.create_task(_maybe_heartbeat(canonical_tier, model))
                 if not resp.choices:
                     return {"role": "assistant", "content": ""}
                 msg = resp.choices[0].message
