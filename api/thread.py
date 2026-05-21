@@ -60,6 +60,7 @@ async def append(
     source: str = "thread",
     timestamp: str | None = None,
     media_hash: str = "",
+    expires_at: str | None = None,
 ) -> dict:
     """Append one message to the global thread.
 
@@ -116,6 +117,8 @@ async def append(
         write_args["timestamp"] = timestamp
     if media_hash:
         write_args["media_hash"] = media_hash
+    if expires_at:
+        write_args["expires_at"] = expires_at
     return await delta_client.write(**write_args)
 
 

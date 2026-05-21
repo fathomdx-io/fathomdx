@@ -573,6 +573,15 @@ async def synthesize_mood(session_slug: str | None = None) -> dict | None:
             from .loop.llm_errors import summarize as _summarize_llm_error
 
             err = _summarize_llm_error(tier="medium", exc=e, role="Mood synthesis")
+            # 1h TTL — banner reads for seconds, recall doesn't need a
+            # permanent rate-limit row. Mirrors the harness's error TTL.
+            from datetime import UTC, datetime, timedelta
+
+            err_expires_at = (
+                (datetime.now(UTC) + timedelta(hours=1))
+                .isoformat(timespec="milliseconds")
+                .replace("+00:00", "Z")
+            )
             await delta_client.write(
                 content=json.dumps(err),
                 tags=[
@@ -582,6 +591,7 @@ async def synthesize_mood(session_slug: str | None = None) -> dict | None:
                     "system-error-tier:medium",
                 ],
                 source=MOOD_SOURCE,
+                expires_at=err_expires_at,
             )
         except Exception:
             log.exception("failed to write mood-regen-error delta")

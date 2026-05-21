@@ -973,6 +973,18 @@ async def run_threaded_fire(
             err_addr_set = [pid for pid in pending_ids if pid]
             err_body = f"{err_summary['role']}: {err_summary['message']}"
             error_lake_id = ""
+            # TTL on the error chat-reply — the dashboard banner reads
+            # it for seconds; deeper recall doesn't need a permanent
+            # rate-limit row hanging around forever. 1h is long enough
+            # to investigate an outage in the audit trail, short enough
+            # that the lake doesn't accrete provider-error noise.
+            from datetime import UTC, datetime, timedelta
+
+            err_expires_at = (
+                (datetime.now(UTC) + timedelta(hours=1))
+                .isoformat(timespec="milliseconds")
+                .replace("+00:00", "Z")
+            )
             try:
                 d = await thread_mod.append(
                     role="assistant",
@@ -986,6 +998,7 @@ async def run_threaded_fire(
                         "system-error-tier:hard",
                         *pending_routing_tags,
                     ],
+                    expires_at=err_expires_at,
                 )
                 error_lake_id = (d or {}).get("id") or ""
             except Exception as ae:
