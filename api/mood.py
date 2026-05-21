@@ -565,7 +565,12 @@ async def synthesize_mood(session_slug: str | None = None) -> dict | None:
             err = _summarize_llm_error(tier="medium", exc=e, role="Mood synthesis")
             await delta_client.write(
                 content=json.dumps(err),
-                tags=["mood-regen-error", f"system-error-class:{err['class']}"],
+                tags=[
+                    "mood-regen-error",
+                    "system-error",
+                    f"system-error-class:{err['class']}",
+                    "system-error-tier:medium",
+                ],
                 source=MOOD_SOURCE,
             )
         except Exception:
