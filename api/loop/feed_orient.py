@@ -169,6 +169,12 @@ async def _run_regen() -> bool:
         return False
     _in_flight = True
     try:
+        from . import llm_gate
+
+        if await llm_gate.is_down("hard"):
+            log.info("feed-orient regen skipped — hard tier is down (llm_gate)")
+            return False
+
         prior = await _latest_feed_orient()
         inputs = await _build_inputs_block(prior)
         prompt = f"{FEED_CRYSTAL_DIRECTIVE}\n\n{inputs}"

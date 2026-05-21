@@ -430,6 +430,10 @@ async def _call_judge(*, kicker: str, body: str, seed: str) -> dict[str, float]:
     # the hard tier was leftover from when the judge was authority-bearing.
     # Flash measures ~5–6s vs Pro's ~9s on this prompt shape, and the axes
     # are downstream metadata, not the user-facing response.
+    from . import llm_gate
+
+    if await llm_gate.is_down("medium"):
+        return dict(_JUDGE_FALLBACK)
     prompt = JUDGE_PROMPT.format(kicker=kicker, body=body, seed=seed)
     try:
         raw = await loop_generate(

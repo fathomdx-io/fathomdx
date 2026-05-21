@@ -123,7 +123,17 @@ async def _generate_plan(
     conv_context: str = "",
     session_slug: str | None = None,
 ) -> dict | None:
-    """Fast LLM call that composes a multi-step plan annotated with relations."""
+    """Fast LLM call that composes a multi-step plan annotated with relations.
+
+    Returns None when the medium tier is currently down — caller falls
+    back to shallow recall so a known-broken tier doesn't take recall
+    down with it.
+    """
+    from .loop import llm_gate
+
+    if await llm_gate.is_down("medium"):
+        return None
+
     prompt = text
     if conv_context:
         prompt = f"Conversation so far:\n{conv_context}\n\nLatest message: {text}"
@@ -267,6 +277,11 @@ async def _synthesize_thinking(
     """
     source_ids = _sediment_source_ids(deltas_by_step)
     if len(source_ids) < _SEDIMENT_MIN_DELTAS:
+        return None, None
+
+    from .loop import llm_gate
+
+    if await llm_gate.is_down("medium"):
         return None, None
 
     body = _sediment_prompt_body(query, deltas_by_step)
@@ -858,7 +873,13 @@ async def _deep(
 ) -> dict:
     plan = await _generate_plan(text, conv_context=conv_context, session_slug=session_slug)
     if not plan:
-        return _empty_result()
+        # Planner unavailable — most often because the medium tier is
+        # down (llm_gate skipped the call) or the planner returned
+        # malformed JSON. Fall through to shallow recall so users still
+        # get usable results in degraded mode instead of an empty page.
+        return await _shallow(
+            text, limit=limit, threshold=None, view=view, has_media=has_media,
+        )
 
     if has_media is not None:
         # Stamp every retrieval step with the media filter post-hoc — the

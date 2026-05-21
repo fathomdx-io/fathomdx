@@ -531,6 +531,16 @@ async def synthesize_mood(session_slug: str | None = None) -> dict | None:
         log.info("mood synthesis skipped — no shifts, no recent activity, no prior mood")
         return None
 
+    # Don't burn an LLM call while the medium tier is known down — the
+    # prior mood stays on the dashboard, and the banner already tells
+    # the user why. Skips silently (no error delta), so we don't
+    # accrete a wall of provider-error rows during outages.
+    from .loop import llm_gate
+
+    if await llm_gate.is_down("medium"):
+        log.info("mood synthesis skipped — medium tier is down (llm_gate)")
+        return None
+
     user_payload_parts: list[str] = []
     if topology_summary:
         user_payload_parts.append(
