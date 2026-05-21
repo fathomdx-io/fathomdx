@@ -16,6 +16,7 @@ from fastapi import APIRouter, HTTPException
 
 from .. import crystal, delta_client, drift, mood, pressure, recall
 from .. import usage as usage_module
+from ..loop import llm_gate
 
 router = APIRouter()
 
@@ -95,70 +96,53 @@ async def force_mood_synthesis():
 
 @router.get("/v1/llm/status")
 async def get_llm_status():
-    """Return whether the LLM is currently failing.
+    """Return whether each LLM tier is currently failing.
 
-    Compares the most recent error envelope across known LLM-error tag
-    families (`system-error` from the harness, `mood-regen-error` from
-    mood synth) against the most recent successful LLM-using producer
-    write (`mood-delta`, `kind:harness-turn`, `kind:sediment`). If a
-    success is newer than the latest error, the LLM is back; otherwise
-    the error is still live.
+    Per-tier shape (`hard`, `medium`) plus back-compat top-level `ok` /
+    `error` for the existing dashboard banner. Each tier reports down
+    when its newest `system-error-tier:<tier>` delta is more recent
+    than its newest `kind:llm-heartbeat llm-tier:<tier>` — the
+    heartbeats are written by `api/loop/llm.py` after every successful
+    LLM call.
 
-    Replaces the inline mood-stale indicator with a top-of-page banner
-    that auto-clears as soon as any LLM-using process succeeds — so the
-    moment the user adds tokens and the next mood/harness fire lands,
-    the warning disappears on its own.
+    Top-level `ok` is the AND of both tiers (true only when both work).
+    Top-level `error` carries the most recent error across the two
+    tiers, so the banner shows the most acute failure first.
     """
-    err_ts = ""
-    err_payload: dict = {}
-    for tag in ("system-error", "mood-regen-error"):
-        try:
-            rows = await delta_client.query(tags_include=[tag], limit=1)
-        except Exception:
-            continue
-        if not rows:
-            continue
-        row = rows[0]
-        ts = row.get("timestamp") or ""
-        if ts > err_ts:
-            err_ts = ts
-            import json as _json
+    hard = await llm_gate.tier_status("hard")
+    medium = await llm_gate.tier_status("medium")
 
-            try:
-                err_payload = _json.loads(row.get("content") or "{}")
-            except Exception:
-                err_payload = {"message": row.get("content") or ""}
+    def _shape(snap: dict) -> dict:
+        if snap["ok"]:
+            return {"ok": True, "error": None}
+        payload = snap.get("error") or {}
+        return {
+            "ok": False,
+            "error": {
+                "timestamp": snap.get("last_error_ts") or "",
+                "role": payload.get("role") or "LLM",
+                "class": payload.get("class") or "",
+                "message": payload.get("message") or "",
+            },
+        }
 
-    if not err_ts:
-        return {"ok": True, "error": None}
+    hard_shape = _shape(hard)
+    medium_shape = _shape(medium)
 
-    # Any LLM-using producer success newer than the error clears it.
-    success_ts = ""
-    for tag in ("mood-delta", "kind:harness-turn", "kind:sediment"):
-        try:
-            rows = await delta_client.query(
-                tags_include=[tag],
-                time_start=err_ts,
-                limit=1,
-            )
-        except Exception:
-            continue
-        if not rows:
-            continue
-        ts = rows[0].get("timestamp") or ""
-        if ts > success_ts:
-            success_ts = ts
-    if success_ts and success_ts > err_ts:
-        return {"ok": True, "error": None}
+    # Top-level back-compat — present the most recent failure, or
+    # success if both tiers are up.
+    if hard_shape["ok"] and medium_shape["ok"]:
+        top = {"ok": True, "error": None}
+    else:
+        candidates = [s for s in (hard_shape, medium_shape) if not s["ok"]]
+        candidates.sort(key=lambda s: s["error"]["timestamp"], reverse=True)
+        top = candidates[0]
 
     return {
-        "ok": False,
-        "error": {
-            "timestamp": err_ts,
-            "role": err_payload.get("role") or "LLM",
-            "class": err_payload.get("class") or "",
-            "message": err_payload.get("message") or "",
-        },
+        "ok": top["ok"],
+        "error": top["error"],
+        "hard": hard_shape,
+        "medium": medium_shape,
     }
 
 
