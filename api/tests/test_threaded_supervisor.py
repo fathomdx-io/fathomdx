@@ -305,3 +305,133 @@ async def test_continuation_msg_picked_up_by_supervisor():
         pending = await thread_mod.unaddressed([cont])
     assert len(pending) == 1
     assert pending[0]["id"] == cont["id"]
+
+
+# ── llm-down probe gate ───────────────────────────────────────────
+
+
+@pytest.fixture
+def _reset_probe_state():
+    """Each gate test starts with a clean probe budget + cache."""
+    from api.loop import llm_gate
+    llm_gate.invalidate_cache()
+    llm_gate.reset_probe_budget()
+    yield
+    llm_gate.invalidate_cache()
+    llm_gate.reset_probe_budget()
+
+
+@pytest.mark.asyncio
+async def test_supervisor_skips_fire_when_hard_down_and_probe_budget_consumed(
+    monkeypatch, _reset_probe_state,
+):
+    """While hard tier is down, the supervisor probes at most once per
+    probe interval — held messages stay unaddressed until recovery."""
+    from api.loop import llm_gate
+
+    fire_count = 0
+    pending = [_user_msg("u1")]
+
+    async def fake_window():
+        return {"messages": pending, "unaddressed": list(pending)}
+
+    async def fake_fire():
+        nonlocal fire_count
+        fire_count += 1
+        # Probe failed — message stays pending (would be a fresh error).
+        return {"turns": 0, "addressed": [], "final_response": None, "lake_id": ""}
+
+    monkeypatch.setattr(ts, "IDLE_POLL_S", 0.01)
+    monkeypatch.setattr(ts, "BUSY_GAP_S", 0.005)
+    # Make probe budget effectively eternal for this test so only the
+    # first call returns True; subsequent calls within the test window
+    # all return False.
+    monkeypatch.setattr(llm_gate, "LLM_PROBE_INTERVAL_S", 60.0)
+    with (
+        patch.object(ts.thread_mod, "build_window", AsyncMock(side_effect=fake_window)),
+        patch.object(ts, "run_threaded_fire", AsyncMock(side_effect=fake_fire)),
+        patch.object(llm_gate, "is_down", AsyncMock(return_value=True)),
+    ):
+        task = asyncio.create_task(ts._supervisor_loop())
+        await asyncio.sleep(0.15)
+        task.cancel()
+        try:
+            await task
+        except asyncio.CancelledError:
+            pass
+    # Hard down + 60s budget → exactly one probe fire across many ticks.
+    assert fire_count == 1, f"expected one probe fire, got {fire_count}"
+
+
+@pytest.mark.asyncio
+async def test_supervisor_fires_normally_when_hard_up(monkeypatch, _reset_probe_state):
+    """When the gate reports up, no probe-budget gating — fires drain
+    the queue at normal cadence."""
+    from api.loop import llm_gate
+
+    fire_count = 0
+    pending = [_user_msg("u1")]
+
+    async def fake_window():
+        return {"messages": pending, "unaddressed": list(pending)}
+
+    async def fake_fire():
+        nonlocal fire_count
+        fire_count += 1
+        pending.clear()
+        return {"turns": 1, "addressed": ["u1"], "final_response": {"body": "x"}, "lake_id": "abc"}
+
+    monkeypatch.setattr(ts, "IDLE_POLL_S", 0.01)
+    monkeypatch.setattr(ts, "BUSY_GAP_S", 0.01)
+    with (
+        patch.object(ts.thread_mod, "build_window", AsyncMock(side_effect=fake_window)),
+        patch.object(ts, "run_threaded_fire", AsyncMock(side_effect=fake_fire)),
+        patch.object(llm_gate, "is_down", AsyncMock(return_value=False)),
+    ):
+        task = asyncio.create_task(ts._supervisor_loop())
+        await asyncio.sleep(0.1)
+        task.cancel()
+        try:
+            await task
+        except asyncio.CancelledError:
+            pass
+    assert fire_count >= 1
+
+
+@pytest.mark.asyncio
+async def test_supervisor_invalidates_gate_cache_after_fire(monkeypatch, _reset_probe_state):
+    """After each fire, the supervisor drops the gate cache so the next
+    tick reads the fresh heartbeat (on success) or error (on failure)
+    instead of stale state from before the fire."""
+    from api.loop import llm_gate
+
+    pending = [_user_msg("u1")]
+    invalidate_calls = 0
+
+    async def fake_window():
+        return {"messages": pending, "unaddressed": list(pending)}
+
+    async def fake_fire():
+        pending.clear()
+        return {"turns": 1, "addressed": ["u1"], "final_response": {"body": "x"}, "lake_id": "abc"}
+
+    def fake_invalidate(tier=None):
+        nonlocal invalidate_calls
+        invalidate_calls += 1
+
+    monkeypatch.setattr(ts, "IDLE_POLL_S", 0.01)
+    monkeypatch.setattr(ts, "BUSY_GAP_S", 0.01)
+    with (
+        patch.object(ts.thread_mod, "build_window", AsyncMock(side_effect=fake_window)),
+        patch.object(ts, "run_threaded_fire", AsyncMock(side_effect=fake_fire)),
+        patch.object(llm_gate, "is_down", AsyncMock(return_value=False)),
+        patch.object(llm_gate, "invalidate_cache", side_effect=fake_invalidate),
+    ):
+        task = asyncio.create_task(ts._supervisor_loop())
+        await asyncio.sleep(0.06)
+        task.cancel()
+        try:
+            await task
+        except asyncio.CancelledError:
+            pass
+    assert invalidate_calls >= 1

@@ -21,7 +21,15 @@ import asyncio
 import contextlib
 
 from .. import thread as thread_mod
+from . import llm_gate
 from .harness.threaded import run_threaded_fire
+
+# Probe-budget key used when the hard tier is down. The supervisor will
+# attempt at most one fire per `LLM_PROBE_INTERVAL_S` (default 60s)
+# while the gate reports down — the fire IS the probe. Success writes
+# a heartbeat and flips the gate; failure writes a fresh error and
+# resets the next probe window.
+_PROBE_KEY = "supervisor:hard"
 
 # How often to check for unaddressed messages when idle. Short enough
 # that a freshly-landed user message fires within a couple seconds;
@@ -93,6 +101,23 @@ async def _supervisor_loop() -> None:
             last_pending_count = -1
             continue
 
+        # LLM-down gate: when the hard tier is known down, don't burn a
+        # fire on every new pending message. Allow one probe per
+        # `LLM_PROBE_INTERVAL_S` (claim_probe enforces the budget).
+        # Held messages stay unaddressed; the next probe (or the next
+        # successful fire after recovery) drains them.
+        if await llm_gate.is_down("hard"):
+            if not llm_gate.claim_probe(_PROBE_KEY):
+                # Reset consecutive_fires so we don't trip anti-spin
+                # while waiting on the LLM to come back.
+                consecutive_fires = 0
+                last_pending_count = -1
+                continue
+            print(
+                f"[threaded-supervisor] hard tier down — firing probe "
+                f"(pending={pending_count})"
+            )
+
         # Anti-spin: if the queue isn't shrinking across consecutive
         # fires, the model is failing to address what's in front of it.
         # Bail out to idle and let the next external trigger reset us.
@@ -137,6 +162,10 @@ async def _supervisor_loop() -> None:
                 continue
             finally:
                 _active_fire_task = None
+                # Drop cached gate state so the next tick sees the fresh
+                # heartbeat (on success) or fresh error (on failure)
+                # instead of stale "down" or "up" from before the fire.
+                llm_gate.invalidate_cache("hard")
         addressed = result.get("addressed") or []
         body_chars = len((result.get("final_response") or {}).get("body") or "")
         print(
