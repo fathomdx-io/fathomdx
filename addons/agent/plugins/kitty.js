@@ -31,13 +31,54 @@
  */
 
 import { spawn } from "child_process";
-import { readFileSync, writeFileSync, renameSync, mkdirSync, existsSync } from "fs";
+import { readFileSync, writeFileSync, renameSync, mkdirSync, existsSync, readdirSync } from "fs";
 import { homedir, hostname } from "os";
 import { join, dirname, resolve } from "path";
 
 const STATE_PATH = join(homedir(), ".fathom", "kitty-state.json");
 const SOCKET_DIR = "/tmp";
 const DEFAULT_RECEIPT_EXPIRY_DAYS = 30;
+
+// Probe the graphical session at runtime. Returns the env we should hand
+// to the kitty child plus a short status string the heartbeat surfaces.
+//
+// The agent often runs under systemd --user, which is started before the
+// desktop imports DISPLAY/WAYLAND_DISPLAY into the user manager. The unit
+// template pins DISPLAY=:0 and XDG_RUNTIME_DIR=/run/user/%U as safe defaults
+// for the single-user desktop case; here we discover WAYLAND_DISPLAY from
+// the actual socket on disk so we don't have to guess wayland-0 vs wayland-1.
+function probeDisplayEnv() {
+  const env = {};
+  if (process.env.DISPLAY) env.DISPLAY = process.env.DISPLAY;
+  if (process.env.XAUTHORITY) env.XAUTHORITY = process.env.XAUTHORITY;
+  if (process.env.XDG_RUNTIME_DIR) env.XDG_RUNTIME_DIR = process.env.XDG_RUNTIME_DIR;
+
+  let wayland = process.env.WAYLAND_DISPLAY;
+  if (!wayland && env.XDG_RUNTIME_DIR) {
+    try {
+      const entries = readdirSync(env.XDG_RUNTIME_DIR);
+      // Prefer wayland-0/1/… over control sockets like wayland-1.lock.
+      wayland = entries
+        .filter((n) => /^wayland-\d+$/.test(n))
+        .sort()[0];
+    } catch {
+      /* runtime dir missing — leave wayland unset */
+    }
+  }
+  if (wayland) env.WAYLAND_DISPLAY = wayland;
+
+  let status;
+  if (env.WAYLAND_DISPLAY || env.DISPLAY) {
+    status = "ok";
+  } else {
+    status = "no-display";
+  }
+  return { env, status };
+}
+
+// Live snapshot the heartbeat reads via the module's status() export.
+let _displayStatus = "unknown";
+let _displayDetail = null;
 
 // Permission modes are deliberately file-only — accidentally widening the
 // veto list from a browser is the exact risk the trust discussion flagged.
@@ -548,7 +589,26 @@ export function spawnClaudeInKitty({
     claudeBin,
     ...claudeArgs,
   ];
-  const child = spawn(kittyBin, args, { stdio: "ignore", detached: true });
+  // Re-probe each spawn so a desktop login that came up after the agent
+  // started gets picked up automatically — no agent restart required.
+  const { env: displayEnv, status: displayStatus } = probeDisplayEnv();
+  _displayStatus = displayStatus;
+  _displayDetail = {
+    display: displayEnv.DISPLAY || null,
+    wayland_display: displayEnv.WAYLAND_DISPLAY || null,
+  };
+  if (displayStatus === "no-display") {
+    console.error(
+      `  ⚠ kitty: refusing to spawn — no DISPLAY/WAYLAND_DISPLAY available. ` +
+        `Helper appears offline to the dashboard until the graphical session is reachable.`
+    );
+    return { socket, title, spawnedAt: Date.now(), failed: "no-display" };
+  }
+  const child = spawn(kittyBin, args, {
+    stdio: "ignore",
+    detached: true,
+    env: { ...process.env, ...displayEnv },
+  });
   child.unref();
   child.on("error", (e) => console.error(`  kitty spawn failed: ${e.message}`));
 
@@ -871,6 +931,25 @@ export default {
     );
     console.log(`  kitty: allowed permission modes = [${allowed.join(", ")}]`);
 
+    const { env: displayEnv, status: displayStatus } = probeDisplayEnv();
+    _displayStatus = displayStatus;
+    _displayDetail = {
+      display: displayEnv.DISPLAY || null,
+      wayland_display: displayEnv.WAYLAND_DISPLAY || null,
+    };
+    if (displayStatus === "no-display") {
+      console.warn(
+        `  ⚠ kitty: no DISPLAY or WAYLAND_DISPLAY available — dispatches will fail until ` +
+          `the systemd user manager imports them (try: systemctl --user restart fathom-agent ` +
+          `from a graphical session, or pin Environment=DISPLAY=:0 in the service unit).`
+      );
+    } else {
+      console.log(
+        `  kitty: display ok (DISPLAY=${displayEnv.DISPLAY || "-"}, ` +
+          `WAYLAND_DISPLAY=${displayEnv.WAYLAND_DISPLAY || "-"})`
+      );
+    }
+
     const tick = () => pollOnce(config, pusher, inbox, state);
     const timer = setInterval(tick, config.poll_interval_ms || 3000);
     tick(); // fire one immediately
@@ -881,5 +960,13 @@ export default {
         saveState(state);
       },
     };
+  },
+
+  // Heartbeat snapshot. Reports whether the kitty plugin currently has a
+  // path to the user's display server. The dashboard turns this into a
+  // human-readable "helper online, kitty unreachable: no graphical session"
+  // chip instead of a silent black hole.
+  status() {
+    return { display: _displayStatus, ...(_displayDetail || {}) };
   },
 };

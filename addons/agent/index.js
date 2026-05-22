@@ -182,6 +182,12 @@ function installService(config) {
   const apiKey = process.env.FATHOM_API_KEY || config.api_key || "";
 
   if (platform === "linux") {
+    // DISPLAY / XDG_RUNTIME_DIR are baked in so the kitty plugin can spawn
+    // windows on the user's session after a cold restart (systemd doesn't
+    // auto-import them from the desktop session reliably across DEs).
+    // :0 is the conventional first X server on a single-user desktop; the
+    // kitty plugin probes $XDG_RUNTIME_DIR/wayland-* at runtime to pick the
+    // actual Wayland socket, so we don't pin WAYLAND_DISPLAY here.
     const unit = `[Unit]
 Description=Fathom Agent
 After=network.target
@@ -191,6 +197,8 @@ Type=simple
 ExecStart=${nodePath} ${scriptPath} run
 Environment=FATHOM_API_URL=${apiUrl}
 Environment=FATHOM_API_KEY=${apiKey}
+Environment=DISPLAY=:0
+Environment=XDG_RUNTIME_DIR=/run/user/%U
 Restart=on-failure
 RestartSec=10
 

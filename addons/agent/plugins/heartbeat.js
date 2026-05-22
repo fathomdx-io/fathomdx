@@ -126,12 +126,13 @@ async function buildPluginMetaMap() {
 async function readPluginMeta(name) {
   const map = await buildPluginMetaMap();
   const entry = map.get(name);
-  if (!entry) return { capabilities: null, category: null, helperRoles: null };
+  if (!entry) return { capabilities: null, category: null, helperRoles: null, status: null };
   const def = entry.mod && entry.mod.default;
   return {
     capabilities: entry.mod.SOURCE_CAPABILITIES || null,
     category: (def && def.category) || null,
     helperRoles: (def && def.helperRoles) || null,
+    status: def && typeof def.status === "function" ? def.status.bind(def) : null,
   };
 }
 
@@ -169,6 +170,18 @@ async function summarizePlugins() {
     const meta = await readPluginMeta(name);
     if (meta.capabilities) slim.capabilities = meta.capabilities;
     if (meta.category) slim.category = meta.category;
+    // Live status snapshot — plugins that own external dependencies
+    // (graphical session, hardware, network endpoints) can expose a
+    // status() function on the default export so the dashboard renders
+    // "online but unreachable" instead of guessing from silence.
+    if (meta.status) {
+      try {
+        const snap = await meta.status();
+        if (snap && typeof snap === "object") slim.status = snap;
+      } catch (e) {
+        slim.status = { error: e.message };
+      }
+    }
     // Helper roles — what this plugin can do as a helper. Each entry is
     // { role, description }. Multiple plugins on a host can share a role
     // (rare); usually each plugin owns one role. Witness reads these to
