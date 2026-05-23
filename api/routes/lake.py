@@ -522,7 +522,7 @@ LAKE_TOOLS = [
         "endpoint": {"method": "POST", "path": "/v1/dispatch-helper"},
         "scope": "lake:write",
         "surfaces": ["chat", "mcp", "cli", "harness"],
-        "response_kind": "json",
+        "response_kind": "result_text",
     },
     {
         "name": "mint_routine",
@@ -591,7 +591,7 @@ LAKE_TOOLS = [
         "endpoint": {"method": "POST", "path": "/v1/mint-routine"},
         "scope": "lake:write",
         "surfaces": ["chat", "mcp", "cli", "harness"],
-        "response_kind": "json",
+        "response_kind": "result_text",
     },
     {
         "name": "introspect",
@@ -626,7 +626,7 @@ LAKE_TOOLS = [
         "endpoint": {"method": "POST", "path": "/v1/introspect"},
         "scope": "lake:write",
         "surfaces": ["mcp", "cli"],
-        "response_kind": "json",
+        "response_kind": "result_text",
     },
 ]
 

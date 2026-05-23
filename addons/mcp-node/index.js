@@ -90,6 +90,8 @@ function formatByKind(kind, data) {
       return formatTags(data);
     case "write_receipt":
       return `Written. ID: ${data.id || "?"}`;
+    case "result_text":
+      return String(data.result ?? "");
     default:
       return JSON.stringify(data, null, 2).slice(0, 2000);
   }

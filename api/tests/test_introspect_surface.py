@@ -67,6 +67,23 @@ async def test_introspect_endpoint_calls_tool(client: httpx.AsyncClient) -> None
     assert "fathom answer body" in body.get("result", "")
 
 
+async def test_text_returning_tools_use_result_text_kind(
+    client: httpx.AsyncClient,
+) -> None:
+    # These three endpoints return LLM-generated prose in {"result": "..."}.
+    # The MCP server's "json" formatter slices to 2000 chars; "result_text"
+    # passes the string through untouched. Pin the contract so the truncation
+    # regression doesn't sneak back.
+    r = await client.get("/v1/tools")
+    assert r.status_code == 200
+    kinds = {t["name"]: t.get("response_kind") for t in r.json().get("tools", [])}
+    for name in ("introspect", "dispatch_helper", "mint_routine"):
+        assert kinds.get(name) == "result_text", (
+            f"{name} should be result_text (not {kinds.get(name)!r}) "
+            "so MCP doesn't truncate the LLM body"
+        )
+
+
 def test_agent_instructions_teach_introspect() -> None:
     from api import agent_instructions
 
