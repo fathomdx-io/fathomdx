@@ -127,6 +127,7 @@ class Sediment:
     content: str
     from_ids: list[str] = field(default_factory=list)
     timestamp: str | None = None
+    grounding: str = ""  # "external", "self-referential", or "" (unknown/legacy)
 
 
 @dataclass(frozen=True)
@@ -411,17 +412,21 @@ async def _load_understanding() -> list[Sediment]:
     out: list[Sediment] = []
     for d in rows:
         from_ids: list[str] = []
+        grounding = ""
         for t in d.get("tags") or []:
             if isinstance(t, str) and t.startswith("from:"):
                 ref = t.split(":", 1)[1].strip()
                 if ref:
                     from_ids.append(ref[:24])
+            elif isinstance(t, str) and t.startswith("grounding:"):
+                grounding = t.split(":", 1)[1].strip()
         out.append(
             Sediment(
                 delta_id=d.get("id") or "",
                 content=(d.get("content") or "").strip(),
                 from_ids=from_ids,
                 timestamp=d.get("timestamp"),
+                grounding=grounding,
             )
         )
     return out
@@ -456,6 +461,16 @@ async def current(session_tag: str = "") -> Standpoint:
         _load_recent_alerts(),
         _load_recent_visuals(),
     )
+
+    # Refute-filter: drop any sediment whose delta_id has been refuted.
+    refuted_ids = {
+        e.target_id for e in endorsements if e.kind == "refutes"
+    }
+    if refuted_ids:
+        understanding = [
+            s for s in understanding if s.delta_id not in refuted_ids
+        ]
+
     posture = _infer_posture(identity, affect)
     return Standpoint(
         identity=identity,
@@ -671,7 +686,13 @@ def render_for_prompt(sp: Standpoint, *, char_budget: int = 1200) -> str:
         _add("recently concluded:")
         for s in sp.understanding[:3]:
             content = s.content.split(".", 1)[0]
-            if not _add(f"  · {content[:160]}"):
+            if s.grounding == "self-referential":
+                marker = "[self-ref] "
+            elif s.grounding == "external":
+                marker = "[grounded] "
+            else:
+                marker = ""
+            if not _add(f"  · {marker}{content[:160]}"):
                 break
 
     if sp.recent_visuals:
