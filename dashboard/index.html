@@ -1636,6 +1636,65 @@
       color: var(--accent); text-shadow: 0 0 6px var(--accent);
     }
     #routinesList .chip.add { align-self: flex-start; margin-bottom: 4px; }
+    /* ── Routines table (full view) ──────────────────
+       Mission-control grid: one row per routine. Columns: status switch ·
+       routine (name + purpose) · pattern · next · last run · auto-approve ·
+       actions. Collapses to stacked, labelled cards under 700px. */
+    .routines-table-head {
+      display: flex; align-items: center; justify-content: space-between;
+      gap: 12px; margin-bottom: 14px; flex-wrap: wrap;
+    }
+    .routines-table-head .section-desc { margin: 0; flex: 1; min-width: 220px; }
+    .routines-table { display: flex; flex-direction: column; }
+    .rt-row {
+      display: grid;
+      grid-template-columns: 46px minmax(150px,2fr) minmax(95px,1.1fr) 64px minmax(110px,1.4fr) 48px 84px;
+      align-items: center; gap: 10px;
+      padding: 9px 4px; border-bottom: 1px solid var(--border);
+    }
+    .rt-head {
+      font-size: 11px; text-transform: uppercase; letter-spacing: .04em;
+      color: var(--ink-faint); font-weight: 600;
+    }
+    .rt-data:hover { background: var(--surface); }
+    .rt-cell { min-width: 0; }
+    .rt-cell::before { display: none; }            /* label shows on mobile only */
+    .rt-title {
+      font-weight: 500; cursor: pointer;
+      overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    }
+    .rt-title:hover { color: var(--accent); }
+    .rt-purpose {
+      font-size: 11px; color: var(--ink-faint);
+      overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    }
+    .rt-cron { font-family: var(--mono); font-size: 11px; }
+    .rt-next { font-family: var(--mono); font-size: 11px; color: var(--signal); }
+    .rt-data[data-enabled="false"] .rt-next { color: var(--ink-faint); }
+    .rt-last { font-size: 11px; color: var(--ink-faint);
+      overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .rt-last-sum { color: var(--ink); }
+    .rt-actions { display: flex; gap: 2px; justify-content: flex-end; }
+    .rt-actions .icon-btn { width: 28px; height: 28px; }
+    .rt-actions .icon-btn.danger:hover { color: var(--danger, #e5484d); }
+    /* Right-size the switches for a dense table — lighter than the 42×24
+       default used in forms. */
+    .rt-cell .switch { width: 34px; height: 20px; }
+    .rt-cell .switch .slider::before { width: 14px; height: 14px; }
+    .rt-cell .switch input:checked + .slider::before { transform: translateX(14px); }
+    .rt-empty { padding: 28px 4px; color: var(--ink-faint); }
+    @media (max-width: 700px) {
+      .rt-head { display: none; }
+      .rt-row.rt-data { grid-template-columns: 1fr; gap: 7px; padding: 14px 4px; }
+      .rt-cell { display: flex; gap: 8px; align-items: baseline; }
+      .rt-cell::before {
+        content: attr(data-label); display: block;
+        font-size: 10px; text-transform: uppercase; letter-spacing: .04em;
+        color: var(--ink-faint); min-width: 76px; flex-shrink: 0;
+      }
+      .rt-cell.rt-name { flex-direction: column; align-items: stretch; gap: 2px; }
+      .rt-actions { justify-content: flex-start; }
+    }
 
     /* Extend row */
     .extend-grid {
@@ -4427,6 +4486,10 @@
         <svg viewBox="0 0 256 256" fill="currentColor" width="16" height="16"><path d="M168,128a8,8,0,0,1-8,8H96a8,8,0,0,1,0-16h64A8,8,0,0,1,168,128ZM216,72H187.7a64.06,64.06,0,0,0-119.4,0H40a8,8,0,0,0,0,16H64v32H40a8,8,0,0,0,0,16H64v32H40a8,8,0,0,0,0,16H67.71a64,64,0,0,0,120.58,0H216a8,8,0,0,0,0-16H192V136h24a8,8,0,0,0,0-16H192V88h24a8,8,0,0,0,0-16ZM128,32a48.07,48.07,0,0,1,43.13,27H84.87A48.07,48.07,0,0,1,128,32Zm0,192a48.05,48.05,0,0,1-48-48V88h96v88A48.05,48.05,0,0,1,128,224Z"/></svg>
         <span class="feedback-btn-label">Feedback</span>
       </button>
+      <button class="icon-btn" id="routinesNavBtn" aria-label="Routines" title="Routines">
+        <!-- Phosphor: Timer — routines are scheduled prompts -->
+        <svg viewBox="0 0 256 256" fill="currentColor" width="16" height="16"><path d="M128,40a96,96,0,1,0,96,96A96.11,96.11,0,0,0,128,40Zm0,176a80,80,0,1,1,80-80A80.09,80.09,0,0,1,128,216Zm45.66-125.66a8,8,0,0,1,0,11.32l-40,40a8,8,0,0,1-11.32-11.32l40-40A8,8,0,0,1,173.66,90.34ZM96,16a8,8,0,0,1,8-8h48a8,8,0,0,1,0,16H104A8,8,0,0,1,96,16Z"/></svg>
+      </button>
       <div class="alerts-wrap">
         <button class="icon-btn alerts-btn" id="alertsBtn" aria-label="Alerts" title="Alerts">
           <svg viewBox="0 0 256 256" fill="currentColor" width="16" height="16"><path d="M221.8,175.94C216.25,166.38,208,139.33,208,104a80,80,0,1,0-160,0c0,35.34-8.26,62.38-13.81,71.94A16,16,0,0,0,48,200H88.81a40,40,0,0,0,78.38,0H208a16,16,0,0,0,13.8-24.06ZM128,216a24,24,0,0,1-22.62-16h45.24A24,24,0,0,1,128,216ZM48,184c7.7-13.24,16-43.92,16-80a64,64,0,1,1,128,0c0,36.05,8.28,66.73,16,80Z"/></svg>
@@ -4911,6 +4974,33 @@
       </div>
     </main>
   </div><!-- /view-routine-detail -->
+
+  <!-- ═══ VIEW: ROUTINES (full list) ═══════════════
+       Promotes the sidebar Routines section to a first-class page. Lists
+       every configured routine with the same chip treatment as the
+       sidebar (countdown + name, click → detail). The launchpad we'll
+       flesh out — scheduling, conditional activation, deadlines. -->
+  <div class="view view-settings" id="viewRoutines" hidden>
+    <header class="topbar">
+      <div class="topbar-left">
+        <button class="icon-btn" id="routinesBackBtn" aria-label="Back">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/></svg>
+        </button>
+        <div class="topbar-title">Routines</div>
+      </div>
+      <div class="topbar-right"><span class="section-count" id="routinesFullCount"></span></div>
+    </header>
+
+    <main>
+      <section class="section">
+        <div class="routines-table-head">
+          <p class="section-desc">Scheduled prompts I hand to myself. Each one fires into the River and I decide how to respond — fetch fresh data, write a card from substrate, alert you, or stay quiet.</p>
+          <button class="chip add" id="routinesNewBtn" type="button">+ New routine</button>
+        </div>
+        <div class="routines-table" id="routinesTable"></div>
+      </section>
+    </main>
+  </div><!-- /view-routines -->
 
   <!-- ═══ VIEW: ADD ROUTINE (wizard) ═══════════════
        Single-step wizard wrapping the routine editor. Chose one step over
@@ -6983,6 +7073,7 @@
         return;
       }
       renderRoutines();
+      renderRoutinesFull();
       _refreshRoutineAccordions();
     }
 
@@ -8552,6 +8643,199 @@
       syncComposer();
     }
     settingsBackBtn.addEventListener('click', closeSettings);
+
+    // ── Routines (full view) ──────────────────────
+    // Promotes the sidebar Routines section to a first-class page: a
+    // mission-control table over _routineCache, kept in lockstep with the
+    // sidebar (loadRoutines re-renders both). Reuses _describeSchedule,
+    // _nextFireText, _extractRoutinePurpose, _relativeTime and the .switch
+    // component so this view stays consistent with the rest of the app.
+    const viewRoutines = document.getElementById('viewRoutines');
+    const routinesBackBtn = document.getElementById('routinesBackBtn');
+
+    const _RT_ICON = {
+      fire: '<svg viewBox="0 0 256 256" fill="currentColor" width="14" height="14"><path d="M240,128a15.74,15.74,0,0,1-7.6,13.51L88.32,229.65a16,16,0,0,1-16.2.3A15.86,15.86,0,0,1,64,216.06V39.94a15.86,15.86,0,0,1,8.12-13.89,16,16,0,0,1,16.2.3L232.4,114.49A15.74,15.74,0,0,1,240,128Z"/></svg>',
+      edit: '<svg viewBox="0 0 256 256" fill="currentColor" width="14" height="14"><path d="M227.31,73.37,182.63,28.68a16,16,0,0,0-22.63,0L36.69,152A15.86,15.86,0,0,0,32,163.31V208a16,16,0,0,0,16,16H92.69A15.86,15.86,0,0,0,104,219.31L227.31,96a16,16,0,0,0,0-22.63ZM92.69,208H48V163.31l88-88L180.69,120ZM192,108.68,147.31,64l24-24L216,84.68Z"/></svg>',
+      del: '<svg viewBox="0 0 256 256" fill="currentColor" width="14" height="14"><path d="M216,48H176V40a24,24,0,0,0-24-24H104A24,24,0,0,0,80,40v8H40a8,8,0,0,0,0,16h8V208a16,16,0,0,0,16,16H192a16,16,0,0,0,16-16V64h8a8,8,0,0,0,0-16ZM96,40a8,8,0,0,1,8-8h48a8,8,0,0,1,8,8v8H96Zm96,168H64V64H192ZM112,104v64a8,8,0,0,1-16,0V104a8,8,0,0,1,16,0Zm48,0v64a8,8,0,0,1-16,0V104a8,8,0,0,1,16,0Z"/></svg>',
+    };
+
+    // Pattern cell — how a routine activates. Today every routine is
+    // schedule-driven (or single_fire). Conditional activation isn't
+    // implemented yet; when it lands, render a condition badge here. This
+    // is the single extension point for the Pattern column.
+    function _routinePattern(r) {
+      // Drop the trailing timezone abbrev ("…8:00 AM CDT" → "…8:00 AM") so
+      // the cell stays one line; the detail view still shows the full tz.
+      const sched = _describeSchedule(r.schedule, r.single_fire)
+        .replace(/(\b(?:AM|PM))\s+[A-Z]{2,4}$/, '$1');
+      return `<span class="rt-cron">${_esc(sched)}</span>`;
+    }
+
+    // First meaningful instruction line — skips section headings (# Purpose,
+    // # Needs, …) and blanks, so empty sections don't leak "# Needs" as the
+    // subtitle. Falls back to nothing when the prompt is all headings.
+    function _routineExcerpt(prompt) {
+      if (!prompt) return '';
+      for (const raw of String(prompt).split('\n')) {
+        const line = raw.trim();
+        if (!line || line.startsWith('#')) continue;
+        return line.slice(0, 90);
+      }
+      return '';
+    }
+
+    function _routineLastRun(r) {
+      const sum = r.last_summary, fire = r.last_fire;
+      const iso = (sum && sum.timestamp) || (fire && fire.timestamp)
+        || (r.last_fire_at ? new Date(Number(r.last_fire_at) * 1000).toISOString() : '');
+      if (!iso) return '<span style="color:var(--ink-faint)">never</span>';
+      const ago = _relativeTime(iso);
+      // last_summary/last_fire are {content, timestamp} deltas. Strip the
+      // "[routine-id] " prefix the witness stamps on the summary content.
+      const raw = (sum && sum.content) || (fire && fire.content) || '';
+      const text = raw
+        ? String(raw).replace(/^\[[^\]]+\]\s*/, '').replace(/\s+/g, ' ').trim().slice(0, 64)
+        : '';
+      return text ? `${_esc(ago)} · <span class="rt-last-sum">${_esc(text)}</span>` : _esc(ago);
+    }
+
+    function _routineRowHTML(r) {
+      const enabled = !!r.enabled;
+      const name = r.name || r.id;
+      const purpose = _routineExcerpt(r.prompt);
+      return `<div class="rt-row rt-data" data-rid="${_esc(r.id)}" data-enabled="${enabled}">
+        <div class="rt-cell rt-status" data-label="Status">
+          <label class="switch" title="${enabled ? 'Enabled — click to pause' : 'Paused — click to enable'}">
+            <input type="checkbox" data-action="toggle-enabled"${enabled ? ' checked' : ''}><span class="slider"></span>
+          </label>
+        </div>
+        <div class="rt-cell rt-name" data-label="Routine">
+          <div class="rt-title" data-action="open" title="${_esc(name)}">${_esc(name)}</div>
+          ${purpose ? `<div class="rt-purpose">${_esc(purpose)}</div>` : ''}
+        </div>
+        <div class="rt-cell rt-pattern" data-label="Pattern">${_routinePattern(r)}</div>
+        <div class="rt-cell rt-next" data-label="Next">${_esc(_nextFireText(r))}</div>
+        <div class="rt-cell rt-last" data-label="Last run">${_routineLastRun(r)}</div>
+        <div class="rt-cell rt-auto" data-label="Auto-approve">
+          <label class="switch" title="Auto-approve helper dispatch">
+            <input type="checkbox" data-action="toggle-auto"${r.helper_auto_approve ? ' checked' : ''}><span class="slider"></span>
+          </label>
+        </div>
+        <div class="rt-cell rt-actions" data-label="">
+          <button class="icon-btn" data-action="fire" title="Fire now" aria-label="Fire now">${_RT_ICON.fire}</button>
+          <button class="icon-btn" data-action="edit" title="Edit" aria-label="Edit">${_RT_ICON.edit}</button>
+          <button class="icon-btn danger" data-action="delete" title="Delete" aria-label="Delete">${_RT_ICON.del}</button>
+        </div>
+      </div>`;
+    }
+
+    function renderRoutinesFull() {
+      const table = document.getElementById('routinesTable');
+      if (!table) return;
+      const all = _sortRoutines(_routineCache.slice());
+      const head = `<div class="rt-row rt-head" aria-hidden="true">
+        <div>On</div><div>Routine</div><div>Pattern</div><div>Next</div><div>Last run</div><div>Auto</div><div></div>
+      </div>`;
+      table.innerHTML = head + (all.length
+        ? all.map(_routineRowHTML).join('')
+        : '<div class="rt-empty">No routines yet — create one with “+ New routine”.</div>');
+      const countEl = document.getElementById('routinesFullCount');
+      if (countEl) {
+        const paused = all.filter(r => !r.enabled).length;
+        const parts = all.length ? [`${all.length} ${all.length === 1 ? 'routine' : 'routines'}`] : [];
+        if (paused) parts.push(`${paused} paused`);
+        countEl.textContent = parts.join(', ');
+      }
+    }
+
+    // Routine mutations from the table. All write through to the live lake
+    // (the dev instance shares prod's lake), so loadRoutines re-reads after
+    // each to keep the UI honest about what actually landed.
+    async function _rtPut(rid, body) {
+      try {
+        const r = await fetch(API_BASE + '/v1/routines/' + encodeURIComponent(rid), {
+          method: 'PUT', headers: authHeaders(), body: JSON.stringify(body),
+        });
+        if (!r.ok) throw new Error(r.status + ' ' + r.statusText);
+      } catch (e) { alert('update failed: ' + e.message); }
+      await loadRoutines();
+    }
+    async function _rtFire(rid) {
+      try {
+        const r = await fetch(API_BASE + '/v1/routines/' + encodeURIComponent(rid) + '/fire', {
+          method: 'POST', headers: authHeaders(), body: '{}',
+        });
+        if (!r.ok) throw new Error(r.status + ' ' + r.statusText);
+      } catch (e) { alert('fire failed: ' + e.message); }
+    }
+    async function _rtDelete(rid) {
+      try {
+        const r = await fetch(API_BASE + '/v1/routines/' + encodeURIComponent(rid), {
+          method: 'DELETE', headers: authHeaders(),
+        });
+        if (!r.ok) throw new Error(r.status + ' ' + r.statusText);
+      } catch (e) { alert('delete failed: ' + e.message); }
+      setTimeout(loadRoutines, 400);
+    }
+
+    // One delegated listener set on the static table container — survives
+    // re-renders without stacking handlers.
+    const routinesTableEl = document.getElementById('routinesTable');
+    if (routinesTableEl) {
+      routinesTableEl.addEventListener('click', async (e) => {
+        const trigger = e.target.closest('button[data-action], .rt-title[data-action]');
+        if (!trigger || !routinesTableEl.contains(trigger)) return;
+        const row = trigger.closest('.rt-row[data-rid]');
+        if (!row) return;
+        const rid = row.dataset.rid;
+        const action = trigger.dataset.action;
+        if (action === 'open' || action === 'edit') { openRoutineDetail(rid); return; }
+        if (action === 'fire') {
+          if (!confirm('Fire “' + rid + '” now? This fires into the live River.')) return;
+          await _rtFire(rid);
+          return;
+        }
+        if (action === 'delete') {
+          if (!confirm('Delete routine “' + rid + '”? A tombstone is written; history stays in the lake.')) return;
+          await _rtDelete(rid);
+        }
+      });
+      routinesTableEl.addEventListener('change', async (e) => {
+        const input = e.target.closest('input[data-action]');
+        if (!input) return;
+        const row = input.closest('.rt-row[data-rid]');
+        if (!row) return;
+        const rid = row.dataset.rid;
+        if (input.dataset.action === 'toggle-enabled') await _rtPut(rid, { enabled: input.checked });
+        else if (input.dataset.action === 'toggle-auto') await _rtPut(rid, { helper_auto_approve: input.checked });
+      });
+    }
+
+    function openRoutines() {
+      viewMain.hidden = true;
+      viewRoutines.hidden = false;
+      scrollViewToTop(viewRoutines);
+      syncComposer();
+      renderRoutinesFull();
+    }
+    function closeRoutines() {
+      viewRoutines.hidden = true;
+      viewMain.hidden = false;
+      syncComposer();
+    }
+    routinesBackBtn.addEventListener('click', closeRoutines);
+
+    // Header Routines button (left of the alerts bell) opens the full page.
+    const routinesNavBtn = document.getElementById('routinesNavBtn');
+    if (routinesNavBtn) {
+      routinesNavBtn.addEventListener('click', () => {
+        if (isMobile()) closeSidebar();
+        openRoutines();
+      });
+    }
+    // "+ New routine" in the table header — wired once (static element).
+    const routinesNewBtn = document.getElementById('routinesNewBtn');
+    if (routinesNewBtn) routinesNewBtn.addEventListener('click', () => openAddRoutine(''));
 
     // ── Settings tabs ─────────────────────────────
     // Scope to [data-tab] / [data-panel] so this doesn't accidentally
