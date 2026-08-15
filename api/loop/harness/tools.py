@@ -1070,212 +1070,49 @@ async def tool_propose_provenance(
         this provenance
       session_tag: harness-injected, ignored by the model
     """
-    title = (title or "").strip()
-    summary = (summary or "").strip()
-    rationale = (rationale or "").strip()
-
-    raw_ids = from_ids or []
-    if not isinstance(raw_ids, (list, tuple)):
-        return "ERROR: from_ids must be a list of delta-id strings"
-    cleaned_ids: list[str] = []
-    for x in raw_ids:
-        if isinstance(x, str):
-            s = x.strip()
-            if s and s not in cleaned_ids:
-                cleaned_ids.append(s)
-    # Per-level constituent floor.
-    #   L1 (episode):  2 — a tight pair of resonant deltas IS already
-    #                  a stretch worth naming. Practice showed the
-    #                  former 3-floor was rejecting good L1 proposals
-    #                  where only a couple deltas tightly resonated.
-    #   L2+ (topic / era): 3 — these group already-named children;
-    #                      below 3 it's not a "stretch", it's a
-    #                      pair, and pair-level is L1's job.
-    # Level may be None at this point (model didn't specify); we
-    # validate min_constituents conservatively as L1 here, then the
-    # later level-vs-children check enforces structural correctness.
-    candidate_level = level if isinstance(level, int) else 1
-    min_constituents = 3 if candidate_level >= 2 else 2
-    if len(cleaned_ids) < min_constituents:
-        return (
-            f"ERROR: L{candidate_level} provenance needs at least "
-            f"{min_constituents} constituent ids (got {len(cleaned_ids)}). "
-            f"L1 (episode) accepts 2+ tightly-related deltas; L2+ "
-            f"(topic/era) needs 3+ child stretches. The review pass "
-            f"should call `skip` when below the floor."
-        )
-
-    if not title:
-        return "ERROR: title is required"
-    if not summary:
-        return "ERROR: summary is required"
-
-    # Validate every constituent resolves to a real delta. The model
-    # tends to hallucinate IDs in the format it sees in recall output
-    # (e.g. "20260420T042833Z-fathom-chat-a1b2c3") — those aren't real
-    # 12-char hex delta-ids. Without this check, the provenance writes
-    # successfully but its from:<id> tags point at nonexistent deltas
-    # and the hierarchy is poisoned.
-    max_child_level = -1  # -1 sentinel = pure base moments
-    missing: list[str] = []
-    for fid in cleaned_ids:
-        try:
-            d = await delta_client.get_delta(fid)
-        except Exception:
-            d = None
-        if not isinstance(d, dict):
-            missing.append(fid)
-            continue
-        for t in d.get("tags") or []:
-            if isinstance(t, str) and t.startswith("provenance-level:"):
-                try:
-                    lvl = int(t.split(":", 1)[1])
-                except (TypeError, ValueError):
-                    continue
-                if lvl > max_child_level:
-                    max_child_level = lvl
-    if missing:
-        sample = ", ".join(missing[:5])
-        more = f" (and {len(missing) - 5} more)" if len(missing) > 5 else ""
-        return (
-            f"ERROR: {len(missing)} of {len(cleaned_ids)} constituent ids do not "
-            f"resolve to real deltas in the lake — likely hallucinated from "
-            f"recall output formatting. Missing: {sample}{more}. Real delta ids "
-            f"are 12-char lowercase hex; only propose constituents whose ids "
-            f"you've actually seen as the leading id field of a recall hit, "
-            f"not strings reconstructed from timestamp+source."
-        )
-    if max_child_level < 0:
-        min_level = 1
-    elif max_child_level >= 3:
-        min_level = 3  # cap; no L4 in the current schema
-    else:
-        min_level = max_child_level + 1
-
-    if level is None:
-        level_int = min_level
-    else:
-        try:
-            level_int = int(level)
-        except (TypeError, ValueError):
-            return f"ERROR: level must be an integer, got {level!r}"
-    if level_int < min_level:
-        return (
-            f"ERROR: level {level_int} is below the minimum {min_level} for "
-            f"these constituents (highest child level is {max_child_level}). "
-            f"A provenance must sit at or above its children."
-        )
-    if level_int > 3:
-        return f"ERROR: level must be 1-3 (current schema cap), got {level_int}"
-
-    raw_qs = test_questions or []
-    if not isinstance(raw_qs, (list, tuple)):
-        raw_qs = []
-    cleaned_qs = [q for q in raw_qs if isinstance(q, str) and q.strip()]
-
-    payload = {
-        "kicker": f"harness · level-{level_int}",
-        "title": title,
-        "body": summary,
-        "tail": rationale,
-        "route": "tool:provenance",
-        "tool": "provenance",
-        "tool_args": {
-            "action": "create",
-            "title": title,
-            "summary": summary,
-            "level": level_int,
-            "from_ids": cleaned_ids,
-            "rationale": rationale,
-            "test_questions": cleaned_qs,
-            "seed": "in-situ harness call",
-        },
-        "axes": {},
-    }
-    payload_json = json.dumps(payload, ensure_ascii=False)
-
-    title_slug = (
-        "".join(c if c.isalnum() else "-" for c in title.lower()).strip("-")[:80] or "untitled"
+    from ...provenance_create import (
+        ProvenanceValidationError,
+        ProvenanceWriteError,
+        propose_and_autoapprove_provenance,
     )
-    base_tags = [
-        "feed-card",
-        "synthesis",
-        "kind:proposal",
-        "proposal-status:pending",
-        "tool:provenance",
-        "action:create",
-        "route:tool:provenance",
-        f"provenance-level:{level_int}",
-        "provenance-version:v1-experimental",
-        "produced-by:harness",
-        f"title:{title_slug}",
-    ]
 
     try:
-        lake_delta = await delta_client.write(
-            content=payload_json,
-            tags=list(base_tags),
+        result = await propose_and_autoapprove_provenance(
+            level=level,
+            title=title,
+            summary=summary,
+            from_ids=from_ids,
+            rationale=rationale,
+            test_questions=test_questions,
+            produced_by="harness",
             source="harness-proposal",
+            seed="in-situ harness call",
+            session_tag=session_tag,
         )
-    except Exception as e:
-        return f"ERROR: lake write failed — {type(e).__name__}: {e}"
-    lake_id = (lake_delta or {}).get("id") or ""
+    except (ProvenanceValidationError, ProvenanceWriteError) as e:
+        return f"ERROR: {e}"
 
-    # Puddle echo so the dashboard feed surfaces it immediately. We're
-    # already inside the api process here (the harness runs in api),
-    # so puddle.write reaches the same Puddle instance the dashboard
-    # reads from.
-    puddle_tags = [CONVO_TAG, *base_tags]
-    if session_tag:
-        puddle_tags.insert(1, session_tag)
-    if lake_id:
-        puddle_tags.append(f"lake-id:{lake_id}")
-        puddle_tags.append(f"recalled-id:{lake_id[:24]}")
-    try:
-        await puddle.write(
-            content=payload_json,
-            tags=puddle_tags,
-            source="harness-proposal",
-            ttl_seconds=7 * 24 * 60 * 60,
+    lake_id = result["proposal_id"]
+    level_int = result["level"]
+    n = result["from_count"]
+    if not lake_id:
+        return (
+            f"Proposal drafted as {lake_id[:12]} (level={level_int}, "
+            f"{n} constituents). Pending operator review — "
+            f"visible in the dashboard for Edit / Deny / Approve."
         )
-    except Exception as e:
-        # Soft-fail — the lake write is the source of truth; puddle
-        # is just for live feed visibility.
-        print(f"[propose_provenance] puddle echo failed: {type(e).__name__}: {e}")
-
-    # Auto-approve gate: every provenance level auto-accepts. L1/L2 are
-    # bounded; L3+ eras make stronger identity claims but the operator
-    # sees them as "L<n> created" alerts in the header bell rather than
-    # as a blocking pending decision. Failures fall back to pending.
-    if lake_id:
-        try:
-            from ...routes.proposals import auto_approve_provenance
-
-            auto = await auto_approve_provenance(
-                proposal_id=lake_id,
-                args=dict(payload["tool_args"]),
-                produced_by="harness",
-            )
-            new_id = (auto.get("result") or {}).get("delta_id") or ""
-            return (
-                f"Proposal {lake_id[:12]} drafted AND auto-approved "
-                f"(level={level_int} → policy auto-accepts). "
-                f"Real kind:provenance delta {new_id[:12]} now in the lake "
-                f"with {len(cleaned_ids)} constituents."
-            )
-        except Exception as e:
-            # Soft-fail back to pending — proposal is still in the lake.
-            print(f"[propose_provenance] auto-approve failed: {type(e).__name__}: {e}")
-            return (
-                f"Proposal drafted as {lake_id[:12]} (level={level_int}, "
-                f"{len(cleaned_ids)} constituents). Auto-approve attempt "
-                f"failed ({type(e).__name__}); pending operator review."
-            )
-
+    if result["auto_approved"]:
+        new_id = result["provenance_delta_id"]
+        return (
+            f"Proposal {lake_id[:12]} drafted AND auto-approved "
+            f"(level={level_int} → policy auto-accepts). "
+            f"Real kind:provenance delta {new_id[:12]} now in the lake "
+            f"with {n} constituents."
+        )
     return (
         f"Proposal drafted as {lake_id[:12]} (level={level_int}, "
-        f"{len(cleaned_ids)} constituents). Pending operator review — "
-        f"visible in the dashboard for Edit / Deny / Approve."
+        f"{n} constituents). Auto-approve attempt "
+        f"failed ({result['auto_error']}); pending operator review."
     )
 
 
