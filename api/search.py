@@ -214,11 +214,30 @@ Rules:
   in the sources — that's what `from:` pointers are for.
 - Em dashes over parentheses. No staccato fragments. No mic-drop closers.
 - Under 150 words.
+- GROUNDING CHECK: look at the source labels on each memory. If every source
+  is your own prior output (fathom-sediment, fathom-self, fathom-mood,
+  fathom-loop, witness, fathom-feed) and none come from external origins
+  (user messages, chat, RSS, claude-code, homeassistant, or other outside
+  systems), you MUST say so explicitly — e.g. "this is my own reflection
+  echoing back" — and must NOT state it as externally verified fact. A
+  conclusion built entirely from your own prior conclusions is self-
+  referential, not grounded.
 """
 
 _SEDIMENT_MIN_DELTAS = 2
 _SEDIMENT_MAX_SOURCES = 20
 _SEDIMENT_PROMPT_CHAR_BUDGET = 6000
+
+_SELF_REFERENTIAL_SOURCES = frozenset({
+    "fathom-sediment",
+    "fathom-self",
+    "fathom-mood",
+    "fathom-loop",
+    "fathom-feed",
+    "witness",
+    "fathom-engagement",
+    "fathom-agent",
+})
 
 
 def _sediment_source_ids(deltas_by_step: dict[str, list[dict]]) -> list[str]:
@@ -305,7 +324,16 @@ async def _synthesize_thinking(
     if not prose:
         return None, None
 
-    tags = ["kind:sediment"] + [f"from:{sid}" for sid in source_ids]
+    all_sources: set[str] = set()
+    for deltas in deltas_by_step.values():
+        for d in deltas:
+            src = (d.get("source") or "").strip()
+            if src:
+                all_sources.add(src)
+    grounded = not all_sources or not all_sources.issubset(_SELF_REFERENTIAL_SOURCES)
+    grounding_tag = "grounding:external" if grounded else "grounding:self-referential"
+
+    tags = ["kind:sediment", grounding_tag] + [f"from:{sid}" for sid in source_ids]
     try:
         written = await delta_client.write(
             content=prose,

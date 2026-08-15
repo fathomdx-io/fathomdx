@@ -92,6 +92,10 @@ def _vec_to_list(v) -> list[float]:
         return v.tolist()
     if isinstance(v, list):
         return v
+    if hasattr(v, "to_list"):        # pgvector >= 0.4 returns a Vector object
+        return v.to_list()
+    if hasattr(v, "to_numpy"):
+        return v.to_numpy().tolist()
     return list(v)
 
 
