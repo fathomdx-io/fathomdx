@@ -90,6 +90,7 @@ ROUTE_SCOPES: list[tuple[str, str, str]] = [
     ("DELETE", "/v1/routines", "lake:write"),
     ("POST", "/v1/dispatch-helper", "lake:write"),
     ("POST", "/v1/mint-routine", "lake:write"),
+    ("POST", "/v1/provenance", "lake:write"),
     # Admin: minting/revoking helper-scoped tokens for a host. Lives under
     # /v1/admin/helpers/... so the broader /v1/helpers match below can't
     # steal it (an admin needs tokens:manage, not helper).

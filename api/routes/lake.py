@@ -628,6 +628,75 @@ LAKE_TOOLS = [
         "surfaces": ["mcp", "cli"],
         "response_kind": "result_text",
     },
+    {
+        "name": "propose_provenance",
+        "description": (
+            "Crystallize provenance over a stretch of your memory — name an "
+            "episode, topic, or era and bind it to the exact deltas it covers. "
+            "This is NOT a plain write: the resulting kind:provenance node's "
+            "search embedding is the CENTROID of its constituents (walked to "
+            "base moments), so it surfaces on queries about what it's ABOUT, "
+            "not just its title. Use it the moment a coherent stretch of an "
+            "event reveals itself and deserves a name of its own.\n\n"
+            "Give the constituent delta ids you've actually seen in recall "
+            "output (12-char hex, the leading id of a hit) — hallucinated ids "
+            "are rejected. Size discipline: L1 episode = 2-30 tightly-related "
+            "base moments; L2 topic = 3-10 L1 episodes; L3 era = 3-10 L2 "
+            "topics. If you omit `level`, the server infers the lowest level "
+            "consistent with the children (a node always sits at or above what "
+            "it contains). The node auto-approves and lands in the lake "
+            "immediately; the operator sees it in the dashboard's proposals "
+            "pane."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "title": {
+                    "type": "string",
+                    "description": (
+                        "Short, evocative — the name a human would search for."
+                    ),
+                },
+                "summary": {
+                    "type": "string",
+                    "description": "2-4 sentences. First or third person fine.",
+                },
+                "from_ids": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": (
+                        "Constituent delta ids (12-char hex) as seen in recall "
+                        "output. L1 needs 2+, L2/L3 need 3+."
+                    ),
+                },
+                "level": {
+                    "type": "integer",
+                    "enum": [1, 2, 3],
+                    "description": (
+                        "1 (episode) | 2 (topic) | 3 (era). Omit to let the "
+                        "server infer the lowest level the children allow."
+                    ),
+                },
+                "rationale": {
+                    "type": "string",
+                    "description": "One sentence — why these are one stretch.",
+                },
+                "test_questions": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": (
+                        "1-3 questions whose right answer should surface this "
+                        "provenance. Optional."
+                    ),
+                },
+            },
+            "required": ["title", "summary", "from_ids"],
+        },
+        "endpoint": {"method": "POST", "path": "/v1/provenance"},
+        "scope": "lake:write",
+        "surfaces": ["mcp", "cli"],
+        "response_kind": "result_text",
+    },
 ]
 
 
@@ -948,3 +1017,82 @@ async def introspect_endpoint(body: dict):
         )
     result = await tool_introspect(question=question)
     return {"result": result}
+
+
+def _agent_producer(req: Request) -> str:
+    """Derive a `produced-by:` value for a provenance an agent creates
+    over MCP/CLI, so later analysis can tell an agent-authored node from
+    a harness-authored one. Server-derived from the caller's token name
+    (not caller-supplied) so it can't be spoofed. Sanitized to a single
+    tag segment; falls back to a flat "episodic-agent"."""
+    token = getattr(req.state, "token", None) or {}
+    raw = (token.get("name") or "").strip().lower()
+    slug = "".join(c if c.isalnum() else "-" for c in raw).strip("-")[:40]
+    if not slug or slug == "unnamed-token":
+        return "episodic-agent"
+    return f"episodic-agent-{slug}"
+
+
+@router.post("/v1/provenance")
+async def create_provenance_endpoint(req: Request, body: dict):
+    """Crystallize a provenance node from an MCP/CLI caller.
+
+    The `LAKE_TOOLS["propose_provenance"]` HTTP body. Goes through the
+    SAME validate → draft-proposal → auto-approve path the Grand Loop
+    harness uses (api/provenance_create.py), so the resulting
+    kind:provenance delta is genuine: its embedding is the centroid of
+    its constituents, it carries provenance-level:<n>, and every
+    from_id is resolved against the lake before the write. Scope-gated
+    to lake:write by the auth middleware (see auth.ROUTE_SCOPES).
+
+    Testing note: the centroid (substance) axis surfaces through the
+    api's deep search — POST /v1/search, which ranks provenance on
+    min(text_embedding_distance, provenance_embedding_distance) — NOT
+    through a raw delta-store /search, which only matches the node's own
+    title+summary text embedding. Verify recall via the api; a query
+    that resonates with the constituents but not the title (e.g. one
+    story of a cross-story node) won't pull the node from raw text
+    search, and that's expected, not a broken centroid.
+    """
+    from ..provenance_create import (
+        ProvenanceValidationError,
+        propose_and_autoapprove_provenance,
+    )
+
+    title = (body.get("title") or "").strip()
+    summary = (body.get("summary") or "").strip()
+    from_ids = body.get("from_ids")
+    level = body.get("level")
+    rationale = (body.get("rationale") or "").strip()
+    test_questions = body.get("test_questions")
+
+    try:
+        result = await propose_and_autoapprove_provenance(
+            level=level,
+            title=title,
+            summary=summary,
+            from_ids=from_ids,
+            rationale=rationale,
+            test_questions=test_questions,
+            produced_by=_agent_producer(req),
+            source="mcp-provenance",
+            seed="mcp provenance call",
+        )
+    except ProvenanceValidationError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+
+    if result["auto_approved"]:
+        msg = (
+            f"Crystallized L{result['level']} provenance — kind:provenance "
+            f"delta {result['provenance_delta_id'][:12]} written with a "
+            f"centroid embedding over {result['from_count']} constituents "
+            f"(proposal {result['proposal_id'][:12]}, auto-approved)."
+        )
+    else:
+        why = f" ({result['auto_error']})" if result["auto_error"] else ""
+        msg = (
+            f"Provenance proposal {result['proposal_id'][:12]} drafted "
+            f"(L{result['level']}, {result['from_count']} constituents) but "
+            f"auto-approve did not complete{why}; pending operator review."
+        )
+    return {"result": msg}
