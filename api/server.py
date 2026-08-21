@@ -43,6 +43,12 @@ from .providers import llm
 from .settings import settings
 from .tools import IMAGE_RESULT_PREFIX, TOOLS, execute
 
+# Same config as delta-store's server.py — without it the root logger has
+# no handler, so app-level log.info() (e.g. the recall abstain drop log)
+# dies in Python's WARNING-only lastResort handler and never reaches
+# `docker compose logs`.
+logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(levelname)s %(message)s")
+
 log = logging.getLogger(__name__)
 
 # Strips <recalled>…</recalled> blocks that occasionally surface in
