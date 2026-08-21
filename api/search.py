@@ -780,7 +780,13 @@ async def search(
     ``depth="deep"``    — planner LLM composes a multi-step plan, DAG preserved.
     ``depth="shallow"`` — single semantic search, one-node tree.
 
-    ``threshold`` (shallow only) drops results whose distance > threshold.
+    ``threshold`` — semantic-distance floor. On the shallow deltas view
+    it drops individual results whose distance > threshold (legacy
+    behavior). On every plan-executed path (timeline view, deep) it is
+    an *abstain gate*: when no ``search``-step hit clears the floor,
+    recall returns an empty result instead of decorating far hits into
+    a plausible-looking trail. Absence of memory is signal — see
+    ``_min_anchor_distance``.
 
     ``view="timeline"`` (default) — append a timeline expansion to the
     plan and return chronological strips around each hit. ``as_prompt``
@@ -812,6 +818,7 @@ async def search(
         conv_context=conv_context,
         session_slug=session_slug,
         limit=limit,
+        threshold=threshold,
         view=view,
         has_media=has_media,
     )
@@ -846,6 +853,7 @@ async def _shallow(
             response=result,
             view="timeline",
             do_sediment=False,
+            threshold=threshold,
         )
 
     try:
@@ -896,6 +904,7 @@ async def _deep(
     conv_context: str,
     session_slug: str | None,
     limit: int,
+    threshold: float | None = None,
     view: str = "deltas",
     has_media: bool | None = None,
 ) -> dict:
@@ -905,8 +914,10 @@ async def _deep(
         # down (llm_gate skipped the call) or the planner returned
         # malformed JSON. Fall through to shallow recall so users still
         # get usable results in degraded mode instead of an empty page.
+        # The caller's threshold rides along — degraded mode shouldn't
+        # silently disable the abstain floor the caller asked for.
         return await _shallow(
-            text, limit=limit, threshold=None, view=view, has_media=has_media,
+            text, limit=limit, threshold=threshold, view=view, has_media=has_media,
         )
 
     if has_media is not None:
@@ -933,7 +944,45 @@ async def _deep(
         response=result,
         view=view,
         do_sediment=True,
+        threshold=threshold,
     )
+
+
+def _min_anchor_distance(plan: dict, deltas_by_step: dict[str, list[dict]]) -> float | None:
+    """Best (lowest) raw semantic distance across the plan's ``search`` steps.
+
+    Only ``search`` steps count as anchors — they answer "is anything in
+    the lake actually ABOUT this query?". Every other action is excluded
+    deliberately:
+
+      * ``bridge`` / ``chain`` reach *sideways* by design — their hits
+        are supposed to be semantically far from the query. Flooring
+        them would amputate the associative trail, the thing that makes
+        deep recall more than a search box.
+      * ``neighbors`` fakes ``distance`` as a normalized temporal gap
+        (see delta-store plan.py) — not comparable to cosine distance.
+      * ``filter`` / ``aggregate`` / set ops carry no distance at all.
+
+    Returns None when no search-step delta carries a distance — a
+    filter-only plan has no semantic anchor to judge, so the caller
+    must not abstain on absent evidence.
+
+    Distances here are raw executor output: the gate runs before the
+    valence rerank on purpose. Valence says "this delta is endorsed",
+    not "this delta is about your query" — it's a tiebreaker among
+    relevant hits, never a visa past the relevance floor.
+    """
+    best: float | None = None
+    for step in plan.get("steps", []) or []:
+        if _action_of(step)[0] != "search":
+            continue
+        for d in deltas_by_step.get(step.get("id"), []):
+            dist = d.get("distance")
+            if dist is None:
+                continue
+            if best is None or float(dist) < best:
+                best = float(dist)
+    return best
 
 
 async def _build_result_from_plan_response(
@@ -943,6 +992,7 @@ async def _build_result_from_plan_response(
     response: dict,
     view: str,
     do_sediment: bool,
+    threshold: float | None = None,
 ) -> dict:
     """Shared post-plan processing — used by both deep and shallow-timeline.
 
@@ -950,6 +1000,10 @@ async def _build_result_from_plan_response(
     steps, runs sediment-provenance + engagement-cloud + valence rerank
     on the delta side, and pulls the timeline payload out as a top-level
     field when present.
+
+    ``threshold`` arms the abstain gate: if no ``search``-step hit has
+    raw distance <= threshold, the whole recall returns empty. See
+    ``_min_anchor_distance`` for what counts as an anchor.
     """
     steps_data = response.get("steps", {}) or {}
     tree: list[dict] = []
@@ -1008,6 +1062,27 @@ async def _build_result_from_plan_response(
             }
         )
         deltas_by_step[sid] = cleaned
+
+    # ── Abstain gate ──────────────────────────────────────────────
+    # Runs BEFORE the expansion layers on purpose. When the lake holds
+    # nothing about the query, vector search still returns its
+    # least-far-away noise, and the expansions below then decorate one
+    # mediocre hit into a wall of provenance strips that reads as if it
+    # were relevant. Bailing here means an empty recall skips the
+    # provenance bloom AND the sediment synthesis — no take gets
+    # written back into the lake about noise. "Nothing comes to mind"
+    # is a real answer; the drop is logged so suppressed recalls stay
+    # auditable out-of-band.
+    if threshold is not None:
+        best = _min_anchor_distance(plan, deltas_by_step)
+        if best is not None and best > threshold:
+            log.info(
+                "recall abstain: query=%r best_anchor=%.3f floor=%.3f",
+                text[:80],
+                best,
+                threshold,
+            )
+            return _empty_result(plan=plan)
 
     await _expand_sediment_provenance(plan, tree, deltas_by_step, seen_ids)
     await _expand_upward_to_provenance(plan, tree, deltas_by_step, seen_ids)
