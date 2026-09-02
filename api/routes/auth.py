@@ -180,6 +180,25 @@ async def bootstrap(body: BootstrapBody):
             if v is not None:
                 initial_profile[key] = v
 
+    # Mint the token BEFORE writing the contact row. create_token stores
+    # contact_slug as a plain string (no contact lookup), so the row need
+    # not exist yet — and minting first means a mint failure can't strand
+    # the instance: nothing was written, so a retry is clean instead of
+    # 409ing on an orphan admin slug. (This is belt-and-suspenders now that
+    # the scope bug below is fixed, but keeps any future mint-side error
+    # from re-creating the stranding failure mode.)
+    #
+    # DEFAULT_SCOPES, not list(ALL_SCOPES.keys()): `helper` is host-bound
+    # and issued via /v1/admin/helpers/<host>/tokens, never the admin path.
+    # create_token raises ValueError when `helper` is granted without a
+    # helper_host, so passing ALL_SCOPES here 500'd every fresh-install
+    # bootstrap; recovery was ./addons/scripts/mint-key.sh --contact <slug>.
+    token_result = auth_mod.create_token(
+        name="Admin (bootstrap)",
+        scopes=list(auth_mod.DEFAULT_SCOPES),
+        contact_slug=slug,
+    )
+
     contact = await contacts_mod.create(slug, initial_profile=initial_profile, actor_slug=None)
 
     if body.email:
@@ -189,12 +208,6 @@ async def bootstrap(body: BootstrapBody):
                 await delta_client.add_handle(slug, "email", email)
             except Exception:
                 log.exception("bootstrap: add_handle(email) failed for %s", slug)
-
-    token_result = auth_mod.create_token(
-        name="Admin (bootstrap)",
-        scopes=list(auth_mod.ALL_SCOPES.keys()),
-        contact_slug=slug,
-    )
 
     # Prime the first-admin cache so subsequent unauthed reads see the
     # new admin without waiting on cache expiry / module reload.

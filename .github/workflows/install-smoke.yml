@@ -164,6 +164,31 @@ jobs:
           curl -fsS http://localhost:8201/v1/stats | tee /tmp/stats.json
           python -c 'import json,sys; d=json.load(open("/tmp/stats.json")); assert isinstance(d, dict), d; print("stats OK:", d)'
 
+      - name: Assert first-run bootstrap mints a working admin token
+        if: matrix.os == 'ubuntu-latest'
+        working-directory: ${{ runner.temp }}/fathom-install
+        run: |
+          set -euo pipefail
+          # A fresh install has no admin. POST /v1/auth/bootstrap must create
+          # the first admin contact AND mint its token in one shot — the exact
+          # path the dashboard onboarding page drives. This is the regression
+          # guard for the bootstrap 500 (admin token minted with the host-bound
+          # `helper` scope but no helper_host, which raised before this step
+          # existed to catch it). Recovery when it 500s was
+          # ./addons/scripts/mint-key.sh --contact <slug>.
+          code=$(curl -sS -o /tmp/bootstrap.json -w '%{http_code}' \
+            -X POST http://localhost:8201/v1/auth/bootstrap \
+            -H 'Content-Type: application/json' \
+            -d '{"display_name":"Smoke"}')
+          echo "bootstrap HTTP ${code}"; cat /tmp/bootstrap.json; echo
+          test "${code}" = "201"
+          # Token must be present and carry the fth_ prefix.
+          TOKEN=$(python -c 'import json; t=json.load(open("/tmp/bootstrap.json"))["token"]; assert t.startswith("fth_"), t; print(t)')
+          # The minted token must actually authenticate against /v1/auth/me.
+          curl -fsS http://localhost:8201/v1/auth/me \
+            -H "Authorization: Bearer ${TOKEN}" | tee /tmp/me.json; echo
+          python -c 'import json; d=json.load(open("/tmp/me.json")); assert d.get("authenticated") is True, d; print("authenticated OK:", (d.get("contact") or {}).get("slug"))'
+
       - name: Dump container logs on failure
         if: failure() && matrix.os == 'ubuntu-latest'
         working-directory: ${{ runner.temp }}/fathom-install

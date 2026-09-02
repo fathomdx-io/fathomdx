@@ -97,6 +97,16 @@ def test_create_token_empty_scopes_falls_back_to_defaults() -> None:
     assert "helper" not in result["scopes"]
 
 
+def test_create_token_helper_scope_without_host_raises() -> None:
+    """Granting `helper` without a helper_host must fail loudly rather than
+    mint a token that can never satisfy the path-host check. This is the trap
+    that 500'd bootstrap: it passed list(ALL_SCOPES.keys()) — which includes
+    `helper` — until it switched to DEFAULT_SCOPES."""
+    assert "helper" in auth.ALL_SCOPES
+    with pytest.raises(ValueError, match="helper_host is required"):
+        auth.create_token(scopes=list(auth.ALL_SCOPES.keys()))
+
+
 def test_validate_accepts_created_token() -> None:
     raw = auth.create_token(contact_slug="bob")["token"]
     record = auth.validate(raw)
