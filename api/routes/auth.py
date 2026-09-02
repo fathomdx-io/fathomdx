@@ -190,9 +190,16 @@ async def bootstrap(body: BootstrapBody):
             except Exception:
                 log.exception("bootstrap: add_handle(email) failed for %s", slug)
 
+    # DEFAULT_SCOPES, not list(ALL_SCOPES.keys()): `helper` is host-bound
+    # and issued via /v1/admin/helpers/<host>/tokens, never the admin path.
+    # create_token raises ValueError when `helper` is granted without a
+    # helper_host, so passing ALL_SCOPES here 500'd every fresh-install
+    # bootstrap — after the admin contact row was already written, leaving
+    # the instance stranded (re-bootstrap then 409s the slug, no token ever
+    # minted; recovery was ./addons/scripts/mint-key.sh --contact <slug>).
     token_result = auth_mod.create_token(
         name="Admin (bootstrap)",
-        scopes=list(auth_mod.ALL_SCOPES.keys()),
+        scopes=list(auth_mod.DEFAULT_SCOPES),
         contact_slug=slug,
     )
 
